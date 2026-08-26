@@ -12,7 +12,7 @@ The `nm-gpclient-service` is a Python3-based VPN service that implements the Net
    - Implements D-Bus interface `org.freedesktop.NetworkManager.VPN.Plugin`
    - Communicates with NetworkManager via System Bus
    - Manages the `gpclient` process
-   - Monitors tunnel interfaces (gpd0, tun0, tun1)
+   - Monitors tunnel interfaces (`gpd0` and any `tunN`, discovered at runtime)
 
 2. **D-Bus Interface**
    - Service name: `org.freedesktop.NetworkManager.gpclient`
@@ -104,12 +104,26 @@ Background thread reads gpclient stdout and detects messages:
 After detecting message, immediately checks for tunnel interface.
 
 ### Tunnel Interface Detection
-Every 500ms checks for:
-```
-/sys/class/net/gpd0
-/sys/class/net/tun0
-/sys/class/net/tun1
-```
+Every 500ms `/sys/class/net` is scanned for `gpdN`/`tunN` devices (`gpd0`
+first, then `tunN` in numeric order). The candidate list is *not* hardcoded:
+openconnect falls back to a kernel-assigned `tunN` name whenever `gpd0` is
+unavailable, and N is the first free number - with two other tun-based VPNs
+already up, our own tunnel lands on `tun2`
+([#13](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/13)).
+
+A candidate is accepted only when all of the following hold:
+
+1. It has an IPv4 address.
+2. It is not one of the interfaces that already existed with the same address
+   when `Connect()` started (a stale `gpd0`, or another VPN client's tunnel -
+   [#7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)).
+   That snapshot is taken from the same scan, so any number of foreign
+   tunnels may be active.
+3. If gpclient's own file descriptors name a tunnel interface
+   (`iff:` in `/proc/PID/fdinfo/N`, looked up across gpclient and its
+   children), the candidate is that interface. This keeps another VPN that
+   comes up mid-connect from being adopted; when the information is
+   unavailable the snapshot decides on its own.
 
 After finding interface:
 1. Builds IP configuration (interface name + DNS)

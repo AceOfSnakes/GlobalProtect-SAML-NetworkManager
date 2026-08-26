@@ -173,6 +173,7 @@ tests/
 │   ├── test_gateway_selection.py  # Gateway list parsing, matching, browser resolution (#7)
 │   ├── test_select_pty.py         # Full output pipeline over a real PTY
 │   ├── test_openssl_retry.py      # Legacy TLS renegotiation retry (#2)
+│   ├── test_tunnel_detection.py   # Finding our own tunnel among foreign ones (#13)
 │   └── test_auth_dialog.py        # Auth dialog protocol, incl. the SAML case (#8)
 ├── helpers/
 │   ├── __init__.py

@@ -1,3 +1,17 @@
+network-manager-gpclient (1.4.1-1) unstable; urgency=medium
+
+  * Fix the connection never leaving "activating" when two other tun-based
+    VPNs are already up (closes #13): tunnel detection no longer polls a
+    fixed gpd0/tun0/tun1 list, which could not see our own tunnel once it
+    landed on tun2 or higher, so NetworkManager's vpn.timeout tore the
+    connection down. The candidates are read from /sys/class/net instead,
+    and any number of foreign tunnels may be active
+  * Attribute the tunnel to gpclient by the file descriptors it holds
+    (iff: in /proc/PID/fdinfo), so another VPN activated during
+    authentication is not adopted as ours
+
+ -- WMP <example@example.org>  Wed, 26 Aug 2026 12:00:00 +0200
+
 network-manager-gpclient (1.4.0-1) unstable; urgency=medium
 
   * Fix portal addresses: --gateway is no longer forced to the server address,
