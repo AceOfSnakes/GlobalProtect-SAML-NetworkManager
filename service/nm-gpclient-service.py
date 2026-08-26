@@ -61,9 +61,29 @@ NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED = 0
 NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED = 1
 NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG = 2
 
-# Interface names the tunnel detection looks for. gpd0 is created
-# exclusively by gpclient; tun0/tun1 may also belong to other VPN clients.
-TUNNEL_INTERFACES = ["gpd0", "tun0", "tun1"]
+# --- Tunnel interface detection ---------------------------------------------
+#
+# The tunnel our gpclient brings up is either gpd0 (created exclusively by
+# gpclient) or a kernel-assigned tunN device - openconnect falls back to the
+# latter, and N is simply the first free number. A fixed candidate list used
+# to be enough, but it caps how many *foreign* tunN VPNs may be up at once:
+# with two other tun-based VPNs already holding tun0 and tun1, our own tunnel
+# lands on tun2, which no fixed list predicted, so detection polled forever
+# until NetworkManager's vpn.timeout killed the connection (issue #13).
+#
+# So the candidates are discovered at runtime instead. The safety work is done
+# by the pre-existing-interface snapshot (issue #7) and by matching the tunnel
+# against the file descriptors our own gpclient process holds - not by the
+# length of a hardcoded list.
+NET_SYSFS_PATH = "/sys/class/net"
+PROC_PATH = "/proc"
+
+# gpdN / tunN, and nothing else: "tunl0" (the always-present IPIP tunnel
+# device) must not be mistaken for a VPN tunnel.
+TUNNEL_INTERFACE_RE = re.compile(r"^(?P<kind>gpd|tun)(?P<index>\d+)$")
+
+# gpd first (only gpclient creates those), then tunN by number
+TUNNEL_INTERFACE_KIND_ORDER = ("gpd", "tun")
 
 GPCLIENT_BINARY = "/usr/bin/gpclient"
 
@@ -440,6 +460,104 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
         if path and os.path.exists(path):
             return path, None
     return target, None
+
+
+def tunnel_candidate_order(iface: str) -> Tuple[int, int]:
+    """Sort key putting gpd0 first and tunN in numeric (not lexical) order."""
+    match = TUNNEL_INTERFACE_RE.match(iface)
+    if not match:
+        return len(TUNNEL_INTERFACE_KIND_ORDER), 0
+    kind = match.group("kind")
+    return TUNNEL_INTERFACE_KIND_ORDER.index(kind), int(match.group("index"))
+
+
+def list_tunnel_candidates() -> List[str]:
+    """Tunnel interfaces present right now, in the order detection tries them.
+
+    Replaces the old fixed ["gpd0", "tun0", "tun1"] list, which could not see
+    a tunnel that landed on tun2 or higher because other VPNs held the lower
+    numbers (issue #13).
+    """
+    try:
+        names = os.listdir(NET_SYSFS_PATH)
+    except OSError as e:
+        logger.warning(f"Cannot list {NET_SYSFS_PATH}: {e}")
+        return []
+
+    candidates = [name for name in names if TUNNEL_INTERFACE_RE.match(name)]
+    return sorted(candidates, key=tunnel_candidate_order)
+
+
+def tunnel_ifaces_held_by(pids: List[int]) -> set:
+    r"""Tunnel interfaces whose file descriptor is held by one of `pids`.
+
+    The kernel names the interface behind a tun file descriptor in
+    /proc/PID/fdinfo/N ("iff:\ttun2"), which identifies our own tunnel
+    directly instead of inferring it from what appeared since Connect()
+    started. Returns an empty set when the information is unavailable
+    (process already gone, /proc unreadable); the caller then falls back to
+    the pre-existing-interface snapshot.
+    """
+    ifaces = set()
+    for pid in pids:
+        fdinfo_dir = f"{PROC_PATH}/{pid}/fdinfo"
+        try:
+            fds = os.listdir(fdinfo_dir)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                with open(f"{fdinfo_dir}/{fd}", "r") as handle:
+                    content = handle.read()
+            except OSError:
+                continue
+            for line in content.splitlines():
+                if line.startswith("iff:"):
+                    name = line.split(":", 1)[1].strip()
+                    if name:
+                        ifaces.add(name)
+    return ifaces
+
+
+def process_tree(root_pid: int) -> List[int]:
+    """A PID plus every descendant, so a tunnel opened by a forked helper of
+    gpclient is still recognised as ours."""
+    try:
+        pids = [int(entry) for entry in os.listdir(PROC_PATH) if entry.isdigit()]
+    except OSError:
+        return [root_pid]
+
+    children: Dict[int, List[int]] = {}
+    for pid in pids:
+        try:
+            with open(f"{PROC_PATH}/{pid}/stat", "r") as handle:
+                stat = handle.read()
+        except OSError:
+            continue
+        # Field 2 is the command name in parentheses and may itself contain
+        # spaces and parentheses, so the parent PID is read after the last ')'
+        close = stat.rfind(")")
+        if close < 0:
+            continue
+        fields = stat[close + 1 :].split()
+        if len(fields) < 2:
+            continue
+        try:
+            children.setdefault(int(fields[1]), []).append(pid)
+        except ValueError:
+            continue
+
+    tree: List[int] = []
+    seen = set()
+    queue = [root_pid]
+    while queue:
+        pid = queue.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        tree.append(pid)
+        queue.extend(children.get(pid, []))
+    return tree
 
 
 class OutputScanner:
@@ -2049,19 +2167,34 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         An interface recorded here (with an unchanged IP) is never accepted
         by _check_tunnel_loop: it is either a stale gpd0 from a crashed
-        session or another VPN client's tunnel (issue #7).
+        session or another VPN client's tunnel (issue #7). Any number of
+        foreign tunnels may be up - the snapshot grows with them (issue #13).
         """
         snapshot = {}
-        for iface in TUNNEL_INTERFACES:
-            if os.path.exists(f"/sys/class/net/{iface}"):
-                ip_addr, _ = await self._get_iface_ipv4(iface)
-                snapshot[iface] = ip_addr
-                logger.info(
-                    f"Interface {iface} (IP: {ip_addr}) already exists before "
-                    "gpclient start - it will be ignored by tunnel detection "
-                    "unless its address changes"
-                )
+        for iface in list_tunnel_candidates():
+            ip_addr, _ = await self._get_iface_ipv4(iface)
+            snapshot[iface] = ip_addr
+            logger.info(
+                f"Interface {iface} (IP: {ip_addr}) already exists before "
+                "gpclient start - it will be ignored by tunnel detection "
+                "unless its address changes"
+            )
         return snapshot
+
+    def _tunnel_ifaces_owned_by_gpclient(self) -> set:
+        """Tunnel interfaces held open by our own gpclient process tree.
+
+        Empty when the answer is unknown (gpclient already exited, /proc
+        unreadable) - the caller then relies on the snapshot alone.
+        """
+        process = self.gpclient_process
+        if process is None or process.returncode is not None:
+            return set()
+        try:
+            return tunnel_ifaces_held_by(process_tree(process.pid))
+        except Exception as e:
+            logger.debug(f"Could not determine gpclient's tunnel interfaces: {e}")
+            return set()
 
     async def _cleanup_stale_gpd0(self) -> None:
         """Remove a leftover gpd0 interface from a previous session.
@@ -2070,10 +2203,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         single session via its lock file, so a gpd0 with no running gpclient
         process is always stale. A stale gpd0 blackholes routing (the portal
         becomes unreachable) and used to be picked up by tunnel detection as
-        a live connection (issue #7). tun0/tun1 may belong to other VPN
+        a live connection (issue #7). tunN devices may belong to other VPN
         clients and are never touched.
         """
-        if not os.path.exists("/sys/class/net/gpd0"):
+        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
             return
 
         try:
@@ -2110,7 +2243,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         except Exception as e:
             logger.debug(f"'gpclient disconnect' during cleanup failed: {e}")
 
-        if os.path.exists("/sys/class/net/gpd0"):
+        if os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "ip", "link", "del", "gpd0"
@@ -2124,18 +2257,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             except Exception as e:
                 logger.error(f"Failed to delete stale gpd0: {e}")
 
-        if not os.path.exists("/sys/class/net/gpd0"):
+        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
             logger.info("Stale gpd0 interface removed")
 
     async def _check_tunnel_loop(self) -> None:
         """Periodically check for tunnel interface"""
         try:
             while True:
-                for iface in TUNNEL_INTERFACES:
-                    iface_path = f"/sys/class/net/{iface}"
-                    if not os.path.exists(iface_path):
-                        continue
+                # Which interfaces gpclient itself holds open. Looked up at
+                # most once per round, and only once a new candidate actually
+                # turned up, so the /proc walk stays off the idle path.
+                owned_ifaces = None
 
+                for iface in list_tunnel_candidates():
                     # Check if interface has an IP address (not just exists)
                     ip_addr, prefix = await self._get_iface_ipv4(iface)
 
@@ -2156,6 +2290,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         logger.debug(
                             f"Interface {iface} pre-existed with unchanged "
                             f"IP {ip_addr}, skipping"
+                        )
+                        continue
+
+                    # A tunnel that appeared after Connect() is normally ours,
+                    # but another VPN may well have been started at the same
+                    # moment. When gpclient's own file descriptors tell us
+                    # which interface is ours, trust that over the timing
+                    # (issue #13).
+                    if owned_ifaces is None:
+                        owned_ifaces = self._tunnel_ifaces_owned_by_gpclient()
+                    if owned_ifaces and iface not in owned_ifaces:
+                        logger.debug(
+                            f"Interface {iface} is new but not held by "
+                            f"gpclient (it holds {sorted(owned_ifaces)}), "
+                            "skipping"
                         )
                         continue
 
