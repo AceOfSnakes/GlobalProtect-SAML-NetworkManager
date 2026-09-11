@@ -9,9 +9,17 @@ override_dh_auto_build:
 	# Build GNOME plugins only (Rust binaries are built separately below)
 	$(MAKE) gnome-plugins
 
-	# Build Plasma plugin
-	mkdir -p plugins/plasma/build
-	cd plugins/plasma/build && cmake .. && $(MAKE)
+	# Build Plasma 6 plugin 
+	@if pkg-config --exists Qt6Core; then \
+	mkdir -p plugins/plasma/build-6; \
+	cd plugins/plasma/build-6&& cmake .. -DQT_MAJOR_VERSION=6 && $(MAKE); \
+	fi
+
+	# Build Plasma 5 plugin 
+	@if pkg-config --exists Qt5Core; then \
+	mkdir -p plugins/plasma/build-5; \
+	cd plugins/plasma/build-5&& cmake .. -DQT_MAJOR_VERSION=5 && $(MAKE); \
+	fi
 
 	# Build Rust binaries (gpclient, gpauth, and gpservice)
 	# Cargo will reuse compiled dependencies from target cache volume
@@ -50,18 +58,20 @@ override_dh_auto_install:
 	# mechanism and reads only the embedded JSON metadata, so we skip the file there.
 	@if pkg-config --exists Qt6Core; then \
 		PLASMA_QT_DIR=qt6; \
-		install -D -m 644 plugins/plasma/build/plasmanetworkmanagement_gpclientui.so \
-			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
+		install -D -m 644 plugins/plasma/build-6/plasmanetworkmanagement_gpclientui.so \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
-	else \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
+	fi
+
+	@if pkg-config --exists Qt5Core; then \
 		PLASMA_QT_DIR=qt5; \
-		install -D -m 644 plugins/plasma/build/plasmanetworkmanagement_gpclientui.so \
-			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
+		install -D -m 644 plugins/plasma/build-5/plasmanetworkmanagement_gpclientui.so \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.desktop \
-			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
 	fi
 
 	# Install core service files (base package)
@@ -116,4 +126,4 @@ override_dh_gencontrol:
 	@echo ======================================================= override_dh_gencontrol:
 	dh_gencontrol
 	find debian/ -type f -name "control" -exec sed -i 's/\(lib[a-zA-Z0-9.+-]\+\)t64/\0 | \1/g' {} +
-	#find debian/ -type f -name "control" -exec sed -i 's/\(lib[a-zA-Z0-9+-]*\)t64/\0 | \1/g' {} +
+

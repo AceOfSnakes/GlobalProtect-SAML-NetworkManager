@@ -26,6 +26,11 @@ RUN echo "VHlwZXM6IGRlYgpVUklzOiBodHRwOi8vb2xkLXJlbGVhc2VzLnVidW50dS5jb20vdWJ1bn
     libkf6service-dev \
     libkf6widgetsaddons-dev \
     libkf6coreaddons-dev \
+    qtbase5-dev \
+    libkf5networkmanagerqt-dev \
+    libkf5i18n-dev \
+    libkf5service-dev \
+    libkf5widgetsaddons-dev \
     plasma-nm \
     curl \
     libssl-dev \
