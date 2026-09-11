@@ -31,7 +31,7 @@ ARCH="amd64"
 COMPONENT="main"
 SOURCE_PACKAGE="network-manager-gpclient"
 # Ubuntu releases we build for; the suite name is the release codename
-SUITES=(jammy noble resolute)
+SUITES=(jammy noble oracular resolute)
 
 log() { echo "[build-apt-repo] $*"; }
 die() { echo "[build-apt-repo] ERROR: $*" >&2; exit 1; }
@@ -64,6 +64,7 @@ suite_for_deb() {
     case "$name" in
         *_ubuntu22.04.deb) echo jammy ;;
         *_ubuntu24.04.deb) echo noble ;;
+        *_ubuntu24.10.deb) echo oracular ;;
         *_ubuntu26.04.deb) echo resolute ;;
         *) return 1 ;;
     esac

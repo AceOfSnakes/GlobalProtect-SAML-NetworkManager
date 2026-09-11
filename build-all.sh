@@ -30,8 +30,8 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     exit 0
 elif [ -n "$1" ]; then
     # Validate version
-    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "26.04" ]; then
-        echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: 22.04, 24.04, 26.04"
+    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "24.10"  && [ "$1" != "26.04" ]; then
+        echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: 22.04, 24.04, 24.10, 26.04"
         echo "Run '$0 --help' for usage information"
         exit 1
     fi
@@ -77,7 +77,7 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
         -v "gpclient-cargo-cache-${VERSION}:/cargo-cache" \
         -v "gpclient-target-cache-${VERSION}:/build/external/GlobalProtect-openconnect/target" \
         "$IMAGE_NAME" \
-        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b; cp -v debs/*.deb debs/*.ddeb /output/ 2>/dev/null; true"
+        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b; cp -v ../*.deb ../*.ddeb /output/ 2>/dev/null; true"
 
     echo "=== Build complete for Ubuntu $VERSION ==="
     echo "Packages available in: $OUTPUT_DIR/"
