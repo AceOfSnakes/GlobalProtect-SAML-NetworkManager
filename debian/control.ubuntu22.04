@@ -36,7 +36,7 @@ Depends: ${shlibs:Depends},
          python3-pip,
          openconnect
 Conflicts: globalprotect-openconnect
-Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
+Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-5
 Description: NetworkManager VPN plugin for GlobalProtect (core service)
  This package provides the core NetworkManager VPN service for GlobalProtect
  (Palo Alto Networks) VPN connections with SAML/SSO authentication support.
@@ -49,7 +49,7 @@ Description: NetworkManager VPN plugin for GlobalProtect (core service)
  .
  To use this plugin, you need to install either:
   - network-manager-gpclient-gnome for GNOME/GTK desktops
-  - network-manager-gpclient-plasma for KDE Plasma desktop
+  - network-manager-gpclient-plasma-5 for KDE Plasma desktop
 
 Package: network-manager-gpclient-gnome
 Architecture: amd64

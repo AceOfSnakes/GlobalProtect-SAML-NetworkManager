@@ -1,7 +1,7 @@
-#!/bin/bash -e
+#!/bin/bash
 # Build script for creating .deb packages for multiple Ubuntu versions
 # Usage: ./build-all.sh [VERSION]
-#   VERSION: Optional Ubuntu version (22.04, 24.04 or 26.04). If not specified, builds for all versions.
+#   VERSION: Optional Ubuntu version (22.04, 24.04, 24.10 or 26.04). If not specified, builds for all versions.
 # Examples:
 #   ./build-all.sh          # Build for all versions
 #   ./build-all.sh 22.04    # Build only for Ubuntu 22.04
@@ -20,11 +20,11 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo "Build .deb packages for Ubuntu versions."
     echo ""
     echo "Arguments:"
-    echo "  VERSION    Optional Ubuntu version (22.04, 24.04 or 26.04)"
+    echo "  VERSION    Optional Ubuntu version (22.04, 24.04, 24.10 or 26.04)"
     echo "             If not specified, builds for all supported versions"
     echo ""
     echo "Examples:"
-    echo "  $0          # Build for all versions (22.04, 24.04 and 26.04)"
+    echo "  $0          # Build for all versions (22.04, 24.04, 24.10 and 26.04)"
     echo "  $0 22.04    # Build only for Ubuntu 22.04"
     echo "  $0 24.04    # Build only for Ubuntu 24.04"
     echo "  $0 24.10    # Build only for Ubuntu 24.10"
@@ -41,7 +41,7 @@ elif [ -n "$1" ]; then
     echo "=== Building package for Ubuntu $1 only ==="
 else
     # Build for all versions
-    UBUNTU_VERSIONS=("22.04" "24.04" "26.04")
+    UBUNTU_VERSIONS=("22.04" "24.04" "24.10" "26.04")
     echo "=== Building packages for Ubuntu ${UBUNTU_VERSIONS[*]} ==="
 fi
 
