@@ -60,7 +60,7 @@ Dependencies:
 - `network-manager-gpclient (= ${binary:Version})`
 - `network-manager-gnome`
 
-### 3. network-manager-gpclient-plasma
+### 3. network-manager-gpclient-plasma-5 / network-manager-gpclient-plasma-6
 
 **For KDE Plasma desktop.**
 
@@ -105,7 +105,7 @@ Download packages from [GitHub Releases](https://github.com/WMP/GlobalProtect-SA
 Install two packages:
 1. **network-manager-gpclient** - core package (required)
 2. **network-manager-gpclient-gnome** - for GNOME/GTK desktops, or
-   **network-manager-gpclient-plasma** - for KDE Plasma
+   **network-manager-gpclient-plasma-5** (Plasma 5) or **network-manager-gpclient-plasma-6** (Plasma 6) - for KDE Plasma
 
 ```bash
 sudo dpkg -i <downloaded-packages>.deb
@@ -141,5 +141,5 @@ dpkg -l | grep network-manager-gpclient
 # List package contents
 dpkg -L network-manager-gpclient
 dpkg -L network-manager-gpclient-gnome
-dpkg -L network-manager-gpclient-plasma
+dpkg -L network-manager-gpclient-plasma-5   # or network-manager-gpclient-plasma-6
 ```

@@ -127,7 +127,7 @@ override_dh_auto_install:
 
 override_dh_auto_clean:
 	$(MAKE) clean || true
-	rm -rf plugins/plasma/build debs
+	rm -rf plugins/plasma/build plugins/plasma/build-5 plugins/plasma/build-6 debs
 
 override_dh_gencontrol:
 	@echo ======================================================= override_dh_gencontrol:

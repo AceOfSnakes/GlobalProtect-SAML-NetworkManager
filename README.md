@@ -33,10 +33,12 @@ echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
 # or
-sudo apt install network-manager-gpclient-plasma   # KDE Plasma
+sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04, 24.04)
+# or
+sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
 ```
 
-Supported: Ubuntu 22.04, 24.04 and 26.04, `amd64`. Details, deb822 format and
+Supported: Ubuntu 22.04, 24.04, 24.10 and 26.04, `amd64`. Details, deb822 format and
 removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
 
 **Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first:
@@ -50,7 +52,8 @@ pip3 install sdbus
 Download the packages for your Ubuntu version from
 [GitHub Releases](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/releases).
 You need **network-manager-gpclient** plus either
-**network-manager-gpclient-gnome** or **network-manager-gpclient-plasma**, and
+**network-manager-gpclient-gnome** or **network-manager-gpclient-plasma-5** /
+**network-manager-gpclient-plasma-6**, and
 the GUI package requires exactly the same version of the core package - so
 install them in one go and let apt sort out the dependencies:
 
@@ -134,7 +137,8 @@ The password for `auth-mode=credentials` is a secret, not data:
 |---------|-------------|
 | `network-manager-gpclient` | Core VPN service (required) |
 | `network-manager-gpclient-gnome` | GNOME/GTK integration |
-| `network-manager-gpclient-plasma` | KDE Plasma integration |
+| `network-manager-gpclient-plasma-5` | KDE Plasma 5 integration (Ubuntu 22.04, 24.04) |
+| `network-manager-gpclient-plasma-6` | KDE Plasma 6 integration (Ubuntu 24.10, 26.04) |
 
 ## Architecture
 
