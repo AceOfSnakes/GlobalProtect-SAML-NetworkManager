@@ -6,6 +6,13 @@ export DH_VERBOSE = 1
 	dh $@
 
 override_dh_auto_build:
+	# Ensure GlobalProtect-openconnect nested submodules (openconnect + libxml2)
+	# are checked out. The openconnect crate build.rs needs their C sources to
+	# build and patch the static library; without a recursive checkout the
+	# cargo build below fails. This is a no-op when the sources are already
+	# present (e.g. copied into the build container).
+	$(MAKE) init-submodules
+
 	# Build GNOME plugins only (Rust binaries are built separately below)
 	$(MAKE) gnome-plugins
 

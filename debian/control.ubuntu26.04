@@ -51,7 +51,7 @@ Description: NetworkManager VPN plugin for GlobalProtect (core service)
  .
  To use this plugin, you need to install either:
   - network-manager-gpclient-gnome for GNOME/GTK desktops
-  - network-manager-gpclient-plasma for-6 KDE Plasma 6 desktop
+  - network-manager-gpclient-plasma-6 for KDE Plasma 6 desktop
 
 Package: network-manager-gpclient-gnome
 Architecture: amd64

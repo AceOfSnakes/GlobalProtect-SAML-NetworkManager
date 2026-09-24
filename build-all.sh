@@ -32,7 +32,7 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     exit 0
 elif [ -n "$1" ]; then
     # Validate version
-    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "24.10"  && [ "$1" != "26.04" ]; then
+    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "24.10" ] && [ "$1" != "26.04" ]; then
         echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: 22.04, 24.04, 24.10, 26.04"
         echo "Run '$0 --help' for usage information"
         exit 1
