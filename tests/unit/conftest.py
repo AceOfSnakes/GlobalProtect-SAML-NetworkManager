@@ -79,3 +79,12 @@ def dbus_signals():
     calls.clear()
     yield calls
     calls.clear()
+
+
+@pytest.fixture(autouse=True)
+def dns_state_sandbox(service_module, monkeypatch, tmp_path):
+    """Keep the vpnc hook's DNS state file out of /run and make tunnel
+    detection not wait for it unless a test asks to (issue #15)."""
+    monkeypatch.setattr(service_module, "DNS_STATE_FILE", str(tmp_path / "dns-state"))
+    monkeypatch.setattr(service_module, "DNS_STATE_WAIT_ROUNDS", 0)
+    yield tmp_path / "dns-state"

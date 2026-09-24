@@ -125,8 +125,16 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or a path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
-| `dns` | (empty) | Override VPN DNS servers, `;`-separated. Empty keeps automatic split DNS |
-| `dns-domains` | (empty) | Extra search domains, space-separated |
+| `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
+| `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |
+
+The DNS servers and search domains the gateway pushes are reported to
+NetworkManager as part of the VPN's IP configuration, so they survive
+NetworkManager's own DNS recalculations (they used to be applied only by
+vpnc-script and were wiped on the next recalculation - see
+[#15](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/15)).
+This needs the vpnc hook `/etc/vpnc/connect.d/90-gpclient-routing` that the
+package installs.
 
 The password for `auth-mode=credentials` is a secret, not data:
 `nmcli connection modify "My VPN" +vpn.secrets password=...`

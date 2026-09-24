@@ -1,3 +1,18 @@
+network-manager-gpclient (1.4.2-1) unstable; urgency=medium
+
+  * Report the DNS servers and search domains the gateway pushes to
+    NetworkManager in Ip4Config (closes #15). They used to be applied by
+    vpnc-script alone, straight to systemd-resolved, so NetworkManager knew
+    the tunnel only as an assumed device without DNS and wiped the VPN
+    resolver on its next DNS recalculation (an IPv6 router advertisement on
+    the physical interface was enough) while the tunnel stayed up. The
+    connect.d hook now records INTERNAL_IP4_DNS / CISCO_DEF_DOMAIN /
+    CISCO_SPLIT_DNS in /run/nm-gpclient/dns-state for the service to read
+  * vpn.data dns still overrides the pushed servers; dns-domains are added to
+    the pushed search domains
+
+ -- WMP <example@example.org>  Thu, 24 Sep 2026 12:00:00 +0200
+
 network-manager-gpclient (1.4.1-1) unstable; urgency=medium
 
   * Fix the connection never leaving "activating" when two other tun-based
