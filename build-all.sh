@@ -1,11 +1,12 @@
 #!/bin/bash
 # Build script for creating .deb packages for multiple Ubuntu versions
 # Usage: ./build-all.sh [VERSION]
-#   VERSION: Optional Ubuntu version (22.04, 24.04 or 26.04). If not specified, builds for all versions.
+#   VERSION: Optional Ubuntu version (22.04, 24.04, 24.10 or 26.04). If not specified, builds for all versions.
 # Examples:
 #   ./build-all.sh          # Build for all versions
 #   ./build-all.sh 22.04    # Build only for Ubuntu 22.04
 #   ./build-all.sh 24.04    # Build only for Ubuntu 24.04
+#   ./build-all.sh 24.10    # Build only for Ubuntu 24.10
 #   ./build-all.sh 26.04    # Build only for Ubuntu 26.04
 
 set -e
@@ -19,19 +20,20 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo "Build .deb packages for Ubuntu versions."
     echo ""
     echo "Arguments:"
-    echo "  VERSION    Optional Ubuntu version (22.04, 24.04 or 26.04)"
+    echo "  VERSION    Optional Ubuntu version (22.04, 24.04, 24.10 or 26.04)"
     echo "             If not specified, builds for all supported versions"
     echo ""
     echo "Examples:"
-    echo "  $0          # Build for all versions (22.04, 24.04 and 26.04)"
+    echo "  $0          # Build for all versions (22.04, 24.04, 24.10 and 26.04)"
     echo "  $0 22.04    # Build only for Ubuntu 22.04"
     echo "  $0 24.04    # Build only for Ubuntu 24.04"
+    echo "  $0 24.10    # Build only for Ubuntu 24.10"
     echo "  $0 26.04    # Build only for Ubuntu 26.04"
     exit 0
 elif [ -n "$1" ]; then
     # Validate version
-    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "26.04" ]; then
-        echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: 22.04, 24.04, 26.04"
+    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "24.10" ] && [ "$1" != "26.04" ]; then
+        echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: 22.04, 24.04, 24.10, 26.04"
         echo "Run '$0 --help' for usage information"
         exit 1
     fi
@@ -39,7 +41,7 @@ elif [ -n "$1" ]; then
     echo "=== Building package for Ubuntu $1 only ==="
 else
     # Build for all versions
-    UBUNTU_VERSIONS=("22.04" "24.04" "26.04")
+    UBUNTU_VERSIONS=("22.04" "24.04" "24.10" "26.04")
     echo "=== Building packages for Ubuntu ${UBUNTU_VERSIONS[*]} ==="
 fi
 
@@ -77,7 +79,7 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
         -v "gpclient-cargo-cache-${VERSION}:/cargo-cache" \
         -v "gpclient-target-cache-${VERSION}:/build/external/GlobalProtect-openconnect/target" \
         "$IMAGE_NAME" \
-        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b; cp -v debs/*.deb debs/*.ddeb /output/ 2>/dev/null; true"
+        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b; cp -v ../*.deb ../*.ddeb /output/ 2>/dev/null; true"
 
     echo "=== Build complete for Ubuntu $VERSION ==="
     echo "Packages available in: $OUTPUT_DIR/"

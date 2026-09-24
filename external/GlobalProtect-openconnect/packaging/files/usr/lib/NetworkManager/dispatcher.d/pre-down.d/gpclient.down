@@ -1,6 +1,0 @@
-#!/bin/sh
-
-set -e
-
-# Disconnect the VPN connection before the network goes down
-/usr/bin/gpclient disconnect --wait 3

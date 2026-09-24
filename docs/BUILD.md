@@ -94,7 +94,7 @@ dpkg-buildpackage -us -uc -b
 Install two packages from `output/ubuntu24.04/` (or `ubuntu22.04`):
 1. **network-manager-gpclient** - core package (required)
 2. **network-manager-gpclient-gnome** - for GNOME/GTK desktops, or
-   **network-manager-gpclient-plasma** - for KDE Plasma
+   **network-manager-gpclient-plasma-5** (Plasma 5) or **network-manager-gpclient-plasma-6** (Plasma 6) - for KDE Plasma
 
 ```bash
 sudo dpkg -i <packages>.deb

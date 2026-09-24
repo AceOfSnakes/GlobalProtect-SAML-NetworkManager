@@ -17,7 +17,8 @@ echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg
 
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
-sudo apt install network-manager-gpclient-plasma   # KDE Plasma
+sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04, 24.04)
+sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
 ```
 
 Same thing in deb822 format, if you prefer `/etc/apt/sources.list.d/*.sources`:
@@ -38,7 +39,7 @@ apt from looking for indexes that do not exist.
 Removal:
 
 ```bash
-sudo apt remove network-manager-gpclient network-manager-gpclient-gnome network-manager-gpclient-plasma
+sudo apt remove network-manager-gpclient network-manager-gpclient-gnome network-manager-gpclient-plasma-5 network-manager-gpclient-plasma-6
 sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update
 ```
