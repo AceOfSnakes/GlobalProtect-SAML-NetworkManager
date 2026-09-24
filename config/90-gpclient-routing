@@ -117,3 +117,37 @@ elif [ "$never_def" = "1" ]; then
   echo "vpnc hook: NM never-default=1 -> removing default route from split-inc" >&2
   compact_split_inc_remove_default
 fi
+
+# Hand the resolver configuration the gateway pushed back to
+# nm-gpclient-service (issue #15).
+#
+# vpnc-script applies INTERNAL_IP4_DNS / CISCO_DEF_DOMAIN straight to
+# systemd-resolved, behind NetworkManager's back. NetworkManager treats the
+# tunnel as an assumed device with an empty DNS configuration, so the next
+# time it recomputes DNS for an unrelated reason (a router advertisement on
+# the Wi-Fi interface is enough) it pushes that empty configuration to
+# systemd-resolved and the VPN DNS is gone while the tunnel stays up. The
+# service reads this file when it detects the tunnel and reports the same
+# servers and domains to NetworkManager in Ip4Config, so NetworkManager owns
+# the resolver state and reapplies it on every recalculation.
+#
+# Written only when our service started gpclient (it sets the path); a
+# gpclient run by hand leaves no file behind. CISCO_DEF_DOMAIN already
+# carries the custom dns-domains merged above.
+dns_state="${GPCLIENT_NM_DNS_STATE:-}"
+if [ -n "$dns_state" ]; then
+  _dns_dir=$(dirname "$dns_state")
+  _dns_tmp="$dns_state.tmp.$$"
+  if mkdir -p "$_dns_dir" 2>/dev/null && {
+      echo "TUNDEV=$TUNDEV"
+      echo "INTERNAL_IP4_DNS=$INTERNAL_IP4_DNS"
+      echo "INTERNAL_IP6_DNS=$INTERNAL_IP6_DNS"
+      echo "CISCO_DEF_DOMAIN=$CISCO_DEF_DOMAIN"
+      echo "CISCO_SPLIT_DNS=$CISCO_SPLIT_DNS"
+    } > "$_dns_tmp" 2>/dev/null && mv -f "$_dns_tmp" "$dns_state" 2>/dev/null; then
+    echo "vpnc hook: DNS state for $TUNDEV written to $dns_state" >&2
+  else
+    echo "vpnc hook: could not write DNS state to $dns_state" >&2
+    rm -f "$_dns_tmp" 2>/dev/null
+  fi
+fi

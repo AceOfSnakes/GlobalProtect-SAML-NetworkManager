@@ -27,7 +27,9 @@ Starts VPN connection.
 **Parameters from connection['data']:**
 - `gateway` (required) - VPN gateway URL
 - `browser` (optional) - browser path (default: `/usr/bin/firefox`)
-- `dns` (optional) - DNS servers separated by semicolons (e.g., `8.8.8.8;8.8.4.4`)
+- `dns` (optional) - DNS servers separated by semicolons (e.g., `8.8.8.8;8.8.4.4`);
+  overrides the servers the gateway pushes
+- `dns-domains` (optional) - extra search domains, space-separated
 
 **Process:**
 1. Gets configuration from NetworkManager
@@ -68,7 +70,21 @@ Passes IP configuration to NetworkManager.
 
 **Parameters:**
 - `tundev` (string) - tunnel interface name (e.g., "gpd0")
-- `dns` (array of uint32) - DNS servers as 32-bit integers
+- `address`, `prefix`, `gateway` (uint32) - the tunnel's IPv4 configuration
+- `dns` (array of uint32) - DNS servers as `in_addr_t` values: the profile's
+  `dns` override, otherwise the servers the gateway pushed
+- `domains` (array of string) - search domains: the gateway's default domain
+  and split-DNS list plus the profile's `dns-domains`
+
+The gateway's DNS reaches the service through the vpnc hook
+`/etc/vpnc/connect.d/90-gpclient-routing`: vpnc-script sources it with
+openconnect's environment (`INTERNAL_IP4_DNS`, `CISCO_DEF_DOMAIN`,
+`CISCO_SPLIT_DNS`, ...) and, when `GPCLIENT_NM_DNS_STATE` names a file (the
+service sets it to `/run/nm-gpclient/dns-state`), the hook writes those
+variables there. Tunnel detection reads the file and reports the values in
+`Ip4Config`. Without this, NetworkManager only knows about an assumed tunnel
+device with an empty DNS configuration and wipes vpnc-script's resolver
+settings from systemd-resolved on its next DNS recalculation (issue #15).
 
 #### `Failure(u)`
 Reports connection failure.
@@ -126,7 +142,9 @@ A candidate is accepted only when all of the following hold:
    unavailable the snapshot decides on its own.
 
 After finding interface:
-1. Builds IP configuration (interface name + DNS)
+1. Reads the DNS the gateway pushed from the vpnc hook's state file
+   (waits up to 2 s for it) and builds the IP configuration (interface name,
+   address, DNS servers, search domains)
 2. Emits `Ip4Config` signal
 3. Emits `StateChanged(STARTED)` signal
 4. Stops timer

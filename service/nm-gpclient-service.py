@@ -87,6 +87,31 @@ TUNNEL_INTERFACE_KIND_ORDER = ("gpd", "tun")
 
 GPCLIENT_BINARY = "/usr/bin/gpclient"
 
+# --- VPN DNS handed back from vpnc-script -----------------------------------
+#
+# The DNS servers and search domains the gateway pushes are applied by
+# vpnc-script directly to systemd-resolved, and NetworkManager never learns
+# about them: it sees an assumed tunnel device with an empty DNS configuration.
+# The next time NetworkManager recomputes DNS for an unrelated reason (an IPv6
+# router advertisement on the physical interface is enough) it pushes that
+# empty configuration to systemd-resolved, wiping the VPN resolver while the
+# tunnel keeps running (issue #15).
+#
+# Our /etc/vpnc/connect.d hook therefore records INTERNAL_IP4_DNS,
+# CISCO_DEF_DOMAIN and CISCO_SPLIT_DNS in this file (the path is handed to
+# gpclient in the environment), and tunnel detection reports them to
+# NetworkManager in Ip4Config - so NetworkManager owns the resolver state and
+# reapplies the same servers on every recalculation.
+DNS_STATE_DIR = "/run/nm-gpclient"
+DNS_STATE_FILE = f"{DNS_STATE_DIR}/dns-state"
+DNS_STATE_ENV = "GPCLIENT_NM_DNS_STATE"
+
+# The hook runs before vpnc-script assigns the tunnel address, so the file is
+# normally there by the time the interface has an IP. Should it lag (or be
+# missing because the hook is not installed) detection waits at most this many
+# 500 ms rounds and then reports the tunnel without learned DNS.
+DNS_STATE_WAIT_ROUNDS = 4
+
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"
 
@@ -560,6 +585,60 @@ def process_tree(root_pid: int) -> List[int]:
     return tree
 
 
+def parse_dns_state(text: str) -> Dict[str, str]:
+    """Parse the KEY=value lines the vpnc hook writes to DNS_STATE_FILE."""
+    state: Dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            state[key] = value.strip()
+    return state
+
+
+def _dedupe(items: List[str]) -> List[str]:
+    seen = set()
+    result = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def learned_dns_from_state(
+    state: Dict[str, str], iface: str
+) -> Optional[Tuple[List[str], List[str], List[str]]]:
+    """DNS the gateway pushed for `iface`: (ipv4 servers, search domains,
+    ipv6 servers), or None when the state does not describe this tunnel.
+
+    CISCO_DEF_DOMAIN is space-separated (vpnc-script convention, and our hook
+    appends the profile's dns-domains to it); CISCO_SPLIT_DNS is the
+    comma-separated split-DNS list openconnect builds from the gateway's
+    response.
+    """
+    tundev = state.get("TUNDEV", "")
+    if tundev and tundev != iface:
+        return None
+    servers = [s for s in state.get("INTERNAL_IP4_DNS", "").split() if s]
+    servers6 = [s for s in state.get("INTERNAL_IP6_DNS", "").split() if s]
+    domains = state.get("CISCO_DEF_DOMAIN", "").split()
+    domains += re.split(r"[,\s]+", state.get("CISCO_SPLIT_DNS", ""))
+    return _dedupe(servers), _dedupe(domains), _dedupe(servers6)
+
+
+def ipv4_to_nm_uint32(address: str) -> int:
+    """An IPv4 address as the uint32 NetworkManager's Ip4Config expects.
+
+    NetworkManager stores it as in_addr_t: the network-byte-order bytes read
+    as a host integer, i.e. the raw inet_aton() bytes in native order.
+    """
+    return struct.unpack("=I", socket.inet_aton(address))[0]
+
+
 class OutputScanner:
     """Split a raw PTY output stream into complete lines and a pending tail.
 
@@ -624,6 +703,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # detection (stale gpd0 from a crashed session, another VPN's tun0;
         # issue #7)
         self._preexisting_ifaces = {}
+
+        # Rounds tunnel detection has waited for the vpnc hook's DNS state
+        # file (issue #15)
+        self._dns_state_rounds = 0
 
         # Interactive authentication state (issue #6: RSA token / standard
         # login portals where gpclient prompts on its terminal)
@@ -905,6 +988,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             await self._cleanup_stale_gpd0()
             self._preexisting_ifaces = await self._snapshot_tunnel_interfaces()
 
+            # A DNS state file from a previous session must not be mistaken
+            # for this connection's (issue #15)
+            self._clear_dns_state()
+            self._dns_state_rounds = 0
+
             # Start gpclient process
             success = await self._start_gpclient()
 
@@ -986,8 +1074,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.error(f"Error running 'gpclient disconnect': {e}")
 
         # Clean up
+        self._clear_dns_state()
+        self._dns_state_rounds = 0
         self.gpclient_process = None
         self.dns_servers = []
+        self.dns_domains = []
         self.hip_enabled = True
         self.never_default = False
         self.custom_routes = []
@@ -1372,6 +1463,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 "1" if self.ignore_auto_routes else "0"
             )
             env["GPCLIENT_NM_NEVER_DEFAULT"] = "1" if self.never_default else "0"
+
+            # Where the vpnc hook records the DNS the gateway pushes, so it
+            # can be reported to NetworkManager (issue #15)
+            env[DNS_STATE_ENV] = DNS_STATE_FILE
 
             # Export custom DNS domains for vpnc hook
             if self.dns_domains:
@@ -2196,6 +2291,88 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.debug(f"Could not determine gpclient's tunnel interfaces: {e}")
             return set()
 
+    def _clear_dns_state(self) -> None:
+        """Remove the vpnc hook's DNS state file, if any."""
+        try:
+            os.unlink(DNS_STATE_FILE)
+            logger.debug(f"Removed DNS state file {DNS_STATE_FILE}")
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not remove DNS state file {DNS_STATE_FILE}: {e}")
+
+    def _read_learned_dns(
+        self, iface: str
+    ) -> Optional[Tuple[List[str], List[str], List[str]]]:
+        """DNS the gateway pushed for `iface`, as recorded by the vpnc hook.
+
+        None when the file is not there (yet) or describes another tunnel.
+        """
+        try:
+            with open(DNS_STATE_FILE, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            logger.warning(f"Could not read DNS state file {DNS_STATE_FILE}: {e}")
+            return None
+
+        state = parse_dns_state(text)
+        learned = learned_dns_from_state(state, iface)
+        if learned is None:
+            logger.debug(
+                f"DNS state file is for {state.get('TUNDEV')!r}, not {iface} - ignoring"
+            )
+        return learned
+
+    def _build_dns_config(
+        self,
+        config: Dict[str, Tuple[str, Any]],
+        learned: Optional[Tuple[List[str], List[str], List[str]]],
+    ) -> None:
+        """Fill in Ip4Config's dns/domains (issue #15).
+
+        The profile's `dns` override wins over the servers the gateway pushed;
+        search domains are the gateway's plus the profile's `dns-domains`.
+        Handing them to NetworkManager is what keeps them alive: it reapplies
+        its own VPN DNS configuration every time it recomputes DNS, whereas
+        what vpnc-script wrote to systemd-resolved is overwritten with nothing.
+        """
+        learned_servers, learned_domains, learned_servers6 = learned or ([], [], [])
+
+        if self.dns_servers:
+            servers = list(self.dns_servers)
+            if learned_servers:
+                logger.info(
+                    f"DNS servers overridden by the profile: {servers} "
+                    f"(gateway pushed {learned_servers})"
+                )
+        else:
+            servers = learned_servers
+
+        dns_list = []
+        for dns in servers:
+            try:
+                dns_list.append(ipv4_to_nm_uint32(dns))
+                logger.info(f"Added DNS server: {dns}")
+            except Exception as e:
+                logger.warning(f"Failed to convert DNS {dns}: {e}")
+        if dns_list:
+            config["dns"] = ("au", dns_list)
+
+        domains = _dedupe(learned_domains + list(self.dns_domains))
+        if domains:
+            config["domains"] = ("as", domains)
+            logger.info(f"Added DNS search domains: {domains}")
+
+        if learned_servers6:
+            # No Ip6Config is emitted for the tunnel, so these stay with
+            # vpnc-script alone
+            logger.info(
+                f"Gateway pushed IPv6 DNS servers {learned_servers6} - "
+                "not reported to NetworkManager (no IPv6 config)"
+            )
+
     async def _cleanup_stale_gpd0(self) -> None:
         """Remove a leftover gpd0 interface from a previous session.
 
@@ -2308,6 +2485,29 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         )
                         continue
 
+                    # The gateway's DNS, as recorded by the vpnc hook. The hook
+                    # runs before the address is assigned, so the file is
+                    # normally already there; give it a moment otherwise
+                    # rather than reporting the tunnel without DNS (issue #15)
+                    learned_dns = self._read_learned_dns(iface)
+                    if (
+                        learned_dns is None
+                        and self._dns_state_rounds < DNS_STATE_WAIT_ROUNDS
+                    ):
+                        self._dns_state_rounds += 1
+                        logger.debug(
+                            f"Tunnel {iface} is up but the DNS state file is "
+                            f"not there yet, waiting "
+                            f"({self._dns_state_rounds}/{DNS_STATE_WAIT_ROUNDS})"
+                        )
+                        break
+                    if learned_dns is None:
+                        logger.warning(
+                            "No DNS state from the vpnc hook - NetworkManager "
+                            "will not know the VPN DNS servers (is "
+                            "/etc/vpnc/connect.d/90-gpclient-routing installed?)"
+                        )
+
                     logger.info(
                         f"VPN connected - tunnel interface {iface} detected with IP {ip_addr}!"
                     )
@@ -2394,21 +2594,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         if routes:
                             config["routes"] = ("a(uuuu)", routes)
 
-                    # Add DNS servers if configured
-                    if self.dns_servers:
-                        # Convert DNS servers to integer format
-                        dns_list = []
-                        for dns in self.dns_servers:
-                            try:
-                                # Convert IP string to 32-bit integer
-                                dns_int = struct.unpack("<I", socket.inet_aton(dns))[0]
-                                dns_list.append(dns_int)
-                                logger.info(f"Added DNS server: {dns}")
-                            except Exception as e:
-                                logger.warning(f"Failed to convert DNS {dns}: {e}")
-
-                        if dns_list:
-                            config["dns"] = ("au", dns_list)
+                    # DNS servers and search domains: the profile's override
+                    # and/or what the gateway pushed (issue #15)
+                    self._build_dns_config(config, learned_dns)
 
                     # Emit Ip4Config signal
                     self.Ip4Config.emit(config)
