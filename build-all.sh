@@ -71,6 +71,13 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     mkdir -p "$OUTPUT_DIR"
     chmod 777 "$OUTPUT_DIR"
 
+    HOST_VERSION=$(docker run --rm \
+      -v "gpclient-target-cache-${VERSION}:/build/external/GlobalProtect-openconnect/target" \
+      "$IMAGE_NAME" \
+      dpkg-parsechangelog -S Version)
+
+    echo "The version discovered inside the container is: $HOST_VERSION"
+
     # Run with cache mounts for Cargo registry and Rust target directory
     # Copy version-specific control file before building
     docker run --rm \
@@ -82,8 +89,8 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
         bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b; cp -v ../*.deb ../*.ddeb /output/ 2>/dev/null; true"
 
     echo "=== Build complete for Ubuntu $VERSION ==="
-    echo "Packages available in: $OUTPUT_DIR/"
-    ls -lh "$OUTPUT_DIR/"*.deb 2>/dev/null || echo "No .deb files found"
+    echo "Packages available in: $OUTPUT_DIR/ ${HOST_VERSION}"
+    ls -lh "$OUTPUT_DIR/"*"$HOST_VERSION"*.deb 2>/dev/null || echo "No .deb files found"
 done
 
 echo ""
@@ -96,5 +103,5 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     OUTPUT_DIR="$SCRIPT_DIR/output/ubuntu${VERSION}"
     echo ""
     echo "Ubuntu $VERSION:"
-    ls -lh "$OUTPUT_DIR/"*.deb 2>/dev/null || echo "  No packages found"
+    ls -lh "$OUTPUT_DIR/"*"$HOST_VERSION"*.deb 2>/dev/null || echo "  No packages found"
 done
