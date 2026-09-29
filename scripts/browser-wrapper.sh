@@ -27,7 +27,7 @@ log() {
 REAL_USER="${SUDO_USER:-$USER}"
 
 # Validate username to prevent command injection (security)
-if ! [[ "$REAL_USER" =~ ^[a-z_][a-z0-9_-]*\$?$ ]]; then
+if ! [[ "$REAL_USER" =~ ^[a-z_][a-z0-9_@.-]*\$?$ ]]; then
     log "ERROR: Invalid username: $REAL_USER"
     exit 1
 fi
