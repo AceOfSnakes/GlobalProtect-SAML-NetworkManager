@@ -15,9 +15,12 @@
 MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 
 # Note: LOG_FILE is set after REAL_UID is known (security: per-user log file)
+# Print to stderr if LOG_FILE is unset
 log() {
     if [ -n "$LOG_FILE" ]; then
         echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"
+    else # Print to stderr if LOG_FILE is unset, for troubleshooting in the terminal
+        echo "[$(date '+%F %T')] $*" >&2
     fi
 }
 
