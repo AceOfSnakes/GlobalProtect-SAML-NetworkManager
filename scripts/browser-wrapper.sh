@@ -147,6 +147,11 @@ if [ -z "$SESSION_TYPE" ]; then
 fi
 log "session type: $SESSION_TYPE (DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset})"
 
+KDE_SESSION_VERSION=$(session_env_var KDE_SESSION_VERSION)
+if [ -n "$KDE_SESSION_VERSION" ]; then
+    log "detected KDE_SESSION_VERSION=$KDE_SESSION_VERSION"
+fi
+
 # --- Profile / HOME workaround for ProtectHome=read-only --------------------
 
 TEMP_BASE="/tmp/edge-wrapper-$REAL_UID"
@@ -215,6 +220,7 @@ ENV_VARS=(
 [ -n "${XAUTHORITY:-}" ] && ENV_VARS+=("XAUTHORITY=$XAUTHORITY")
 [ -n "$WAYLAND_DISPLAY" ] && ENV_VARS+=("WAYLAND_DISPLAY=$WAYLAND_DISPLAY")
 [ "$SESSION_TYPE" = "wayland" ] && ENV_VARS+=("QT_QPA_PLATFORM=wayland")
+[ -n "${KDE_SESSION_VERSION:-}" ] && ENV_VARS+=("KDE_SESSION_VERSION=$KDE_SESSION_VERSION")
 
 URL="$1"
 if [ -z "$URL" ]; then
