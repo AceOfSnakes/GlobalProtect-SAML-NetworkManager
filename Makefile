@@ -71,7 +71,20 @@ clean:
 .PHONY: install-dev uninstall-dev restart-nm
 
 # Install paths
-NM_VPN_DIR = /usr/lib/x86_64-linux-gnu/NetworkManager
+# Multiarch triplet (x86_64-linux-gnu, aarch64-linux-gnu, ...); override on the command line if needed
+# Evaluated once (a recursive `?=` would run the shell on every use); no error
+# when it is empty, so `make clean` still works without dpkg/gcc
+ifeq ($(origin MULTIARCH),undefined)
+MULTIARCH := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch 2>/dev/null)
+endif
+# So $(MAKE) -C plugins/gnome reuses this value instead of computing it again
+export MULTIARCH
+NM_VPN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager
+# An empty MULTIARCH turns NM_VPN_DIR into /usr/lib//NetworkManager and would
+# install into the wrong place. Checked on the effective dir (not on MULTIARCH),
+# so an explicit NM_VPN_DIR=<dir> still works without a triplet. Recipe-level, so
+# `make clean` keeps working.
+CHECK_NM_VPN_DIR = @case "$(NM_VPN_DIR)" in *//*) echo "NM_VPN_DIR=$(NM_VPN_DIR) has an empty multiarch part: pass MULTIARCH=<triplet> (e.g. x86_64-linux-gnu) or NM_VPN_DIR=<dir>" >&2; exit 1;; esac
 NM_LIB_DIR = /usr/lib/NetworkManager
 NM_LIBEXEC_DIR = /usr/libexec/gpclient
 DBUS_SERVICES_DIR = /usr/share/dbus-1/system-services
@@ -81,6 +94,7 @@ VPNC_DIR = /etc/vpnc/connect.d
 
 # Build and install for development/testing (requires sudo)
 install-dev: gnome-plugins
+	$(CHECK_NM_VPN_DIR)
 	@echo "=== Installing GlobalProtect plugin for development ==="
 	@echo "This requires sudo privileges..."
 
@@ -131,6 +145,7 @@ install-dev: gnome-plugins
 
 # Uninstall development files
 uninstall-dev:
+	$(CHECK_NM_VPN_DIR)
 	@echo "=== Uninstalling GlobalProtect plugin ==="
 	sudo rm -f $(NM_VPN_DIR)/libnm-vpn-plugin-gpclient.so
 	sudo rm -f $(NM_VPN_DIR)/libnm-vpn-plugin-gpclient-editor.so

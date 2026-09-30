@@ -28,7 +28,7 @@ Homepage: https://github.com/WMP/GlobalProtect-SAML-NetworkManager
 Rules-Requires-Root: no
 
 Package: network-manager-gpclient
-Architecture: amd64
+Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager,
@@ -52,7 +52,7 @@ Description: NetworkManager VPN plugin for GlobalProtect (core service)
   - network-manager-gpclient-plasma-5 for KDE Plasma desktop
 
 Package: network-manager-gpclient-gnome
-Architecture: amd64
+Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
@@ -71,7 +71,7 @@ Description: NetworkManager GlobalProtect VPN plugin - GNOME GUI
  This package is for GNOME, MATE, Cinnamon, XFCE and other GTK-based desktops.
 
 Package: network-manager-gpclient-plasma-5
-Architecture: amd64
+Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),

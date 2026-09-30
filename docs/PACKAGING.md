@@ -47,9 +47,9 @@ Dependencies:
 **For GNOME, MATE, Cinnamon, XFCE, etc.**
 
 Contents:
-- `/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient.so`
-- `/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient-editor.so` (GTK3)
-- `/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so` (GTK4, Ubuntu 24.04+)
+- `/usr/lib/<multiarch>/NetworkManager/libnm-vpn-plugin-gpclient.so`
+- `/usr/lib/<multiarch>/NetworkManager/libnm-vpn-plugin-gpclient-editor.so` (GTK3)
+- `/usr/lib/<multiarch>/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so` (GTK4, Ubuntu 24.04+)
 
 Supports:
 - GNOME Settings (GTK4)
@@ -65,7 +65,7 @@ Dependencies:
 **For KDE Plasma desktop.**
 
 Contents:
-- `/usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so`
+- `/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so`
 - `/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop`
 
 Supports:
@@ -121,9 +121,11 @@ sudo apt-get install -f  # install dependencies
 | 26.04 LTS      | ✅   | ✅   | ✅ (Qt6) |
 
 Notes:
+- Packages are built for `amd64` and `arm64`; `<multiarch>` in the paths above is
+  `x86_64-linux-gnu` or `aarch64-linux-gnu` respectively.
 - GTK4 editor requires `libnma-gtk4` which is not available on Ubuntu 22.04.
 - The Plasma plugin is built against Qt5/KF5 on 22.04/24.04 and Qt6/KF6 on 26.04;
-  install paths differ (`/usr/lib/x86_64-linux-gnu/qt5/plugins/...` vs `qt6/`).
+  install paths differ (`/usr/lib/<multiarch>/qt5/plugins/...` vs `qt6/`).
 
 ## Why Separate Packages?
 

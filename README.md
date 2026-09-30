@@ -27,7 +27,7 @@ choice are handled by apt:
 curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg > /dev/null
 
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
   | sudo tee /etc/apt/sources.list.d/gpclient.list
 
 sudo apt update
@@ -38,7 +38,7 @@ sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04,
 sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
 ```
 
-Supported: Ubuntu 22.04, 24.04, 24.10 and 26.04, `amd64`. Details, deb822 format and
+Supported: Ubuntu 22.04, 24.04, 24.10 and 26.04, `amd64` and `arm64`. Details, deb822 format and
 removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
 
 **Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first:
@@ -210,7 +210,8 @@ The password for `auth-mode=credentials` is a secret, not data:
 Notes for Ubuntu 26.04:
 - The Plasma plugin is built against Qt6/KF6 (`plasma-nm`/`plasma-nm-dev`,
   `libkf6networkmanagerqt-dev`, `qt6-base-dev`).
-- The Plasma plugin module installs into `/usr/lib/x86_64-linux-gnu/qt6/plugins/`
+- The Plasma plugin module installs into `/usr/lib/<multiarch>/qt6/plugins/` (`<multiarch>` is
+  `x86_64-linux-gnu` on amd64, `aarch64-linux-gnu` on arm64)
   instead of the `qt5/` path used on 22.04/24.04.
 
 ### Build Individual Components
@@ -250,7 +251,7 @@ sudo journalctl -u NetworkManager -f | grep gpclient
 
 # Verify installation
 ls -l /usr/lib/NetworkManager/nm-gpclient-service
-ls -l /usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient*.so
+ls -l /usr/lib/*-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient*.so
 ```
 
 ### Running the service manually for debugging
