@@ -13,7 +13,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 import sys
 import types
 
-from conftest import sdbus_stubbed
+from sdbus_stub import sdbus_stubbed
 
 
 def _fake_real_sdbus():

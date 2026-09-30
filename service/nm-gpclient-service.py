@@ -24,7 +24,7 @@ import sys
 import termios
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sdbus import (
     DbusInterfaceCommonAsync,
@@ -285,7 +285,9 @@ AUTH_BANNER_RE = re.compile(
     r"^(?P<message>.+?)\s*\((?P<kind>Portal|Gateway):\s*(?P<server>[^)]+)\)\s*$"
 )
 
-USERNAME_LABEL_WORDS = ("user", "login", "email", "e-mail")
+# Substrings that make a label word (or sub-word, see split_label) a username
+# word: "Username", "UserID", "Login", "Email", "E-mail" (sub-word "mail")
+USERNAME_LABEL_WORDS = ("user", "login", "mail")
 # Whole words that name the password itself. Not "Passport" or "Passkey": a
 # word that merely starts with "pass" is something else.
 PASSWORD_LABEL_WORDS = (
@@ -296,30 +298,28 @@ PASSWORD_LABEL_WORDS = (
     "pass",
     "kennwort",
 )
-PASSWORD_LABEL_RE = re.compile(
-    r"(?<![^\W_])(?:" + "|".join(PASSWORD_LABEL_WORDS) + r")(?![^\W_])",
-    re.IGNORECASE,
-)
-# "login password", "user password": a username word right before the
-# password word describes the password ("Username/Password" asks for both)
-USERNAME_THEN_PASSWORD_RE = re.compile(
-    r"(?:"
-    + "|".join(re.escape(word) for word in USERNAME_LABEL_WORDS)
-    + r")\s+(?:"
-    + "|".join(PASSWORD_LABEL_WORDS)
-    + r")(?![^\W_])",
-    re.IGNORECASE,
-)
 # A hint in brackets is not what the prompt asks for: "Username (not your
 # password)" is a username, "Secret (login)" a secret
 LABEL_HINT_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+# Words that make a following (or preceding, inside one word) "code" something
+# else: "Postcode", "ZIP-Code", "Country code", "Unicode", "Promo code"
+NOT_ONE_TIME_CODE_PREFIXES = (
+    "bar",
+    "post",
+    "zip",
+    "uni",
+    "country",
+    "area",
+    "postal",
+    "promo",
+)
 # One-time keywords that may end a word: "mytoken", "TOTP", "authcode",
 # "Sicherheitscode", "PINcode" (ends with "code"). "code" is not taken from
-# "Barcode", "Postcode" or "Zipcode".
+# "Barcode", "Postcode", "Zipcode" or "Unicode" (see NOT_ONE_TIME_CODE_PREFIXES).
 ONE_TIME_SECRET_SUFFIXES = (
     "token",
     "otp",
-    "(?<!bar)(?<!post)(?<!zip)code",
+    "".join(f"(?<!{prefix})" for prefix in NOT_ONE_TIME_CODE_PREFIXES) + "code",
     "challenge",
 )
 # Short words that would match too much at the end of a word ("Pakistan",
@@ -328,7 +328,7 @@ ONE_TIME_SECRET_SUFFIXES = (
 ONE_TIME_SECRET_WHOLE_WORDS = ("pin", "rsa", "(?:m|push|chip|sms|photo|qr)?tan")
 # Optionally plural. "tan" must not match "instance" or "Stand-alone", "pin"
 # not "Pinnacle", "code" not "encoded". Matched against a whole word or one
-# sub-word of it (see LABEL_SUB_WORD_RE) with fullmatch().
+# sub-word of it (see split_label) with fullmatch().
 ONE_TIME_SECRET_RE = re.compile(
     r"\w*(?:"
     + "|".join(ONE_TIME_SECRET_SUFFIXES)
@@ -337,6 +337,9 @@ ONE_TIME_SECRET_RE = re.compile(
     + r")s?",
     re.IGNORECASE,
 )
+# A bare "code" (a word or sub-word of its own): not one-time after one of
+# NOT_ONE_TIME_CODE_PREFIXES ("Zip code", "ZIP-Code", "PostCode")
+BARE_CODE_RE = re.compile(r"codes?", re.IGNORECASE)
 # A label is looked at word by word (runs of letters: digits, underscores and
 # punctuation separate), and each word again by its sub-words, so that
 # "OTPPassword" is OTP + Password, "pushTAN" push + TAN, "PIN1" the word PIN.
@@ -387,28 +390,47 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
     return label or None
 
 
+def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
+    """Split a label into words and each word into sub-words.
+
+    Returns (word, [(sub-word, start, end), ...]) per word; start/end are
+    offsets into `text`, so the gap between two sub-words can be looked at.
+    """
+    words = []
+    for run in LABEL_WORD_RE.finditer(text):
+        subs = [
+            (sub.group(), run.start() + sub.start(), run.start() + sub.end())
+            for sub in LABEL_SUB_WORD_RE.finditer(run.group())
+        ]
+        words.append((run.group(), subs))
+    return words
+
+
 def classify_prompt(label: str) -> str:
     """Classify a prompt label as 'username' or 'password' (any secret).
 
-    Text in parentheses or brackets is a hint and is not looked at. A label
-    with both a username and a password word is a password when the password
-    word comes first ("Password for user jdoe") or the username word directly
-    precedes it ("Login password"); otherwise it asks for both, the username
-    first ("Username/Password").
+    Text in parentheses or brackets is a hint and is not looked at. The first
+    sub-word (see split_label) that is a password word or contains a username
+    word decides. A password word is a password ("Password for user jdoe"). A
+    username word is a username, unless a password word follows right after it
+    (only blanks or nothing in between): then it describes the password
+    ("Login password", "UserPassword"). "Username/Password" and "Login or
+    password" ask for both, the username first. A label with neither kind of
+    word is a secret.
     """
-    lowered = LABEL_HINT_RE.sub(" ", label).lower()
-    positions = [
-        lowered.find(word) for word in USERNAME_LABEL_WORDS if word in lowered
-    ]
-    if not positions:
-        return "password"
-
-    password = PASSWORD_LABEL_RE.search(lowered)
-    if password and (
-        password.start() < min(positions) or USERNAME_THEN_PASSWORD_RE.search(lowered)
-    ):
-        return "password"
-    return "username"
+    text = LABEL_HINT_RE.sub(" ", label)
+    subs = [sub for _, word_subs in split_label(text) for sub in word_subs]
+    lowered = [sub[0].lower() for sub in subs]
+    for index, word in enumerate(lowered):
+        if word in PASSWORD_LABEL_WORDS:
+            return "password"
+        if any(keyword in word for keyword in USERNAME_LABEL_WORDS):
+            following = index + 1
+            if following < len(subs) and lowered[following] in PASSWORD_LABEL_WORDS:
+                if not text[subs[index][2] : subs[following][1]].strip():
+                    return "password"
+            return "username"
+    return "password"
 
 
 def is_one_time_secret(text: str) -> bool:
@@ -417,14 +439,22 @@ def is_one_time_secret(text: str) -> bool:
     One-time secrets must never be answered from a stored password - the user
     has to be asked every time.
     """
-    for run in LABEL_WORD_RE.finditer(text):
-        word = run.group()
-        spans = [(0, len(word))] + [
-            sub.span() for sub in LABEL_SUB_WORD_RE.finditer(word)
-        ]
-        # pos/endpos keep the lookbehinds working: "PostCode" is no "Code"
-        if any(ONE_TIME_SECRET_RE.fullmatch(word, *span) for span in spans):
+    previous = ""  # the sub-word before, even in the word before
+    for word, subs in split_label(text):
+        pieces = [word] + [sub[0] for sub in subs]
+        befores = [previous, previous] + [sub[0] for sub in subs[:-1]]
+        for piece, before in zip(pieces, befores):
+            if not ONE_TIME_SECRET_RE.fullmatch(piece):
+                continue
+            # "Zip code", "ZIP-Code", "PostCode": a bare "code" after a word
+            # that makes it something else
+            if (
+                BARE_CODE_RE.fullmatch(piece)
+                and before.lower() in NOT_ONE_TIME_CODE_PREFIXES
+            ):
+                continue
             return True
+        previous = subs[-1][0]
     return False
 
 
@@ -480,13 +510,18 @@ def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
 def pick_gateway(options: List[str], preferred: str) -> Optional[str]:
     """Pick the option matching `preferred`, most specific match first.
 
-    Options look like "name (host.example.com)", so an exact match (the whole
-    entry, the name or the host) is tried first and only then a substring, both
-    by gateway_matches(). Returns None when nothing matches.
+    Options look like "name (host.example.com)". Three tiers: the whole entry
+    (case-insensitive), then the name or the host alone (gateway_matches()
+    without substring), and only then a substring (gateway_matches()). Returns
+    None when nothing matches.
     """
     wanted = (preferred or "").strip().lower()
     if not wanted:
         return options[0] if options else None
+
+    for option in options:
+        if option.strip().lower() == wanted:
+            return option
 
     for substring in (False, True):
         for option in options:
@@ -703,27 +738,31 @@ def parse_dns_servers(text: str) -> List[str]:
     return [entry for entry in re.split(r"[;,\s]+", text) if entry]
 
 
-def is_ip_address(text: str) -> bool:
-    """True for an IPv4 or IPv6 address"""
+def parse_ip_address(
+    text: str,
+) -> Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]]:
+    """The IPv4/IPv6 address `text` spells, or None when it is no address"""
     try:
-        ipaddress.ip_address(text.strip())
+        return ipaddress.ip_address(text)
     except ValueError:
-        return False
-    return True
+        return None
 
 
-def ipv4_to_nm_uint32(address: str) -> int:
+def ipv4_to_nm_uint32(address: Union[str, ipaddress.IPv4Address]) -> int:
     """An IPv4 address as the uint32 NetworkManager's Ip4Config expects.
 
     NetworkManager stores it as in_addr_t: the network-byte-order bytes read
     as a host integer, i.e. the raw address bytes in native order.
 
-    Raises OSError for anything that is not a dotted quad.
+    Raises ValueError (AddressValueError) for anything that is not a dotted
+    quad.
     """
-    # inet_pton, not inet_aton: inet_aton() also accepts "192.168.1", "1" and
+    # ipaddress, not inet_aton: inet_aton() also accepts "192.168.1", "1" and
     # hex parts, silently turning a typo in the profile into a different
     # (wrong) DNS server
-    return struct.unpack("=I", socket.inet_pton(socket.AF_INET, address))[0]
+    if not isinstance(address, ipaddress.IPv4Address):
+        address = ipaddress.IPv4Address(address)
+    return struct.unpack("=I", address.packed)[0]
 
 
 class OutputScanner:
@@ -1932,10 +1971,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         follow-up challenge (MFA / OTP). Order lets us do the right thing even
         for localized labels the English keyword lists don't match.
         """
-        # Hints in brackets are not what the prompt asks for: "Username (not
-        # your PIN)" is a username, "Password (RSA token)" a token prompt
+        # Text in brackets is a hint and may be a negation ("Password (not
+        # your PIN)"), so it is never looked at
         main = LABEL_HINT_RE.sub(" ", label)
-        hints = " ".join(LABEL_HINT_RE.findall(label))
 
         # One-time challenge, by keyword in the label OR by position (anything
         # after we've already sent the password this phase).
@@ -1948,12 +1986,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if classify_prompt(main) == "username":
             return "username"
 
-        # A one-time word in a hint of a secret ("Password (RSA token)"), or a
-        # prompt under a one-time banner ("Please enter RSA token"). Before
+        # A prompt under a one-time banner ("Please enter RSA token"). Before
         # the positional username rule: a Gateway phase without a stored
         # username starts with nothing answered, yet gpclient asks only for
         # the token there, as a bare "Password".
-        if is_one_time_secret(hints) or is_one_time_secret(banner_msg):
+        if is_one_time_secret(banner_msg):
             return "otp"
 
         # Username by position: the first credential prompt of the phase when
@@ -2116,7 +2153,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     walking = False
                     homing = True
                     hit = substring_hit
-                    matches = lambda option: option == hit  # noqa: E731
+                    # An exact match seen on the way back still wins
+                    matches = lambda option: (  # noqa: E731
+                        option == hit
+                        or gateway_matches(preferred, option, substring=False)
+                    )
                     step_limit = steps + SELECT_MAX_STEPS
                 elif lapped and not homing:
                     logger.warning(
@@ -2483,22 +2524,25 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         return learned
 
     @staticmethod
-    def _dns_to_nm(servers: List[str]) -> List[int]:
-        """IPv4 servers as NetworkManager uint32s; anything else is skipped"""
+    def _dns_to_nm(
+        entries: List[Tuple[str, Optional[Any]]],
+    ) -> List[int]:
+        """IPv4 servers as NetworkManager uint32s; anything else is skipped.
+
+        `entries` are (text, parse_ip_address(text)) pairs.
+        """
         dns_list = []
-        for dns in servers:
-            dns = dns.strip()
-            if is_ip_address(dns) and ":" in dns:
+        for dns, address in entries:
+            if address is None:
+                logger.warning(f"Failed to convert DNS {dns!r}: not an IP address")
+            elif address.version == 6:
                 # Ip4Config has no room for it
                 logger.info(
                     f"DNS server {dns} is IPv6 - not reported to NetworkManager"
                 )
-                continue
-            try:
-                dns_list.append(ipv4_to_nm_uint32(dns))
+            else:
+                dns_list.append(ipv4_to_nm_uint32(address))
                 logger.info(f"Added DNS server: {dns}")
-            except Exception as e:
-                logger.warning(f"Failed to convert DNS {dns}: {e}")
         return dns_list
 
     def _build_dns_config(
@@ -2519,13 +2563,20 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         learned_servers, learned_domains, learned_servers6 = learned or ([], [], [])
 
-        override = any(is_ip_address(dns) for dns in self.dns_servers)
-        if override:
-            dns_list = self._dns_to_nm(self.dns_servers)
+        profile = [(dns, parse_ip_address(dns)) for dns in self.dns_servers]
+        addresses = [address for _, address in profile if address is not None]
+        if addresses:
+            dns_list = self._dns_to_nm(profile)
             if learned_servers:
                 logger.info(
                     f"DNS servers overridden by the profile: {self.dns_servers} "
                     f"(gateway pushed {learned_servers})"
+                )
+            if all(address.version == 6 for address in addresses):
+                logger.warning(
+                    f"The DNS servers in the profile are IPv6 only "
+                    f"({self.dns_servers}): IPv6 DNS servers are not applied "
+                    "and no IPv4 DNS servers will be configured"
                 )
         else:
             if self.dns_servers:
@@ -2541,7 +2592,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         "either, none will be configured"
                     )
                 )
-            dns_list = self._dns_to_nm(learned_servers)
+            dns_list = self._dns_to_nm(
+                [(dns, parse_ip_address(dns)) for dns in learned_servers]
+            )
         if dns_list:
             config["dns"] = ("au", dns_list)
 

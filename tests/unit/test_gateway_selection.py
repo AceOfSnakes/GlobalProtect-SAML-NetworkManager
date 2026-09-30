@@ -201,6 +201,34 @@ class TestPickGateway:
         assert service_module.pick_gateway(options, "gw-1") == options[1]
 
 
+class TestPickGatewayTiers:
+    """Three tiers: the whole entry, then name/host, then a substring"""
+
+    def test_whole_entry_wins_over_a_host_match_of_an_earlier_option(
+        self, service_module
+    ):
+        # The host of the first option equals the preference, but the second
+        # option IS the preference
+        options = ["x (a.example.com)", "a.example.com"]
+        assert service_module.pick_gateway(options, "a.example.com") == options[1]
+
+    def test_whole_entry_is_case_insensitive(self, service_module):
+        options = ["x (a.example.com)", "A.Example.COM"]
+        assert service_module.pick_gateway(options, "a.example.com") == options[1]
+
+    def test_name_or_host_match_wins_over_a_substring(self, service_module):
+        options = ["gw-10 (a.example.com)", "gw-1 (b.example.com)"]
+        assert service_module.pick_gateway(options, "gw-1") == options[1]
+
+    def test_without_a_whole_entry_the_first_name_or_host_match_is_taken(
+        self, service_module
+    ):
+        # Counterpart: no whole entry is the preference, so the order of the
+        # options decides between the name/host matches
+        options = ["x (a.example.com)", "a.example.com (y)"]
+        assert service_module.pick_gateway(options, "a.example.com") == options[0]
+
+
 class TestPickGatewayUsesGatewayMatches:
     """There is one definition of "matches the preferred gateway":
     gateway_matches(), exact tiers (substring=False) before the substring one."""
@@ -523,6 +551,60 @@ class TestAnswerGatewayList:
         limit = service_module.SELECT_MAX_STEPS
         assert state["downs"] == 2 * limit
         assert state["selected"] == [options[2 * limit]]  # gave up where it was
+
+    def test_exact_match_seen_while_homing_wins(self, service_module):
+        # 320 entries: the substring hit "gw-10" at 5, the entry really called
+        # "gw-1" at 250. The first lap is cut off at SELECT_MAX_STEPS (200),
+        # before the exact one, and the walk goes on to the substring hit -
+        # through 250, where the exact match must be taken.
+        options = self._gateways(320)
+        options[5] = "gw-10 (a.example.com)"
+        options[250] = "gw-1 (b.example.com)"
+        plugin = make_plugin(service_module, preferred="gw-1")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["gw-1 (b.example.com)"]
+        assert state["downs"] == 250
+
+    def test_homing_without_an_exact_match_still_ends_at_the_substring_hit(
+        self, service_module
+    ):
+        # Counterpart: no entry is called gw-1, so the walk homes in on gw-10
+        options = self._gateways(320)
+        options[5] = "gw-10 (a.example.com)"
+        options[250] = "gw-12 (b.example.com)"
+        plugin = make_plugin(service_module, preferred="gw-1")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["gw-10 (a.example.com)"]
+        assert state["downs"] == 320 + 5
+
+    def test_exact_match_seen_while_homing_after_a_lap_wins(self, service_module):
+        # The list changes under the walk: the exact entry appears only once
+        # the walk is already on its way back to the substring hit
+        options = self._gateways(150)
+        options[5] = "gw-10 (a.example.com)"
+        plugin = make_plugin(service_module, preferred="gw-1")
+        state = self._long_list(plugin, options)
+        real_down = plugin._press_list_down
+
+        async def changing_down():
+            frame = await real_down()
+            if state["downs"] == 152:  # lapped at 150, now at entry 2
+                options[3] = "gw-1 (b.example.com)"
+                return frame_with_cursor(options, state["cursor"], more=True)
+            return frame
+
+        plugin._press_list_down = changing_down
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["gw-1 (b.example.com)"]
+        assert state["downs"] == 153
 
     def test_walk_back_goes_by_name_not_by_counting_downs(self, service_module):
         # A redraw that skips an entry (or a list that changes length) must not

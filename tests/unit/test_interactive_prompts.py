@@ -143,6 +143,10 @@ class TestClassifyPrompt:
             "Enter login password",
             "User password",
             "Login Password",
+            "UserPassword",  # one tokenizer: camel case splits into User|Password
+            "LoginPassword",
+            "Email password",
+            "E-mail password",
         ],
     )
     def test_password_label_with_a_username_word_is_a_password(
@@ -203,6 +207,10 @@ class TestClassifyPrompt:
             "User ID or Passkey",  # "Passkey" is not a password word
             "User Passport",  # nor is "Passport"
             "Email or passphrase",
+            "Username, not your login password",  # the username comes first
+            "Enter user and login password",  # "and" sits between user and password
+            "Login: Password",  # punctuation between: two things are asked for
+            "User-Password",
         ],
     )
     def test_username_first_with_a_password_word_further_on_is_a_username(
@@ -280,6 +288,11 @@ class TestOneTimeSecret:
             "Barcodes",
             "Password for Tanaka",
             "Password for mantan",  # not a known TAN compound
+            "Unicode",
+            "Countrycode",
+            "Areacode",
+            "Postalcode",
+            "Promocode",
         ],
     )
     def test_compounds_that_are_not_one_time_secrets_do_not_count(
@@ -305,6 +318,70 @@ class TestOneTimeSecret:
         self, service_module, text
     ):
         assert not service_module.is_one_time_secret(text)
+
+
+class TestOneTimeCodeExclusions:
+    """"code" is not one-time when the word before it says what kind of code
+    it is, whether it is glued to it ("Postcode", "PostCode") or a word of its
+    own ("Post code", "ZIP-Code")."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "ZIP-Code",
+            "Zip code",
+            "ZIP Code",
+            "Post code",
+            "Post-Code",
+            "Country code",
+            "Area code",
+            "Bar code",
+            "Barcode",
+            "Postal code",
+            "Promo code",
+            "Unicode",
+            "Uni code",
+            "Enter your country code",
+            "Area codes",
+            "Enter ZIP-Code",
+        ],
+    )
+    def test_code_after_a_kind_of_code_is_not_one_time(self, service_module, text):
+        assert not service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Security code",
+            "Verification code",
+            "Enter the code",
+            "authcode",
+            "Sicherheitscode",
+            "PINcode",
+            "tokencode",
+            "Zip code and security code",  # the second "code" is asked for
+            "Country code, PIN",  # the PIN is asked for
+            "Zip PIN code",  # "code" follows PIN, not Zip
+            "Code",
+            "ZIP Code 1234 code",
+            "Enter the code for the area",  # "area" comes after
+        ],
+    )
+    def test_other_codes_stay_one_time(self, service_module, text):
+        assert service_module.is_one_time_secret(text)
+
+
+class TestSplitLabel:
+    def test_words_and_sub_words_with_offsets(self, service_module):
+        text = "UserPassword-2 PIN"
+        assert service_module.split_label(text) == [
+            ("UserPassword", [("User", 0, 4), ("Password", 4, 12)]),
+            ("PIN", [("PIN", 15, 18)]),
+        ]
+
+    def test_no_words_no_sub_words(self, service_module):
+        assert service_module.split_label("") == []
+        assert service_module.split_label("12 _ - 3") == []
 
 
 class TestOneTimeSecretSubWords:
@@ -562,13 +639,38 @@ class TestClassifyPromptKind:
     @pytest.mark.parametrize(
         "label",
         [
+            # Before round 3 a one-time word in a hint of a secret made these
+            # an OTP. Hints can be negations ("Password (not your PIN)"), so
+            # they are never looked at any more: without an OTP banner a
+            # password label is a password.
             "Password (RSA token)",
             "Password (PIN + token code)",
             "Secret [Enter your passcode]",
             "Password (login token)",
+            "Password (not your PIN)",
+            "Password [not the OTP]",
         ],
     )
-    def test_one_time_word_in_a_hint_of_a_secret_is_still_an_otp(
+    def test_one_time_word_in_a_hint_of_a_secret_does_not_make_an_otp(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "password"
+
+    @pytest.mark.parametrize(
+        "label", ["Password (RSA token)", "Password (not your PIN)", "Password"]
+    )
+    def test_password_with_an_rsa_banner_is_still_an_otp(self, service_module, label):
+        # The banner, not the hint, says a token is wanted
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "Please enter RSA token") == "otp"
+
+    @pytest.mark.parametrize(
+        "label", ["Passcode (login)", "PIN (not your password)", "OTP [user]"]
+    )
+    def test_one_time_word_in_the_main_part_is_an_otp_whatever_the_hint_says(
         self, service_module, label
     ):
         p = self._plugin(service_module)

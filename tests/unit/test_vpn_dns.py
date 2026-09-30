@@ -135,6 +135,38 @@ class TestStateParsing:
             service_module.ipv4_to_nm_uint32(address)
 
 
+class TestParseIpAddress:
+    @pytest.mark.parametrize(
+        "text, version",
+        [("10.0.0.1", 4), ("0.0.0.0", 4), ("fd00::53", 6), ("::1", 6)],
+    )
+    def test_addresses_of_either_family_are_parsed_once(
+        self, service_module, text, version
+    ):
+        assert service_module.parse_ip_address(text).version == version
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "",
+            "10.1",
+            "192.168.1",
+            "1",
+            "10.0.0.256",
+            "0x7f.0.0.1",
+            "host.example",
+            "10.0.0.1:53",
+        ],
+    )
+    def test_anything_else_is_none(self, service_module, text):
+        assert service_module.parse_ip_address(text) is None
+
+    def test_parsed_address_converts_like_the_string(self, service_module):
+        address = service_module.parse_ip_address("10.0.0.1")
+        assert service_module.ipv4_to_nm_uint32(address) == _nm_u32("10.0.0.1")
+        assert service_module.ipv4_to_nm_uint32("10.0.0.1") == _nm_u32("10.0.0.1")
+
+
 class TestProfileDnsParsing:
     @pytest.mark.parametrize(
         "text, expected",
@@ -343,6 +375,55 @@ class TestDetectionReportsDns:
         assert "dns" not in config
         assert "None of the DNS servers in the profile" not in caplog.text
 
+    @pytest.mark.parametrize(
+        "profile",
+        [["fd00::53"], ["fd00::53", "2001:db8::1"], ["10.1", "fd00::53"]],
+    )
+    def test_ipv6_only_override_warns_that_no_dns_is_applied(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, caplog, profile
+    ):
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            config = _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=profile,
+            )
+
+        assert "dns" not in config
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "IPv6 only" in w
+            and "IPv6 DNS servers are not applied" in w
+            and "no IPv4 DNS servers will be configured" in w
+            for w in warnings
+        ), warnings
+
+    @pytest.mark.parametrize(
+        "profile",
+        [
+            ["fd00::53", "192.168.1.53"],  # an IPv4 server is applied
+            ["192.168.1.53"],
+            ["10.1"],  # a typo: the fallback warning says it, not this one
+            [],
+        ],
+    )
+    def test_override_with_an_ipv4_server_or_none_has_no_ipv6_warning(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, caplog, profile
+    ):
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=profile,
+            )
+
+        assert "IPv6 only" not in caplog.text
+        assert "IPv6 DNS servers are not applied" not in caplog.text
+
     def test_ipv6_entry_is_no_conversion_failure(
         self, service_module, monkeypatch, tmp_path, dbus_signals, caplog
     ):
@@ -393,15 +474,23 @@ class TestDetectionReportsDns:
     def test_whitespace_around_a_profile_dns_entry_is_ignored(
         self, service_module, monkeypatch, tmp_path, dbus_signals
     ):
+        # The profile text goes through parse_dns_servers(), which drops the
+        # whitespace; the conversion itself no longer strips (it used to, a
+        # second time, and the test fed it padded entries directly)
         config = _detect(
             service_module,
             monkeypatch,
             tmp_path,
             dbus_signals,
-            dns_servers=[" 10.0.0.1 ", "\t10.0.0.2"],
+            dns_servers=service_module.parse_dns_servers(" 10.0.0.1 ;\t10.0.0.2\n"),
         )
 
         assert config["dns"] == ("au", [_nm_u32("10.0.0.1"), _nm_u32("10.0.0.2")])
+
+    def test_a_padded_entry_is_no_address(self, service_module):
+        # Nothing strips behind parse_dns_servers(): padding is not an address
+        assert service_module.parse_ip_address(" 10.0.0.1") is None
+        assert service_module.parse_ip_address("10.0.0.1 ") is None
 
     def test_ipv6_only_dns_is_not_reported(
         self, service_module, monkeypatch, tmp_path, dbus_signals
