@@ -283,8 +283,12 @@ AUTH_BANNER_RE = re.compile(
 )
 
 USERNAME_LABEL_WORDS = ("user", "login", "email", "e-mail")
+# A label that names a password is a password even when it also mentions the
+# user ("Password for user jdoe", "Enter login password")
+PASSWORD_LABEL_RE = re.compile(r"(?<![^\W_])pass", re.IGNORECASE)
 ONE_TIME_SECRET_WORDS = (
     "token",
+    "tokencode",
     "otp",
     "passcode",
     "pin",
@@ -292,6 +296,12 @@ ONE_TIME_SECRET_WORDS = (
     "challenge",
     "tan",
     "rsa",
+)
+# Whole words only (optionally plural): "tan" must not match "instance" or
+# "Stand-alone", "pin" not "Pinnacle", "code" not "encoded"
+ONE_TIME_SECRET_RE = re.compile(
+    r"(?<![^\W_])(?:" + "|".join(ONE_TIME_SECRET_WORDS) + r")s?(?![^\W_])",
+    re.IGNORECASE,
 )
 
 
@@ -340,6 +350,8 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
 def classify_prompt(label: str) -> str:
     """Classify a prompt label as 'username' or 'password' (any secret)"""
     lowered = label.lower()
+    if PASSWORD_LABEL_RE.search(lowered):
+        return "password"
     if any(word in lowered for word in USERNAME_LABEL_WORDS):
         return "username"
     return "password"
@@ -351,8 +363,7 @@ def is_one_time_secret(text: str) -> bool:
     One-time secrets must never be answered from a stored password - the user
     has to be asked every time.
     """
-    lowered = text.lower()
-    return any(word in lowered for word in ONE_TIME_SECRET_WORDS)
+    return ONE_TIME_SECRET_RE.search(text) is not None
 
 
 def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
@@ -431,8 +442,11 @@ def pick_gateway(options: List[str], preferred: str) -> Optional[str]:
     return None
 
 
-def gateway_matches(preferred: str, option: str) -> bool:
-    """True when `option` ("name (host)") is what `preferred` asks for"""
+def gateway_matches(preferred: str, option: str, substring: bool = True) -> bool:
+    """True when `option` ("name (host)") is what `preferred` asks for.
+
+    With substring=False only the whole entry, the name or the host may match.
+    """
     wanted = (preferred or "").strip().lower()
     if not wanted:
         return False
@@ -445,7 +459,7 @@ def gateway_matches(preferred: str, option: str) -> bool:
     if wanted == name.strip().lower() or wanted == host.strip(") ").lower():
         return True
 
-    return wanted in candidate
+    return substring and wanted in candidate
 
 
 def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
@@ -1841,19 +1855,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         follow-up challenge (MFA / OTP). Order lets us do the right thing even
         for localized labels the English keyword lists don't match.
         """
-        # One-time challenge, by keyword (label or banner) OR by position
-        # (anything after we've already sent the password this phase).
-        if (
-            is_one_time_secret(label)
-            or is_one_time_secret(banner_msg)
-            or self._answered_password
-        ):
+        # One-time challenge, by keyword in the label OR by position (anything
+        # after we've already sent the password this phase).
+        if is_one_time_secret(label) or self._answered_password:
             return "otp"
 
         # Username: by keyword, or positionally the first credential prompt
-        # (we have not answered a username yet this phase).
+        # (we have not answered a username yet this phase). This comes before
+        # the banner check: an RSA banner is printed before the Username prompt
+        # too, and the token is only wanted at the password prompt (issue #6).
         if classify_prompt(label) == "username" or not self._answered_username:
             return "username"
+
+        # A password prompt under a one-time banner ("Please enter RSA token")
+        if is_one_time_secret(banner_msg):
+            return "otp"
 
         return "password"
 
@@ -1937,6 +1953,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
 
             preferred = self.preferred_gateway
+            walking = False  # looking through a paged list for `preferred`
             if not preferred:
                 wanted = options[0]
                 matches = lambda option: option == wanted  # noqa: E731
@@ -1951,11 +1968,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     matches = lambda option: option == wanted  # noqa: E731
                     logger.info(f"Preferred gateway {preferred!r} matches {wanted!r}")
                 elif frame["more"]:
-                    # Cannot see the whole list yet - walk it looking for a match
+                    # Cannot see the whole list yet - walk it looking for a
+                    # match. Only an exact name/host counts on the way: "gw-1"
+                    # must not stop at "gw-10" while a real "gw-1" is further
+                    # down. The first substring hit is remembered as the
+                    # fallback once the walk wrapped around without an exact one.
                     wanted = preferred
                     matches = lambda option: gateway_matches(  # noqa: E731
-                        preferred, option
+                        preferred, option, substring=False
                     )
+                    walking = True
                     logger.info(
                         f"Preferred gateway {preferred!r} is not on the visible "
                         "page - walking the list"
@@ -1972,10 +1994,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             start_option = options[frame["cursor"]]
             current_frame = frame
             steps = 0
+            substring_hit = None
 
             while True:
                 self._record_gateways(current_frame["options"])
                 current = current_frame["options"][current_frame["cursor"]]
+
+                if walking and substring_hit is None and gateway_matches(
+                    preferred, current
+                ):
+                    substring_hit = current
 
                 if matches(current):
                     logger.info(f"Selecting gateway: {current!r}")
@@ -1983,12 +2011,27 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     return
 
                 if steps and current == start_option:
-                    logger.warning(
-                        f"Walked the whole list without finding {wanted!r} - "
-                        f"selecting the first proposal {current!r}"
-                    )
-                    self._write_keys(KEY_ENTER, "select the first proposal")
-                    return
+                    if substring_hit is not None and walking:
+                        # No exact match anywhere: go back to the first entry
+                        # that merely contains the name (as on a short list)
+                        walking = False
+                        wanted = substring_hit
+                        matches = lambda option: option == substring_hit  # noqa: E731
+                        logger.info(
+                            f"No exact match for {preferred!r} - going back to "
+                            f"{substring_hit!r}"
+                        )
+                        if matches(current):
+                            logger.info(f"Selecting gateway: {current!r}")
+                            self._write_keys(KEY_ENTER, f"select {current!r}")
+                            return
+                    else:
+                        logger.warning(
+                            f"Walked the whole list without finding {wanted!r} - "
+                            f"selecting the first proposal {current!r}"
+                        )
+                        self._write_keys(KEY_ENTER, "select the first proposal")
+                        return
 
                 if steps >= SELECT_MAX_STEPS:
                     logger.warning(
@@ -2088,13 +2131,15 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if self._otp_flags_written or not self._connection_uuid:
             return
 
-        self._otp_flags_written = True
         logger.info(
             "Marking the one-time code as not-saved in the profile and dropping "
             "any stored value"
         )
-        await self._write_vpn_data(f"{OTP_SECRET_KEY}-flags", "2")
-        await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
+        flagged = await self._write_vpn_data(f"{OTP_SECRET_KEY}-flags", "2")
+        dropped = await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
+        # Only after both succeeded: on a failure the code may still be in the
+        # profile, so the next one-time prompt has to try again
+        self._otp_flags_written = flagged and dropped
 
     async def _persist_gateway_list(self) -> None:
         """Cache the discovered gateway list in the connection profile.

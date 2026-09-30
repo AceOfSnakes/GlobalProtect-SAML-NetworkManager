@@ -7,6 +7,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import asyncio
 
+import pytest
+
 # A single-page gateway list as inquire renders it: the question, one line per
 # option (marker, space, value; '>' marks the cursor) and the help footer. Every
 # line is terminated, so nothing is left in the output tail.
@@ -182,6 +184,22 @@ class TestPickGateway:
     def test_unknown_gateway(self, service_module):
         assert service_module.pick_gateway(self.OPTIONS, "gw-tokyo") is None
 
+    @pytest.mark.parametrize("preferred", ["", "x", "  ", None])
+    def test_no_options_means_no_gateway(self, service_module, preferred):
+        assert service_module.pick_gateway([], preferred) is None
+
+    def test_whitespace_preference_takes_the_first(self, service_module):
+        assert service_module.pick_gateway(self.OPTIONS, "   ") == self.OPTIONS[0]
+
+    def test_substring_fallback_is_kept(self, service_module):
+        # Design decision: with no exact name/host match a substring wins
+        options = ["gw-10 (b.example.com)", "gw-20 (c.example.com)"]
+        assert service_module.pick_gateway(options, "gw-1") == options[0]
+
+    def test_exact_match_after_a_substring_match_wins(self, service_module):
+        options = ["gw-10 (b.example.com)", "gw-1 (a.example.com)"]
+        assert service_module.pick_gateway(options, "gw-1") == options[1]
+
 
 class TestAnswerGatewayList:
     def _run(self, plugin, frame):
@@ -250,6 +268,113 @@ class TestAnswerGatewayList:
         assert sent == [service_module.KEY_ENTER]
         assert moves == []
 
+    @staticmethod
+    def _walk(plugin, options, cursors, sent):
+        """Drive the walk: `cursors` are the positions after each Down key.
+
+        `sent` records (key, entry under the cursor when it was sent).
+        """
+        position = []
+        moves = [frame_with_cursor(options, c, more=True) for c in cursors]
+
+        async def fake_down():
+            frame = moves.pop(0)
+            position.append(frame["options"][frame["cursor"]])
+            return frame
+
+        plugin._press_list_down = fake_down
+        plugin._write_keys = lambda data, description: sent.append(
+            (data, position[-1] if position else options[0])
+        )
+        return moves
+
+    def test_paged_list_finds_the_preferred_gateway_after_walking(
+        self, service_module
+    ):
+        sent = []
+        plugin = make_plugin(service_module, preferred="gw-05")
+        frame = service_module.detect_select_prompt(PAGED)
+        options = frame["options"]
+        moves = self._walk(plugin, options, [1, 2, 3, 4], sent)
+
+        self._run(plugin, frame)
+
+        assert sent == [(service_module.KEY_ENTER, "gw-05 (gw05.example.com)")]
+        assert moves == []
+
+    def test_paged_list_exact_match_beats_an_earlier_substring_match(
+        self, service_module
+    ):
+        # "gw-1" is a substring of "gw-10", which comes first - the entry that
+        # is really called gw-1 must still win while walking the pages
+        sent = []
+        plugin = make_plugin(service_module, preferred="gw-1")
+        options = [
+            "gw-10 (a.example.com)",
+            "gw-11 (b.example.com)",
+            "gw-1 (c.example.com)",
+            "gw-12 (d.example.com)",
+        ]
+        frame = frame_with_cursor(options, 0, more=True)
+        moves = self._walk(plugin, options, [1, 2], sent)
+
+        self._run(plugin, frame)
+
+        assert sent == [(service_module.KEY_ENTER, "gw-1 (c.example.com)")]
+        assert moves == []
+
+    def test_paged_list_exact_host_match_beats_an_earlier_substring_match(
+        self, service_module
+    ):
+        sent = []
+        plugin = make_plugin(service_module, preferred="a.example.com")
+        options = [
+            "gw-x (aa.example.com)",
+            "gw-y (a.example.com)",
+        ]
+        frame = frame_with_cursor(options, 0, more=True)
+        moves = self._walk(plugin, options, [1], sent)
+
+        self._run(plugin, frame)
+
+        assert sent == [(service_module.KEY_ENTER, "gw-y (a.example.com)")]
+        assert moves == []
+
+    def test_paged_list_falls_back_to_the_substring_match_without_exact(
+        self, service_module
+    ):
+        # No entry is called gw-1: the substring match is kept as the fallback
+        # (as for a list that fits on one page), not the first proposal
+        sent = []
+        plugin = make_plugin(service_module, preferred="gw-1")
+        options = [
+            "gw-20 (a.example.com)",
+            "gw-10 (b.example.com)",
+            "gw-30 (c.example.com)",
+        ]
+        frame = frame_with_cursor(options, 0, more=True)
+        # Down x3 wraps back to the start, then one more to the fallback
+        moves = self._walk(plugin, options, [1, 2, 0, 1], sent)
+
+        self._run(plugin, frame)
+
+        assert sent == [(service_module.KEY_ENTER, "gw-10 (b.example.com)")]
+        assert moves == []
+
+    def test_paged_list_substring_match_at_the_start_is_selected_after_wrap(
+        self, service_module
+    ):
+        sent = []
+        plugin = make_plugin(service_module, preferred="gw-1")
+        options = ["gw-10 (a.example.com)", "gw-20 (b.example.com)"]
+        frame = frame_with_cursor(options, 0, more=True)
+        moves = self._walk(plugin, options, [1, 0], sent)
+
+        self._run(plugin, frame)
+
+        assert sent == [(service_module.KEY_ENTER, "gw-10 (a.example.com)")]
+        assert moves == []
+
     def test_stalled_redraw_still_confirms(self, service_module):
         sent = []
         plugin = make_plugin(service_module, preferred="gw-london", sent=sent)
@@ -290,6 +415,16 @@ class TestGatewayListCache:
             "gw-b x (b.example.com)",
         ]
 
+    @pytest.mark.parametrize(
+        "options", [[","], [";"], ["  "], [", ;"], [",", ";", "  ", ", ;"], [""]]
+    )
+    def test_record_gateways_skips_entries_empty_after_sanitizing(
+        self, service_module, options
+    ):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._record_gateways(options)
+        assert plugin._gateway_list == []
+
     def test_chosen_gateway_line_is_harvested(self, service_module):
         line = (
             "[2026-05-20T11:58:37Z INFO  gpclient::connect] Connecting to the only "
@@ -305,6 +440,20 @@ class TestGatewayListCache:
         )
         match = service_module.GATEWAY_CHOSEN_RE.search(line)
         assert match.group("gateway") == "gw-london (gw3.example.com)"
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Connecting to gateway: gw-a (a.example.com)",
+            "Connecting to the selected gateway:",  # no name
+            "Connecting to the only available gateway:",
+            "Cannot find gateway specified",
+            "Connecting to the first gateway: gw-a (a.example.com)",
+            "",
+        ],
+    )
+    def test_gateway_chosen_regex_rejects_other_lines(self, service_module, line):
+        assert service_module.GATEWAY_CHOSEN_RE.search(line) is None
 
     def test_unchanged_list_does_not_touch_the_profile(self, service_module):
         plugin = service_module.GpclientVPNPlugin()
@@ -392,6 +541,40 @@ class TestResolveBrowser:
         self._with_wrapper(service_module, monkeypatch)
         assert service_module.resolve_browser("/opt/me/my-wrapper") == (
             "/opt/me/my-wrapper",
+            None,
+        )
+
+    @pytest.mark.parametrize("value", ["", "  ", "\t"])
+    def test_blank_value_defaults_to_wrapped_edge(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (
+            service_module.BROWSER_WRAPPER,
+            "edge",
+        )
+
+    @pytest.mark.parametrize("value", ["safari", "/usr/bin/safari", "epiphany"])
+    def test_unknown_browser_is_passed_through_untouched(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (value, None)
+
+    def test_without_wrapper_and_binary_the_name_is_returned(
+        self, service_module, monkeypatch
+    ):
+        monkeypatch.setattr(service_module.os.path, "exists", lambda path: False)
+        monkeypatch.setattr(service_module.shutil, "which", lambda name: None)
+        assert service_module.resolve_browser("firefox") == ("firefox", None)
+        assert service_module.resolve_browser("edge") == ("edge", None)
+
+    def test_without_wrapper_a_missing_absolute_path_is_kept(
+        self, service_module, monkeypatch
+    ):
+        monkeypatch.setattr(service_module.os.path, "exists", lambda path: False)
+        assert service_module.resolve_browser("/usr/bin/firefox") == (
+            "/usr/bin/firefox",
             None,
         )
 

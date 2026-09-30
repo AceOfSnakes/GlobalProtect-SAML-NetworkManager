@@ -5,6 +5,8 @@ Unit tests for interactive prompt detection in the nm-gpclient service
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
+import pytest
+
 
 class TestStripAnsi:
     def test_plain_text_unchanged(self, service_module):
@@ -23,6 +25,23 @@ class TestStripAnsi:
     def test_newlines_preserved(self, service_module):
         raw = "line1\r\nline2\n"
         assert service_module.strip_ansi(raw) == "line1\r\nline2\n"
+
+    @pytest.mark.parametrize("control", ["\x00", "\x07", "\x08", "\x0b", "\x7f"])
+    def test_control_characters_are_dropped(self, service_module, control):
+        assert service_module.strip_ansi(f"ab{control}cd") == "abcd"
+
+    def test_tab_survives_control_character_filter(self, service_module):
+        assert service_module.strip_ansi("a\tb") == "a\tb"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "\x1b]0;window title\x07? Username: ",  # OSC terminated by BEL
+            "\x1b]0;window title\x1b\\? Username: ",  # OSC terminated by ST
+        ],
+    )
+    def test_osc_sequences_removed(self, service_module, raw):
+        assert service_module.strip_ansi(raw) == "? Username: "
 
 
 class TestAuthBanner:
@@ -49,6 +68,20 @@ class TestAuthBanner:
         assert (
             service_module.parse_auth_banner("[INFO] connecting to portal") is None
         )
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Please enter RSA token (Proxy: proxy.example.com)",  # unknown kind
+            "Please enter RSA token (portal: vpn.example.com)",  # kinds are exact
+            "(Portal: vpn.example.com)",  # no message
+            "",
+        ],
+    )
+    def test_banner_with_unknown_kind_or_missing_parts_is_ignored(
+        self, service_module, line
+    ):
+        assert service_module.parse_auth_banner(line) is None
 
 
 class TestDetectPrompt:
@@ -79,6 +112,12 @@ class TestDetectPrompt:
     def test_finalized_text_answer_is_not_a_prompt(self, service_module):
         assert service_module.detect_prompt("? Username: jdoe") is None
 
+    @pytest.mark.parametrize("tail", ["?", "? ", "? : ", "  ?  ", "?:"])
+    def test_prompt_marker_without_a_label_is_not_a_prompt(
+        self, service_module, tail
+    ):
+        assert service_module.detect_prompt(tail) is None
+
     def test_echo_of_our_answer_is_skipped(self, service_module):
         assert (
             service_module.detect_prompt(
@@ -97,6 +136,20 @@ class TestClassifyPrompt:
         for label in ("Password", "Passcode", "PIN", "Enter the next tokencode"):
             assert service_module.classify_prompt(label) == "password"
 
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password for user jdoe",
+            "Enter login password",
+            "User password",
+            "Login Password",
+        ],
+    )
+    def test_password_label_with_a_username_word_is_a_password(
+        self, service_module, label
+    ):
+        assert service_module.classify_prompt(label) == "password"
+
 
 class TestOneTimeSecret:
     def test_rsa_banner_is_one_time(self, service_module):
@@ -111,6 +164,45 @@ class TestOneTimeSecret:
         assert not service_module.is_one_time_secret(
             "Please enter the login credentials"
         )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Please enter RSA token",
+            "Enter your RSA SecurID PIN",
+            "Enter TAN",
+            "TAN:",
+            "Enter the PIN",
+            "One-time OTP",
+            "Enter Your 6 Digit Passcode",
+            "Enter your login code",
+            "Enter the next tokencode",
+            "Security challenge",
+            "Enter the codes",
+            "otp_code",
+        ],
+    )
+    def test_one_time_words_are_found_as_whole_words(self, service_module, text):
+        assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Password for instance db1",  # "tan" inside "instance"
+            "Pinnacle password",  # "pin" at the start of "Pinnacle"
+            "Enter password (encoded)",  # "code" inside "encoded"
+            "Stand-alone password",  # "tan" inside "Stand"
+            "Password for the Tanaka account",  # "tan" at the start of a name
+            "Spinning wheel password",  # "pin" inside "Spinning"
+            "Barcode password",  # "code" at the end of a word
+            "Cotangent",  # "tan" inside a word
+            "",
+        ],
+    )
+    def test_one_time_words_inside_other_words_do_not_count(
+        self, service_module, text
+    ):
+        assert not service_module.is_one_time_secret(text)
 
 
 class TestClassifyPromptKind:
@@ -163,6 +255,95 @@ class TestClassifyPromptKind:
             p._classify_prompt_kind("Passcode", "Please enter RSA token") == "otp"
         )
 
+    def test_username_keyword_with_neutral_banner_stays_username(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Login", "Please enter the login credentials")
+            == "username"
+        )
+
+    def test_phase_reset_forgets_answered_flags(self, service_module):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        p._answered_password = True
+
+        p._reset_phase_state()
+
+        assert p._answered_username is False
+        assert p._answered_password is False
+        # Nothing answered any more: the first prompt is the username again
+        assert p._classify_prompt_kind("Benutzername", "") == "username"
+
+    def test_phase_reset_keeps_a_prefilled_username_answered(self, service_module):
+        p = self._plugin(service_module, prefilled=True)
+        p._answered_password = True
+
+        p._reset_phase_state()
+
+        assert p._answered_username is True
+        assert p._answered_password is False
+
+    @pytest.mark.parametrize(
+        "label", ["Password for user jdoe", "Enter login password"]
+    )
+    def test_password_label_containing_user_or_login_word_is_password(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "password"
+
+    def test_localized_prompt_before_password_is_not_otp(self, service_module):
+        # The one-time-by-position rule only applies AFTER the password
+        p = self._plugin(service_module)
+        p._answered_username = True
+        p._answered_password = False
+        assert p._classify_prompt_kind("Wprowadź kod z SMS", "") == "password"
+
+    def test_first_prompt_without_prefill_is_username_even_if_labelled_password(
+        self, service_module
+    ):
+        # Documents the positional rule: the label does not matter for the
+        # first prompt when no username was pre-filled
+        p = self._plugin(service_module, prefilled=False)
+        assert p._classify_prompt_kind("Password", "") == "username"
+
+    def test_username_prompt_under_otp_banner_is_username(self, service_module):
+        # Issue #6: the RSA banner precedes the Username prompt too
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Username", "Please enter RSA token")
+            == "username"
+        )
+
+    def test_localized_username_prompt_under_otp_banner_is_username(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Benutzername", "Please enter RSA token")
+            == "username"
+        )
+
+    def test_password_prompt_under_neutral_banner_is_password(self, service_module):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert (
+            p._classify_prompt_kind("Password", "Please enter the login credentials")
+            == "password"
+        )
+
+    def test_username_flow_under_otp_banner_end_to_end(self, service_module):
+        # The whole issue #6 sequence: username, then the token as password
+        p = self._plugin(service_module)
+        banner = "Please enter RSA token"
+
+        assert p._classify_prompt_kind("Username", banner) == "username"
+        p._answered_username = True
+        assert p._classify_prompt_kind("Password", banner) == "otp"
+
 
 class TestOutputScanner:
     def test_complete_lines_and_tail(self, service_module):
@@ -176,6 +357,22 @@ class TestOutputScanner:
         scanner.feed("? Pass")
         lines = scanner.feed("word: ")
         assert lines == []
+        assert scanner.tail == "? Password: "
+
+    @pytest.mark.parametrize("text", ["\r\n \r\n\t\n", "\n\n\n", "\r\r"])
+    def test_blank_and_whitespace_lines_are_dropped(self, service_module, text):
+        scanner = service_module.OutputScanner()
+        assert scanner.feed(text) == []
+        assert scanner.tail == ""
+
+    def test_unterminated_text_is_never_returned_as_a_line(self, service_module):
+        scanner = service_module.OutputScanner()
+
+        assert scanner.feed("? Password: ") == []
+        assert scanner.tail == "? Password: "
+
+        # Nothing new arrived: still no line, tail unchanged
+        assert scanner.feed("") == []
         assert scanner.tail == "? Password: "
 
     def test_carriage_return_redraw_splits_lines(self, service_module):

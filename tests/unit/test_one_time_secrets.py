@@ -107,6 +107,48 @@ class TestForgetOneTimeSecret:
 
         assert calls == []
 
+    def test_failed_nmcli_is_retried_on_the_next_prompt(self, service_module):
+        """A failed write must not count as done: the code would stay in the
+        profile and the agent would hand it back without asking."""
+        plugin, calls = self._plugin(service_module)
+        results = [False, False, True, True]
+
+        async def flaky(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = flaky
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is False
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is True
+        assert calls[2:] == [
+            ("+vpn.data", "otp-flags=2"),
+            ("-vpn.secrets", "otp"),
+        ]
+
+        # Done for real now: no third round
+        asyncio.run(plugin._forget_one_time_secret())
+        assert len(calls) == 4
+
+    def test_dropping_the_stored_value_failing_is_retried(self, service_module):
+        plugin, calls = self._plugin(service_module)
+        results = [True, False, True, True]
+
+        async def flaky(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = flaky
+
+        asyncio.run(plugin._forget_one_time_secret())
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(calls) == 4
+        assert plugin._otp_flags_written is True
+
 
 class TestSplitEscapeSequences:
     def test_sequence_split_across_reads_does_not_leak(self, service_module):
@@ -131,6 +173,23 @@ class TestSplitEscapeSequences:
 
         assert lines == ["? Password: "]
         assert service_module.detect_prompt(lines[0]) == "Password"
+
+    def test_complete_sequence_leaves_nothing_carried(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        lines = plugin._consume_output("\x1b[39m? Password: \r\n")
+
+        assert lines == ["? Password: "]
+        assert plugin._ansi_carry == ""
+
+    def test_split_sequence_is_carried_until_completed(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("\x1b[3")
+        assert plugin._ansi_carry == "\x1b[3"
+
+        plugin._consume_output("9m")
+        assert plugin._ansi_carry == ""
 
     def test_complete_sequence_is_not_held_back(self, service_module):
         text = "\x1b[39m? Password: "
