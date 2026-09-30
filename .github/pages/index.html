@@ -40,7 +40,7 @@
 <pre><code>curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg &gt; /dev/null
 
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] \
 https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
   | sudo tee /etc/apt/sources.list.d/gpclient.list
 
@@ -59,7 +59,7 @@ enter the portal address, connect.</p>
   __VERSION_ROWS__
 </table>
 
-<p>Architecture: <code>amd64</code> only.</p>
+<p>Architectures: <code>amd64</code> and <code>arm64</code>.</p>
 
 <h2>Uninstall</h2>
 

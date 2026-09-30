@@ -12,7 +12,7 @@ never could ([#5](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issue
 curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg > /dev/null
 
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
   | sudo tee /etc/apt/sources.list.d/gpclient.list
 
 sudo apt update
@@ -32,9 +32,13 @@ Architectures: amd64
 Signed-By: /usr/share/keyrings/gpclient-archive-keyring.gpg
 ```
 
+Use the value of `dpkg --print-architecture` (`arm64` on ARM); without the line apt
+also asks for foreign-architecture indexes such as `i386`, which the repository
+does not publish.
+
 Supported suites are Ubuntu release codenames: `jammy` (22.04), `noble` (24.04),
-`resolute` (26.04). Only `amd64` is built - `arch=amd64` in the source line keeps
-apt from looking for indexes that do not exist.
+`resolute` (26.04). Both `amd64` and `arm64` are built; apt picks the one matching
+your system.
 
 Removal:
 
@@ -54,7 +58,7 @@ sudo apt update
    git tag v1.4.0
    git push origin v1.4.0
    ```
-3. `build-release.yml` builds all three Ubuntu releases, creates the GitHub
+3. `build-release.yml` builds every Ubuntu release for `amd64` and `arm64`, creates the GitHub
    release with the `.deb` files attached, and then calls `publish-apt.yml`,
    which republishes the repository.
 
@@ -103,7 +107,7 @@ bash /repo/.github/scripts/build-apt-repo.sh /incoming /site "$KEY"
 
 cd /site && python3 -m http.server 8000 &
 install -m 644 /site/gpclient-archive-keyring.gpg /usr/share/keyrings/gpclient.gpg
-echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/gpclient.gpg] http://127.0.0.1:8000 noble main' \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient.gpg] http://127.0.0.1:8000 noble main" \
     > /etc/apt/sources.list.d/gpclient.list
 apt-get update
 apt-get install -s network-manager-gpclient-gnome | grep network-manager-gpclient

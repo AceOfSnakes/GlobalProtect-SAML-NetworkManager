@@ -6,13 +6,13 @@
 
 ```bash
 # Check plugin files exist
-ls -la /usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient*.so
+ls -la /usr/lib/*-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient*.so
 
 # Check service file
 ls -la /usr/lib/NetworkManager/nm-gpclient-service
 
 # Check exported symbols
-objdump -T /usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient-editor.so | grep factory
+objdump -T /usr/lib/*-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient-editor.so | grep factory
 ```
 
 ### 2. Test nm-connection-editor

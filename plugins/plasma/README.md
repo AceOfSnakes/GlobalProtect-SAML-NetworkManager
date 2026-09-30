@@ -97,7 +97,7 @@ cd build
 
 cmake .. \
     -DCMAKE_INSTALL_PREFIX=/usr \
-    -DKDE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
+    -DKDE_INSTALL_LIBDIR=lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH) \
     -DCMAKE_BUILD_TYPE=Release
 
 make -j$(nproc)
@@ -127,7 +127,7 @@ See the main README for nmcli configuration examples.
 
 1. Check if the plugin is installed:
    ```bash
-   ls -l /usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
+   ls -l /usr/lib/*-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
    ```
 
 2. Check if the service file is installed:

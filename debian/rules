@@ -2,6 +2,9 @@
 
 export DH_VERBOSE = 1
 
+# Defines DEB_HOST_MULTIARCH (x86_64-linux-gnu, aarch64-linux-gnu, ...) of the target
+include /usr/share/dpkg/architecture.mk
+
 %:
 	dh $@
 
@@ -37,20 +40,20 @@ override_dh_auto_build:
 override_dh_auto_install:
 	# Install backend plugin (base package - needed for nmcli)
 	install -D -m 644 libnm-vpn-plugin-gpclient.so \
-		$(CURDIR)/debian/network-manager-gpclient/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient.so
+		$(CURDIR)/debian/network-manager-gpclient/usr/lib/$(DEB_HOST_MULTIARCH)/NetworkManager/libnm-vpn-plugin-gpclient.so
 
 	# Install GNOME GUI plugins (editor libraries)
 	install -D -m 644 libnm-vpn-plugin-gpclient-editor.so \
-		$(CURDIR)/debian/network-manager-gpclient-gnome/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient-editor.so
+		$(CURDIR)/debian/network-manager-gpclient-gnome/usr/lib/$(DEB_HOST_MULTIARCH)/NetworkManager/libnm-vpn-plugin-gpclient-editor.so
 	# Install GTK4 plugin only if it was built (available on Ubuntu 24.04+)
 	if [ -f libnm-gtk4-vpn-plugin-gpclient-editor.so ]; then \
 		install -D -m 644 libnm-gtk4-vpn-plugin-gpclient-editor.so \
-			$(CURDIR)/debian/network-manager-gpclient-gnome/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so; \
+			$(CURDIR)/debian/network-manager-gpclient-gnome/usr/lib/$(DEB_HOST_MULTIARCH)/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so; \
 	fi
 
 	# Create symlink for libnm-gpclient-properties (GNOME)
 	mkdir -p $(CURDIR)/debian/network-manager-gpclient-gnome/usr/lib
-	ln -sf /usr/lib/x86_64-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient-editor.so \
+	ln -sf /usr/lib/$(DEB_HOST_MULTIARCH)/NetworkManager/libnm-vpn-plugin-gpclient-editor.so \
 		$(CURDIR)/debian/network-manager-gpclient-gnome/usr/lib/libnm-gpclient-properties
 
 	# Install auth dialog (interactive credentials/RSA token prompts, GTK)
@@ -59,24 +62,24 @@ override_dh_auto_install:
 
 	# Install Plasma plugin
 	# Plugin install path depends on the Qt major version we built against:
-	#   Qt5 (Ubuntu 22.04/24.04): /usr/lib/x86_64-linux-gnu/qt5/plugins/...
-	#   Qt6 (Ubuntu 26.04+):     /usr/lib/x86_64-linux-gnu/qt6/plugins/...
+	#   Qt5 (Ubuntu 22.04/24.04): /usr/lib/<multiarch>/qt5/plugins/...
+	#   Qt6 (Ubuntu 26.04+):     /usr/lib/<multiarch>/qt6/plugins/...
 	# KF5 used a .desktop service file (/usr/share/kservices5); KF6 dropped that
 	# mechanism and reads only the embedded JSON metadata, so we skip the file there.
 	@if pkg-config --exists Qt6Core; then \
 		PLASMA_QT_DIR=qt6; \
 		install -D -m 644 plugins/plasma/build-6/plasmanetworkmanagement_gpclientui.so \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
 	fi
 
 	@if pkg-config --exists Qt5Core; then \
 		PLASMA_QT_DIR=qt5; \
 		install -D -m 644 plugins/plasma/build-5/plasmanetworkmanagement_gpclientui.so \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/x86_64-linux-gnu/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.desktop \
 			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
 	fi

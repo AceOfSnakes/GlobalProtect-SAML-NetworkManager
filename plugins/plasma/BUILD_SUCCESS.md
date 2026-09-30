@@ -7,10 +7,10 @@ The GlobalProtect VPN plugin for KDE Plasma 5 has been successfully built and in
 ### Built Files
 
 **Plugin Module:**
-- `/usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so` (70 KB)
+- `/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so` (70 KB)
 
 **Metadata:**
-- `/usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json`
+- `/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json`
 - `/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop`
 
 ### Installed Headers (Local)
@@ -104,7 +104,7 @@ If the plugin doesn't appear:
 ```bash
 cd plasma
 mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_LIBDIR=lib/x86_64-linux-gnu -DCMAKE_BUILD_TYPE=Release
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_LIBDIR=lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH) -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 sudo make install
 ```
