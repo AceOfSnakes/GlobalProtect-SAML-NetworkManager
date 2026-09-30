@@ -64,8 +64,8 @@ make test-unit                        # or: python3 -m pytest tests/unit -q
 
 Some tests exercise root-only code paths and some non-root paths; each run
 skips the other half. CI (`tests.yml`) runs both on every pull request, on
-Python 3.10 (Ubuntu 22.04) and 3.12. Run both yourself before you push a change
-to `scripts/browser-wrapper.sh`:
+Python 3.10 (Ubuntu 22.04), 3.12 (24.04) and the newest 3.x. Run both yourself
+before you push a change to `scripts/browser-wrapper.sh`:
 
 ```bash
 python3 -m pytest tests/unit -q       # as root (e.g. in a container)
@@ -98,6 +98,12 @@ Rules for tests:
   current head: the unit tests (root and non-root) and the build of all Ubuntu
   versions × {amd64, arm64}. A docs-only PR skips the build; if the PR changes
   anything else, the build must have run.
+- Before merging, merge `main` into the branch if `main` moved since the checks
+  ran, and wait for the checks on that head: `pull_request` checks run against
+  the merge ref as it was when they ran.
+- Do not make the build jobs required checks in branch protection: docs-only PRs
+  (`**.md`, `docs/**`) skip the build, so a required build check would never
+  report.
 - Record out-of-scope bugs that reviews find as GitHub issues and link them
   from the PR.
 - Merge with a merge commit; do not squash or rebase contributors' commits.

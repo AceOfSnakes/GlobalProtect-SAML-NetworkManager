@@ -29,10 +29,12 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request cancels the superseded build. Tag and manual
-# runs are never cancelled: a release must run to the end.
+# A new push to a pull request cancels the superseded build. Tag, manual and
+# main runs are never cancelled: a release must run to the end. GitHub keeps
+# one pending run per group and drops the older one even without
+# cancel-in-progress, so those runs get their own group.
 concurrency:
-  group: build-release-${{ github.ref }}
+  group: build-release-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

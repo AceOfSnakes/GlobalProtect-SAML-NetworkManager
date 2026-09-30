@@ -10,14 +10,12 @@ on:
 permissions:
   contents: read
 
+# Only a new push to a pull request cancels the superseded run. GitHub keeps
+# one pending run per group and drops the older one even without
+# cancel-in-progress, so every other run gets its own group.
 concurrency:
-  group: unit-tests-${{ github.ref }}
+  group: unit-tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  # Root and non-root runs share one checkout: keep either from leaving
-  # files the other cannot overwrite or remove.
-  PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
   unit:
@@ -26,9 +24,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.10 is what Ubuntu 22.04 ships, 3.12 what 24.04 ships. The
+        # 3.10 is what Ubuntu 22.04 ships, 3.12 what 24.04 ships, 3.x is the
+        # newest release (stands in for the newer python3 of 26.04). The
         # service is run by the system python3 on every supported release.
-        python: ["3.10", "3.12"]
+        python: ["3.10", "3.12", "3.x"]
         mode: ["non-root", "root"]
 
     steps:
@@ -47,7 +46,11 @@ jobs:
       # The tests fake these tools through PATH; the ones they do not fake
       # must exist on the runner.
       - name: Check host tools
-        run: command -v bash sudo pgrep getent id logger date
+        # `command -v a b c` succeeds if any one is found: check each tool.
+        run: |
+          for t in bash sudo pgrep getent id logger date; do
+            command -v "$t" >/dev/null || { echo "::error::missing $t"; exit 1; }
+          done
 
       - name: Run unit tests (non-root)
         if: matrix.mode == 'non-root'
@@ -58,6 +61,4 @@ jobs:
       # fake tools first in the PATH they pass to the scripts.
       - name: Run unit tests (root)
         if: matrix.mode == 'root'
-        run: |
-          sudo env PYTHONDONTWRITEBYTECODE=1 \
-            "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider
+        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider
