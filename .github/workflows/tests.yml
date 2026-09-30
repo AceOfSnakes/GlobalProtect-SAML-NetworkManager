@@ -1,0 +1,63 @@
+name: Unit tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Root and non-root runs share one checkout: keep either from leaving
+  # files the other cannot overwrite or remove.
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  unit:
+    name: ${{ matrix.mode }} (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is what Ubuntu 22.04 ships, 3.12 what 24.04 ships. The
+        # service is run by the system python3 on every supported release.
+        python: ["3.10", "3.12"]
+        mode: ["non-root", "root"]
+
+    steps:
+      # No submodules: the unit tests do not import anything from external/.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install pytest
+        run: python -m pip install pytest
+
+      # The tests fake these tools through PATH; the ones they do not fake
+      # must exist on the runner.
+      - name: Check host tools
+        run: command -v bash sudo pgrep getent id logger date
+
+      - name: Run unit tests (non-root)
+        if: matrix.mode == 'non-root'
+        run: python -m pytest tests/unit -q -p no:cacheprovider
+
+      # The setup-python interpreter lives outside sudo's secure_path, so it is
+      # called by absolute path. PATH itself needs no care: the tests put their
+      # fake tools first in the PATH they pass to the scripts.
+      - name: Run unit tests (root)
+        if: matrix.mode == 'root'
+        run: |
+          sudo env PYTHONDONTWRITEBYTECODE=1 \
+            "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider

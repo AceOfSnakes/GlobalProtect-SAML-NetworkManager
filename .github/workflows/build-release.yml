@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  # Build every package on pull requests as a check. Nothing is released or
+  # published: release and publish-apt run only for tags.
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
     inputs:
       ubuntu_version:
@@ -18,8 +24,16 @@ on:
           - "26.04"
           - "all"
 
+# Read-only by default (pull requests run the build); only the release job
+# gets write access.
 permissions:
-  contents: write
+  contents: read
+
+# A new push to a pull request cancels the superseded build. Tag and manual
+# runs are never cancelled: a release must run to the end.
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -28,6 +42,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
+        # Only a manual run can pick one version; tags and pull requests build all.
         ubuntu: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.ubuntu_version == 'all' && fromJSON('["22.04", "24.04", "24.10", "26.04"]') || fromJSON(format('["{0}"]', github.event.inputs.ubuntu_version))) || fromJSON('["22.04", "24.04", "24.10", "26.04"]') }}
         arch: [amd64, arm64]
         include:
@@ -103,6 +118,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
     steps:
       - name: Download all artifacts

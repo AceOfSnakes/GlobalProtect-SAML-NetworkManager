@@ -19,7 +19,7 @@ and `arm64`, and published as a signed apt repository on GitHub Pages.
 | `auth-dialog/` | GTK dialog for credentials and one-time passwords |
 | `plugins/gnome/`, `plugins/plasma/` | Connection editor plugins (GTK3/GTK4, Plasma 5/6) |
 | `debian/` | Packaging; `debian/control.ubuntu<version>` is copied to `debian/control` per build |
-| `.github/workflows/` | `build-release.yml` (matrix Ubuntu × arch), `publish-apt.yml` |
+| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (matrix Ubuntu × arch), `publish-apt.yml` |
 | `.github/scripts/build-apt-repo.sh` | Builds the apt repository from release `.deb` files |
 | `external/GlobalProtect-openconnect` | Git submodule (upstream `gpclient`/`gpauth`) |
 | `tests/unit/` | Unit tests (pytest), run anywhere |
@@ -47,8 +47,9 @@ dpkg-buildpackage -us -uc -b          # packages, after: cp debian/control.ubunt
 ```
 
 CI builds every Ubuntu version for `amd64` (`ubuntu-latest`) and `arm64`
-(`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu<version>`). Run the build
-workflow on a branch without publishing anything:
+(`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu<version>`) on every pull
+request, except for changes to docs only (`**.md`, `docs/**`). To build a branch
+that has no PR, run the workflow by hand:
 
 ```bash
 # GitHub Actions → Build and Release → Run workflow (workflow_dispatch)
@@ -62,13 +63,14 @@ make test-unit                        # or: python3 -m pytest tests/unit -q
 ```
 
 Some tests exercise root-only code paths and some non-root paths; each run
-skips the other half. Run both before you push a change to
-`scripts/browser-wrapper.sh`:
+skips the other half. CI (`tests.yml`) runs both on every pull request, on
+Python 3.10 (Ubuntu 22.04) and 3.12. Run both yourself before you push a change
+to `scripts/browser-wrapper.sh`:
 
 ```bash
 python3 -m pytest tests/unit -q       # as root (e.g. in a container)
 T=$(mktemp -d /var/tmp/t.XXXX)
-tar --exclude=./.git --exclude=./external -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
+tar --exclude=./.git --exclude=./external --exclude=./.claude -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
 (cd "$T" && runuser -u nobody -- env HOME="$T" python3 -m pytest tests/unit -q -p no:cacheprovider)
 rm -rf "$T"
 ```
@@ -92,9 +94,10 @@ Rules for tests:
   finding or record in the PR why it is not fixed (pre-existing, out of scope,
   wrong). Push the fixes, then start the next round on the new head. If the
   same kind of finding comes back, fix its root cause.
-- Merge only when all three rounds are done, the unit tests pass (both as root
-  and as non-root), and a `workflow_dispatch` build of all Ubuntu versions ×
-  {amd64, arm64} is green on the current head.
+- Merge only when all three rounds are done and all PR checks are green on the
+  current head: the unit tests (root and non-root) and the build of all Ubuntu
+  versions × {amd64, arm64}. A docs-only PR skips the build; if the PR changes
+  anything else, the build must have run.
 - Record out-of-scope bugs that reviews find as GitHub issues and link them
   from the PR.
 - Merge with a merge commit; do not squash or rebase contributors' commits.
