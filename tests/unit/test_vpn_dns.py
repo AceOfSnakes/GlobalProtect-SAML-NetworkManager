@@ -105,6 +105,36 @@ class TestStateParsing:
         )[0]
 
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "",
+            "   \n\n",
+            "1BAD=x\nA-B=2\n=3\n#K=1\n",
+        ],
+    )
+    def test_parse_dns_state_rejects_invalid_and_empty(self, service_module, text):
+        # Keys must be shell variable names; nothing else becomes state
+        assert service_module.parse_dns_state(text) == {}
+
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "192.168.1",  # inet_aton() completes this to 192.168.0.1
+            "1",  # ... and this to 0.0.0.1
+            "10.0.0.256",
+            "1.2.3.4.5",
+            "0x7f.0.0.1",  # inet_aton() accepts hex parts
+            "",
+        ],
+    )
+    def test_ipv4_to_nm_uint32_rejects_malformed_addresses(
+        self, service_module, address
+    ):
+        with pytest.raises((OSError, ValueError)):
+            service_module.ipv4_to_nm_uint32(address)
+
+
 class TestDetectionReportsDns:
     def test_gateway_dns_lands_in_ip4config(
         self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
@@ -171,6 +201,45 @@ class TestDetectionReportsDns:
 
         assert config["dns"] == ("au", [_nm_u32("192.168.1.53")])
 
+    def test_invalid_profile_dns_entries_are_skipped(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        # One bad entry in the profile must not cost the good ones (or crash
+        # the detection loop)
+        config = _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_servers=["not-an-ip", "192.168.1", "10.0.0.1"],
+        )
+
+        assert config["dns"] == ("au", [_nm_u32("10.0.0.1")])
+
+    def test_ipv6_only_dns_is_not_reported(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        # Ip4Config has no room for IPv6 servers
+        config = _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_servers=["fd00::53"],
+        )
+
+        assert config["tundev"] == ("s", "tun0")
+        assert "dns" not in config
+
+    def test_ipv6_gateway_dns_alone_is_not_reported(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP6_DNS="fd00::53")
+
+        config = _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+
+        assert "dns" not in config
+
     def test_state_for_a_foreign_tunnel_is_ignored(
         self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
     ):
@@ -233,6 +302,32 @@ class TestConnectionLifecycle:
         assert not dns_state_sandbox.exists()
         # Idempotent: a missing file is not an error
         plugin._clear_dns_state()
+
+    def test_clear_dns_state_survives_unremovable_path(
+        self, service_module, dns_state_sandbox, caplog
+    ):
+        # A directory (not empty, so even root cannot unlink it) sits where
+        # the state file should be
+        dns_state_sandbox.mkdir()
+        (dns_state_sandbox / "keep").write_text("x")
+        plugin = service_module.GpclientVPNPlugin()
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            plugin._clear_dns_state()
+
+        assert "Could not remove DNS state file" in caplog.text
+        assert (dns_state_sandbox / "keep").exists()
+
+    def test_unreadable_state_file_is_read_as_unknown(
+        self, service_module, dns_state_sandbox, caplog
+    ):
+        dns_state_sandbox.mkdir()  # reading a directory fails, even as root
+        plugin = service_module.GpclientVPNPlugin()
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            assert plugin._read_learned_dns("tun0") is None
+
+        assert "Could not read DNS state file" in caplog.text
 
 
 @pytest.mark.skipif(not os.path.exists("/bin/sh"), reason="needs /bin/sh")
@@ -297,3 +392,43 @@ class TestVpncHook:
         parsed = service_module.parse_dns_state(state.read_text())
 
         assert service_module.learned_dns_from_state(parsed, "gpd0") == ([], [], [])
+
+    def test_hook_state_for_another_tundev_is_not_learned(
+        self, service_module, dns_state_sandbox, tmp_path
+    ):
+        self._source_hook(
+            tmp_path,
+            {
+                "GPCLIENT_NM_DNS_STATE": str(dns_state_sandbox),
+                "TUNDEV": "gpd0",
+                "INTERNAL_IP4_DNS": "10.0.0.1",
+            },
+        )
+        parsed = service_module.parse_dns_state(dns_state_sandbox.read_text())
+
+        assert service_module.learned_dns_from_state(parsed, "gpd0") == (
+            ["10.0.0.1"],
+            [],
+            [],
+        )
+        assert service_module.learned_dns_from_state(parsed, "tun0") is None
+        plugin = service_module.GpclientVPNPlugin()
+        assert plugin._read_learned_dns("gpd0") is not None
+        assert plugin._read_learned_dns("tun0") is None
+
+    def test_an_unwritable_state_location_is_reported_not_fatal(self, tmp_path):
+        # The "directory" is a regular file, so it cannot be created even by
+        # root; the hook must still let vpnc-script carry on (exit status 0)
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory")
+        state = blocker / "dns-state"
+
+        result = self._source_hook(
+            tmp_path,
+            {"GPCLIENT_NM_DNS_STATE": str(state), "TUNDEV": "tun0"},
+        )
+
+        assert result.returncode == 0
+        assert "could not write DNS state" in result.stderr
+        assert "written to" not in result.stderr
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["blocker"]

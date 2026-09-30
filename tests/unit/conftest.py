@@ -18,10 +18,25 @@ SERVICE_PATH = os.path.join(
 )
 
 
-def _install_sdbus_stub():
-    if "sdbus" in sys.modules:
-        return
+_SDBUS_STUB = None
 
+
+def _install_sdbus_stub():
+    """Make `sdbus` the stub, whatever the host has installed or imported.
+
+    Always installed (not only when sdbus is missing): a real sdbus in
+    sys.modules has no signal recording, so the tests would depend on the
+    machine they run on. The stub is built once and put back on every call,
+    because the service module binds its signal decorators to this one
+    instance.
+    """
+    global _SDBUS_STUB
+    if _SDBUS_STUB is None:
+        _SDBUS_STUB = _build_sdbus_stub()
+    sys.modules["sdbus"] = _SDBUS_STUB
+
+
+def _build_sdbus_stub():
     stub = types.ModuleType("sdbus")
 
     class DbusInterfaceCommonAsync:
@@ -55,8 +70,7 @@ def _install_sdbus_stub():
     stub.sd_bus_open_system = lambda: None
     stub.set_default_bus = lambda bus: None
     stub.SIGNAL_CALLS = signal_calls
-
-    sys.modules["sdbus"] = stub
+    return stub
 
 
 @pytest.fixture(scope="session")

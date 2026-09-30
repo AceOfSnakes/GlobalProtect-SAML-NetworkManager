@@ -648,9 +648,14 @@ def ipv4_to_nm_uint32(address: str) -> int:
     """An IPv4 address as the uint32 NetworkManager's Ip4Config expects.
 
     NetworkManager stores it as in_addr_t: the network-byte-order bytes read
-    as a host integer, i.e. the raw inet_aton() bytes in native order.
+    as a host integer, i.e. the raw address bytes in native order.
+
+    Raises OSError for anything that is not a dotted quad.
     """
-    return struct.unpack("=I", socket.inet_aton(address))[0]
+    # inet_pton, not inet_aton: inet_aton() also accepts "192.168.1", "1" and
+    # hex parts, silently turning a typo in the profile into a different
+    # (wrong) DNS server
+    return struct.unpack("=I", socket.inet_pton(socket.AF_INET, address))[0]
 
 
 class OutputScanner:
@@ -1281,7 +1286,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     def _read_proc_environ(pid: str) -> Dict[str, str]:
         """Parse /proc/<pid>/environ into a dict (empty when unreadable)"""
         try:
-            with open(f"/proc/{pid}/environ", "rb") as handle:
+            # PROC_PATH, not a literal /proc: tests point it at a fake tree
+            with open(f"{PROC_PATH}/{pid}/environ", "rb") as handle:
                 raw = handle.read()
         except OSError:
             return {}
@@ -1308,14 +1314,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         found: Dict[str, str] = {}
 
         try:
-            pids = [entry for entry in os.listdir("/proc") if entry.isdigit()]
+            pids = [entry for entry in os.listdir(PROC_PATH) if entry.isdigit()]
         except OSError as e:
-            logger.debug(f"Cannot list /proc: {e}")
+            logger.debug(f"Cannot list {PROC_PATH}: {e}")
             return found
 
         for pid in pids:
             try:
-                if os.stat(f"/proc/{pid}").st_uid != real_uid:
+                if os.stat(f"{PROC_PATH}/{pid}").st_uid != real_uid:
                     continue
             except OSError:
                 continue
@@ -1329,7 +1335,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     found[key] = proc_environ[key]
 
             try:
-                with open(f"/proc/{pid}/comm") as handle:
+                with open(f"{PROC_PATH}/{pid}/comm") as handle:
                     name = handle.read().strip()
             except OSError:
                 name = "?"
