@@ -135,6 +135,32 @@ class TestStateParsing:
             service_module.ipv4_to_nm_uint32(address)
 
 
+class TestProfileDnsParsing:
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("10.0.0.1", ["10.0.0.1"]),
+            ("10.0.0.1,10.0.0.2", ["10.0.0.1", "10.0.0.2"]),
+            ("10.0.0.1, 10.0.0.2", ["10.0.0.1", "10.0.0.2"]),
+            ("10.0.0.1 10.0.0.2", ["10.0.0.1", "10.0.0.2"]),
+            ("10.0.0.1;10.0.0.2", ["10.0.0.1", "10.0.0.2"]),
+            ("10.0.0.1 ;\t10.0.0.2,  fd00::53", ["10.0.0.1", "10.0.0.2", "fd00::53"]),
+            (",10.0.0.1,,;", ["10.0.0.1"]),
+            ("", []),
+            (" , ; ", []),
+        ],
+    )
+    def test_entries_are_split_on_commas_semicolons_and_whitespace(
+        self, service_module, text, expected
+    ):
+        assert service_module.parse_dns_servers(text) == expected
+
+    def test_an_address_is_not_cut_apart(self, service_module):
+        # Only the separators split: "10.0.0.1:53" stays one (invalid) entry
+        assert service_module.parse_dns_servers("10.0.0.1:53") == ["10.0.0.1:53"]
+        assert service_module.parse_dns_servers("fd00::53") == ["fd00::53"]
+
+
 class TestDetectionReportsDns:
     def test_gateway_dns_lands_in_ip4config(
         self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
@@ -234,7 +260,8 @@ class TestDetectionReportsDns:
             )
 
         assert config["dns"] == ("au", [_nm_u32("10.0.0.53")])
-        assert "None of the DNS servers in the profile is a valid IPv4" in caplog.text
+        assert "None of the DNS servers in the profile is a valid IP" in caplog.text
+        assert "10.0.0.53" in caplog.text  # what is used instead
 
     def test_profile_dns_with_a_valid_entry_does_not_fall_back(
         self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox,
@@ -268,7 +295,100 @@ class TestDetectionReportsDns:
             )
 
         assert "dns" not in config
-        assert "None of the DNS servers in the profile is a valid IPv4" in caplog.text
+        assert "None of the DNS servers in the profile is a valid IP" in caplog.text
+        # Nothing pushed by the gateway: say so, do not print an empty list
+        assert "[]" not in caplog.text
+        assert "no DNS servers from the gateway" in caplog.text
+
+    def test_fallback_warning_names_the_gateway_servers_it_uses(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox,
+        caplog,
+    ):
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP4_DNS="10.0.0.53")
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=["10.1"],
+            )
+
+        assert "using the ones learned from the gateway: ['10.0.0.53']" in caplog.text
+        assert "no DNS servers from the gateway" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "profile",
+        [["fd00::53"], ["10.1", "fd00::53"], ["fd00::53", "2001:db8::1"]],
+    )
+    def test_ipv6_override_is_not_replaced_by_the_gateway_servers(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox,
+        caplog, profile,
+    ):
+        # The profile asked for IPv6 resolvers: no IPv4 DNS goes to NetworkManager
+        # (Ip4Config cannot carry IPv6), and it is not a typo to fall back from
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP4_DNS="10.0.0.53")
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            config = _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=profile,
+            )
+
+        assert config["tundev"] == ("s", "tun0")
+        assert "dns" not in config
+        assert "None of the DNS servers in the profile" not in caplog.text
+
+    def test_ipv6_entry_is_no_conversion_failure(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, caplog
+    ):
+        # An IPv6 address is valid, only not reportable: no warning about it
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=["fd00::53"],
+            )
+
+        assert "Failed to convert" not in caplog.text
+
+    def test_ipv6_entry_next_to_an_ipv4_one_keeps_only_the_ipv4_server(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP4_DNS="10.0.0.53")
+
+        config = _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_servers=["fd00::53", "192.168.1.53"],
+        )
+
+        assert config["dns"] == ("au", [_nm_u32("192.168.1.53")])
+
+    @pytest.mark.parametrize("profile", [["not-an-ip"], ["10.1", "10.0.0"], ["1.2.3"]])
+    def test_entries_that_are_no_address_of_any_family_fall_back(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox,
+        profile,
+    ):
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP4_DNS="10.0.0.53")
+
+        config = _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_servers=profile,
+        )
+
+        assert config["dns"] == ("au", [_nm_u32("10.0.0.53")])
 
     def test_whitespace_around_a_profile_dns_entry_is_ignored(
         self, service_module, monkeypatch, tmp_path, dbus_signals

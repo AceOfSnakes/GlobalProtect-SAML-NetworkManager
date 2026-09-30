@@ -179,6 +179,40 @@ class TestClassifyPrompt:
     ):
         assert service_module.classify_prompt(label) == "password"
 
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Domain password",
+            "Network password",
+            "Passwort",
+            "Passwd",
+            "Passphrase",
+            "Kennwort",
+            "Passport ID",  # no username word: a secret, as it always was
+        ],
+    )
+    def test_password_words_are_whole_words(self, service_module, label):
+        assert service_module.classify_prompt(label) == "password"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Username/Password",
+            "Username or password",
+            "Login / Password",
+            "User ID or Passkey",  # "Passkey" is not a password word
+            "User Passport",  # nor is "Passport"
+            "Email or passphrase",
+        ],
+    )
+    def test_username_first_with_a_password_word_further_on_is_a_username(
+        self, service_module, label
+    ):
+        # A word that merely starts with "pass" is not the password, and a
+        # username word that is not directly followed by "password" names the
+        # first of two things asked for
+        assert service_module.classify_prompt(label) == "username"
+
 
 class TestOneTimeSecret:
     def test_rsa_banner_is_one_time(self, service_module):
@@ -268,6 +302,69 @@ class TestOneTimeSecret:
         ],
     )
     def test_one_time_words_inside_other_words_do_not_count(
+        self, service_module, text
+    ):
+        assert not service_module.is_one_time_secret(text)
+
+
+class TestOneTimeSecretSubWords:
+    """Labels are split into sub-words before the keywords are looked for:
+    at non-alphanumerics and underscores, at letter/digit changes, at
+    lower->Upper and at ACRONYM->Word ("OTPPassword" is OTP + Password)."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "OTPPassword",
+            "PIN1",
+            "Token2",
+            "Enter PIN2",
+            "Security code_",
+            "TokenPassword",
+            "PINPassword",
+            "myPIN",
+            "pushTAN",
+            "mTANs",
+            "PIN_",
+            "_otp_",
+            "RSA1",
+            "Code2",
+            "OTP-1",
+            "Challenge3",
+            "OTPcode",
+            "SicherheitscodeNr2",
+        ],
+    )
+    def test_keyword_sub_words_are_found(self, service_module, text):
+        assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Pakistan1",
+            "Pakistan_",
+            "Kingpin2",
+            "Kingpin_",
+            "Ursa1",
+            "Postcode_",
+            "Postcode2",
+            "PostCode",  # camel case must not undo the Postcode exclusion
+            "ZipCode",
+            "ZIPCode",
+            "BarCode1",
+            "Barcodes2",
+            "Tanaka2",
+            "mantan1",
+            "Instance7",
+            "Pinnacle3",
+            "encoded_",
+            "Stand-alone1",
+            "PasswordField",
+            "UserName2",
+            "Password2",
+        ],
+    )
+    def test_other_words_with_digits_or_underscores_do_not_count(
         self, service_module, text
     ):
         assert not service_module.is_one_time_secret(text)
@@ -446,6 +543,67 @@ class TestClassifyPromptKind:
             p._classify_prompt_kind("Password", "Please enter the login credentials")
             == "password"
         )
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Username (not your PIN)",
+            "Login [token sent separately]",
+            "User (RSA token is asked later)",
+            "Email [OTP not needed here]",
+        ],
+    )
+    def test_one_time_word_in_a_hint_does_not_make_a_username_an_otp(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        assert p._classify_prompt_kind(label, "") == "username"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password (RSA token)",
+            "Password (PIN + token code)",
+            "Secret [Enter your passcode]",
+            "Password (login token)",
+        ],
+    )
+    def test_one_time_word_in_a_hint_of_a_secret_is_still_an_otp(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "otp"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password (your user name is not needed)",
+            "Secret (login)",
+            "Password (info)",
+        ],
+    )
+    def test_hints_without_a_one_time_word_leave_a_secret_a_password(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "password"
+
+    def test_username_hint_prompt_under_a_one_time_banner_is_a_username(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Username (not your PIN)", "Please enter RSA token")
+            == "username"
+        )
+
+    def test_one_time_word_in_the_main_part_beats_a_username_word_in_a_hint(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert p._classify_prompt_kind("Passcode (login)", "") == "otp"
 
     def test_username_flow_under_otp_banner_end_to_end(self, service_module):
         # The whole issue #6 sequence: username, then the token as password

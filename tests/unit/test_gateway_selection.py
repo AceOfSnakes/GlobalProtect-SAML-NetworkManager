@@ -201,6 +201,41 @@ class TestPickGateway:
         assert service_module.pick_gateway(options, "gw-1") == options[1]
 
 
+class TestPickGatewayUsesGatewayMatches:
+    """There is one definition of "matches the preferred gateway":
+    gateway_matches(), exact tiers (substring=False) before the substring one."""
+
+    OPTIONS = ["a (a.example.com)", "b (b.example.com)", "c (c.example.com)"]
+
+    def test_exact_tier_is_asked_first_and_wins(self, service_module, monkeypatch):
+        calls = []
+
+        def fake(preferred, option, substring=True):
+            calls.append(substring)
+            return option == self.OPTIONS[2] if not substring else True
+
+        monkeypatch.setattr(service_module, "gateway_matches", fake)
+
+        assert service_module.pick_gateway(self.OPTIONS, "x") == self.OPTIONS[2]
+        # Every option was offered to the exact tier before any substring one
+        assert calls == [False, False, False]
+
+    def test_substring_tier_is_the_fallback(self, service_module, monkeypatch):
+        def fake(preferred, option, substring=True):
+            return substring and option == self.OPTIONS[1]
+
+        monkeypatch.setattr(service_module, "gateway_matches", fake)
+
+        assert service_module.pick_gateway(self.OPTIONS, "x") == self.OPTIONS[1]
+
+    def test_no_tier_matching_means_no_gateway(self, service_module, monkeypatch):
+        monkeypatch.setattr(
+            service_module, "gateway_matches", lambda *args, **kwargs: False
+        )
+
+        assert service_module.pick_gateway(self.OPTIONS, "x") is None
+
+
 class TestAnswerGatewayList:
     def _run(self, plugin, frame):
         asyncio.run(plugin._handle_select_prompt(frame))
@@ -445,6 +480,74 @@ class TestAnswerGatewayList:
 
         assert state["downs"] == service_module.SELECT_MAX_STEPS
         assert len(state["selected"]) == 1
+
+    def test_long_list_substring_hit_beyond_the_step_limit_is_still_selected(
+        self, service_module
+    ):
+        # 250 entries, only a substring hit at 5: the first lap is cut off at
+        # SELECT_MAX_STEPS, but the hit is known by name, so the walk carries
+        # on to it (down to the wrap-around and 5 more) instead of selecting
+        # whatever is under the cursor at step 200
+        options = self._gateways(250)
+        options[5] = "gw-frankfurt (fra.example.com)"
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["gw-frankfurt (fra.example.com)"]
+        assert state["downs"] == 250 + 5
+
+    def test_long_list_without_a_substring_hit_still_gives_up_at_the_limit(
+        self, service_module
+    ):
+        # Counterpart: nothing to walk back to, so the limit applies as before
+        options = self._gateways(250)
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["downs"] == service_module.SELECT_MAX_STEPS
+        assert state["selected"] == [options[service_module.SELECT_MAX_STEPS]]
+
+    def test_walk_to_a_substring_hit_has_its_own_step_limit(self, service_module):
+        # The hit is 505 Downs away on a list of 500: beyond the extra budget
+        options = self._gateways(500)
+        options[5] = "gw-frankfurt (fra.example.com)"
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        limit = service_module.SELECT_MAX_STEPS
+        assert state["downs"] == 2 * limit
+        assert state["selected"] == [options[2 * limit]]  # gave up where it was
+
+    def test_walk_back_goes_by_name_not_by_counting_downs(self, service_module):
+        # A redraw that skips an entry (or a list that changes length) must not
+        # throw a counted return trip off: the hit is found by its name
+        options = self._gateways(150)
+        options[60] = "gw-frankfurt (fra.example.com)"
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+        real_down = plugin._press_list_down
+        skipped = []
+
+        async def skipping_down():
+            frame = await real_down()
+            if not skipped and state["downs"] == 155:
+                # one Down moved the cursor two entries
+                skipped.append(True)
+                state["cursor"] = (state["cursor"] + 1) % len(options)
+                return frame_with_cursor(options, state["cursor"], more=True)
+            return frame
+
+        plugin._press_list_down = skipping_down
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["gw-frankfurt (fra.example.com)"]
 
     def test_stalled_redraw_still_confirms(self, service_module):
         sent = []

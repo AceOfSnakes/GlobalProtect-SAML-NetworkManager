@@ -10,6 +10,7 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 
 import asyncio
 import fcntl
+import ipaddress
 import logging
 import os
 import pty
@@ -285,15 +286,36 @@ AUTH_BANNER_RE = re.compile(
 )
 
 USERNAME_LABEL_WORDS = ("user", "login", "email", "e-mail")
-# A label that names a password is a password even when it also mentions the
-# user ("Password for user jdoe", "Enter login password")
-PASSWORD_LABEL_RE = re.compile(r"(?<![^\W_])pass", re.IGNORECASE)
+# Whole words that name the password itself. Not "Passport" or "Passkey": a
+# word that merely starts with "pass" is something else.
+PASSWORD_LABEL_WORDS = (
+    "password",
+    "passwort",
+    "passwd",
+    "passphrase",
+    "pass",
+    "kennwort",
+)
+PASSWORD_LABEL_RE = re.compile(
+    r"(?<![^\W_])(?:" + "|".join(PASSWORD_LABEL_WORDS) + r")(?![^\W_])",
+    re.IGNORECASE,
+)
+# "login password", "user password": a username word right before the
+# password word describes the password ("Username/Password" asks for both)
+USERNAME_THEN_PASSWORD_RE = re.compile(
+    r"(?:"
+    + "|".join(re.escape(word) for word in USERNAME_LABEL_WORDS)
+    + r")\s+(?:"
+    + "|".join(PASSWORD_LABEL_WORDS)
+    + r")(?![^\W_])",
+    re.IGNORECASE,
+)
 # A hint in brackets is not what the prompt asks for: "Username (not your
 # password)" is a username, "Secret (login)" a secret
 LABEL_HINT_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
-# One-time keywords that may end a compound word: "mytoken", "TOTP",
-# "authcode", "Sicherheitscode", "PINcode" (ends with "code"). "code" is not
-# taken from "Barcode", "Postcode" or "Zipcode".
+# One-time keywords that may end a word: "mytoken", "TOTP", "authcode",
+# "Sicherheitscode", "PINcode" (ends with "code"). "code" is not taken from
+# "Barcode", "Postcode" or "Zipcode".
 ONE_TIME_SECRET_SUFFIXES = (
     "token",
     "otp",
@@ -305,15 +327,22 @@ ONE_TIME_SECRET_SUFFIXES = (
 # compounds "mTAN", "pushTAN", "chipTAN", "smsTAN", "photoTAN", "qrTAN"
 ONE_TIME_SECRET_WHOLE_WORDS = ("pin", "rsa", "(?:m|push|chip|sms|photo|qr)?tan")
 # Optionally plural. "tan" must not match "instance" or "Stand-alone", "pin"
-# not "Pinnacle", "code" not "encoded"
+# not "Pinnacle", "code" not "encoded". Matched against a whole word or one
+# sub-word of it (see LABEL_SUB_WORD_RE) with fullmatch().
 ONE_TIME_SECRET_RE = re.compile(
-    r"\b\w*(?:"
+    r"\w*(?:"
     + "|".join(ONE_TIME_SECRET_SUFFIXES)
-    + r")s?\b|(?<![^\W_])(?:"
+    + r")s?|(?:"
     + "|".join(ONE_TIME_SECRET_WHOLE_WORDS)
-    + r")s?(?![^\W_])",
+    + r")s?",
     re.IGNORECASE,
 )
+# A label is looked at word by word (runs of letters: digits, underscores and
+# punctuation separate), and each word again by its sub-words, so that
+# "OTPPassword" is OTP + Password, "pushTAN" push + TAN, "PIN1" the word PIN.
+# Sub-words end at lower->Upper and at ACRONYM->Word.
+LABEL_WORD_RE = re.compile(r"[^\W\d_]+")
+LABEL_SUB_WORD_RE = re.compile(r"[A-Z]+(?![^\W\d_A-Z])|[A-Z]?[^\W\d_A-Z]+")
 
 
 def strip_ansi(text: str) -> str:
@@ -361,14 +390,25 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
 def classify_prompt(label: str) -> str:
     """Classify a prompt label as 'username' or 'password' (any secret).
 
-    Text in parentheses or brackets is a hint and is not looked at.
+    Text in parentheses or brackets is a hint and is not looked at. A label
+    with both a username and a password word is a password when the password
+    word comes first ("Password for user jdoe") or the username word directly
+    precedes it ("Login password"); otherwise it asks for both, the username
+    first ("Username/Password").
     """
     lowered = LABEL_HINT_RE.sub(" ", label).lower()
-    if PASSWORD_LABEL_RE.search(lowered):
+    positions = [
+        lowered.find(word) for word in USERNAME_LABEL_WORDS if word in lowered
+    ]
+    if not positions:
         return "password"
-    if any(word in lowered for word in USERNAME_LABEL_WORDS):
-        return "username"
-    return "password"
+
+    password = PASSWORD_LABEL_RE.search(lowered)
+    if password and (
+        password.start() < min(positions) or USERNAME_THEN_PASSWORD_RE.search(lowered)
+    ):
+        return "password"
+    return "username"
 
 
 def is_one_time_secret(text: str) -> bool:
@@ -377,7 +417,15 @@ def is_one_time_secret(text: str) -> bool:
     One-time secrets must never be answered from a stored password - the user
     has to be asked every time.
     """
-    return ONE_TIME_SECRET_RE.search(text) is not None
+    for run in LABEL_WORD_RE.finditer(text):
+        word = run.group()
+        spans = [(0, len(word))] + [
+            sub.span() for sub in LABEL_SUB_WORD_RE.finditer(word)
+        ]
+        # pos/endpos keep the lookbehinds working: "PostCode" is no "Code"
+        if any(ONE_TIME_SECRET_RE.fullmatch(word, *span) for span in spans):
+            return True
+    return False
 
 
 def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
@@ -432,26 +480,18 @@ def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
 def pick_gateway(options: List[str], preferred: str) -> Optional[str]:
     """Pick the option matching `preferred`, most specific match first.
 
-    Options look like "name (host.example.com)", so an exact match is tried
-    against the whole entry, then against the name and host parts separately,
-    and only then as a substring. Returns None when nothing matches.
+    Options look like "name (host.example.com)", so an exact match (the whole
+    entry, the name or the host) is tried first and only then a substring, both
+    by gateway_matches(). Returns None when nothing matches.
     """
     wanted = (preferred or "").strip().lower()
     if not wanted:
         return options[0] if options else None
 
-    for option in options:
-        if option.strip().lower() == wanted:
-            return option
-
-    for option in options:
-        name, _, host = option.partition("(")
-        if name.strip().lower() == wanted or host.strip(") ").lower() == wanted:
-            return option
-
-    for option in options:
-        if wanted in option.strip().lower():
-            return option
+    for substring in (False, True):
+        for option in options:
+            if gateway_matches(preferred, option, substring=substring):
+                return option
 
     return None
 
@@ -656,6 +696,20 @@ def learned_dns_from_state(
     domains = state.get("CISCO_DEF_DOMAIN", "").split()
     domains += re.split(r"[,\s]+", state.get("CISCO_SPLIT_DNS", ""))
     return _dedupe(servers), _dedupe(domains), _dedupe(servers6)
+
+
+def parse_dns_servers(text: str) -> List[str]:
+    """The profile's `dns` entries: separated by commas, semicolons or blanks"""
+    return [entry for entry in re.split(r"[;,\s]+", text) if entry]
+
+
+def is_ip_address(text: str) -> bool:
+    """True for an IPv4 or IPv6 address"""
+    try:
+        ipaddress.ip_address(text.strip())
+    except ValueError:
+        return False
+    return True
 
 
 def ipv4_to_nm_uint32(address: str) -> int:
@@ -997,7 +1051,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             # Get DNS servers (optional)
             dns_str = data_dict.get("dns", "")
             if dns_str:
-                self.dns_servers = [s.strip() for s in dns_str.split(";") if s.strip()]
+                self.dns_servers = parse_dns_servers(dns_str)
                 logger.info(f"DNS servers configured: {self.dns_servers}")
 
             # Get custom DNS domains (optional)
@@ -1878,22 +1932,28 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         follow-up challenge (MFA / OTP). Order lets us do the right thing even
         for localized labels the English keyword lists don't match.
         """
+        # Hints in brackets are not what the prompt asks for: "Username (not
+        # your PIN)" is a username, "Password (RSA token)" a token prompt
+        main = LABEL_HINT_RE.sub(" ", label)
+        hints = " ".join(LABEL_HINT_RE.findall(label))
+
         # One-time challenge, by keyword in the label OR by position (anything
         # after we've already sent the password this phase).
-        if is_one_time_secret(label) or self._answered_password:
+        if is_one_time_secret(main) or self._answered_password:
             return "otp"
 
         # Username by keyword. This comes before the banner check: an RSA
         # banner is printed before the Username prompt too, and the token is
         # only wanted at the password prompt (issue #6).
-        if classify_prompt(label) == "username":
+        if classify_prompt(main) == "username":
             return "username"
 
-        # A prompt under a one-time banner ("Please enter RSA token"). Before
+        # A one-time word in a hint of a secret ("Password (RSA token)"), or a
+        # prompt under a one-time banner ("Please enter RSA token"). Before
         # the positional username rule: a Gateway phase without a stored
         # username starts with nothing answered, yet gpclient asks only for
         # the token there, as a bare "Password".
-        if is_one_time_secret(banner_msg):
+        if is_one_time_secret(hints) or is_one_time_secret(banner_msg):
             return "otp"
 
         # Username by position: the first credential prompt of the phase when
@@ -2024,9 +2084,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             start_option = options[frame["cursor"]]
             current_frame = frame
             steps = 0  # Down presses so far
-            substring_hit = None
-            hit_steps = None  # Down presses from the start to the first hit
-            returning = None  # Down presses left on the way back to the hit
+            step_limit = SELECT_MAX_STEPS
+            substring_hit = None  # first entry that merely contains the name
+            homing = False  # walking on to `substring_hit` by its name
 
             while True:
                 self._record_gateways(current_frame["options"])
@@ -2036,35 +2096,42 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     preferred, current
                 ):
                     substring_hit = current
-                    hit_steps = steps
 
-                if steps and returning is None and current == start_option:
-                    if walking and substring_hit is not None:
-                        # No exact match anywhere: go back to the first entry
-                        # that merely contains the name (as on a short list),
-                        # by the same number of Downs it took to get there
-                        walking = False
-                        returning = hit_steps
-                        logger.info(
-                            f"No exact match for {preferred!r} - going back to "
-                            f"{substring_hit!r}"
-                        )
-                    else:
-                        logger.warning(
-                            f"Walked the whole list without finding {wanted!r} - "
-                            f"selecting the first proposal {current!r}"
-                        )
-                        self._write_keys(KEY_ENTER, "select the first proposal")
-                        return
+                lapped = steps > 0 and current == start_option
+                if (
+                    walking
+                    and substring_hit is not None
+                    and (lapped or steps >= step_limit)
+                    and not matches(current)
+                ):
+                    # No exact match on the lap (or none within the step
+                    # limit): go on to the first entry that contains the name
+                    # (as on a short list), looking for it by name, with a
+                    # step budget of its own
+                    reason = "No exact match" if lapped else "Step limit reached"
+                    logger.info(
+                        f"{reason} for {preferred!r} after {steps} steps - "
+                        f"going to {substring_hit!r}"
+                    )
+                    walking = False
+                    homing = True
+                    hit = substring_hit
+                    matches = lambda option: option == hit  # noqa: E731
+                    step_limit = steps + SELECT_MAX_STEPS
+                elif lapped and not homing:
+                    logger.warning(
+                        f"Walked the whole list without finding {wanted!r} - "
+                        f"selecting the first proposal {current!r}"
+                    )
+                    self._write_keys(KEY_ENTER, "select the first proposal")
+                    return
 
-                if returning == 0 or matches(current):
+                if matches(current):
                     logger.info(f"Selecting gateway: {current!r}")
                     self._write_keys(KEY_ENTER, f"select {current!r}")
                     return
 
-                # The limit is for the lap looking for a match; the way back
-                # is as long as the hit was far
-                if returning is None and steps >= SELECT_MAX_STEPS:
+                if steps >= step_limit:
                     logger.warning(
                         f"Gave up after {steps} steps through the gateway list - "
                         f"selecting {current!r}"
@@ -2083,8 +2150,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                 current_frame = next_frame
                 steps += 1
-                if returning is not None:
-                    returning -= 1
         finally:
             self._answering = False
 
@@ -2172,7 +2237,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             "any stored value"
         )
         flagged = await self._write_vpn_data(f"{OTP_SECRET_KEY}-flags", "2")
-        dropped = await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
+        # Without the flag dropping the value would not hold: skip it and try
+        # both again at a later prompt
+        dropped = flagged and await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
         # Only after both succeeded: on a failure the code may still be in the
         # profile, so the next one-time prompt has to try again - a few times,
         # not at every prompt (each nmcli call may wait 10 s)
@@ -2417,10 +2484,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
     @staticmethod
     def _dns_to_nm(servers: List[str]) -> List[int]:
-        """IPv4 servers as NetworkManager uint32s; invalid entries are skipped"""
+        """IPv4 servers as NetworkManager uint32s; anything else is skipped"""
         dns_list = []
         for dns in servers:
             dns = dns.strip()
+            if is_ip_address(dns) and ":" in dns:
+                # Ip4Config has no room for it
+                logger.info(
+                    f"DNS server {dns} is IPv6 - not reported to NetworkManager"
+                )
+                continue
             try:
                 dns_list.append(ipv4_to_nm_uint32(dns))
                 logger.info(f"Added DNS server: {dns}")
@@ -2436,31 +2509,38 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Fill in Ip4Config's dns/domains (issue #15).
 
         The profile's `dns` override wins over the servers the gateway pushed,
-        unless none of its entries is a valid IPv4 address (then the gateway's
-        servers are used); search domains are the gateway's plus the profile's `dns-domains`.
+        unless none of its entries is a valid IP address of either family
+        (then the gateway's servers are used); an IPv6-only override is kept
+        as it is, which leaves Ip4Config without DNS servers. Search domains
+        are the gateway's plus the profile's `dns-domains`.
         Handing them to NetworkManager is what keeps them alive: it reapplies
         its own VPN DNS configuration every time it recomputes DNS, whereas
         what vpnc-script wrote to systemd-resolved is overwritten with nothing.
         """
         learned_servers, learned_domains, learned_servers6 = learned or ([], [], [])
 
-        dns_list = []
-        if self.dns_servers:
+        override = any(is_ip_address(dns) for dns in self.dns_servers)
+        if override:
             dns_list = self._dns_to_nm(self.dns_servers)
-            if not dns_list:
-                # A typo in the only override must not leave the tunnel
-                # without DNS while the gateway pushed working servers
-                logger.warning(
-                    f"None of the DNS servers in the profile is a valid IPv4 "
-                    f"address ({self.dns_servers}) - using the ones learned "
-                    f"from the gateway: {learned_servers}"
-                )
-            elif learned_servers:
+            if learned_servers:
                 logger.info(
                     f"DNS servers overridden by the profile: {self.dns_servers} "
                     f"(gateway pushed {learned_servers})"
                 )
-        if not dns_list:
+        else:
+            if self.dns_servers:
+                # A typo in the only override must not leave the tunnel
+                # without DNS while the gateway pushed working servers
+                logger.warning(
+                    f"None of the DNS servers in the profile is a valid IP "
+                    f"address ({self.dns_servers}) - "
+                    + (
+                        f"using the ones learned from the gateway: {learned_servers}"
+                        if learned_servers
+                        else "no DNS servers from the gateway are available "
+                        "either, none will be configured"
+                    )
+                )
             dns_list = self._dns_to_nm(learned_servers)
         if dns_list:
             config["dns"] = ("au", dns_list)
