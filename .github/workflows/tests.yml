@@ -1,0 +1,86 @@
+name: Unit tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only a new push to a pull request cancels the superseded run. GitHub keeps
+# one pending run per group and drops the older one even without
+# cancel-in-progress, so every other run gets its own group.
+concurrency:
+  group: unit-tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    name: ${{ matrix.mode }} (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is what Ubuntu 22.04 ships, 3.12 what 24.04 ships, 3.x is the
+        # newest release (stands in for the newer python3 of 26.04). The
+        # service is run by the system python3 on every supported release.
+        python: ["3.10", "3.12", "3.x"]
+        mode: ["non-root", "root"]
+
+    steps:
+      # No submodules: the unit tests do not import anything from external/.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install pytest
+        run: python -m pip install pytest
+
+      # The tests fake these tools through PATH; the ones they do not fake
+      # must exist on the runner.
+      - name: Check host tools
+        # `command -v a b c` succeeds if any one is found: check each tool.
+        run: |
+          for t in bash sudo pgrep getent id logger date dpkg dpkg-deb; do
+            command -v "$t" >/dev/null || { echo "::error::missing $t"; exit 1; }
+          done
+
+      - name: Run unit tests (non-root)
+        if: matrix.mode == 'non-root'
+        run: python -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml
+
+      # The setup-python interpreter lives outside sudo's secure_path, so it is
+      # called by absolute path. PATH itself needs no care: the tests put their
+      # fake tools first in the PATH they pass to the scripts.
+      - name: Run unit tests (root)
+        if: matrix.mode == 'root'
+        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml
+
+      # The counts of this job, shown when it is opened from the checks of a
+      # pull request. Runs after a failure too, and never fails the job itself.
+      - name: Summarize results
+        if: always()
+        env:
+          TITLE: ${{ matrix.mode }} (Python ${{ matrix.python }})
+        run: python .github/scripts/junit_summary.py --title "$TITLE" junit.xml >> "$GITHUB_STEP_SUMMARY"
+
+      # The raw report, for anyone who wants more than the summary. Uploaded
+      # even when the tests fail. The name is junit-<mode>-py<python>, e.g.
+      # junit-non-root-py3.x: dots and dashes are valid in artifact names (only
+      # " : < > | * ? \ / are not), and upload-artifact@v4 needs a distinct name
+      # per matrix entry.
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.mode }}-py${{ matrix.python }}
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 14

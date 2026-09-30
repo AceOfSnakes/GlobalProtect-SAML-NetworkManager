@@ -47,7 +47,8 @@ jobs:
             exit 1
           fi
           export GNUPGHOME="$RUNNER_TEMP/gnupg"
-          mkdir -p -m 700 "$GNUPGHOME"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
           printf '%s' "$APT_GPG_PRIVATE_KEY" | gpg --batch --quiet --import
           fingerprint=$(gpg --batch --with-colons --list-secret-keys \
             | awk -F: '/^fpr:/ {print $10; exit}')
@@ -59,6 +60,9 @@ jobs:
           echo "APT_GPG_KEY=$fingerprint" >> "$GITHUB_ENV"
           echo "Signing with $fingerprint"
 
+      # Only real releases: isPrerelease == false is what keeps the pr-<N> test
+      # builds (prereleases created by pr-test-packages.yml) out of the apt
+      # repository. Keep that filter, and keep pr-<N> a prerelease.
       - name: Download packages from every published release
         env:
           GH_TOKEN: ${{ github.token }}

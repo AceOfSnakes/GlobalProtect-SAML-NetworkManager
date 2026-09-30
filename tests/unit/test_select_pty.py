@@ -375,3 +375,75 @@ class TestPressListDown:
         )
 
         assert asyncio.run(plugin._press_list_down()) is None
+
+
+async def _run_with_credentials(service_module, fake_path, username, password):
+    """Run a fake gpclient with stored credentials and no way to ask the user"""
+    plugin = service_module.GpclientVPNPlugin()
+    plugin.vpn_username = username
+    plugin.vpn_password = password
+    plugin._interactive = False
+    plugin._reset_phase_state()
+
+    master, slave = pty.openpty()
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(fake_path),
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+    )
+    os.close(slave)
+    plugin._pty_master = master
+    plugin.gpclient_process = process
+
+    monitor = asyncio.create_task(plugin._monitor_gpclient_output())
+    try:
+        await asyncio.wait_for(process.wait(), timeout=20)
+        await asyncio.wait_for(monitor, timeout=10)
+    finally:
+        if not monitor.done():
+            monitor.cancel()
+        if plugin._prompt_task and not plugin._prompt_task.done():
+            plugin._prompt_task.cancel()
+    return plugin
+
+
+class TestBadCredentialsOverPty:
+    """Negative counterparts of TestStoredCredentialsOverPty."""
+
+    def test_no_stored_password_without_interaction_fails_login(
+        self, service_module, tmp_path, dbus_signals
+    ):
+        fake = tmp_path / "fake-gpclient-terminated.py"
+        fake.write_text(FAKE_TERMINATED_PROMPTS_GPCLIENT)
+
+        plugin = asyncio.run(_run_with_credentials(service_module, fake, "jdoe", ""))
+
+        # Nobody can be asked for the password: report it, don't hang or guess
+        assert plugin._login_failed is True
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+        assert not any(
+            "Connecting to the only available gateway" in line
+            for line in plugin._recent_lines
+        )
+
+    def test_wrong_stored_password_is_not_accepted(
+        self, service_module, tmp_path, dbus_signals
+    ):
+        fake = tmp_path / "fake-gpclient-credentials.py"
+        fake.write_text(FAKE_CREDENTIALS_GPCLIENT)
+
+        plugin = asyncio.run(
+            _run_with_credentials(service_module, fake, "jdoe", "wrong")
+        )
+
+        lines = list(plugin._recent_lines)
+        assert any("Authentication failure" in line for line in lines)
+        assert not any(
+            "Connecting to the only available gateway" in line for line in lines
+        )
+        assert plugin._gateway_list == []

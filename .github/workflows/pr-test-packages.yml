@@ -1,0 +1,255 @@
+name: PR test packages
+
+# Makes the packages built for a pull request installable, and says how in the
+# pull request's checks:
+#
+#   * "Build and Release" finished for a pull request: its .deb files go to the
+#     prerelease pr-<N> and a check run named "Test packages" is added to the
+#     head commit. Its title (shown in the merge box, next to the check) is the
+#     install command, its summary says what the command does and how to go
+#     back. A failed build, or a failure while publishing, gets a neutral "No
+#     test packages" check instead.
+#   * The pull request is closed or merged: release pr-<N> and its tag are
+#     deleted.
+#
+# The test results themselves are the checks of "Unit tests" (each job has a
+# summary with the counts) and "Build and Release"; nothing is posted as a
+# comment.
+#
+# IMPORTANT: a workflow_run workflow runs only from the default branch, so this
+# does nothing until it is merged into main, and a pull request that changes
+# this file does not exercise its own version.
+#
+# Security: this runs in the context of the base repository with a write token,
+# for pull requests from forks as well. So it never checks out or runs code of
+# the pull request. The only things taken from it are the .deb files of the
+# build artifact, treated as data (plain file names only, never executed here),
+# and only for pull requests from this very repository: a fork's packages are
+# not published under this repository's name. The scripts come from the default
+# branch, and so does the install script the check points at.
+#
+# Prereleases are not part of the apt repository: publish-apt.yml publishes
+# releases that are neither drafts nor prereleases, and pr-<N> must stay a
+# prerelease.
+
+on:
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+# One run at a time per commit, never cancelled half way through publishing.
+# Closing gets its own group per pull request, so it is not queued behind (and
+# cannot replace) a publish; the publish job looks at the pull request again
+# when it is done, see below.
+concurrency:
+  group: pr-test-packages-${{ github.event.workflow_run.head_sha || format('closed-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish test packages
+    # Cancelled, skipped and similar runs (a newer push replaced the build) say
+    # nothing about the packages: leave the check as it is.
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.event == 'pull_request'
+      && contains(fromJSON('["success", "failure", "timed_out"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # download the build artifacts
+      checks: write # the "Test packages" check run
+      contents: write # release pr-<N> and its tag
+      pull-requests: read # find the pull request of the commit
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+    steps:
+      # Default branch only, and only the helper script: nothing of the pull
+      # request is checked out. No credentials are left in the checkout.
+      - name: Checkout the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      # workflow_run.pull_requests is empty for pull requests from forks, so
+      # look the pull request up by its head commit.
+      - name: Find the pull request
+        id: pr
+        run: |
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::unexpected head sha"
+            exit 1
+          fi
+          number=$(gh pr list --repo "$REPO" --state open --limit 500 \
+            --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$SHA\") | .number" | head -n 1)
+          if [ -z "$number" ]; then
+            echo "No open pull request has head $SHA (closed, or a newer push): nothing to do"
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      # Only packages built from this repository's own branches are published.
+      - name: Decide what to do
+        id: plan
+        if: steps.pr.outputs.number != ''
+        run: |
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "state=failed" >> "$GITHUB_OUTPUT"
+          elif [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "state=not-published" >> "$GITHUB_OUTPUT"
+            echo "reason=pull requests from forks are not published" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=publish" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the built packages
+        if: steps.plan.outputs.state == 'publish'
+        run: |
+          gh run download "$RUN_ID" --repo "$REPO" --pattern 'debs-*' --dir artifacts
+          # Plain package names only: they end up in a URL, a release and a
+          # check. The script owns the definition of a plain name, it copies
+          # those files and fails when there are none.
+          python3 .github/scripts/test_packages_check.py --filter artifacts --copy-to upload
+          ls -la upload
+
+      - name: Publish the prerelease
+        id: release
+        if: steps.plan.outputs.state == 'publish'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          tag="pr-$PR"
+
+          # Still the same open pull request? Then the packages are current.
+          current() {
+            [ "$(gh pr view "$PR" --repo "$REPO" --json state,headRefOid \
+              --jq '.state + " " + .headRefOid')" = "OPEN $SHA" ]
+          }
+          if ! current; then
+            echo "Pull request #$PR is closed or has a newer head: not publishing"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Start over: a release per push, with exactly this build's packages
+          if gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+            gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
+          fi
+          notes="Test build of pull request #$PR at commit $SHA. Not part of the apt repository. Install with scripts/install-pr-build.sh $PR. Deleted when the pull request closes."
+          gh release create "$tag" upload/*.deb --repo "$REPO" \
+            --prerelease --latest=false --target "$DEFAULT_BRANCH" \
+            --title "PR #$PR test build (${SHA:0:7})" --notes "$notes"
+
+          # Closed while the packages were going up (the cleanup job may have
+          # found nothing to delete yet): take them down again.
+          if ! current; then
+            echo "Pull request #$PR changed while publishing: removing the release"
+            gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      # The packages of an earlier push do not belong to this commit: do not
+      # leave them installable while the check says there are none.
+      #
+      # This holds for a failed publish as well: a release that stayed behind
+      # half done, or with the packages of an earlier push, is no state to leave
+      # next to a check that says there are no packages.
+      - name: Remove outdated packages
+        if: >-
+          always() && steps.pr.outputs.number != '' && (
+          steps.plan.outputs.state == 'failed'
+          || (steps.plan.outputs.state == 'publish' && steps.release.outputs.published == ''))
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          # Like when publishing: only for the open pull request this commit is
+          # the head of. A newer push has packages (or a build) of its own, and
+          # a closed pull request is cleaned up by the other job.
+          if [ "$(gh pr view "$PR" --repo "$REPO" --json state,headRefOid \
+            --jq '.state + " " + .headRefOid')" != "OPEN $SHA" ]; then
+            echo "Pull request #$PR is closed or has a newer head: leaving release pr-$PR alone"
+            exit 0
+          fi
+          if gh release view "pr-$PR" --repo "$REPO" > /dev/null 2>&1; then
+            gh release delete "pr-$PR" --repo "$REPO" --cleanup-tag --yes
+          fi
+
+      # Also when downloading or publishing failed: the check says so instead
+      # of staying as it was.
+      - name: Render the check
+        id: render
+        if: always() && steps.pr.outputs.number != ''
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          STATE: ${{ steps.plan.outputs.state }}
+          REASON: ${{ steps.plan.outputs.reason }}
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          PUBLISHED: ${{ steps.release.outputs.published }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          args=(--pr "$PR" --sha "$SHA" --repo "$REPO" --script-ref "$DEFAULT_BRANCH")
+          if [ "$STATE" = "failed" ]; then
+            args+=(--state failed --run-url "$RUN_URL")
+          elif [ "$STATE" = "not-published" ]; then
+            args+=(--state not-published --reason "$REASON")
+          elif [ "$STATE" = "publish" ] && [ "$RELEASE_OUTCOME" = "success" ] && [ "$PUBLISHED" = "true" ]; then
+            args+=(--state published --debs-dir upload)
+          elif [ "$STATE" = "publish" ] && [ "$RELEASE_OUTCOME" = "success" ]; then
+            args+=(--state not-published --reason "the pull request is closed or has a newer commit")
+          else
+            # Downloading or publishing did not finish (or no plan was made)
+            args+=(--state publish-failed --run-url "$WORKFLOW_RUN_URL")
+          fi
+          python3 .github/scripts/test_packages_check.py "${args[@]}" > check.json
+          cat check.json
+
+      # One check per commit: a re-run updates it instead of adding another.
+      - name: Create or update the check run
+        if: always() && steps.pr.outputs.number != '' && steps.render.outcome == 'success'
+        run: |
+          id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Test%20packages&per_page=100" \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions")] | first | .id // empty')
+          if [ -n "$id" ]; then
+            jq 'del(.head_sha)' check.json \
+              | gh api --method PATCH "repos/$REPO/check-runs/$id" --input - > /dev/null
+          else
+            gh api --method POST "repos/$REPO/check-runs" --input check.json > /dev/null
+          fi
+
+  cleanup:
+    name: Remove test packages
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # release pr-<N> and its tag
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+
+    # No checkout: nothing of the pull request, nor of the repository, is needed.
+    steps:
+      - name: Delete release and tag
+        run: |
+          tag="pr-$PR"
+          if gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+            gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
+            echo "Deleted release $tag"
+          else
+            echo "No release $tag"
+          fi
