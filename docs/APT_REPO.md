@@ -28,8 +28,13 @@ Types: deb
 URIs: https://wmp.github.io/GlobalProtect-SAML-NetworkManager
 Suites: noble
 Components: main
+Architectures: amd64
 Signed-By: /usr/share/keyrings/gpclient-archive-keyring.gpg
 ```
+
+Use the value of `dpkg --print-architecture` (`arm64` on ARM); without the line apt
+also asks for foreign-architecture indexes such as `i386`, which the repository
+does not publish.
 
 Supported suites are Ubuntu release codenames: `jammy` (22.04), `noble` (24.04),
 `resolute` (26.04). Both `amd64` and `arm64` are built; apt picks the one matching

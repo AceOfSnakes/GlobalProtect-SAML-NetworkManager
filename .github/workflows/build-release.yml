@@ -82,6 +82,14 @@ jobs:
             echo "ERROR: No .deb files produced!"
             exit 1
           fi
+          # A wrong-architecture .deb would land in the wrong apt Packages index
+          for deb in output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb; do
+            deb_arch=$(dpkg-deb -f "$deb" Architecture)
+            if [ "$deb_arch" != "${{ matrix.arch }}" ]; then
+              echo "ERROR: $deb has Architecture '$deb_arch', expected '${{ matrix.arch }}'"
+              exit 1
+            fi
+          done
           echo "Built packages:"
           ls -la output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 

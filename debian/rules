@@ -2,8 +2,8 @@
 
 export DH_VERBOSE = 1
 
-# Multiarch triplet of the target (x86_64-linux-gnu, aarch64-linux-gnu, ...)
-DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+# Defines DEB_HOST_MULTIARCH (x86_64-linux-gnu, aarch64-linux-gnu, ...) of the target
+include /usr/share/dpkg/architecture.mk
 
 %:
 	dh $@

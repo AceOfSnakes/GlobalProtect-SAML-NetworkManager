@@ -16,6 +16,10 @@ MULTIARCH := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -
 endif
 # libnm resolves the relative plugin= of the .name file in this directory, not in VPN/
 NM_PLUGIN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager
+# An empty MULTIARCH would install into /usr/lib//NetworkManager; checked on the
+# effective dir so an explicit NM_PLUGIN_DIR=<dir> works without a triplet, and
+# only in the recipe so `make clean` keeps working
+CHECK_NM_PLUGIN_DIR = @case "$(NM_PLUGIN_DIR)" in *//*) echo "NM_PLUGIN_DIR=$(NM_PLUGIN_DIR) has an empty multiarch part: pass MULTIARCH=<triplet> (e.g. x86_64-linux-gnu) or NM_PLUGIN_DIR=<dir>" >&2; exit 1;; esac
 
 # Check if libnma-gtk4 is available
 HAS_GTK4 := $(shell pkg-config --exists libnma-gtk4 && echo yes)
@@ -44,6 +48,7 @@ libnm-gtk4-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclien
 		nm-gpclient-editor-plugin.c nm-gpclient-editor.c $(EDITOR_GTK4_LIBS)
 
 install: all
+	$(CHECK_NM_PLUGIN_DIR)
 	install -D -m 644 libnm-vpn-plugin-gpclient.so $(NM_PLUGIN_DIR)/libnm-vpn-plugin-gpclient.so
 	install -D -m 644 libnm-vpn-plugin-gpclient-editor.so $(NM_PLUGIN_DIR)/libnm-vpn-plugin-gpclient-editor.so
 	install -D -m 644 nm-gpclient-service.name /usr/lib/NetworkManager/VPN/nm-gpclient-service.name

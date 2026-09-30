@@ -257,7 +257,7 @@ def test_non_root_trusts_passwd_entry_only_for_the_same_uid(
     assert _browser_env(tmp_path)["HOME"] == str(expected)
 
 
-# --- Root: the desktop user comes from SUDO_UID (or SUDO_USER) -----------------
+# --- Root: the desktop user comes from SUDO_UID, PKEXEC_UID or a name ---------
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
@@ -272,34 +272,57 @@ def test_root_drops_privileges_by_numeric_uid(tmp_path):
     assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
 
 
-@pytest.mark.skipif(not IS_ROOT, reason="needs root to run the browser as root")
+REFUSED_AS_ROOT = "refusing to run the browser as root"
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the root path")
 @pytest.mark.parametrize(
     "env",
-    [{"SUDO_UID": "0"}, {}],
-    ids=["sudo-uid-is-root", "no-sudo-variables"],
+    [
+        {"SUDO_UID": "0"},
+        {"PKEXEC_UID": "0"},
+        {"SUDO_UID": "000"},
+        # A set SUDO_UID wins even when it says root; PKEXEC_UID is not consulted
+        {"SUDO_UID": "0", "PKEXEC_UID": str(FAKE_UID)},
+        {"USER": "root"},
+        {"SUDO_USER": "root"},
+        {},
+    ],
+    ids=[
+        "sudo-uid-is-root",
+        "pkexec-uid-is-root",
+        "sudo-uid-zeros",
+        "sudo-uid-root-beats-pkexec-uid",
+        "user-root",
+        "sudo-user-root",
+        "no-variables",
+    ],
 )
-def test_root_without_a_desktop_user_runs_browser_directly(tmp_path, env):
-    """Real user is root itself: nothing to drop to, so sudo must not be used."""
+def test_root_never_runs_browser_as_root(tmp_path, env):
+    """Nothing points to a non-root user: refuse, do not run the browser as root."""
     _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path, known_user="root", known_output=0)
 
     result = _run_wrapper(_root_env(tmp_path, **env))
 
-    _assert_browser_started(tmp_path, result)
-    assert not (tmp_path / "sudo_args").exists(), "sudo was called"
+    _assert_rejected(tmp_path, result, REFUSED_AS_ROOT)
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
 def test_root_normalizes_leading_zeros_in_sudo_uid(tmp_path):
-    """0048213 must mean uid 48213 everywhere: sudo, log file and temp dir."""
+    """000000048213 must mean uid 48213 everywhere: sudo, log file and temp dir,
+    however many zeros come first (more than 10 characters in all)."""
     _fake_root_tools(tmp_path)
+    padded = f"0000000{FAKE_UID}"
+    assert len(padded) > 10
 
-    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=f"00{FAKE_UID}"))
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=padded))
 
     _assert_browser_started(tmp_path, result)
     assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
     logs = (tmp_path / "wrapper_logs").read_text().splitlines()
     assert f"/tmp/edge-wrapper-{FAKE_UID}.log" in logs
-    assert f"/tmp/edge-wrapper-00{FAKE_UID}.log" not in logs
+    assert f"/tmp/edge-wrapper-{padded}.log" not in logs
     assert _browser_env(tmp_path)["XDG_CACHE_HOME"] == (
         f"/tmp/edge-wrapper-{FAKE_UID}/cache"
     )
@@ -398,8 +421,20 @@ def test_root_rejects_non_numeric_sudo_uid(tmp_path, sudo_uid):
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the SUDO_UID path")
 @pytest.mark.parametrize(
     "sudo_uid",
-    ["99999999999999999999", "4294967295", "4294967296"],
-    ids=["overflow", "uid-t-minus-one", "wraps-to-root-in-glibc"],
+    [
+        "99999999999999999999",
+        "4294967295",
+        "4294967296",
+        "00004294967295",
+        "000000004294967296",
+    ],
+    ids=[
+        "overflow",
+        "uid-t-minus-one",
+        "wraps-to-root-in-glibc",
+        "zeros-then-uid-t-minus-one",
+        "zeros-then-wraps-to-root",
+    ],
 )
 def test_root_rejects_out_of_range_sudo_uid(tmp_path, sudo_uid):
     """Only digits, but not a valid uid: must never reach sudo or the browser
@@ -423,15 +458,126 @@ def test_root_falls_back_to_user_without_sudo_variables(tmp_path):
     assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
 
 
-@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the USER path")
-def test_root_user_root_runs_browser_directly(tmp_path):
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the PKEXEC_UID path")
+def test_root_uses_pkexec_uid(tmp_path):
+    _fake_root_tools(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, PKEXEC_UID=str(FAKE_UID)))
+
+    _assert_browser_started(tmp_path, result)
+    assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the PKEXEC_UID path")
+@pytest.mark.parametrize(
+    "env, reason",
+    [
+        ({"PKEXEC_UID": "abc"}, "PKEXEC_UID is not a number"),
+        ({"PKEXEC_UID": ""}, "PKEXEC_UID is not a number"),
+        # A set but invalid variable is an error, never a reason to try the next
+        ({"SUDO_UID": "abc", "PKEXEC_UID": str(FAKE_UID)}, "SUDO_UID is not a number"),
+        (
+            {"PKEXEC_UID": "abc", "DOAS_USER": FAKE_SUDO_USER},
+            "PKEXEC_UID is not a number",
+        ),
+    ],
+    ids=["letters", "set-but-empty", "bad-sudo-uid-no-fallthrough", "bad-pkexec-uid-no-fallthrough"],
+)
+def test_root_rejects_invalid_uid_variable(tmp_path, env, reason):
     _fake_root_tools(tmp_path)
     _fake_id_by_name(tmp_path)
 
-    result = _run_wrapper(_root_env(tmp_path, USER="root"))
+    result = _run_wrapper(_root_env(tmp_path, **env))
+
+    _assert_rejected(tmp_path, result, reason)
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the DOAS_USER path")
+def test_root_uses_doas_user_by_id_lookup(tmp_path):
+    """The name is never parsed: only `id -u -- <name>` turns it into a number."""
+    _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, DOAS_USER=FAKE_SUDO_USER))
 
     _assert_browser_started(tmp_path, result)
-    assert not (tmp_path / "sudo_args").exists(), "sudo was called"
+    assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the DOAS_USER path")
+def test_root_rejects_unknown_doas_user(tmp_path):
+    _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, DOAS_USER="unknown.user"))
+
+    _assert_rejected(tmp_path, result, "Cannot get UID for user")
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the lookup order path")
+def test_root_lookup_order_uid_before_names_and_doas_before_sudo_user(tmp_path):
+    """SUDO_UID, PKEXEC_UID, DOAS_USER, SUDO_USER, USER: the first one that is
+    set decides (names the fake id does not know would fail if they were tried)."""
+    _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path)
+
+    # A uid variable wins over every name
+    result = _run_wrapper(
+        _root_env(
+            tmp_path,
+            PKEXEC_UID=str(FAKE_UID),
+            DOAS_USER="unknown.user",
+            SUDO_USER="unknown.user",
+        )
+    )
+    _assert_browser_started(tmp_path, result)
+    assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
+    (tmp_path / "opened").unlink()
+    (tmp_path / "sudo_args").unlink()
+
+    # DOAS_USER wins over SUDO_USER and USER
+    result = _run_wrapper(
+        _root_env(
+            tmp_path,
+            DOAS_USER=FAKE_SUDO_USER,
+            SUDO_USER="unknown.user",
+            USER="unknown.user",
+        )
+    )
+    _assert_browser_started(tmp_path, result)
+    assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
+    (tmp_path / "opened").unlink()
+    (tmp_path / "sudo_args").unlink()
+
+    # ... and not the other way round: the unknown DOAS_USER decides and fails
+    result = _run_wrapper(
+        _root_env(tmp_path, DOAS_USER="unknown.user", SUDO_USER=FAKE_SUDO_USER)
+    )
+    _assert_rejected(tmp_path, result, "Cannot get UID for user")
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+@pytest.mark.parametrize(
+    "sudo_uid, message",
+    [
+        (str(FAKE_UID), None),
+        ("abc", "SUDO_UID is not a number"),
+    ],
+    ids=["valid-uid", "bad-uid"],
+)
+def test_root_ignores_inherited_log_file(tmp_path, sudo_uid, message):
+    """Messages logged as root must not land in a file named by the environment:
+    the wrapper's own log file is chosen only once the real user is known."""
+    _fake_root_tools(tmp_path)
+    evil = tmp_path / "evil.log"
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=sudo_uid, LOG_FILE=str(evil)))
+
+    assert not evil.exists(), "the inherited LOG_FILE was written to"
+    if message is None:
+        _assert_browser_started(tmp_path, result)
+    else:
+        _assert_rejected(tmp_path, result, message)
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the USER path")

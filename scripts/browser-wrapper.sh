@@ -14,7 +14,10 @@
 
 MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 
-# Note: LOG_FILE is set after REAL_UID is known (security: per-user log file)
+# LOG_FILE is set after REAL_UID is known (security: per-user log file). Until
+# then log() must go to stderr, so an inherited LOG_FILE cannot receive messages
+# written as root.
+LOG_FILE=""
 log() {
     if [ -n "$LOG_FILE" ]; then
         echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"
@@ -27,24 +30,40 @@ log() {
 # contain dots, '@' or upper case, so we never parse one; only a number ends up
 # in commands. The name below is only looked up from the UID, for logging.
 if [ "$EUID" -eq 0 ]; then
-    # nm-gpclient-service runs as root and passes the desktop user in SUDO_UID
+    # Same order as gpapi's real_user_lookup: nm-gpclient-service passes the
+    # desktop user in SUDO_UID; then PKEXEC_UID; then names (DOAS_USER, and
+    # SUDO_USER/USER for older callers). A variable that is set wins even when
+    # its value is invalid, so a bad SUDO_UID is never papered over by a later one.
+    REAL_UID=""
+    UID_VAR=""
     if [ -n "${SUDO_UID+set}" ]; then
-        if [[ ! "$SUDO_UID" =~ ^[0-9]+$ ]]; then
-            log "ERROR: SUDO_UID is not a number: $SUDO_UID"
-            exit 1
-        fi
-        REAL_UID="$SUDO_UID"
-    elif [ -n "${SUDO_USER:-}" ] || [ "${USER:-root}" != root ]; then
-        # Compatibility with callers that only set SUDO_USER. With no SUDO_*
-        # at all the old wrapper dropped to $USER, so keep doing that.
-        LOOKUP_NAME="${SUDO_USER:-$USER}"
-        REAL_UID=$(id -u -- "$LOOKUP_NAME" 2>/dev/null)
-        if [ -z "$REAL_UID" ]; then
-            log "ERROR: Cannot get UID for user: $LOOKUP_NAME"
+        UID_VAR=SUDO_UID
+    elif [ -n "${PKEXEC_UID+set}" ]; then
+        UID_VAR=PKEXEC_UID
+    fi
+    if [ -n "$UID_VAR" ]; then
+        REAL_UID="${!UID_VAR}"
+        if [[ ! "$REAL_UID" =~ ^[0-9]+$ ]]; then
+            log "ERROR: $UID_VAR is not a number: $REAL_UID"
             exit 1
         fi
     else
-        REAL_UID=0
+        for NAME_VAR in DOAS_USER SUDO_USER USER; do
+            LOOKUP_NAME="${!NAME_VAR:-}"
+            # Blank names carry no information; USER=root is just where we run
+            [[ "$LOOKUP_NAME" =~ ^[[:space:]]*$ ]] && continue
+            [ "$NAME_VAR" = USER ] && [ "$LOOKUP_NAME" = root ] && continue
+            REAL_UID=$(id -u -- "$LOOKUP_NAME" 2>/dev/null)
+            if [ -z "$REAL_UID" ]; then
+                log "ERROR: Cannot get UID for user: $LOOKUP_NAME"
+                exit 1
+            fi
+            break
+        done
+    fi
+    if [ -z "$REAL_UID" ]; then
+        log "ERROR: refusing to run the browser as root (no non-root desktop user found)"
+        exit 1
     fi
 else
     # We cannot switch user anyway, so SUDO_UID/SUDO_USER/USER from the
@@ -54,14 +73,26 @@ else
 fi
 
 # Whatever the source (id may fail or print junk), only a plain number goes on.
-# Drop leading zeros (bash would read 010 as octal) and refuse anything above
-# the valid uid range: 4294967295 is (uid_t)-1 and a bigger number could wrap
-# around to another user (even root) once a library truncates it to 32 bits.
-if [[ ! "$REAL_UID" =~ ^[0-9]{1,10}$ ]] || [ "$((10#$REAL_UID))" -gt 4294967294 ]; then
+# Drop leading zeros first (bash would read 010 as octal) and refuse anything
+# above the valid uid range: 4294967295 is (uid_t)-1 and a bigger number could
+# wrap around to another user (even root) once a library truncates it to 32 bits.
+if [[ "$REAL_UID" =~ ^0*([0-9]+)$ ]]; then
+    UID_NUM="${BASH_REMATCH[1]}"
+else
+    UID_NUM="$REAL_UID"
+fi
+if [[ ! "$UID_NUM" =~ ^[0-9]{1,10}$ ]] || [ "$UID_NUM" -gt 4294967294 ]; then
     log "ERROR: cannot determine the real user's UID (got: '$REAL_UID')"
     exit 1
 fi
-REAL_UID=$((10#$REAL_UID))
+REAL_UID="$UID_NUM"
+
+# As root the browser is only ever started for a non-root user (gpapi refuses
+# with "Non-root user not found" in the same case)
+if [ "$EUID" -eq 0 ] && [ "$REAL_UID" -eq 0 ]; then
+    log "ERROR: refusing to run the browser as root (no non-root desktop user found)"
+    exit 1
+fi
 
 REAL_USER=""
 REAL_HOME=""
@@ -79,7 +110,7 @@ if [ -n "$PASSWD_ENTRY" ]; then
     fi
 fi
 if [ -z "$PASSWD_ENTRY" ]; then
-    if [ "$EUID" -eq 0 ] && [ "$REAL_UID" -ne 0 ]; then
+    if [ "$EUID" -eq 0 ]; then
         log "ERROR: no passwd entry for uid $REAL_UID"
         exit 1
     fi
@@ -93,7 +124,7 @@ fi
 # the old edge-only wrapper so existing troubleshooting docs stay valid.
 LOG_FILE="/tmp/edge-wrapper-$REAL_UID.log"
 log "called with args: $*"
-log "EUID=$EUID USER=${USER:-} SUDO_UID=${SUDO_UID:-} SUDO_USER=${SUDO_USER:-} GP_BROWSER=${GP_BROWSER:-unset} GP_AUTH_TIMEOUT=$MAX_WAIT"
+log "EUID=$EUID USER=${USER:-} SUDO_UID=${SUDO_UID:-} SUDO_USER=${SUDO_USER:-} PKEXEC_UID=${PKEXEC_UID:-} DOAS_USER=${DOAS_USER:-} GP_BROWSER=${GP_BROWSER:-unset} GP_AUTH_TIMEOUT=$MAX_WAIT"
 log "resolved real user: $REAL_USER (uid=$REAL_UID) home=$REAL_HOME"
 
 # --- Pick the browser binary ------------------------------------------------
@@ -401,7 +432,7 @@ run_browser_with_monitor() {
     return 0
 }
 
-if [ "$EUID" -eq 0 ] && [ "$REAL_UID" -ne 0 ]; then
+if [ "$EUID" -eq 0 ]; then
     # "#uid" makes sudo take a numeric UID, so the name is never involved
     log "running as root; dropping privileges to $REAL_USER (uid=$REAL_UID) via sudo"
     exec sudo -u "#$REAL_UID" bash -c "$(declare -f log run_browser_with_monitor); \
