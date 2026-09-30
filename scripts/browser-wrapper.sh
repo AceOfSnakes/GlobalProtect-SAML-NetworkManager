@@ -23,21 +23,54 @@ log() {
     fi
 }
 
-REAL_USER="${SUDO_USER:-$USER}"
-
-REAL_UID=$(id -u "$REAL_USER" 2>/dev/null)
-if [ -z "$REAL_UID" ]; then
-    log "ERROR: Cannot get UID for user: $REAL_USER"
-    exit 1
+# Identify the real (desktop) user by UID, not by name. Names can legitimately
+# contain dots, '@' or upper case, so we never parse one; only a number ends up
+# in commands. The name below is only looked up from the UID, for logging.
+if [ "$EUID" -eq 0 ]; then
+    # nm-gpclient-service runs as root and passes the desktop user in SUDO_UID
+    if [ -n "${SUDO_UID+set}" ]; then
+        if [[ ! "$SUDO_UID" =~ ^[0-9]+$ ]]; then
+            log "ERROR: SUDO_UID is not a number: $SUDO_UID"
+            exit 1
+        fi
+        REAL_UID="$SUDO_UID"
+    elif [ -n "${SUDO_USER:-}" ]; then
+        # Compatibility with callers that only set SUDO_USER
+        REAL_UID=$(id -u -- "$SUDO_USER" 2>/dev/null)
+        if [ -z "$REAL_UID" ]; then
+            log "ERROR: Cannot get UID for user: $SUDO_USER"
+            exit 1
+        fi
+    else
+        REAL_UID=0
+    fi
+else
+    # We cannot switch user anyway, so SUDO_UID/SUDO_USER/USER from the
+    # environment are irrelevant (and untrusted). id -u, not $EUID, so the tests
+    # can fake it via PATH.
+    REAL_UID=$(id -u)
 fi
 
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+REAL_USER=""
+REAL_HOME=""
+PASSWD_ENTRY=$(getent passwd "$REAL_UID" 2>/dev/null)
+if [ -n "$PASSWD_ENTRY" ]; then
+    IFS=: read -r REAL_USER _ _ _ _ REAL_HOME _ <<< "$PASSWD_ENTRY"
+elif [ "$EUID" -eq 0 ] && [ "$REAL_UID" -ne 0 ]; then
+    log "ERROR: no passwd entry for uid $REAL_UID"
+    exit 1
+else
+    # Not root: the entry is only needed for the name and home, so tolerate a
+    # missing one (e.g. LDAP hiccup) and fall back to the environment
+    REAL_USER="${USER:-uid-$REAL_UID}"
+    REAL_HOME="${HOME:-}"
+fi
 
 # Per-user log file (security: prevent symlink attack). The name is kept from
 # the old edge-only wrapper so existing troubleshooting docs stay valid.
 LOG_FILE="/tmp/edge-wrapper-$REAL_UID.log"
 log "called with args: $*"
-log "EUID=$EUID USER=$USER SUDO_USER=${SUDO_USER:-} GP_BROWSER=${GP_BROWSER:-unset} GP_AUTH_TIMEOUT=$MAX_WAIT"
+log "EUID=$EUID USER=${USER:-} SUDO_UID=${SUDO_UID:-} SUDO_USER=${SUDO_USER:-} GP_BROWSER=${GP_BROWSER:-unset} GP_AUTH_TIMEOUT=$MAX_WAIT"
 log "resolved real user: $REAL_USER (uid=$REAL_UID) home=$REAL_HOME"
 
 # --- Pick the browser binary ------------------------------------------------
@@ -155,6 +188,8 @@ case "$FAMILY" in
 esac
 
 home_is_writable() {
+    # An unknown home must not turn into probing "/"
+    [ -n "$REAL_HOME" ] && \
     touch "$REAL_HOME/.gp-browser-writecheck" 2>/dev/null && \
         rm -f "$REAL_HOME/.gp-browser-writecheck" 2>/dev/null
 }
@@ -334,9 +369,10 @@ run_browser_with_monitor() {
     return 0
 }
 
-if [ "$EUID" -eq 0 ] && [ "$REAL_USER" != "root" ]; then
-    log "running as root; dropping privileges to $REAL_USER via sudo"
-    exec sudo -u "$REAL_USER" bash -c "$(declare -f log run_browser_with_monitor); \
+if [ "$EUID" -eq 0 ] && [ "$REAL_UID" -ne 0 ]; then
+    # "#uid" makes sudo take a numeric UID, so the name is never involved
+    log "running as root; dropping privileges to $REAL_USER (uid=$REAL_UID) via sudo"
+    exec sudo -u "#$REAL_UID" bash -c "$(declare -f log run_browser_with_monitor); \
 ENV_VARS=(${ENV_VARS[*]@Q}); BROWSER_BIN=${BROWSER_BIN@Q}; \
 BROWSER_FLAGS=(${BROWSER_FLAGS[*]@Q}); LOG_FILE=${LOG_FILE@Q}; \
 GPAUTH_PID=${GPAUTH_PID@Q}; MAX_WAIT=${MAX_WAIT@Q}; run_browser_with_monitor"
