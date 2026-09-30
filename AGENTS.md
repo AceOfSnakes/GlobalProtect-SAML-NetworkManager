@@ -67,7 +67,8 @@ skips the other half. Run both before you push a change to
 
 ```bash
 python3 -m pytest tests/unit -q       # as root (e.g. in a container)
-T=$(mktemp -d /var/tmp/t.XXXX); cp -r service scripts tests "$T"/; chmod -R a+rwX "$T"
+T=$(mktemp -d /var/tmp/t.XXXX)
+tar --exclude=./.git --exclude=./external -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
 (cd "$T" && runuser -u nobody -- env HOME="$T" python3 -m pytest tests/unit -q -p no:cacheprovider)
 rm -rf "$T"
 ```
