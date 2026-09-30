@@ -34,13 +34,13 @@ gcc $(pkg-config --cflags glib-2.0 libnm gtk4 libnma-gtk4) -Wall -fPIC -shared \
 ### Install Location
 ```bash
 sudo install -D -m 644 libnm-gtk4-vpn-plugin-gpclient-editor.so \
-    /usr/lib/x86_64-linux-gnu/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so
+    /usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so
 ```
 
 ### Verify Installation
 ```bash
 # Check factory symbol exists
-nm -D /usr/lib/x86_64-linux-gnu/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so | grep nm_vpn_editor_plugin_factory
+nm -D /usr/lib/*-linux-gnu/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so | grep nm_vpn_editor_plugin_factory
 
 # Restart NetworkManager
 sudo systemctl restart NetworkManager
@@ -51,7 +51,7 @@ sudo systemctl restart NetworkManager
 ### GNOME Settings Plugin Loading Sequence
 
 1. **Service Discovery**: GNOME Settings reads `/usr/lib/NetworkManager/VPN/nm-gpclient-service.name`
-2. **Module Loading**: Loads `.so` from `/usr/lib/x86_64-linux-gnu/NetworkManager/` based on `[GNOME] properties=` value
+2. **Module Loading**: Loads `.so` from `/usr/lib/<multiarch>/NetworkManager/` based on `[GNOME] properties=` value
 3. **Factory Call**: Calls `nm_vpn_editor_plugin_factory()` to create plugin instance
 4. **Editor Creation**: Plugin's `get_editor()` creates `NMGpclientEditor` instance
 5. **Widget Retrieval**: GNOME calls `get_widget()` to get GTK4 UI
@@ -98,7 +98,7 @@ G_DEFINE_TYPE_WITH_CODE (NMGpclientEditor, nm_gpclient_editor, G_TYPE_OBJECT,
 **Causes:**
 1. `nm_vpn_editor_plugin_factory` symbol not exported → Check with `nm -D`
 2. `get_widget()` returns NULL → Add debug logging
-3. Wrong install path → Must be `/usr/lib/x86_64-linux-gnu/NetworkManager/`
+3. Wrong install path → Must be the multiarch directory `/usr/lib/<multiarch>/NetworkManager/` (`x86_64-linux-gnu` on amd64, `aarch64-linux-gnu` on arm64)
 4. Missing dependencies → Check `ldd libnm-gtk4-vpn-plugin-gpclient-editor.so`
 
 ### Verify Plugin Loads
@@ -116,7 +116,8 @@ journalctl -u NetworkManager -f
 #include <NetworkManager.h>
 
 int main() {
-    GModule *module = g_module_open("/usr/lib/x86_64-linux-gnu/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so", G_MODULE_BIND_LAZY);
+    // <multiarch> is x86_64-linux-gnu on amd64, aarch64-linux-gnu on arm64
+    GModule *module = g_module_open("/usr/lib/<multiarch>/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so", G_MODULE_BIND_LAZY);
     
     NMVpnEditorPlugin *(*factory)(GError **);
     if (g_module_symbol(module, "nm_vpn_editor_plugin_factory", (gpointer *)&factory)) {
@@ -143,7 +144,7 @@ nm_setting_vpn_add_data_item(s_vpn, "gateway", "vpn.example.com")
 
 - [x] GTK4 editor compiles without errors
 - [x] `nm_vpn_editor_plugin_factory` symbol exported
-- [x] Installed to `/usr/lib/x86_64-linux-gnu/NetworkManager/`
+- [x] Installed to `/usr/lib/<multiarch>/NetworkManager/`
 - [x] NetworkManager restarted
 - [x] GNOME Settings shows VPN connection
 - [ ] Identity tab displays editor UI

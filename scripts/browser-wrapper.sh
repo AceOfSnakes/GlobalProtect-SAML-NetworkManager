@@ -23,6 +23,8 @@ log() {
         echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"
     else # Print to stderr if LOG_FILE is unset, for troubleshooting in the terminal
         echo "[$(date '+%F %T')] $*" >&2
+        # gpauth runs us detached, so stderr goes nowhere: keep early errors in syslog
+        command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- "$*" 2>/dev/null
     fi
 }
 
@@ -30,23 +32,19 @@ log() {
 # contain dots, '@' or upper case, so we never parse one; only a number ends up
 # in commands. The name below is only looked up from the UID, for logging.
 if [ "$EUID" -eq 0 ]; then
-    # Same order as gpapi's real_user_lookup: nm-gpclient-service passes the
-    # desktop user in SUDO_UID; then PKEXEC_UID; then names (DOAS_USER, and
-    # SUDO_USER/USER for older callers). A variable that is set wins even when
+    # gpapi's real_user_lookup checks SUDO_UID, PKEXEC_UID, DOAS_USER; the wrapper
+    # also falls back to SUDO_USER/USER for older callers (nm-gpclient-service
+    # passes the desktop user in SUDO_UID). A variable that is set wins even when
     # its value is invalid, so a bad SUDO_UID is never papered over by a later one.
-    REAL_UID=""
-    UID_VAR=""
+    # Nothing found means uid 0: the common root check below refuses it.
+    REAL_UID=0
+    UID_SOURCE=none
     if [ -n "${SUDO_UID+set}" ]; then
-        UID_VAR=SUDO_UID
+        REAL_UID="$SUDO_UID"
+        UID_SOURCE=SUDO_UID
     elif [ -n "${PKEXEC_UID+set}" ]; then
-        UID_VAR=PKEXEC_UID
-    fi
-    if [ -n "$UID_VAR" ]; then
-        REAL_UID="${!UID_VAR}"
-        if [[ ! "$REAL_UID" =~ ^[0-9]+$ ]]; then
-            log "ERROR: $UID_VAR is not a number: $REAL_UID"
-            exit 1
-        fi
+        REAL_UID="$PKEXEC_UID"
+        UID_SOURCE=PKEXEC_UID
     else
         for NAME_VAR in DOAS_USER SUDO_USER USER; do
             LOOKUP_NAME="${!NAME_VAR:-}"
@@ -55,21 +53,19 @@ if [ "$EUID" -eq 0 ]; then
             [ "$NAME_VAR" = USER ] && [ "$LOOKUP_NAME" = root ] && continue
             REAL_UID=$(id -u -- "$LOOKUP_NAME" 2>/dev/null)
             if [ -z "$REAL_UID" ]; then
-                log "ERROR: Cannot get UID for user: $LOOKUP_NAME"
+                log "ERROR: Cannot get UID for user: $LOOKUP_NAME ($NAME_VAR)"
                 exit 1
             fi
+            UID_SOURCE="id -u -- $LOOKUP_NAME"
             break
         done
-    fi
-    if [ -z "$REAL_UID" ]; then
-        log "ERROR: refusing to run the browser as root (no non-root desktop user found)"
-        exit 1
     fi
 else
     # We cannot switch user anyway, so SUDO_UID/SUDO_USER/USER from the
     # environment are irrelevant (and untrusted). id -u, not $EUID, so the tests
     # can fake it via PATH.
     REAL_UID=$(id -u)
+    UID_SOURCE="id -u"
 fi
 
 # Whatever the source (id may fail or print junk), only a plain number goes on.
@@ -82,7 +78,7 @@ else
     UID_NUM="$REAL_UID"
 fi
 if [[ ! "$UID_NUM" =~ ^[0-9]{1,10}$ ]] || [ "$UID_NUM" -gt 4294967294 ]; then
-    log "ERROR: cannot determine the real user's UID (got: '$REAL_UID')"
+    log "ERROR: cannot determine the real user's UID from $UID_SOURCE (got: '$REAL_UID')"
     exit 1
 fi
 REAL_UID="$UID_NUM"
@@ -90,7 +86,7 @@ REAL_UID="$UID_NUM"
 # As root the browser is only ever started for a non-root user (gpapi refuses
 # with "Non-root user not found" in the same case)
 if [ "$EUID" -eq 0 ] && [ "$REAL_UID" -eq 0 ]; then
-    log "ERROR: refusing to run the browser as root (no non-root desktop user found)"
+    log "ERROR: refusing to run the browser as root (no non-root desktop user found; uid source: $UID_SOURCE)"
     exit 1
 fi
 
@@ -185,18 +181,30 @@ else
     log "no wayland socket found for uid $REAL_UID"
 fi
 
-# Read a variable from the environment of the user's session processes.
+# Read the environment of the user's session processes once, in the main shell
+# (session_env_var runs in $(...) subshells, so it cannot cache anything itself).
 # NetworkManager's own environment is useless here (sandboxed, no session).
+# SESSION_PIDS keeps the list order: the first process that has a variable wins.
+declare -A SESSION_ENV=()
+SESSION_PIDS=()
+for proc in plasmashell gnome-shell gnome-session-binary kwin_wayland xfce4-session cinnamon-session mate-session sway; do
+    pid=$(pgrep -u "$REAL_UID" -x "$proc" 2>/dev/null | head -1)
+    if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
+        SESSION_PIDS+=("$pid")
+        # stderr first: -r does not see a ptrace-denied open()
+        while IFS= read -r -d '' entry; do
+            SESSION_ENV["$pid:${entry%%=*}"]="${entry#*=}"
+        done 2>/dev/null < "/proc/$pid/environ"
+    fi
+done
+
 session_env_var() {
-    local var="$1" proc pid value
-    for proc in plasmashell gnome-shell gnome-session-binary kwin_wayland xfce4-session cinnamon-session mate-session sway; do
-        pid=$(pgrep -u "$REAL_UID" -x "$proc" 2>/dev/null | head -1)
-        if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
-            value=$(grep -z "^$var=" "/proc/$pid/environ" 2>/dev/null | tr -d '\0' | cut -d= -f2-)
-            if [ -n "$value" ]; then
-                echo "$value"
-                return 0
-            fi
+    local var="$1" pid value
+    for pid in "${SESSION_PIDS[@]}"; do
+        value="${SESSION_ENV["$pid:$var"]:-}"
+        if [ -n "$value" ]; then
+            echo "$value"
+            return 0
         fi
     done
     return 1
@@ -213,7 +221,7 @@ fi
 DETECTED_XAUTH=$(session_env_var XAUTHORITY)
 if [ -n "$DETECTED_XAUTH" ]; then
     XAUTHORITY="$DETECTED_XAUTH"
-elif [ -z "${XAUTHORITY:-}" ] && [ -f "$REAL_HOME/.Xauthority" ]; then
+elif [ -z "${XAUTHORITY:-}" ] && [ -n "$REAL_HOME" ] && [ -f "$REAL_HOME/.Xauthority" ]; then
     XAUTHORITY="$REAL_HOME/.Xauthority"
 fi
 

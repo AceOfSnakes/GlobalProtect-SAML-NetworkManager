@@ -83,7 +83,7 @@ Plasma Network Manager discovers plugins through:
 
 1. **Service Type**: `PlasmaNetworkManagement/VpnUiPlugin`
 2. **Service Name**: `org.freedesktop.NetworkManager.gpclient`
-3. **Plugin Location**: `/usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/`
+3. **Plugin Location**: `/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/`
 4. **Desktop File**: `/usr/share/kservices5/`
 
 ## Configuration Storage
@@ -131,10 +131,10 @@ sudo make install
 ### Installation Paths
 
 ```
-Plugin: /usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/
+Plugin: /usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/
         plasmanetworkmanagement_gpclientui.so
 
-Metadata: /usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/
+Metadata: /usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/
           plasmanetworkmanagement_gpclientui.json
 
 Service: /usr/share/kservices5/
@@ -210,7 +210,7 @@ QVariantMap GpclientWidget::setting() const
 
 ```bash
 # Check plugin file
-ls -l /usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
+ls -l /usr/lib/*-linux-gnu/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
 
 # Check desktop file
 ls -l /usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop

@@ -15,6 +15,7 @@ import os
 import shlex
 import shutil
 import subprocess
+from collections import Counter
 
 import pytest
 
@@ -130,7 +131,13 @@ def _fake_getent(tmp_path, entry_uid, home, name="entry.user"):
     )
 
 
+def _fake_logger(tmp_path):
+    """The wrapper also logs early errors to syslog: keep tests off the real one."""
+    _script(tmp_path / "logger", f'printf "%s\\n" "$*" >> {tmp_path}/syslog\n')
+
+
 def _root_env(tmp_path, **extra):
+    _fake_logger(tmp_path)
     env = {
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "GP_BROWSER": str(tmp_path / "browser"),
@@ -147,6 +154,8 @@ def _assert_browser_started(tmp_path, result):
     assert opened.exists(), "the browser was not started"
     assert opened.read_text() == URL + "\n"
     assert not (tmp_path / "pwned").exists(), "an injected command was run"
+    # Only messages logged before the log file exists go to syslog
+    assert not (tmp_path / "syslog").exists()
 
 
 def _assert_rejected(tmp_path, result, reason):
@@ -155,6 +164,16 @@ def _assert_rejected(tmp_path, result, reason):
     assert not (tmp_path / "opened").exists(), "the browser was started"
     assert not (tmp_path / "sudo_args").exists(), "sudo was called"
     assert not (tmp_path / "pwned").exists(), "an injected command was run"
+
+
+def _assert_in_syslog(tmp_path, reason):
+    """gpauth runs the wrapper detached, so stderr is lost: the error must be in
+    syslog too."""
+    syslog = tmp_path / "syslog"
+    assert syslog.exists(), "nothing reached syslog"
+    text = syslog.read_text()
+    assert "-t gpclient-browser-wrapper --" in text
+    assert reason in text
 
 
 def _sudo_args(tmp_path):
@@ -197,6 +216,7 @@ def test_non_root_rejects_bad_id_output(tmp_path, id_output):
     result = _run_wrapper(_root_env(tmp_path, USER="first.last"))
 
     _assert_rejected(tmp_path, result, "cannot determine the real user's UID")
+    _assert_in_syslog(tmp_path, "cannot determine the real user's UID")
 
 
 @pytest.mark.skipif(IS_ROOT, reason="as root the wrapper runs sudo")
@@ -306,6 +326,7 @@ def test_root_never_runs_browser_as_root(tmp_path, env):
     result = _run_wrapper(_root_env(tmp_path, **env))
 
     _assert_rejected(tmp_path, result, REFUSED_AS_ROOT)
+    _assert_in_syslog(tmp_path, REFUSED_AS_ROOT)
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
@@ -415,7 +436,8 @@ def test_root_rejects_non_numeric_sudo_uid(tmp_path, sudo_uid):
         _root_env(tmp_path, SUDO_UID=sudo_uid.format(pwned=tmp_path / "pwned"))
     )
 
-    _assert_rejected(tmp_path, result, "SUDO_UID is not a number")
+    _assert_rejected(tmp_path, result, "cannot determine the real user's UID from SUDO_UID")
+    _assert_in_syslog(tmp_path, "cannot determine the real user's UID from SUDO_UID")
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the SUDO_UID path")
@@ -472,13 +494,13 @@ def test_root_uses_pkexec_uid(tmp_path):
 @pytest.mark.parametrize(
     "env, reason",
     [
-        ({"PKEXEC_UID": "abc"}, "PKEXEC_UID is not a number"),
-        ({"PKEXEC_UID": ""}, "PKEXEC_UID is not a number"),
+        ({"PKEXEC_UID": "abc"}, "cannot determine the real user's UID from PKEXEC_UID"),
+        ({"PKEXEC_UID": ""}, "cannot determine the real user's UID from PKEXEC_UID"),
         # A set but invalid variable is an error, never a reason to try the next
-        ({"SUDO_UID": "abc", "PKEXEC_UID": str(FAKE_UID)}, "SUDO_UID is not a number"),
+        ({"SUDO_UID": "abc", "PKEXEC_UID": str(FAKE_UID)}, "cannot determine the real user's UID from SUDO_UID"),
         (
             {"PKEXEC_UID": "abc", "DOAS_USER": FAKE_SUDO_USER},
-            "PKEXEC_UID is not a number",
+            "cannot determine the real user's UID from PKEXEC_UID",
         ),
     ],
     ids=["letters", "set-but-empty", "bad-sudo-uid-no-fallthrough", "bad-pkexec-uid-no-fallthrough"],
@@ -561,7 +583,7 @@ def test_root_lookup_order_uid_before_names_and_doas_before_sudo_user(tmp_path):
     "sudo_uid, message",
     [
         (str(FAKE_UID), None),
-        ("abc", "SUDO_UID is not a number"),
+        ("abc", "cannot determine the real user's UID from SUDO_UID"),
     ],
     ids=["valid-uid", "bad-uid"],
 )
@@ -635,3 +657,84 @@ def test_root_rejects_unknown_uid(tmp_path):
     result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(UNKNOWN_UID)))
 
     _assert_rejected(tmp_path, result, "no passwd entry")
+
+
+def test_missing_logger_is_not_an_error(tmp_path):
+    """Without logger the error still reaches stderr and the exit code is the
+    same. PATH holds only date (plus the fake id for the non-root path)."""
+    for tool in ("date",):
+        (tmp_path / tool).symlink_to(shutil.which(tool))
+    _script(tmp_path / "id", "echo abc\n")
+    env = {"PATH": str(tmp_path), "GP_AUTH_TIMEOUT": "5", "SUDO_UID": "abc"}
+
+    result = subprocess.run(
+        [shutil.which("bash"), WRAPPER, URL],
+        env=env,
+        timeout=30,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "cannot determine the real user's UID" in result.stderr
+    assert "not found" not in result.stderr
+
+
+@pytest.mark.skipif(IS_ROOT, reason="as root the wrapper runs sudo")
+def test_session_processes_are_looked_up_once_per_name(tmp_path):
+    """session_env_var is called for many variables: pgrep must not run again
+    for each of them (one lookup per session process name, plus gpauth)."""
+    _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    _fake_browser(tmp_path)
+    # Prints nothing, so no /proc/<pid>/environ is read either
+    _script(tmp_path / "pgrep", f'echo "$*" >> {tmp_path}/pgrep_calls\nexit 1\n')
+
+    result = _run_wrapper(_root_env(tmp_path, USER="first.last"))
+
+    _assert_browser_started(tmp_path, result)
+    calls = (tmp_path / "pgrep_calls").read_text().splitlines()
+    per_name = Counter(call.split()[-1] for call in calls)
+    assert all(count == 1 for count in per_name.values()), per_name
+    assert set(per_name) == {
+        "plasmashell",
+        "gnome-shell",
+        "gnome-session-binary",
+        "kwin_wayland",
+        "xfce4-session",
+        "cinnamon-session",
+        "mate-session",
+        "sway",
+        "gpauth",
+    }
+
+
+@pytest.mark.skipif(IS_ROOT, reason="as root the wrapper runs sudo")
+@pytest.mark.parametrize("home_has_xauthority", [True, False], ids=["file-exists", "no-file"])
+def test_non_root_xauthority_fallback_needs_a_home(tmp_path, home_has_xauthority):
+    """~/.Xauthority is the fallback for XAUTHORITY; an unknown home must never
+    turn into /.Xauthority."""
+    home = tmp_path / "own-home"
+    home.mkdir()
+    if home_has_xauthority:
+        (home / ".Xauthority").write_text("")
+    _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    _fake_browser(tmp_path)
+    _script(tmp_path / "getent", "exit 2\n")  # no passwd entry: HOME decides
+
+    result = _run_wrapper(_root_env(tmp_path, HOME=str(home)))
+
+    _assert_browser_started(tmp_path, result)
+    expected = str(home / ".Xauthority") if home_has_xauthority else None
+    assert _browser_env(tmp_path).get("XAUTHORITY") == expected
+
+
+@pytest.mark.skipif(IS_ROOT, reason="as root the wrapper runs sudo")
+def test_non_root_without_home_sets_no_xauthority(tmp_path):
+    _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    _fake_browser(tmp_path)
+    _script(tmp_path / "getent", "exit 2\n")
+
+    result = _run_wrapper(_root_env(tmp_path))  # no HOME in the environment
+
+    _assert_browser_started(tmp_path, result)
+    assert "XAUTHORITY" not in _browser_env(tmp_path)

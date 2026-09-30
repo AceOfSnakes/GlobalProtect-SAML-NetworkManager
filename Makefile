@@ -77,6 +77,8 @@ clean:
 ifeq ($(origin MULTIARCH),undefined)
 MULTIARCH := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch 2>/dev/null)
 endif
+# So $(MAKE) -C plugins/gnome reuses this value instead of computing it again
+export MULTIARCH
 NM_VPN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager
 # An empty MULTIARCH turns NM_VPN_DIR into /usr/lib//NetworkManager and would
 # install into the wrong place. Checked on the effective dir (not on MULTIARCH),

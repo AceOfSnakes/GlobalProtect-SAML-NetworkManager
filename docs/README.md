@@ -153,12 +153,12 @@ nm-connection-editor
 └── VPN/
     └── nm-gpclient-service.name     # Service descriptor
 
-/usr/lib/x86_64-linux-gnu/NetworkManager/
+/usr/lib/<multiarch>/NetworkManager/
 ├── libnm-vpn-plugin-gpclient.so           # Main plugin
 ├── libnm-vpn-plugin-gpclient-editor.so    # GTK3 editor
 └── libnm-gtk4-vpn-plugin-gpclient-editor.so  # GTK4 editor
 
-/usr/lib/x86_64-linux-gnu/qt5/plugins/plasma/network/vpn/
+/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/
 └── plasmanetworkmanagement_gpclientui.so  # Plasma editor
 
 /usr/bin/
