@@ -51,6 +51,12 @@ else
     REAL_UID=$(id -u)
 fi
 
+# Whatever the source (id may fail or print junk), only a plain number goes on
+if [[ ! "$REAL_UID" =~ ^[0-9]+$ ]]; then
+    log "ERROR: cannot determine the real user's UID (got: '$REAL_UID')"
+    exit 1
+fi
+
 REAL_USER=""
 REAL_HOME=""
 PASSWD_ENTRY=$(getent passwd "$REAL_UID" 2>/dev/null)
