@@ -2,35 +2,42 @@
 # Install the test packages of a pull request on this machine.
 #
 #   bash <(curl -fsSL https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/install-pr-build.sh) <PR number>
-#   install-pr-build.sh <PR number> [--desktop gnome|plasma] [--yes]
+#   install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/REPO] [--yes]
 #
 # CI publishes every open pull request as the prerelease "pr-<N>" (see
-# .github/workflows/pr-report.yml) and removes it when the PR closes. This picks
-# the .deb files for your Ubuntu release, architecture and desktop from that
+# .github/workflows/pr-test-packages.yml) and removes it when the PR closes. This
+# picks the .deb files for your Ubuntu release, architecture and desktop from that
 # release and hands them to apt. apt asks for confirmation unless --yes is given.
+#
+# The packages of a pull request carry a version above the release's one
+# (1.4.2-1~noble1+pr24.57 sorts after 1.4.2-1~noble1), so apt installs them over
+# the released version.
 #
 # Run it as `bash <(curl ...)`, not `curl ... | bash`: apt asks its question on
 # the terminal, and a pipe would take stdin away.
 #
 # Test hooks: OS_RELEASE_FILE (default /etc/os-release) and GP_RELEASE_API
-# (default https://api.github.com/repos/WMP/GlobalProtect-SAML-NetworkManager).
+# (default https://api.github.com/repos/<the repository>).
 
 set -euo pipefail
 
-REPO="WMP/GlobalProtect-SAML-NetworkManager"
-API_BASE="${GP_RELEASE_API:-https://api.github.com/repos/$REPO}"
+DEFAULT_REPO="WMP/GlobalProtect-SAML-NetworkManager"
 OS_RELEASE="${OS_RELEASE_FILE:-/etc/os-release}"
 
 die() { echo "install-pr-build: $*" >&2; exit 1; }
 
 usage() {
     cat >&2 <<'EOF'
-usage: install-pr-build.sh <PR number> [--desktop gnome|plasma] [--yes]
+usage: install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/REPO] [--yes]
 
   <PR number>          the pull request whose test packages to install
   --desktop gnome|plasma
                        which editor plugin to install (default: plasma when
-                       XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome)
+                       XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome). For
+                       plasma, -plasma-5 or -plasma-6 follows the installed
+                       plasma-nm (6 or newer: plasma-6)
+  --repo OWNER/REPO    the GitHub repository that published the packages
+                       (default: WMP/GlobalProtect-SAML-NetworkManager)
   --yes                do not ask apt for confirmation (apt install -y)
 EOF
 }
@@ -39,6 +46,7 @@ EOF
 
 pr=""
 desktop=""
+repo="$DEFAULT_REPO"
 assume_yes=0
 positional=0
 
@@ -50,6 +58,10 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || { usage; die "--desktop needs a value: gnome or plasma"; }
             desktop="$2"; shift ;;
         --desktop=*) desktop="${1#--desktop=}" ;;
+        --repo)
+            [ $# -ge 2 ] || { usage; die "--repo needs a value: OWNER/REPO"; }
+            repo="$2"; shift ;;
+        --repo=*) repo="${1#--repo=}" ;;
         --*) usage; die "unknown option: $1" ;;
         *)
             positional=$((positional + 1))
@@ -62,16 +74,20 @@ done
 [ "$positional" -eq 1 ] || { usage; die "expected one pull request number, got $positional arguments"; }
 
 # Digits only, no leading zero: the number ends up in a URL and a release tag
-case "$pr" in
-    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|\
-    [1-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-    *) die "'$pr' is not a pull request number (1 to 7 digits, no leading zero)" ;;
-esac
+[[ $pr =~ ^[1-9][0-9]{0,6}$ ]] \
+    || die "'$pr' is not a pull request number (1 to 7 digits, no leading zero)"
 
 case "$desktop" in
     ""|gnome|plasma) ;;
     *) die "--desktop must be gnome or plasma, not '$desktop'" ;;
 esac
+
+# OWNER/REPO ends up in URLs: GitHub's own character sets, and no "." or ".." as
+# the repository name
+[[ $repo =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$ && ${repo#*/} != . && ${repo#*/} != .. ]] \
+    || die "'$repo' is not a repository name like OWNER/REPO"
+REPO="$repo"
+API_BASE="${GP_RELEASE_API:-https://api.github.com/repos/$REPO}"
 
 # --- This machine ------------------------------------------------------------
 
@@ -117,6 +133,18 @@ if [ -z "$desktop" ]; then
     esac
 fi
 
+# The installed plasma-nm says which Plasma the editor plugin has to fit: 6 or
+# newer needs -plasma-6, older needs -plasma-5. Empty when plasma-nm is not
+# installed (or its version cannot be read): the release then decides.
+plasma_major=""
+if [ "$desktop" = plasma ]; then
+    plasma_nm="$(dpkg-query -W -f='${Version}' plasma-nm 2>/dev/null || true)"
+    plasma_nm="${plasma_nm#*:}" # the epoch: 4:5.27.11-0ubuntu1
+    if [[ $plasma_nm =~ ^([0-9]+)\. ]]; then
+        plasma_major="${BASH_REMATCH[1]}"
+    fi
+fi
+
 # --- The release -------------------------------------------------------------
 
 tmp="$(mktemp -d)"
@@ -134,20 +162,21 @@ status="$(curl -sSL -H 'Accept: application/vnd.github+json' \
 
 case "$status" in
     200) ;;
-    404) die "there is no release '$tag': the build of PR #$pr may still be running or have failed, or the PR is closed (its packages are removed then). The PR's CI report comment shows the state." ;;
+    404) die "there is no release '$tag': the build of PR #$pr may still be running or have failed, or the PR is closed (its packages are removed then). The \"Test packages\" check of the PR shows the state." ;;
     *) die "GitHub answered HTTP $status for $url (rate limit? try again later)" ;;
 esac
 
-# Package names: <package>_<version>~<codename>1_<arch>.deb. GitHub stores the
-# "~" of a release asset as "." (1.4.2-1.noble1), so both are accepted. The
-# names come from the release listing and are matched strictly before they are
-# used anywhere.
-selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" <<'PY'
+# Package names: <package>_<version>~<codename>1[+pr<N>.<run>]_<arch>.deb, the
+# suffix being the one of a pull request's build (the release's own builds have
+# none). GitHub stores the "~" of a release asset as "." (1.4.2-1.noble1), so
+# both are accepted. The names come from the release listing and are matched
+# strictly before they are used anywhere.
+selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" "$plasma_major" <<'PY'
 import json
 import re
 import sys
 
-path, codename, arch, desktop = sys.argv[1:5]
+path, codename, arch, desktop, pr, plasma_major = sys.argv[1:7]
 try:
     with open(path, encoding="utf-8") as handle:
         assets = json.load(handle).get("assets", [])
@@ -160,7 +189,7 @@ if not isinstance(assets, list):
 def find(package):
     pattern = re.compile(
         re.escape(package) + r"_[0-9][A-Za-z0-9.+-]*[~.]" + re.escape(codename)
-        + r"[0-9]+_" + re.escape(arch) + r"\.deb"
+        + r"[0-9]+(?:[+.]pr" + re.escape(pr) + r"\.[0-9]+)?_" + re.escape(arch) + r"\.deb"
     )
     found = []
     for asset in assets:
@@ -176,8 +205,12 @@ def find(package):
 wanted = ["network-manager-gpclient"]
 if desktop == "gnome":
     wanted.append("network-manager-gpclient-gnome")
+elif plasma_major:
+    # The installed plasma-nm decides: 6 and newer is Plasma 6, older Plasma 5
+    wanted.append("network-manager-gpclient-plasma-%d" % (6 if int(plasma_major) >= 6 else 5))
 else:
-    # Plasma 6 where the release has it (24.10, 26.04), Plasma 5 otherwise
+    # plasma-nm is not installed: Plasma 6 where the release has it (24.10,
+    # 26.04), Plasma 5 otherwise
     wanted.append(
         "network-manager-gpclient-plasma-6" if find("network-manager-gpclient-plasma-6")
         else "network-manager-gpclient-plasma-5"
@@ -186,8 +219,11 @@ else:
 for package in wanted:
     asset = find(package)
     if asset is None:
-        sys.exit("the release has no %s package for %s/%s (the build of this PR may have failed or is not finished)"
-                 % (package, codename, arch))
+        why = ""
+        if package.startswith("network-manager-gpclient-plasma-") and plasma_major:
+            why = " (plasma-nm %s is installed, which needs it)" % plasma_major
+        sys.exit("the release has no %s package for %s/%s%s (the build of this PR may have failed or is not finished)"
+                 % (package, codename, arch, why))
     print("%s\t%s\t%s" % (package, asset[0], asset[1]))
 PY
 )" || die "cannot pick the packages for Ubuntu $codename/$arch from release $tag (see the message above)"

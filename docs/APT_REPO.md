@@ -166,5 +166,9 @@ closes) by `.github/workflows/pr-test-packages.yml`, which adds a `Test packages
 check to the PR with the install command
 (`bash <(curl -fsSL https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/install-pr-build.sh) <N>`).
 `publish-apt.yml` skips prereleases, so these packages never reach the repository.
+Their version carries the PR and run number after the codename
+(`1.4.2-1~noble1+pr24.57`), which sorts above the release's `1.4.2-1~noble1`, so
+installing one over the released version is an upgrade for apt. Going back to the
+release is a downgrade: `sudo apt install --reinstall --allow-downgrades <packages>`.
 If testing builds for users become a habit, the natural shape is a second suite
 (`<codename>-testing`) fed by prereleases rather than a separate repository.

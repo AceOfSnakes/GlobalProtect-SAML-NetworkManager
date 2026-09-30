@@ -7,7 +7,8 @@ name: PR test packages
 #     prerelease pr-<N> and a check run named "Test packages" is added to the
 #     head commit. Its title (shown in the merge box, next to the check) is the
 #     install command, its summary says what the command does and how to go
-#     back. A failed build gets a neutral "No test packages" check instead.
+#     back. A failed build, or a failure while publishing, gets a neutral "No
+#     test packages" check instead.
 #   * The pull request is closed or merged: release pr-<N> and its tag are
 #     deleted.
 #
@@ -118,21 +119,11 @@ jobs:
         if: steps.plan.outputs.state == 'publish'
         run: |
           gh run download "$RUN_ID" --repo "$REPO" --pattern 'debs-*' --dir artifacts
-          # Plain file names only: they end up in a URL, a release and a check
-          mkdir upload
-          find artifacts -type f -name '*.deb' | while read -r file; do
-            name=$(basename "$file")
-            if [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb$ ]]; then
-              cp "$file" "upload/$name"
-            else
-              echo "::warning::skipping a package with an unexpected file name"
-            fi
-          done
+          # Plain package names only: they end up in a URL, a release and a
+          # check. The script owns the definition of a plain name, it copies
+          # those files and fails when there are none.
+          python3 .github/scripts/test_packages_check.py --filter artifacts --copy-to upload
           ls -la upload
-          if [ -z "$(ls -A upload)" ]; then
-            echo "::error::the build produced no packages"
-            exit 1
-          fi
 
       - name: Publish the prerelease
         id: release
@@ -174,39 +165,62 @@ jobs:
 
       # The packages of an earlier push do not belong to this commit: do not
       # leave them installable while the check says there are none.
+      #
+      # This holds for a failed publish as well: a release that stayed behind
+      # half done, or with the packages of an earlier push, is no state to leave
+      # next to a check that says there are no packages.
       - name: Remove outdated packages
-        if: steps.plan.outputs.state == 'failed'
+        if: >-
+          always() && steps.pr.outputs.number != '' && (
+          steps.plan.outputs.state == 'failed'
+          || (steps.plan.outputs.state == 'publish' && steps.release.outputs.published == ''))
         env:
           PR: ${{ steps.pr.outputs.number }}
         run: |
+          # Like when publishing: only for the open pull request this commit is
+          # the head of. A newer push has packages (or a build) of its own, and
+          # a closed pull request is cleaned up by the other job.
+          if [ "$(gh pr view "$PR" --repo "$REPO" --json state,headRefOid \
+            --jq '.state + " " + .headRefOid')" != "OPEN $SHA" ]; then
+            echo "Pull request #$PR is closed or has a newer head: leaving release pr-$PR alone"
+            exit 0
+          fi
           if gh release view "pr-$PR" --repo "$REPO" > /dev/null 2>&1; then
             gh release delete "pr-$PR" --repo "$REPO" --cleanup-tag --yes
           fi
 
+      # Also when downloading or publishing failed: the check says so instead
+      # of staying as it was.
       - name: Render the check
-        if: steps.pr.outputs.number != ''
+        id: render
+        if: always() && steps.pr.outputs.number != ''
         env:
           PR: ${{ steps.pr.outputs.number }}
           STATE: ${{ steps.plan.outputs.state }}
           REASON: ${{ steps.plan.outputs.reason }}
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
           PUBLISHED: ${{ steps.release.outputs.published }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           args=(--pr "$PR" --sha "$SHA" --repo "$REPO" --script-ref "$DEFAULT_BRANCH")
           if [ "$STATE" = "failed" ]; then
             args+=(--state failed --run-url "$RUN_URL")
-          elif [ "$STATE" = "publish" ] && [ "$PUBLISHED" = "true" ]; then
+          elif [ "$STATE" = "not-published" ]; then
+            args+=(--state not-published --reason "$REASON")
+          elif [ "$STATE" = "publish" ] && [ "$RELEASE_OUTCOME" = "success" ] && [ "$PUBLISHED" = "true" ]; then
             args+=(--state published --debs-dir upload)
-          elif [ "$STATE" = "publish" ]; then
+          elif [ "$STATE" = "publish" ] && [ "$RELEASE_OUTCOME" = "success" ]; then
             args+=(--state not-published --reason "the pull request is closed or has a newer commit")
           else
-            args+=(--state not-published --reason "$REASON")
+            # Downloading or publishing did not finish (or no plan was made)
+            args+=(--state publish-failed --run-url "$WORKFLOW_RUN_URL")
           fi
           python3 .github/scripts/test_packages_check.py "${args[@]}" > check.json
           cat check.json
 
       # One check per commit: a re-run updates it instead of adding another.
       - name: Create or update the check run
-        if: steps.pr.outputs.number != ''
+        if: always() && steps.pr.outputs.number != '' && steps.render.outcome == 'success'
         run: |
           id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Test%20packages&per_page=100" \
             --jq '[.check_runs[] | select(.app.slug == "github-actions")] | first | .id // empty')

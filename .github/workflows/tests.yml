@@ -48,7 +48,7 @@ jobs:
       - name: Check host tools
         # `command -v a b c` succeeds if any one is found: check each tool.
         run: |
-          for t in bash sudo pgrep getent id logger date; do
+          for t in bash sudo pgrep getent id logger date dpkg dpkg-deb; do
             command -v "$t" >/dev/null || { echo "::error::missing $t"; exit 1; }
           done
 
