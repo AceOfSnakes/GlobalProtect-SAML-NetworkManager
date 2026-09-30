@@ -41,14 +41,24 @@ def _script(path, body):
 
 
 def _fake_browser(tmp_path):
-    _script(tmp_path / "browser", f'echo "$@" > {tmp_path}/opened\n')
+    """Record the URL, the environment and which wrapper log files exist (the
+    wrapper removes its own files only after the browser is done)."""
+    _script(
+        tmp_path / "browser",
+        f'echo "$@" > {tmp_path}/opened\n'
+        f"env > {tmp_path}/browser_env\n"
+        f"ls /tmp/edge-wrapper-*.log > {tmp_path}/wrapper_logs 2>/dev/null\n",
+    )
 
 
-def _fake_sudo(tmp_path):
-    """Record the args, drop "-u <user>" and run the rest as the current user."""
+def _fake_sudo(tmp_path, reset_env=False):
+    """Record the args, drop "-u <user>" and run the rest as the current user.
+
+    reset_env mimics real sudo, which does not pass our environment on."""
+    run = 'exec env -i "PATH=$PATH" "$@"\n' if reset_env else 'exec "$@"\n'
     _script(
         tmp_path / "sudo",
-        f'printf "%s\\n" "$@" > {tmp_path}/sudo_args\n' "shift 2\n" 'exec "$@"\n',
+        f'printf "%s\\n" "$@" > {tmp_path}/sudo_args\n' "shift 2\n" + run,
     )
 
 
@@ -83,10 +93,10 @@ def _run_wrapper(env):
             os.remove(log_file)
 
 
-def _fake_root_tools(tmp_path):
+def _fake_root_tools(tmp_path, reset_env=False):
     """Fake sudo/getent so the root code path can run without a real user."""
     _fake_browser(tmp_path)
-    _fake_sudo(tmp_path)
+    _fake_sudo(tmp_path, reset_env)
     _script(
         tmp_path / "getent",
         f'if [ "$1" = passwd ] && [ "$2" = {FAKE_UID} ]; then\n'
@@ -109,6 +119,14 @@ def _fake_id_by_name(tmp_path, known_user=FAKE_SUDO_USER, known_output=FAKE_UID)
         "else\n"
         "    exit 1\n"
         "fi\n",
+    )
+
+
+def _fake_getent(tmp_path, entry_uid, home, name="entry.user"):
+    """Fake getent: every uid lookup returns an entry with the given uid field."""
+    _script(
+        tmp_path / "getent",
+        f"echo '{name}:x:{entry_uid}:{entry_uid}::{home}:/bin/bash'\n",
     )
 
 
@@ -141,6 +159,11 @@ def _assert_rejected(tmp_path, result, reason):
 
 def _sudo_args(tmp_path):
     return (tmp_path / "sudo_args").read_text().splitlines()
+
+
+def _browser_env(tmp_path):
+    lines = (tmp_path / "browser_env").read_text().splitlines()
+    return dict(line.split("=", 1) for line in lines if "=" in line)
 
 
 # --- Not root: we cannot switch user, the uid comes from `id -u` ---------------
@@ -208,6 +231,32 @@ def test_non_root_never_calls_sudo(tmp_path):
     assert not (tmp_path / "sudo_args").exists(), "sudo was called"
 
 
+@pytest.mark.skipif(IS_ROOT, reason="as root the wrapper runs sudo")
+@pytest.mark.parametrize(
+    "entry_uid, home_is_used",
+    [(FAKE_UID, True), (OTHER_UID, False)],
+    ids=["entry-matches", "entry-for-another-uid"],
+)
+def test_non_root_trusts_passwd_entry_only_for_the_same_uid(
+    tmp_path, entry_uid, home_is_used
+):
+    """An entry for a different uid (glibc wraps big numbers) must not be used:
+    the wrapper falls back to $HOME instead of failing."""
+    own_home = tmp_path / "own-home"
+    entry_home = tmp_path / "entry-home"
+    own_home.mkdir()
+    entry_home.mkdir()
+    _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    _fake_browser(tmp_path)
+    _fake_getent(tmp_path, entry_uid, entry_home)
+
+    result = _run_wrapper(_root_env(tmp_path, USER="first.last", HOME=str(own_home)))
+
+    _assert_browser_started(tmp_path, result)
+    expected = entry_home if home_is_used else own_home
+    assert _browser_env(tmp_path)["HOME"] == str(expected)
+
+
 # --- Root: the desktop user comes from SUDO_UID (or SUDO_USER) -----------------
 
 
@@ -237,6 +286,34 @@ def test_root_without_a_desktop_user_runs_browser_directly(tmp_path, env):
 
     _assert_browser_started(tmp_path, result)
     assert not (tmp_path / "sudo_args").exists(), "sudo was called"
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+def test_root_normalizes_leading_zeros_in_sudo_uid(tmp_path):
+    """0048213 must mean uid 48213 everywhere: sudo, log file and temp dir."""
+    _fake_root_tools(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=f"00{FAKE_UID}"))
+
+    _assert_browser_started(tmp_path, result)
+    assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
+    logs = (tmp_path / "wrapper_logs").read_text().splitlines()
+    assert f"/tmp/edge-wrapper-{FAKE_UID}.log" in logs
+    assert f"/tmp/edge-wrapper-00{FAKE_UID}.log" not in logs
+    assert _browser_env(tmp_path)["XDG_CACHE_HOME"] == (
+        f"/tmp/edge-wrapper-{FAKE_UID}/cache"
+    )
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+def test_root_rejects_passwd_entry_for_another_uid(tmp_path):
+    """glibc may map an out-of-range number onto another user (even root)."""
+    _fake_root_tools(tmp_path)
+    _fake_getent(tmp_path, ROOT_UID, "/root", name="root")
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
+
+    _assert_rejected(tmp_path, result, f"passwd entry for uid {FAKE_UID} is for uid")
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the SUDO_USER path")
@@ -316,6 +393,93 @@ def test_root_rejects_non_numeric_sudo_uid(tmp_path, sudo_uid):
     )
 
     _assert_rejected(tmp_path, result, "SUDO_UID is not a number")
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the SUDO_UID path")
+@pytest.mark.parametrize(
+    "sudo_uid",
+    ["99999999999999999999", "4294967295", "4294967296"],
+    ids=["overflow", "uid-t-minus-one", "wraps-to-root-in-glibc"],
+)
+def test_root_rejects_out_of_range_sudo_uid(tmp_path, sudo_uid):
+    """Only digits, but not a valid uid: must never reach sudo or the browser
+    (bash would fail the numeric test and skip the privilege drop)."""
+    _fake_root_tools(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=sudo_uid))
+
+    _assert_rejected(tmp_path, result, "cannot determine the real user's UID")
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the USER path")
+def test_root_falls_back_to_user_without_sudo_variables(tmp_path):
+    """The old wrapper dropped to $USER when no SUDO_* was set."""
+    _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, USER=FAKE_SUDO_USER))
+
+    _assert_browser_started(tmp_path, result)
+    assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the USER path")
+def test_root_user_root_runs_browser_directly(tmp_path):
+    _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, USER="root"))
+
+    _assert_browser_started(tmp_path, result)
+    assert not (tmp_path / "sudo_args").exists(), "sudo was called"
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the USER path")
+@pytest.mark.parametrize(
+    "user",
+    ["unknown.user", "x; touch {pwned}"],
+    ids=["unknown-user", "shell-injection"],
+)
+def test_root_rejects_unknown_user(tmp_path, user):
+    _fake_root_tools(tmp_path)
+    _fake_id_by_name(tmp_path)  # fails for every name except the known one
+
+    result = _run_wrapper(_root_env(tmp_path, USER=user.format(pwned=tmp_path / "pwned")))
+
+    _assert_rejected(tmp_path, result, "Cannot get UID for user")
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+@pytest.mark.parametrize(
+    "var, value",
+    [
+        ("XDG_CURRENT_DESKTOP", "KDE"),
+        ("KDE_FULL_SESSION", "true"),
+        ("KDE_SESSION_VERSION", "6"),
+    ],
+)
+def test_root_passes_desktop_variables_through_sudo(tmp_path, var, value):
+    """sudo resets the environment, but xdg-open needs these to detect KDE. No
+    session process is running for the fake uid, so the value must come from the
+    wrapper's own environment and be handed to the browser explicitly."""
+    _fake_root_tools(tmp_path, reset_env=True)
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID), **{var: value}))
+
+    _assert_browser_started(tmp_path, result)
+    assert _browser_env(tmp_path).get(var) == value
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+def test_root_sets_no_desktop_variables_that_it_does_not_know(tmp_path):
+    _fake_root_tools(tmp_path, reset_env=True)
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
+
+    _assert_browser_started(tmp_path, result)
+    env = _browser_env(tmp_path)
+    for var in ("XDG_CURRENT_DESKTOP", "KDE_FULL_SESSION", "KDE_SESSION_VERSION"):
+        assert var not in env
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the SUDO_UID path")

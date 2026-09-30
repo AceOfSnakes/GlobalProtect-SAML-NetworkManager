@@ -109,6 +109,10 @@ done
 
 cd "$OUTDIR"
 
+# die() exits from inside the loop, so the temp file needs an EXIT trap
+all_packages=""
+trap 'rm -f "$all_packages"' EXIT
+
 for suite in "${SUITES[@]}"; do
     if [ -d "pool/$suite" ]; then
         count=$(find "pool/$suite" -name '*.deb' | wc -l)

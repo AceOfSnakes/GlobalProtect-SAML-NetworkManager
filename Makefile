@@ -72,7 +72,11 @@ clean:
 
 # Install paths
 # Multiarch triplet (x86_64-linux-gnu, aarch64-linux-gnu, ...); override on the command line if needed
-MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch)
+# Evaluated once (a recursive `?=` would run the shell on every use); no error
+# when it is empty, so `make clean` still works without dpkg/gcc
+ifeq ($(origin MULTIARCH),undefined)
+MULTIARCH := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch 2>/dev/null)
+endif
 NM_VPN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager
 NM_LIB_DIR = /usr/lib/NetworkManager
 NM_LIBEXEC_DIR = /usr/libexec/gpclient

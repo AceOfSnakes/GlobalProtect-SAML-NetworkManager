@@ -9,8 +9,13 @@ EDITOR_GTK4_CFLAGS = `pkg-config --cflags glib-2.0 libnm gtk4 libnma-gtk4` -Wall
 EDITOR_GTK4_LIBS = `pkg-config --libs glib-2.0 libnm gtk4 libnma-gtk4`
 
 # Multiarch triplet (x86_64-linux-gnu, aarch64-linux-gnu, ...); override on the command line if needed
-MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch)
-NM_PLUGIN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager/VPN
+# Evaluated once (a recursive `?=` would run the shell on every use); no error
+# when it is empty, so `make clean` still works without dpkg/gcc
+ifeq ($(origin MULTIARCH),undefined)
+MULTIARCH := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch 2>/dev/null)
+endif
+# libnm resolves the relative plugin= of the .name file in this directory, not in VPN/
+NM_PLUGIN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager
 
 # Check if libnma-gtk4 is available
 HAS_GTK4 := $(shell pkg-config --exists libnma-gtk4 && echo yes)

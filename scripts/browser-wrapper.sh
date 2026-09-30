@@ -34,11 +34,13 @@ if [ "$EUID" -eq 0 ]; then
             exit 1
         fi
         REAL_UID="$SUDO_UID"
-    elif [ -n "${SUDO_USER:-}" ]; then
-        # Compatibility with callers that only set SUDO_USER
-        REAL_UID=$(id -u -- "$SUDO_USER" 2>/dev/null)
+    elif [ -n "${SUDO_USER:-}" ] || [ "${USER:-root}" != root ]; then
+        # Compatibility with callers that only set SUDO_USER. With no SUDO_*
+        # at all the old wrapper dropped to $USER, so keep doing that.
+        LOOKUP_NAME="${SUDO_USER:-$USER}"
+        REAL_UID=$(id -u -- "$LOOKUP_NAME" 2>/dev/null)
         if [ -z "$REAL_UID" ]; then
-            log "ERROR: Cannot get UID for user: $SUDO_USER"
+            log "ERROR: Cannot get UID for user: $LOOKUP_NAME"
             exit 1
         fi
     else
@@ -51,21 +53,36 @@ else
     REAL_UID=$(id -u)
 fi
 
-# Whatever the source (id may fail or print junk), only a plain number goes on
-if [[ ! "$REAL_UID" =~ ^[0-9]+$ ]]; then
+# Whatever the source (id may fail or print junk), only a plain number goes on.
+# Drop leading zeros (bash would read 010 as octal) and refuse anything above
+# the valid uid range: 4294967295 is (uid_t)-1 and a bigger number could wrap
+# around to another user (even root) once a library truncates it to 32 bits.
+if [[ ! "$REAL_UID" =~ ^[0-9]{1,10}$ ]] || [ "$((10#$REAL_UID))" -gt 4294967294 ]; then
     log "ERROR: cannot determine the real user's UID (got: '$REAL_UID')"
     exit 1
 fi
+REAL_UID=$((10#$REAL_UID))
 
 REAL_USER=""
 REAL_HOME=""
 PASSWD_ENTRY=$(getent passwd "$REAL_UID" 2>/dev/null)
 if [ -n "$PASSWD_ENTRY" ]; then
-    IFS=: read -r REAL_USER _ _ _ _ REAL_HOME _ <<< "$PASSWD_ENTRY"
-elif [ "$EUID" -eq 0 ] && [ "$REAL_UID" -ne 0 ]; then
-    log "ERROR: no passwd entry for uid $REAL_UID"
-    exit 1
-else
+    IFS=: read -r REAL_USER _ ENTRY_UID _ _ REAL_HOME _ <<< "$PASSWD_ENTRY"
+    # glibc may wrap a big number onto another uid (4294967296 -> 0): never
+    # trust an entry that is not for the uid we asked for
+    if [ "$ENTRY_UID" != "$REAL_UID" ]; then
+        if [ "$EUID" -eq 0 ]; then
+            log "ERROR: passwd entry for uid $REAL_UID is for uid '$ENTRY_UID'"
+            exit 1
+        fi
+        PASSWD_ENTRY=""
+    fi
+fi
+if [ -z "$PASSWD_ENTRY" ]; then
+    if [ "$EUID" -eq 0 ] && [ "$REAL_UID" -ne 0 ]; then
+        log "ERROR: no passwd entry for uid $REAL_UID"
+        exit 1
+    fi
     # Not root: the entry is only needed for the name and home, so tolerate a
     # missing one (e.g. LDAP hiccup) and fall back to the environment
     REAL_USER="${USER:-uid-$REAL_UID}"
@@ -179,10 +196,19 @@ if [ -z "$SESSION_TYPE" ]; then
 fi
 log "session type: $SESSION_TYPE (DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset})"
 
-KDE_SESSION_VERSION=$(session_env_var KDE_SESSION_VERSION)
-if [ -n "$KDE_SESSION_VERSION" ]; then
-    log "detected KDE_SESSION_VERSION=$KDE_SESSION_VERSION"
-fi
+# xdg-open's detect_DE checks XDG_CURRENT_DESKTOP and KDE_FULL_SESSION before
+# KDE_SESSION_VERSION, and sudo resets the environment, so pass all three on.
+# A value we already have is kept when the session has none.
+DESKTOP_ENV=()
+for var in XDG_CURRENT_DESKTOP KDE_FULL_SESSION KDE_SESSION_VERSION; do
+    value=$(session_env_var "$var")
+    if [ -n "$value" ]; then
+        log "detected $var=$value"
+    else
+        value="${!var:-}"
+    fi
+    [ -n "$value" ] && DESKTOP_ENV+=("$var=$value")
+done
 
 # --- Profile / HOME workaround for ProtectHome=read-only --------------------
 
@@ -254,7 +280,7 @@ ENV_VARS=(
 [ -n "${XAUTHORITY:-}" ] && ENV_VARS+=("XAUTHORITY=$XAUTHORITY")
 [ -n "$WAYLAND_DISPLAY" ] && ENV_VARS+=("WAYLAND_DISPLAY=$WAYLAND_DISPLAY")
 [ "$SESSION_TYPE" = "wayland" ] && ENV_VARS+=("QT_QPA_PLATFORM=wayland")
-[ -n "${KDE_SESSION_VERSION:-}" ] && ENV_VARS+=("KDE_SESSION_VERSION=$KDE_SESSION_VERSION")
+ENV_VARS+=("${DESKTOP_ENV[@]}")
 
 URL="$1"
 if [ -z "$URL" ]; then
