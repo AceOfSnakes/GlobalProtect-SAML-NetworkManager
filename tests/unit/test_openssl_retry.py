@@ -55,6 +55,25 @@ sys.exit(1)
 '''
 
 
+# Stand-in for a portal the flag does not help with: every launch is recorded
+# in a file (path filled in by the test) and fails with the legacy error
+FAKE_GPCLIENT_ALWAYS_FAILING = r'''
+import sys
+
+with open("__LAUNCH_LOG__", "a") as log:
+    log.write("launch\n")
+
+sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
+sys.stdout.write(
+    "Error: error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
+    "renegotiation disabled\r\n"
+)
+sys.stdout.write("Re-run it with the `--fix-openssl` option to work around this issue, e.g.:\r\n")
+sys.stdout.flush()
+sys.exit(1)
+'''
+
+
 def _write_fake(tmp_path, name, body):
     script = tmp_path / name
     script.write_text(body)
@@ -152,6 +171,41 @@ class TestOpensslRetry:
         # The stand-in asserts the flag comes before the subcommand and exits 0,
         # so a clean run (no Failure) also proves the flag position
         assert dbus_signals == []
+
+
+    def test_retry_is_not_repeated_when_flag_does_not_help(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        launch_log = tmp_path / "launches"
+        fake = _write_fake(
+            tmp_path,
+            "gpclient-hopeless.py",
+            FAKE_GPCLIENT_ALWAYS_FAILING.replace("__LAUNCH_LOG__", str(launch_log)),
+        )
+        plugin = _plugin(service_module, monkeypatch, fake)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        # The first run, and exactly one retry - no endless loop
+        assert launch_log.read_text().splitlines() == ["launch", "launch"]
+        assert plugin._openssl_retried is True
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+
+    def test_flag_absent_from_first_attempt_when_not_forced(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        fake = _write_fake(tmp_path, "gpclient-plain.py", FAKE_GPCLIENT)
+        plugin = _plugin(service_module, monkeypatch, fake, mode="false")
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        argv_lines = [l for l in plugin._recent_lines if "argv:" in l]
+        assert len(argv_lines) == 1
+        assert "--fix-openssl" not in argv_lines[0]
+        assert plugin.fix_openssl is False
 
 
 class TestPersistingTheWorkaround:

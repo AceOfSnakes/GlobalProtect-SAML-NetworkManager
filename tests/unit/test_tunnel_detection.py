@@ -16,6 +16,8 @@ import os
 import socket
 import struct
 
+import pytest
+
 
 def _fake_net(tmp_path, names):
     """A stand-in for /sys/class/net containing `names`."""
@@ -168,6 +170,32 @@ class TestSnapshot:
         }
 
 
+    def test_ignores_non_tunnels_and_keeps_none_for_addressless(
+        self, service_module, monkeypatch, tmp_path
+    ):
+        plugin = _plugin_with_tunnels(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            # eth0 is not a tunnel, tunl0 is the IPIP device, tun0 has no IP yet
+            ips={"eth0": "192.168.1.9", "tunl0": "0.0.0.0", "tun0": None},
+            preexisting={},
+        )
+
+        # An address-less tunnel is recorded (as None) so that it is not
+        # mistaken for a new one once it gets an address of its own
+        assert asyncio.run(plugin._snapshot_tunnel_interfaces()) == {"tun0": None}
+
+    def test_is_empty_without_any_interface(
+        self, service_module, monkeypatch, tmp_path
+    ):
+        plugin = _plugin_with_tunnels(
+            service_module, monkeypatch, tmp_path, ips={}, preexisting={}
+        )
+
+        assert asyncio.run(plugin._snapshot_tunnel_interfaces()) == {}
+
+
 class TestDetectionLoop:
     def test_detects_a_tunnel_beyond_tun1(
         self, service_module, monkeypatch, tmp_path, dbus_signals
@@ -271,6 +299,28 @@ class TestDetectionLoop:
         # tun2 sorts first and is equally new, but it is not ours
         assert _ip4_config(dbus_signals)["tundev"] == ("s", "tun3")
 
+    def test_new_foreign_tunnel_not_adopted_while_gpclient_holds_another(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        """gpclient's own tunnel (tun3) has no address yet: the new tun2 of
+        another VPN must not be taken in its place."""
+        plugin = _plugin_with_tunnels(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            ips={"tun2": "10.8.9.1", "tun3": None},
+            preexisting={},
+        )
+        monkeypatch.setattr(
+            service_module,
+            "PROC_PATH",
+            _fake_proc(tmp_path, {4242: ("gpclient", 1, ["tun3"])}),
+        )
+        plugin.gpclient_process = _FakeProcess(4242)
+
+        assert _run_loop(plugin) is False
+        assert _ip4_config(dbus_signals) is None
+
     def test_falls_back_when_ownership_is_unknown(
         self, service_module, monkeypatch, tmp_path, dbus_signals
     ):
@@ -342,5 +392,58 @@ class TestOwnershipLookup:
     def test_reports_nothing_once_gpclient_exited(self, service_module):
         plugin = service_module.GpclientVPNPlugin()
         plugin.gpclient_process = _FakeProcess(os.getpid(), returncode=0)
+
+        assert plugin._tunnel_ifaces_owned_by_gpclient() == set()
+
+    @pytest.mark.parametrize(
+        "stat",
+        [
+            "garbage",
+            "1 (x) S",
+            "1 (x) S notanumber",
+            "",
+        ],
+    )
+    def test_process_tree_skips_malformed_stat(
+        self, service_module, monkeypatch, tmp_path, stat
+    ):
+        proc = _fake_proc(tmp_path, {300: ("root", 1, []), 301: ("child", 300, [])})
+        (tmp_path / "proc" / "301" / "stat").write_text(stat)
+        monkeypatch.setattr(service_module, "PROC_PATH", proc)
+
+        # The malformed entry cannot be attributed to the root, so it is left out
+        assert service_module.process_tree(300) == [300]
+
+    def test_process_tree_survives_a_missing_proc(self, service_module, monkeypatch):
+        monkeypatch.setattr(service_module, "PROC_PATH", "/no/such")
+
+        assert service_module.process_tree(300) == [300]
+
+    def test_fdinfo_with_an_empty_interface_name_is_ignored(
+        self, service_module, monkeypatch, tmp_path
+    ):
+        proc = _fake_proc(tmp_path, {77: ("gpclient", 1, ["tun7"])})
+        (tmp_path / "proc" / "77" / "fdinfo" / "1").write_text(
+            "pos:\t0\nflags:\t0104002\niff:\t\n"
+        )
+        monkeypatch.setattr(service_module, "PROC_PATH", proc)
+
+        assert service_module.tunnel_ifaces_held_by([77]) == set()
+
+    def test_reports_nothing_without_a_gpclient_process(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin.gpclient_process = None
+
+        assert plugin._tunnel_ifaces_owned_by_gpclient() == set()
+
+    def test_reports_nothing_when_the_process_lookup_fails(
+        self, service_module, monkeypatch
+    ):
+        def boom(_pid):
+            raise RuntimeError("proc vanished")
+
+        monkeypatch.setattr(service_module, "process_tree", boom)
+        plugin = service_module.GpclientVPNPlugin()
+        plugin.gpclient_process = _FakeProcess(4242)
 
         assert plugin._tunnel_ifaces_owned_by_gpclient() == set()
