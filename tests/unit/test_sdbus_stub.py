@@ -1,15 +1,19 @@
 """
-The unit tests must not depend on the host having (or lacking) python-sdbus.
+The unit tests must not depend on the host having (or lacking) python-sdbus,
+and must not change what other code in the same process sees as `sdbus`.
 
-conftest.py installs a stub `sdbus` that records emitted D-Bus signals. With a
-real sdbus already imported the stub used to be skipped, and every test using
-`dbus_signals` broke on such a machine.
+conftest.py installs a stub `sdbus` that records emitted D-Bus signals while
+the `service_module` fixture is alive and puts the previous entry back at the
+end of the session. With a real sdbus already imported the stub used to be
+skipped, and every test using `dbus_signals` broke on such a machine.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import sys
 import types
+
+from conftest import sdbus_stubbed
 
 
 def _fake_real_sdbus():
@@ -20,19 +24,53 @@ def _fake_real_sdbus():
 
 
 class TestSdbusStub:
-    def test_stub_replaces_a_real_sdbus(self, request, monkeypatch, service_module):
+    def test_stub_replaces_a_real_sdbus(self, monkeypatch):
         real = _fake_real_sdbus()
         monkeypatch.setitem(sys.modules, "sdbus", real)
 
-        signals = request.getfixturevalue("dbus_signals")
-
-        assert sys.modules["sdbus"] is not real
+        with sdbus_stubbed() as stub:
+            assert sys.modules["sdbus"] is stub
+            assert stub is not real
+            assert hasattr(stub, "SIGNAL_CALLS")
         assert not hasattr(real, "SIGNAL_CALLS")
-        # The service was imported once with the stub: signals it emits must
-        # still end up in the list the fixture hands out
+
+    def test_a_real_sdbus_is_put_back(self, monkeypatch):
+        real = _fake_real_sdbus()
+        monkeypatch.setitem(sys.modules, "sdbus", real)
+
+        with sdbus_stubbed():
+            pass
+
+        assert sys.modules["sdbus"] is real
+
+    def test_no_sdbus_at_all_is_put_back_as_none(self, monkeypatch):
+        monkeypatch.delitem(sys.modules, "sdbus", raising=False)
+
+        with sdbus_stubbed():
+            assert "sdbus" in sys.modules
+
+        assert "sdbus" not in sys.modules
+
+    def test_the_stub_is_removed_even_when_the_body_fails(self, monkeypatch):
+        real = _fake_real_sdbus()
+        monkeypatch.setitem(sys.modules, "sdbus", real)
+
+        try:
+            with sdbus_stubbed():
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+
+        assert sys.modules["sdbus"] is real
+
+    def test_session_stub_feeds_the_signal_fixture(
+        self, service_module, dbus_signals
+    ):
+        # Even if the host had a real sdbus, the service was imported with the
+        # stub: signals it emits must end up in the list the fixture hands out
         plugin = service_module.GpclientVPNPlugin()
         plugin._fail_login("no way to ask for the token")
-        assert signals == [
+        assert dbus_signals == [
             ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED),
             ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
         ]

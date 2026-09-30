@@ -114,6 +114,8 @@ DNS_STATE_WAIT_ROUNDS = 4
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"
+# Tries per connection to mark the code as not-saved in the profile
+OTP_FLAG_MAX_ATTEMPTS = 2
 
 # --- Legacy TLS renegotiation ------------------------------------------------
 #
@@ -286,21 +288,30 @@ USERNAME_LABEL_WORDS = ("user", "login", "email", "e-mail")
 # A label that names a password is a password even when it also mentions the
 # user ("Password for user jdoe", "Enter login password")
 PASSWORD_LABEL_RE = re.compile(r"(?<![^\W_])pass", re.IGNORECASE)
-ONE_TIME_SECRET_WORDS = (
+# A hint in brackets is not what the prompt asks for: "Username (not your
+# password)" is a username, "Secret (login)" a secret
+LABEL_HINT_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+# One-time keywords that may end a compound word: "mytoken", "TOTP",
+# "authcode", "Sicherheitscode", "PINcode" (ends with "code"). "code" is not
+# taken from "Barcode", "Postcode" or "Zipcode".
+ONE_TIME_SECRET_SUFFIXES = (
     "token",
-    "tokencode",
     "otp",
-    "passcode",
-    "pin",
-    "code",
+    "(?<!bar)(?<!post)(?<!zip)code",
     "challenge",
-    "tan",
-    "rsa",
 )
-# Whole words only (optionally plural): "tan" must not match "instance" or
-# "Stand-alone", "pin" not "Pinnacle", "code" not "encoded"
+# Short words that would match too much at the end of a word ("Pakistan",
+# "Kingpin", "Ursa") count as whole words only; TAN also as the known
+# compounds "mTAN", "pushTAN", "chipTAN", "smsTAN", "photoTAN", "qrTAN"
+ONE_TIME_SECRET_WHOLE_WORDS = ("pin", "rsa", "(?:m|push|chip|sms|photo|qr)?tan")
+# Optionally plural. "tan" must not match "instance" or "Stand-alone", "pin"
+# not "Pinnacle", "code" not "encoded"
 ONE_TIME_SECRET_RE = re.compile(
-    r"(?<![^\W_])(?:" + "|".join(ONE_TIME_SECRET_WORDS) + r")s?(?![^\W_])",
+    r"\b\w*(?:"
+    + "|".join(ONE_TIME_SECRET_SUFFIXES)
+    + r")s?\b|(?<![^\W_])(?:"
+    + "|".join(ONE_TIME_SECRET_WHOLE_WORDS)
+    + r")s?(?![^\W_])",
     re.IGNORECASE,
 )
 
@@ -348,8 +359,11 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
 
 
 def classify_prompt(label: str) -> str:
-    """Classify a prompt label as 'username' or 'password' (any secret)"""
-    lowered = label.lower()
+    """Classify a prompt label as 'username' or 'password' (any secret).
+
+    Text in parentheses or brackets is a hint and is not looked at.
+    """
+    lowered = LABEL_HINT_RE.sub(" ", label).lower()
     if PASSWORD_LABEL_RE.search(lowered):
         return "password"
     if any(word in lowered for word in USERNAME_LABEL_WORDS):
@@ -703,6 +717,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._openssl_error_seen = False
         self._openssl_retried = False
         self._otp_flags_written = False  # profile told not to save the passcode
+        self._otp_flag_attempts = 0  # tries so far to do that (bounded)
 
         # Portal / gateway selection (issue #7)
         self.as_gateway = False
@@ -849,6 +864,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._openssl_error_seen = False
         self._openssl_retried = False
         self._otp_flags_written = False
+        self._otp_flag_attempts = 0
 
         try:
             # Extract VPN data
@@ -1107,6 +1123,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._openssl_error_seen = False
         self._openssl_retried = False
         self._otp_flags_written = False
+        self._otp_flag_attempts = 0
         self.as_gateway = False
         self.preferred_gateway = ""
         self._connection_uuid = ""
@@ -1866,16 +1883,23 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if is_one_time_secret(label) or self._answered_password:
             return "otp"
 
-        # Username: by keyword, or positionally the first credential prompt
-        # (we have not answered a username yet this phase). This comes before
-        # the banner check: an RSA banner is printed before the Username prompt
-        # too, and the token is only wanted at the password prompt (issue #6).
-        if classify_prompt(label) == "username" or not self._answered_username:
+        # Username by keyword. This comes before the banner check: an RSA
+        # banner is printed before the Username prompt too, and the token is
+        # only wanted at the password prompt (issue #6).
+        if classify_prompt(label) == "username":
             return "username"
 
-        # A password prompt under a one-time banner ("Please enter RSA token")
+        # A prompt under a one-time banner ("Please enter RSA token"). Before
+        # the positional username rule: a Gateway phase without a stored
+        # username starts with nothing answered, yet gpclient asks only for
+        # the token there, as a bare "Password".
         if is_one_time_secret(banner_msg):
             return "otp"
+
+        # Username by position: the first credential prompt of the phase when
+        # no username was answered yet (a localized label the keywords miss)
+        if not self._answered_username:
+            return "username"
 
         return "password"
 
@@ -1999,8 +2023,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             start_option = options[frame["cursor"]]
             current_frame = frame
-            steps = 0
+            steps = 0  # Down presses so far
             substring_hit = None
+            hit_steps = None  # Down presses from the start to the first hit
+            returning = None  # Down presses left on the way back to the hit
 
             while True:
                 self._record_gateways(current_frame["options"])
@@ -2010,27 +2036,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     preferred, current
                 ):
                     substring_hit = current
+                    hit_steps = steps
 
-                if matches(current):
-                    logger.info(f"Selecting gateway: {current!r}")
-                    self._write_keys(KEY_ENTER, f"select {current!r}")
-                    return
-
-                if steps and current == start_option:
-                    if substring_hit is not None and walking:
+                if steps and returning is None and current == start_option:
+                    if walking and substring_hit is not None:
                         # No exact match anywhere: go back to the first entry
-                        # that merely contains the name (as on a short list)
+                        # that merely contains the name (as on a short list),
+                        # by the same number of Downs it took to get there
                         walking = False
-                        wanted = substring_hit
-                        matches = lambda option: option == substring_hit  # noqa: E731
+                        returning = hit_steps
                         logger.info(
                             f"No exact match for {preferred!r} - going back to "
                             f"{substring_hit!r}"
                         )
-                        if matches(current):
-                            logger.info(f"Selecting gateway: {current!r}")
-                            self._write_keys(KEY_ENTER, f"select {current!r}")
-                            return
                     else:
                         logger.warning(
                             f"Walked the whole list without finding {wanted!r} - "
@@ -2039,7 +2057,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         self._write_keys(KEY_ENTER, "select the first proposal")
                         return
 
-                if steps >= SELECT_MAX_STEPS:
+                if returning == 0 or matches(current):
+                    logger.info(f"Selecting gateway: {current!r}")
+                    self._write_keys(KEY_ENTER, f"select {current!r}")
+                    return
+
+                # The limit is for the lap looking for a match; the way back
+                # is as long as the hit was far
+                if returning is None and steps >= SELECT_MAX_STEPS:
                     logger.warning(
                         f"Gave up after {steps} steps through the gateway list - "
                         f"selecting {current!r}"
@@ -2058,6 +2083,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                 current_frame = next_frame
                 steps += 1
+                if returning is not None:
+                    returning -= 1
         finally:
             self._answering = False
 
@@ -2136,7 +2163,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         if self._otp_flags_written or not self._connection_uuid:
             return
+        if self._otp_flag_attempts >= OTP_FLAG_MAX_ATTEMPTS:
+            return
 
+        self._otp_flag_attempts += 1
         logger.info(
             "Marking the one-time code as not-saved in the profile and dropping "
             "any stored value"
@@ -2144,8 +2174,17 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         flagged = await self._write_vpn_data(f"{OTP_SECRET_KEY}-flags", "2")
         dropped = await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
         # Only after both succeeded: on a failure the code may still be in the
-        # profile, so the next one-time prompt has to try again
+        # profile, so the next one-time prompt has to try again - a few times,
+        # not at every prompt (each nmcli call may wait 10 s)
         self._otp_flags_written = flagged and dropped
+        if not self._otp_flags_written and (
+            self._otp_flag_attempts >= OTP_FLAG_MAX_ATTEMPTS
+        ):
+            logger.warning(
+                f"Giving up on marking the one-time code as not-saved after "
+                f"{self._otp_flag_attempts} attempts - a stored code may stay "
+                "in the profile"
+            )
 
     async def _persist_gateway_list(self) -> None:
         """Cache the discovered gateway list in the connection profile.
@@ -2376,6 +2415,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
         return learned
 
+    @staticmethod
+    def _dns_to_nm(servers: List[str]) -> List[int]:
+        """IPv4 servers as NetworkManager uint32s; invalid entries are skipped"""
+        dns_list = []
+        for dns in servers:
+            dns = dns.strip()
+            try:
+                dns_list.append(ipv4_to_nm_uint32(dns))
+                logger.info(f"Added DNS server: {dns}")
+            except Exception as e:
+                logger.warning(f"Failed to convert DNS {dns}: {e}")
+        return dns_list
+
     def _build_dns_config(
         self,
         config: Dict[str, Tuple[str, Any]],
@@ -2383,31 +2435,33 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     ) -> None:
         """Fill in Ip4Config's dns/domains (issue #15).
 
-        The profile's `dns` override wins over the servers the gateway pushed;
-        search domains are the gateway's plus the profile's `dns-domains`.
+        The profile's `dns` override wins over the servers the gateway pushed,
+        unless none of its entries is a valid IPv4 address (then the gateway's
+        servers are used); search domains are the gateway's plus the profile's `dns-domains`.
         Handing them to NetworkManager is what keeps them alive: it reapplies
         its own VPN DNS configuration every time it recomputes DNS, whereas
         what vpnc-script wrote to systemd-resolved is overwritten with nothing.
         """
         learned_servers, learned_domains, learned_servers6 = learned or ([], [], [])
 
+        dns_list = []
         if self.dns_servers:
-            servers = list(self.dns_servers)
-            if learned_servers:
+            dns_list = self._dns_to_nm(self.dns_servers)
+            if not dns_list:
+                # A typo in the only override must not leave the tunnel
+                # without DNS while the gateway pushed working servers
+                logger.warning(
+                    f"None of the DNS servers in the profile is a valid IPv4 "
+                    f"address ({self.dns_servers}) - using the ones learned "
+                    f"from the gateway: {learned_servers}"
+                )
+            elif learned_servers:
                 logger.info(
-                    f"DNS servers overridden by the profile: {servers} "
+                    f"DNS servers overridden by the profile: {self.dns_servers} "
                     f"(gateway pushed {learned_servers})"
                 )
-        else:
-            servers = learned_servers
-
-        dns_list = []
-        for dns in servers:
-            try:
-                dns_list.append(ipv4_to_nm_uint32(dns))
-                logger.info(f"Added DNS server: {dns}")
-            except Exception as e:
-                logger.warning(f"Failed to convert DNS {dns}: {e}")
+        if not dns_list:
+            dns_list = self._dns_to_nm(learned_servers)
         if dns_list:
             config["dns"] = ("au", dns_list)
 

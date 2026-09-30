@@ -216,6 +216,73 @@ class TestDetectionReportsDns:
 
         assert config["dns"] == ("au", [_nm_u32("10.0.0.1")])
 
+    def test_profile_dns_without_a_valid_entry_falls_back_to_the_gateway(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox,
+        caplog,
+    ):
+        # A typo in the only profile entry ("10.1" is not an address) must not
+        # leave the tunnel without DNS while the gateway pushed a server
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP4_DNS="10.0.0.53")
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            config = _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=["10.1"],
+            )
+
+        assert config["dns"] == ("au", [_nm_u32("10.0.0.53")])
+        assert "None of the DNS servers in the profile is a valid IPv4" in caplog.text
+
+    def test_profile_dns_with_a_valid_entry_does_not_fall_back(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox,
+        caplog,
+    ):
+        _write_state(dns_state_sandbox, TUNDEV="tun0", INTERNAL_IP4_DNS="10.0.0.53")
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            config = _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=["10.1", "192.168.1.53"],
+            )
+
+        # Only the valid profile entry: the gateway's server is not added
+        assert config["dns"] == ("au", [_nm_u32("192.168.1.53")])
+        assert "None of the DNS servers in the profile" not in caplog.text
+
+    def test_invalid_profile_dns_without_gateway_dns_reports_none(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, caplog
+    ):
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            config = _detect(
+                service_module,
+                monkeypatch,
+                tmp_path,
+                dbus_signals,
+                dns_servers=["10.1"],
+            )
+
+        assert "dns" not in config
+        assert "None of the DNS servers in the profile is a valid IPv4" in caplog.text
+
+    def test_whitespace_around_a_profile_dns_entry_is_ignored(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        config = _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_servers=[" 10.0.0.1 ", "\t10.0.0.2"],
+        )
+
+        assert config["dns"] == ("au", [_nm_u32("10.0.0.1"), _nm_u32("10.0.0.2")])
+
     def test_ipv6_only_dns_is_not_reported(
         self, service_module, monkeypatch, tmp_path, dbus_signals
     ):

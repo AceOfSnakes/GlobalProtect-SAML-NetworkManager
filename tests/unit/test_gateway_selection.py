@@ -375,6 +375,77 @@ class TestAnswerGatewayList:
         assert sent == [(service_module.KEY_ENTER, "gw-10 (a.example.com)")]
         assert moves == []
 
+    @staticmethod
+    def _long_list(plugin, options):
+        """A paged list of `options` that wraps like inquire's; returns what
+        the walk did: Down keys pressed and the entry under the cursor at Enter"""
+        state = {"cursor": 0, "downs": 0, "selected": []}
+
+        async def fake_down():
+            state["cursor"] = (state["cursor"] + 1) % len(options)
+            state["downs"] += 1
+            return frame_with_cursor(options, state["cursor"], more=True)
+
+        plugin._press_list_down = fake_down
+        plugin._write_keys = lambda data, description: state["selected"].append(
+            options[state["cursor"]]
+        )
+        return state
+
+    @staticmethod
+    def _gateways(count):
+        return [f"gw-{n:03d} (gw{n:03d}.example.com)" for n in range(count)]
+
+    def test_long_list_substring_match_is_found_within_two_laps(self, service_module):
+        # Only a substring hit, 60 entries in, on a list of 150: the first lap
+        # (150 Downs) plus the way back to the hit (60) is 210 Downs - more
+        # than SELECT_MAX_STEPS, which must bound the first lap only
+        options = self._gateways(150)
+        options[60] = "gw-frankfurt (fra.example.com)"
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["gw-frankfurt (fra.example.com)"]
+        assert state["downs"] == 150 + 60
+        assert state["downs"] < 2 * 150
+
+    def test_long_list_exact_match_after_a_substring_hit_wins(self, service_module):
+        options = self._gateways(150)
+        options[60] = "gw-frankfurt-old (fra-old.example.com)"
+        options[100] = "frankfurt (fra.example.com)"
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == ["frankfurt (fra.example.com)"]
+        assert state["downs"] == 100  # no second lap
+
+    def test_long_list_without_any_match_selects_the_first_proposal(
+        self, service_module
+    ):
+        options = self._gateways(150)
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["selected"] == [options[0]]
+        assert state["downs"] == 150  # one lap, back at the start
+
+    def test_endless_list_gives_up_after_the_step_limit(self, service_module):
+        # The first lap is longer than SELECT_MAX_STEPS
+        options = self._gateways(500)
+        plugin = make_plugin(service_module, preferred="frankfurt")
+        state = self._long_list(plugin, options)
+
+        self._run(plugin, frame_with_cursor(options[:7], 0, more=True))
+
+        assert state["downs"] == service_module.SELECT_MAX_STEPS
+        assert len(state["selected"]) == 1
+
     def test_stalled_redraw_still_confirms(self, service_module):
         sent = []
         plugin = make_plugin(service_module, preferred="gw-london", sent=sent)

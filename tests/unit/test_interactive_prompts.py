@@ -150,6 +150,35 @@ class TestClassifyPrompt:
     ):
         assert service_module.classify_prompt(label) == "password"
 
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Username (not your password)",
+            "Login or email (Pass ID)",
+            "Username [not the passcode]",
+            "E-mail (Passwort nicht hier)",
+        ],
+    )
+    def test_password_word_in_parentheses_does_not_make_a_password(
+        self, service_module, label
+    ):
+        # The hint in brackets is not the thing being asked for
+        assert service_module.classify_prompt(label) == "username"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password (your user name is not needed)",
+            "Secret (login)",
+            "(user) Password",
+            "Enter code (email)",
+        ],
+    )
+    def test_username_word_in_parentheses_does_not_make_a_username(
+        self, service_module, label
+    ):
+        assert service_module.classify_prompt(label) == "password"
+
 
 class TestOneTimeSecret:
     def test_rsa_banner_is_one_time(self, service_module):
@@ -180,10 +209,49 @@ class TestOneTimeSecret:
             "Security challenge",
             "Enter the codes",
             "otp_code",
+            "TOTP",
         ],
     )
     def test_one_time_words_are_found_as_whole_words(self, service_module, text):
         assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "mTAN",
+            "Enter your pushTAN",
+            "chipTAN",
+            "PINcode",
+            "authcode",
+            "Sicherheitscode",
+            "Sicherheitscodes",
+            "Enter the SecurToken",
+            "Hardwaretoken",
+            "Enter TOTP code",
+        ],
+    )
+    def test_one_time_words_at_the_end_of_a_compound_are_found(
+        self, service_module, text
+    ):
+        assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Password for Pakistan gateway",  # "tan" at the end of a name
+            "Kingpin password",  # "pin" at the end of a word
+            "Ursa password",  # "rsa" at the end of a word
+            "Postcode password",  # "code" at the end of a word
+            "Zipcode",
+            "Barcodes",
+            "Password for Tanaka",
+            "Password for mantan",  # not a known TAN compound
+        ],
+    )
+    def test_compounds_that_are_not_one_time_secrets_do_not_count(
+        self, service_module, text
+    ):
+        assert not service_module.is_one_time_secret(text)
 
     @pytest.mark.parametrize(
         "text",
@@ -318,12 +386,56 @@ class TestClassifyPromptKind:
             == "username"
         )
 
-    def test_localized_username_prompt_under_otp_banner_is_username(
-        self, service_module
-    ):
+    def test_localized_username_prompt_under_otp_banner_is_otp(self, service_module):
+        # Restored behaviour from before the positional rule: a label with no
+        # username keyword ("Benutzername") under an RSA banner counts as the
+        # token prompt. The banner is only overridden by a KEYWORD username
+        # label; making it positional too turned a Gateway phase's bare
+        # "Password" into a username (see the Gateway phase test below).
         p = self._plugin(service_module)
         assert (
             p._classify_prompt_kind("Benutzername", "Please enter RSA token")
+            == "otp"
+        )
+
+    def test_localized_username_prompt_under_neutral_banner_is_username(
+        self, service_module
+    ):
+        # Counterpart: without a one-time banner the position still decides
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind(
+                "Benutzername", "Please enter the login credentials"
+            )
+            == "username"
+        )
+
+    def test_gateway_phase_password_under_rsa_banner_is_otp(self, service_module):
+        # The portal phase asked username and password; the Gateway phase has
+        # no stored username to pre-fill, so the state resets to "username not
+        # answered" and gpclient asks only "Password" under the RSA banner.
+        p = self._plugin(service_module, prefilled=False)
+        p._answered_username = True
+        p._answered_password = True
+        p._reset_phase_state()
+
+        assert (
+            p._classify_prompt_kind("Password", "Please enter RSA token (Gateway)")
+            == "otp"
+        )
+
+    def test_gateway_phase_password_under_neutral_banner_is_still_positional(
+        self, service_module
+    ):
+        # Counterpart: no one-time banner, no username answered yet -> the
+        # first prompt of the phase is taken for the username
+        p = self._plugin(service_module, prefilled=False)
+        p._answered_username = True
+        p._answered_password = True
+        p._reset_phase_state()
+
+        assert (
+            p._classify_prompt_kind("Password", "Please enter the login credentials")
             == "username"
         )
 

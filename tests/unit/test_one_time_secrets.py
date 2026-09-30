@@ -149,6 +149,67 @@ class TestForgetOneTimeSecret:
         assert len(calls) == 4
         assert plugin._otp_flags_written is True
 
+    def test_failure_then_success_on_retry_is_done(self, service_module):
+        plugin, calls = self._plugin(service_module)
+        results = [False, True, True, True]
+
+        async def flaky(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = flaky
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is False
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is True
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert len(calls) == 4  # nothing after success
+
+    def test_permanent_failure_stops_after_two_attempts(
+        self, service_module, caplog
+    ):
+        """Every nmcli call may wait 10 s: a profile that cannot be changed
+        must not cost 20 s at every one-time prompt."""
+        plugin, calls = self._plugin(service_module)
+
+        async def failing(*arguments):
+            calls.append(arguments)
+            return False
+
+        plugin._nmcli_modify = failing
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            for _ in range(5):
+                asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(calls) == 4  # two attempts, two calls each
+        assert plugin._otp_flags_written is False
+        # Said once, when giving up
+        assert caplog.text.count("Giving up on marking the one-time code") == 1
+
+    def test_first_failure_does_not_give_up_yet(self, service_module, caplog):
+        plugin, calls = self._plugin(service_module)
+
+        async def failing(*arguments):
+            calls.append(arguments)
+            return False
+
+        plugin._nmcli_modify = failing
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(calls) == 2
+        assert "Giving up" not in caplog.text
+
+    def test_attempts_start_at_zero_for_a_new_connection(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        assert plugin._otp_flag_attempts == 0
+
 
 class TestSplitEscapeSequences:
     def test_sequence_split_across_reads_does_not_leak(self, service_module):

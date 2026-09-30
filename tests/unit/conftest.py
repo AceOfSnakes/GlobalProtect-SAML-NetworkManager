@@ -6,6 +6,7 @@ available (and not needed) for unit-testing the pure parsing helpers.
 A minimal stub is injected before the service module is loaded.
 """
 
+import contextlib
 import importlib.util
 import os
 import sys
@@ -21,19 +22,26 @@ SERVICE_PATH = os.path.join(
 _SDBUS_STUB = None
 
 
-def _install_sdbus_stub():
+@contextlib.contextmanager
+def sdbus_stubbed():
     """Make `sdbus` the stub, whatever the host has installed or imported.
 
-    Always installed (not only when sdbus is missing): a real sdbus in
-    sys.modules has no signal recording, so the tests would depend on the
-    machine they run on. The stub is built once and put back on every call,
-    because the service module binds its signal decorators to this one
-    instance.
+    Installed even when a real sdbus is available: a real one has no signal
+    recording, so the tests would depend on the machine they run on. The
+    previous `sys.modules` entry (or its absence) comes back on exit, so the
+    stub does not outlive the test session.
     """
-    global _SDBUS_STUB
-    if _SDBUS_STUB is None:
-        _SDBUS_STUB = _build_sdbus_stub()
-    sys.modules["sdbus"] = _SDBUS_STUB
+    missing = object()
+    previous = sys.modules.get("sdbus", missing)
+    stub = _build_sdbus_stub()
+    sys.modules["sdbus"] = stub
+    try:
+        yield stub
+    finally:
+        if previous is missing:
+            sys.modules.pop("sdbus", None)
+        else:
+            sys.modules["sdbus"] = previous
 
 
 def _build_sdbus_stub():
@@ -75,21 +83,29 @@ def _build_sdbus_stub():
 
 @pytest.fixture(scope="session")
 def service_module():
-    """Import service/nm-gpclient-service.py as a module (with sdbus stubbed)."""
-    _install_sdbus_stub()
-    spec = importlib.util.spec_from_file_location(
-        "nm_gpclient_service", os.path.abspath(SERVICE_PATH)
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """Import service/nm-gpclient-service.py as a module (with sdbus stubbed).
+
+    The service binds its signal decorators to the stub at import time, so the
+    stub stays in place for the whole session and is removed at teardown.
+    """
+    global _SDBUS_STUB
+    with sdbus_stubbed() as stub:
+        _SDBUS_STUB = stub
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "nm_gpclient_service", os.path.abspath(SERVICE_PATH)
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            yield module
+        finally:
+            _SDBUS_STUB = None
 
 
 @pytest.fixture
-def dbus_signals():
+def dbus_signals(service_module):
     """D-Bus signals the service emitted, as (name, payload) - cleared per test"""
-    _install_sdbus_stub()
-    calls = sys.modules["sdbus"].SIGNAL_CALLS
+    calls = _SDBUS_STUB.SIGNAL_CALLS
     calls.clear()
     yield calls
     calls.clear()
