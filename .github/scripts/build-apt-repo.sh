@@ -9,8 +9,8 @@
 #
 # Layout produced:
 #   dists/<suite>/{Release,Release.gpg,InRelease}
-#   dists/<suite>/main/binary-amd64/{Packages,Packages.gz}
-#   pool/<suite>/main/n/network-manager-gpclient/*.deb
+#   dists/<suite>/main/binary-<arch>/{Packages,Packages.gz}   (amd64 and arm64)
+#   pool/<suite>/main/n/network-manager-gpclient/*.deb        (all architectures)
 #   gpclient-archive-keyring.gpg, index.html, .nojekyll
 #
 # Requires: dpkg-dev (dpkg-scanpackages), apt-utils (apt-ftparchive), gnupg.
@@ -27,7 +27,8 @@ TEMPLATE="$SCRIPT_DIR/../pages/index.html"
 ORIGIN="GlobalProtect-SAML-NetworkManager"
 LABEL="GlobalProtect NetworkManager plugin"
 DESCRIPTION="NetworkManager VPN plugin for GlobalProtect (SAML/SSO)"
-ARCH="amd64"
+# Architectures we build for; each gets its own binary-<arch> index per suite
+ARCHES=(amd64 arm64)
 COMPONENT="main"
 SOURCE_PACKAGE="network-manager-gpclient"
 # Ubuntu releases we build for; the suite name is the release codename
@@ -82,10 +83,22 @@ debs=("$INCOMING"/*.deb)
 shopt -u nullglob
 [ ${#debs[@]} -gt 0 ] || die "no .deb files found in $INCOMING"
 
+# Number of packages per "<suite>/<arch>" ("all" packages belong to every arch)
+declare -A pkg_count=()
+
 for deb in "${debs[@]}"; do
     suite="$(suite_for_deb "$deb")" || die \
         "cannot tell which Ubuntu release $(basename "$deb") is for - expected a
        ~<codename>1 suffix in its version or a _ubuntu<version>.deb file name"
+
+    # The real architecture comes from the package itself: legacy file names
+    # (_ubuntu24.04.deb) do not carry it
+    arch="$(dpkg-deb -f "$deb" Architecture)"
+    case " ${ARCHES[*]} all " in
+        *" $arch "*) ;;
+        *) die "$(basename "$deb") has unsupported architecture '$arch' (expected: ${ARCHES[*]})" ;;
+    esac
+    pkg_count["$suite/$arch"]=$(( ${pkg_count["$suite/$arch"]:-0} + 1 ))
 
     pool="$OUTDIR/pool/$suite/$COMPONENT/${SOURCE_PACKAGE:0:1}/$SOURCE_PACKAGE"
     mkdir -p "$pool"
@@ -97,9 +110,6 @@ done
 cd "$OUTDIR"
 
 for suite in "${SUITES[@]}"; do
-    binary_dir="dists/$suite/$COMPONENT/binary-$ARCH"
-    mkdir -p "$binary_dir"
-
     if [ -d "pool/$suite" ]; then
         count=$(find "pool/$suite" -name '*.deb' | wc -l)
     else
@@ -112,21 +122,49 @@ for suite in "${SUITES[@]}"; do
 
     # --multiversion keeps every release in the index, not just the newest.
     # No --arch: that option filters by *filename pattern* (*_amd64.deb), which
-    # silently drops the legacy _ubuntu24.04.deb names. We only build amd64 and
-    # dpkg-scanpackages reads the real architecture from each package anyway.
-    dpkg-scanpackages --multiversion "pool/$suite" > "$binary_dir/Packages"
-    gzip -9nc "$binary_dir/Packages" > "$binary_dir/Packages.gz"
+    # silently drops the legacy _ubuntu24.04.deb names. Scan everything once
+    # and split by the real architecture that dpkg-scanpackages reads from each
+    # package.
+    all_packages="$(mktemp)"
+    dpkg-scanpackages --multiversion "pool/$suite" > "$all_packages"
 
-    entries=$(grep -c '^Package:' "$binary_dir/Packages" || true)
+    entries=$(grep -c '^Package:' "$all_packages" || true)
     [ "$entries" -eq "$count" ] || die \
         "$suite: indexed $entries of $count packages - check dpkg-scanpackages output"
+
+    for arch in "${ARCHES[@]}"; do
+        binary_dir="dists/$suite/$COMPONENT/binary-$arch"
+        mkdir -p "$binary_dir"
+
+        # Keep the stanzas built for this arch plus Architecture: all ones
+        awk -v arch="$arch" -v RS= -v ORS='\n\n' '
+            {
+                n = split($0, lines, "\n")
+                for (i = 1; i <= n; i++) {
+                    if (lines[i] ~ /^Architecture: /) {
+                        a = substr(lines[i], 15)
+                        if (a == arch || a == "all") print
+                        break
+                    }
+                }
+            }
+        ' "$all_packages" > "$binary_dir/Packages"
+        gzip -9nc "$binary_dir/Packages" > "$binary_dir/Packages.gz"
+
+        expected=$(( ${pkg_count["$suite/$arch"]:-0} + ${pkg_count["$suite/all"]:-0} ))
+        entries=$(grep -c '^Package:' "$binary_dir/Packages" || true)
+        [ "$entries" -eq "$expected" ] || die \
+            "$suite/$arch: indexed $entries of $expected packages - check the Architecture split"
+        log "$suite/$arch: $entries package(s)"
+    done
+    rm -f "$all_packages"
 
     apt-ftparchive \
         -o APT::FTPArchive::Release::Origin="$ORIGIN" \
         -o APT::FTPArchive::Release::Label="$LABEL" \
         -o APT::FTPArchive::Release::Suite="$suite" \
         -o APT::FTPArchive::Release::Codename="$suite" \
-        -o APT::FTPArchive::Release::Architectures="$ARCH" \
+        -o APT::FTPArchive::Release::Architectures="${ARCHES[*]}" \
         -o APT::FTPArchive::Release::Components="$COMPONENT" \
         -o APT::FTPArchive::Release::Description="$DESCRIPTION" \
         release "dists/$suite" > "dists/$suite/Release"
@@ -155,11 +193,12 @@ touch .nojekyll
 # sorted - "the first one" is the oldest.
 version_rows=""
 for suite in "${SUITES[@]}"; do
-    packages="dists/$suite/$COMPONENT/binary-$ARCH/Packages"
+    # Same version on every architecture, so just read all the indexes
+    packages=("dists/$suite/$COMPONENT"/binary-*/Packages)
     version="$(awk -v pkg="Package: $SOURCE_PACKAGE" '
         $0 == pkg { found = 1; next }
         found && /^Version:/ { print $2; found = 0 }
-    ' "$packages" 2>/dev/null | sort -V | tail -1 || true)"
+    ' "${packages[@]}" 2>/dev/null | sort -V | tail -1 || true)"
     [ -n "$version" ] || version="&mdash;"
     version_rows="$version_rows<tr><td><code>$suite</code></td><td><code>$version</code></td></tr>"
 done

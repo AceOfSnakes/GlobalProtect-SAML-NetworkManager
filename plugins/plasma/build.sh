@@ -5,6 +5,9 @@ set -e
 
 echo "Building GlobalProtect Plasma VPN Plugin..."
 
+# Multiarch triplet (x86_64-linux-gnu, aarch64-linux-gnu, ...)
+MULTIARCH="${MULTIARCH:-$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch)}"
+
 # Create build directory
 mkdir -p build
 cd build
@@ -12,7 +15,7 @@ cd build
 # Run CMake
 cmake .. \
     -DCMAKE_INSTALL_PREFIX=/usr \
-    -DKDE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
+    -DKDE_INSTALL_LIBDIR="lib/$MULTIARCH" \
     -DCMAKE_BUILD_TYPE=Release
 
 # Build

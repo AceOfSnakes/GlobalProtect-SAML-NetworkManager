@@ -47,8 +47,9 @@ else()
 endif()
 
 # Find plasma-nm libraries (installed with plasma-nm package)
-find_library(PLASMANM_INTERNAL plasmanm_internal PATHS /usr/lib/x86_64-linux-gnu)
-find_library(PLASMANM_EDITOR plasmanm_editor PATHS /usr/lib/x86_64-linux-gnu)
+# (CMAKE_LIBRARY_ARCHITECTURE is the multiarch triplet, e.g. x86_64-linux-gnu or aarch64-linux-gnu)
+find_library(PLASMANM_INTERNAL plasmanm_internal PATHS /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE})
+find_library(PLASMANM_EDITOR plasmanm_editor PATHS /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE})
 
 if(NOT PLASMANM_INTERNAL OR NOT PLASMANM_EDITOR)
     message(FATAL_ERROR "plasma-nm libraries not found. Please install the plasma-nm package.")

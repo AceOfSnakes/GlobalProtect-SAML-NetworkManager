@@ -23,10 +23,18 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Docker builds natively on each runner (no QEMU): the arm64 runner produces
+    # arm64 packages, the amd64 one amd64 packages.
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         ubuntu: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.ubuntu_version == 'all' && fromJSON('["22.04", "24.04", "24.10", "26.04"]') || fromJSON(format('["{0}"]', github.event.inputs.ubuntu_version))) || fromJSON('["22.04", "24.04", "24.10", "26.04"]') }}
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
@@ -46,13 +54,13 @@ jobs:
             -f Dockerfile.ubuntu${{ matrix.ubuntu }} .
 
           # Create output directory with write permissions for all users
-          mkdir -p output/ubuntu${{ matrix.ubuntu }}
-          chmod 777 output/ubuntu${{ matrix.ubuntu }}
+          mkdir -p output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}
+          chmod 777 output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}
 
           # Run build (fail on error)
           # WORKDIR is /build/source, so ".." = /build where dpkg-buildpackage writes .deb files
           docker run --rm \
-            -v ${{ github.workspace }}/output/ubuntu${{ matrix.ubuntu }}:/output \
+            -v ${{ github.workspace }}/output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}:/output \
             gpclient-builder:ubuntu${{ matrix.ubuntu }} \
             bash -c "
               set -e
@@ -70,18 +78,18 @@ jobs:
 
       - name: Verify .deb files exist
         run: |
-          if ! ls output/ubuntu${{ matrix.ubuntu }}/*.deb 1>/dev/null 2>&1; then
+          if ! ls output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb 1>/dev/null 2>&1; then
             echo "ERROR: No .deb files produced!"
             exit 1
           fi
           echo "Built packages:"
-          ls -la output/ubuntu${{ matrix.ubuntu }}/*.deb
+          ls -la output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: debs-ubuntu-${{ matrix.ubuntu }}
-          path: output/ubuntu${{ matrix.ubuntu }}/*.deb
+          name: debs-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
+          path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
   release:
     needs: build
@@ -97,8 +105,8 @@ jobs:
       - name: Collect release files
         run: |
           # Filenames already carry the release codename in the version
-          # (network-manager-gpclient_1.4.0-1~noble1_amd64.deb), so no renaming
-          # is needed to keep them unique across the three Ubuntu builds.
+          # and the architecture (network-manager-gpclient_1.4.0-1~noble1_amd64.deb),
+          # so no renaming is needed to keep them unique across all builds.
           mkdir -p release-files
           find artifacts -name '*.deb' -exec cp {} release-files/ \;
           echo "Release files:"

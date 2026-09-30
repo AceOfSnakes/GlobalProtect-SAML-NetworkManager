@@ -71,7 +71,9 @@ clean:
 .PHONY: install-dev uninstall-dev restart-nm
 
 # Install paths
-NM_VPN_DIR = /usr/lib/x86_64-linux-gnu/NetworkManager
+# Multiarch triplet (x86_64-linux-gnu, aarch64-linux-gnu, ...); override on the command line if needed
+MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch)
+NM_VPN_DIR ?= /usr/lib/$(MULTIARCH)/NetworkManager
 NM_LIB_DIR = /usr/lib/NetworkManager
 NM_LIBEXEC_DIR = /usr/libexec/gpclient
 DBUS_SERVICES_DIR = /usr/share/dbus-1/system-services
