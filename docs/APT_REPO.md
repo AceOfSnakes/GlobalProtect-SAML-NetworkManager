@@ -160,7 +160,11 @@ anyway.
 
 ### Not implemented
 
-There is no testing channel for prereleases. Test builds for issue reporters
-still come from workflow artifacts (`gh run list`, or the Actions UI). If that
-becomes a habit, the natural shape is a second suite (`<codename>-testing`) fed
-by prereleases rather than a separate repository.
+There is no testing channel for prereleases in the apt repository. Test builds of
+pull requests are published as the prerelease `pr-<N>` (removed when the PR
+closes) by `.github/workflows/pr-test-packages.yml`, which adds a `Test packages`
+check to the PR with the install command
+(`bash <(curl -fsSL https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/install-pr-build.sh) <N>`).
+`publish-apt.yml` skips prereleases, so these packages never reach the repository.
+If testing builds for users become a habit, the natural shape is a second suite
+(`<codename>-testing`) fed by prereleases rather than a separate repository.

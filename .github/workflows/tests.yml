@@ -54,11 +54,33 @@ jobs:
 
       - name: Run unit tests (non-root)
         if: matrix.mode == 'non-root'
-        run: python -m pytest tests/unit -q -p no:cacheprovider
+        run: python -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml
 
       # The setup-python interpreter lives outside sudo's secure_path, so it is
       # called by absolute path. PATH itself needs no care: the tests put their
       # fake tools first in the PATH they pass to the scripts.
       - name: Run unit tests (root)
         if: matrix.mode == 'root'
-        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider
+        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml
+
+      # The counts of this job, shown when it is opened from the checks of a
+      # pull request. Runs after a failure too, and never fails the job itself.
+      - name: Summarize results
+        if: always()
+        env:
+          TITLE: ${{ matrix.mode }} (Python ${{ matrix.python }})
+        run: python .github/scripts/junit_summary.py --title "$TITLE" junit.xml >> "$GITHUB_STEP_SUMMARY"
+
+      # The raw report, for anyone who wants more than the summary. Uploaded
+      # even when the tests fail. The name is junit-<mode>-py<python>, e.g.
+      # junit-non-root-py3.x: dots and dashes are valid in artifact names (only
+      # " : < > | * ? \ / are not), and upload-artifact@v4 needs a distinct name
+      # per matrix entry.
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.mode }}-py${{ matrix.python }}
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 14

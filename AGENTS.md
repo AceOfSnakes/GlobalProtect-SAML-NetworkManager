@@ -104,6 +104,13 @@ Rules for tests:
 - Do not make the build jobs required checks in branch protection: docs-only PRs
   (`**.md`, `docs/**`) skip the build, so a required build check would never
   report.
+- The results are the PR's checks: each `Unit tests` job has a summary with the
+  counts, and once the build succeeds a `Test packages` check carries the
+  command that installs the PR's packages (`scripts/install-pr-build.sh <PR>`).
+  They live in the prerelease `pr-<N>` (never part of the apt repository) and
+  are deleted when the PR closes. `pr-test-packages.yml` is a `workflow_run`
+  workflow: it runs only from `main`, so changes to it take effect after the
+  merge. It must never check out or run PR code.
 - Record out-of-scope bugs that reviews find as GitHub issues and link them
   from the PR.
 - Merge with a merge commit; do not squash or rebase contributors' commits.
