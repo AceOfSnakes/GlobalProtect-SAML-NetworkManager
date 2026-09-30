@@ -23,12 +23,6 @@ log() {
 
 REAL_USER="${SUDO_USER:-$USER}"
 
-# Validate username to prevent command injection (security)
-if ! [[ "$REAL_USER" =~ ^[a-z_][a-z0-9_-]*\$?$ ]]; then
-    log "ERROR: Invalid username: $REAL_USER"
-    exit 1
-fi
-
 REAL_UID=$(id -u "$REAL_USER" 2>/dev/null)
 if [ -z "$REAL_UID" ]; then
     log "ERROR: Cannot get UID for user: $REAL_USER"
