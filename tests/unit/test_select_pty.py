@@ -13,6 +13,8 @@ import os
 import pty
 import sys
 
+import pytest
+
 FAKE_GPCLIENT = r'''
 import os, sys, tty
 
@@ -61,6 +63,121 @@ while True:
         else:
             pending = pending[1:]
 '''
+
+
+# Stand-in that renders the way inquire 0.9.4 really does (FrameRenderer): the
+# frame is redrawn INCREMENTALLY. The cursor goes back to the top of the frame
+# with relative moves, only rows that changed are rewritten (followed by
+# "erase to end of line"), rows that vanished are erased, and the cursor is
+# parked on the prompt row. After a Down key the help row is NOT sent again, so
+# the new frame cannot be read from the stream of lines (issue #25).
+FAKE_INCREMENTAL_GPCLIENT = r"""
+import os, sys, tty
+
+PAGE = 7
+OPTIONS = ["gw-%02d (gw%d.example.com)" % (i, i) for i in range(20)]
+QUESTION = "? Which gateway do you want to connect to?"
+HELP = "[↑↓ to move, enter to select, type to filter]"
+
+screen = []  # rows currently on screen
+cursor_row = 0
+cursor_col = 0
+
+
+def frame_rows(start, cursor):
+    rows = [QUESTION + " "]
+    for index in range(start, start + PAGE):
+        if index == cursor:
+            marker = "\x1b[36m> "
+            text = OPTIONS[index] + "\x1b[0m"
+        else:
+            if index == start and start > 0:
+                marker = "^ "
+            elif index == start + PAGE - 1 and index < len(OPTIONS) - 1:
+                marker = "v "
+            else:
+                marker = "  "
+            text = OPTIONS[index]
+        rows.append(marker + text)
+    rows.append(HELP)
+    return rows
+
+
+def plain(row):
+    out, escape = "", False
+    for char in row:
+        if char == "\x1b":
+            escape = True
+        elif escape:
+            escape = char != "m"
+        else:
+            out += char
+    return out
+
+
+def redraw(rows, parked_col):
+    global screen, cursor_row, cursor_col
+    out = "\x1b[?25l"
+    if cursor_row:
+        out += "\x1b[%dA" % cursor_row
+    if cursor_col:
+        out += "\x1b[%dD" % cursor_col
+    height = max(len(rows), len(screen))
+    for index in range(height):
+        if index >= len(rows):
+            out += "\x1b[2K"
+        elif index >= len(screen) or screen[index] != rows[index]:
+            out += rows[index] + "\x1b[K"
+        out += "\r"
+        if index < height - 1:
+            out += "\n"
+    out += "\x1b[%dA" % (height - 1)
+    out += "\x1b[%dC" % parked_col
+    out += "\x1b[?25h"
+    sys.stdout.write(out)
+    sys.stdout.flush()
+    screen = rows
+    cursor_row = 0
+    cursor_col = parked_col
+
+
+tty.setraw(0)
+sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
+sys.stdout.flush()
+
+start = 0
+cursor = 0
+redraw(frame_rows(start, cursor), len(QUESTION) + 1)
+
+pending = b""
+while True:
+    chunk = os.read(0, 16)
+    if not chunk:
+        break
+    pending += chunk
+    while pending:
+        if pending.startswith(b"\x1b[B"):
+            pending = pending[3:]
+            cursor = (cursor + 1) % len(OPTIONS)
+            if cursor == 0:
+                start = 0
+            elif cursor >= start + PAGE:
+                start = cursor - PAGE + 1
+            redraw(frame_rows(start, cursor), len(QUESTION) + 1)
+        elif pending[:1] in (b"\r", b"\n"):
+            pending = pending[1:]
+            final = QUESTION + " " + OPTIONS[cursor]
+            redraw([final], len(final))
+            sys.stdout.write("\r\n")
+            sys.stdout.write(
+                "[INFO  gpclient::connect] Connecting to the selected gateway: %s\r\n"
+                % OPTIONS[cursor]
+            )
+            sys.stdout.flush()
+            sys.exit(0)
+        else:
+            pending = pending[1:]
+"""
 
 
                                                                     # noqa: E501
@@ -233,6 +350,70 @@ class TestGatewaySelectionOverPty:
         assert plugin.preferred_gateway == "gw-tokyo"
 
 
+class TestIncrementalRedrawOverPty:
+    """Issue #25: inquire redraws only the changed rows, so the walk through a
+    list longer than one page must read the frames from the screen."""
+
+    @staticmethod
+    def _run(service_module, tmp_path, preferred):
+        fake = tmp_path / "fake-gpclient-incremental.py"
+        fake.write_text(FAKE_INCREMENTAL_GPCLIENT)
+        return asyncio.run(_run_against_fake(service_module, fake, preferred))
+
+    @staticmethod
+    def _connected_to(plugin):
+        found = [
+            line.split("gateway: ", 1)[1].strip()
+            for line in plugin._recent_lines
+            if "Connecting to the selected gateway: " in line
+        ]
+        assert len(found) == 1
+        return found[0]
+
+    @pytest.mark.parametrize(
+        "preferred, expected",
+        [
+            ("gw-12 (gw12.example.com)", "gw-12 (gw12.example.com)"),
+            ("gw12.example.com", "gw-12 (gw12.example.com)"),
+            ("gw-19", "gw-19 (gw19.example.com)"),
+        ],
+    )
+    def test_preferred_gateway_beyond_the_first_page_is_selected(
+        self, service_module, tmp_path, caplog, preferred, expected
+    ):
+        plugin = self._run(service_module, tmp_path, preferred)
+
+        assert self._connected_to(plugin) == expected
+        assert "stopped redrawing" not in caplog.text
+        # Every gateway on the way is cached, not just the first page
+        walked = [f"gw-{i:02d} (gw{i}.example.com)" for i in range(20)]
+        assert plugin._gateway_list == walked[: walked.index(expected) + 1]
+
+    @pytest.mark.parametrize("preferred", ["gw-tokyo", "gw13.example.org"])
+    def test_unknown_preference_walks_the_list_and_takes_the_first(
+        self, service_module, tmp_path, caplog, preferred
+    ):
+        plugin = self._run(service_module, tmp_path, preferred)
+
+        # The walk wrapped around to where it started: the first proposal,
+        # not whatever happened to be highlighted at some point
+        assert self._connected_to(plugin) == "gw-00 (gw0.example.com)"
+        assert "stopped redrawing" not in caplog.text
+        assert "Walked the whole list" in caplog.text
+        assert len(plugin._gateway_list) == 20
+
+    def test_no_preference_takes_the_first_proposal(
+        self, service_module, tmp_path, caplog
+    ):
+        plugin = self._run(service_module, tmp_path, "")
+
+        assert self._connected_to(plugin) == "gw-00 (gw0.example.com)"
+        assert "stopped redrawing" not in caplog.text
+        assert plugin._gateway_list == ["gw-00 (gw0.example.com)"] + [
+            f"gw-{i:02d} (gw{i}.example.com)" for i in range(1, 7)
+        ]
+
+
 class TestStoredCredentialsOverPty:
     """Regression for issue #6: the text-prompt flow must still work now that
     the list-prompt check runs first in _schedule_prompt_check()."""
@@ -347,12 +528,17 @@ class TestPressListDown:
             "> gw-b (b.example.com)",
             "[to move, to select]",
         ]
-        plugin._recent_lines.extend(first)
+        plugin._screen.feed("\r\n".join(first) + "\r\n")
 
         async def scenario():
             async def redraw_later():
                 await asyncio.sleep(0.1)
-                plugin._recent_lines.extend(second)
+                # Incremental redraw like inquire: back up three rows and
+                # rewrite only the two changed option rows
+                plugin._screen.feed("\x1b[3A\r")
+                plugin._screen.feed("  gw-a (a.example.com)\x1b[K\r\n")
+                plugin._screen.feed("> gw-b (b.example.com)\x1b[K\r\n")
+                plugin._screen.feed("\r\n")
 
             asyncio.create_task(redraw_later())
             return await plugin._press_list_down()
@@ -362,16 +548,63 @@ class TestPressListDown:
         assert sent == [service_module.KEY_DOWN]
         assert frame["cursor"] == 1
 
+    def test_frame_in_the_middle_of_a_redraw_is_not_accepted(
+        self, service_module, monkeypatch
+    ):
+        """Old highlighted row already rewritten (no marker), new one not yet:
+        no frame at all must be returned, and not the stale one either."""
+        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.3)
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(
+            "? Which gateway do you want to connect to?\r\n"
+            "> gw-a (a.example.com)\r\n"
+            "  gw-b (b.example.com)\r\n"
+            "[to move, to select]\r\n"
+        )
+
+        async def scenario():
+            async def half_redraw():
+                await asyncio.sleep(0.1)
+                plugin._screen.feed("\x1b[3A\r  gw-a (a.example.com)\x1b[K\r\n")
+
+            asyncio.create_task(half_redraw())
+            return await plugin._press_list_down()
+
+        assert asyncio.run(scenario()) is None
+
+    def test_frame_is_taken_only_after_the_screen_settled(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(
+            "? Which gateway do you want to connect to?\r\n"
+            "> gw-a (a.example.com)\r\n"
+            "  gw-b (b.example.com)\r\n"
+            "[to move, to select]\r\n"
+        )
+
+        async def scenario():
+            async def redraw_in_two_steps():
+                await asyncio.sleep(0.1)
+                plugin._screen.feed("\x1b[3A\r  gw-a (a.example.com)\x1b[K\r\n")
+                await asyncio.sleep(0.02)
+                plugin._screen.feed("> gw-b (b.example.com)\x1b[K\r\n\r\n")
+
+            asyncio.create_task(redraw_in_two_steps())
+            return await plugin._press_list_down()
+
+        frame = asyncio.run(scenario())
+
+        assert frame["options"][frame["cursor"]] == "gw-b (b.example.com)"
+
     def test_no_redraw_gives_up(self, service_module, monkeypatch):
         monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.2)
         plugin = service_module.GpclientVPNPlugin()
         plugin._write_keys = lambda data, description: None
-        plugin._recent_lines.extend(
-            [
-                "? Which gateway do you want to connect to?",
-                "> gw-a (a.example.com)",
-                "[to move, to select]",
-            ]
+        plugin._screen.feed(
+            "? Which gateway do you want to connect to?\r\n"
+            "> gw-a (a.example.com)\r\n"
+            "[to move, to select]\r\n"
         )
 
         assert asyncio.run(plugin._press_list_down()) is None

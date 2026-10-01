@@ -224,6 +224,14 @@ BROWSER_BINARIES = {
 # We answer it ourselves: the gateway from vpn.data preferred-gateway, or the
 # first proposal when there is none. The list is cached in the connection
 # profile afterwards so the connection editor can offer it (issue #7).
+#
+# Only the FIRST frame is a stream of complete lines. inquire redraws
+# incrementally (FrameRenderer): it moves the cursor back to the top of the
+# frame with relative moves and rewrites only the rows that changed, so after a
+# Down key the help row is not sent again and the new frame cannot be read from
+# the line stream (issue #25: the walk never saw the redraw and confirmed the
+# wrong gateway). The frame is therefore read from ScreenBuffer, a small model
+# of the terminal screen.
 SELECT_HELP_RE = re.compile(r"^\[.*(?:to move|to select|to filter|↑↓).*\]$")
 SELECT_OPTION_MARKERS = ">^v "
 SELECT_FRAME_MAX_LINES = 24
@@ -485,7 +493,7 @@ def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
 
     message = window[prompt_index].lstrip()[1:].strip()
     options: List[str] = []
-    cursor = 0
+    cursor = None
     more = False
 
     for line in window[prompt_index + 1 :]:
@@ -501,7 +509,9 @@ def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
             more = True
         options.append(text)
 
-    if not message or not options:
+    # A Select frame always has a highlighted entry; without one the frame is
+    # incomplete (or not a Select at all)
+    if not message or not options or cursor is None:
         return None
 
     return {"message": message, "options": options, "cursor": cursor, "more": more}
@@ -788,6 +798,111 @@ class OutputScanner:
         return [seg for seg in segments[:-1] if seg.strip()]
 
 
+class ScreenBuffer:
+    """Apply raw PTY output (with escape sequences) to a grid of text rows.
+
+    Models just enough of a terminal for inquire's incremental redraws: text
+    overwrites at the cursor, \\r and \\n, relative cursor moves and the erase
+    sequences. Colours and everything else are ignored. The input must not end
+    in the middle of an escape sequence (_consume_output holds those back).
+    `version` changes whenever the screen may have changed.
+    """
+
+    MAX_ROWS = 200
+    _TOKEN_RE = re.compile(
+        r"\x1b\[(?P<params>[0-9;?]*)[ -/]*(?P<final>[@-~])"  # CSI
+        r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC
+        r"|\x1b[@-Z\\-_]"  # other Fe escape sequences
+        r"|(?P<text>[^\x1b]+)"
+        r"|\x1b"  # stray ESC
+    )
+
+    def __init__(self):
+        self._rows: List[List[str]] = [[]]
+        self._row = 0
+        self._col = 0
+        self.version = 0
+
+    def lines(self) -> List[str]:
+        return ["".join(row).rstrip() for row in self._rows]
+
+    def feed(self, text: str) -> None:
+        if not text:
+            return
+        self.version += 1
+        for match in self._TOKEN_RE.finditer(text):
+            if match.group("text") is not None:
+                self._write(match.group("text"))
+            elif match.group("final") is not None:
+                self._csi(match.group("params"), match.group("final"))
+
+    def _write(self, text: str) -> None:
+        for char in text:
+            if char == "\r":
+                self._col = 0
+            elif char == "\n":
+                self._row += 1
+                self._ensure_row()
+            elif char == "\b":
+                self._col = max(0, self._col - 1)
+            elif CONTROL_CHARS_RE.match(char) or char == "\t":
+                continue
+            else:
+                row = self._rows[self._row]
+                if len(row) < self._col:
+                    row.extend(" " * (self._col - len(row)))
+                if self._col < len(row):
+                    row[self._col] = char
+                else:
+                    row.append(char)
+                self._col += 1
+
+    def _ensure_row(self) -> None:
+        while len(self._rows) <= self._row:
+            self._rows.append([])
+        excess = len(self._rows) - self.MAX_ROWS
+        if excess > 0:
+            del self._rows[:excess]
+            self._row = max(0, self._row - excess)
+
+    def _csi(self, params: str, final: str) -> None:
+        if params.startswith("?"):  # private modes (cursor visibility, ...)
+            return
+        numbers = [int(part) if part else None for part in params.split(";")]
+        first = numbers[0]
+        count = first if first else 1  # a move by 0 is a move by 1
+
+        if final == "A":
+            self._row = max(0, self._row - count)
+        elif final == "B":
+            self._row += count
+            self._ensure_row()
+        elif final == "C":
+            self._col += count
+        elif final == "D":
+            self._col = max(0, self._col - count)
+        elif final == "G":
+            self._col = max(0, count - 1)
+        elif final == "K":
+            row = self._rows[self._row]
+            mode = first or 0
+            if mode == 0:
+                del row[self._col :]
+            elif mode == 1:
+                row[: self._col + 1] = [" "] * min(len(row), self._col + 1)
+            elif mode == 2:
+                row.clear()
+        elif final == "J":
+            mode = first or 0
+            if mode == 0:
+                del self._rows[self._row][self._col :]
+                del self._rows[self._row + 1 :]
+            elif mode in (2, 3):
+                self._rows = [[]]
+                self._row = 0
+                self._col = 0
+
+
 class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN):
     """NetworkManager VPN Plugin for gpclient using python-sdbus"""
 
@@ -848,6 +963,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # (the inquire Select frame with the gateway list) and prompts that
         # inquire has already terminated with a newline
         self._recent_lines: deque = deque(maxlen=96)
+        # What the terminal would show right now; the only way to see an
+        # incrementally redrawn Select frame (issue #25)
+        self._screen = ScreenBuffer()
         self._line_counter = 0  # monotonic count of complete lines seen
         self._answered_at_line = -1  # line count when we last answered a prompt
         self._auth_banner = None  # last "message (Portal: server)" banner
@@ -950,6 +1068,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._output_scanner = OutputScanner()
         self._ansi_carry = ""
         self._recent_lines.clear()
+        self._screen = ScreenBuffer()
         self._line_counter = 0
         self._answered_at_line = -1
         self._answered_select = None
@@ -1224,6 +1343,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._stored_gateway_list = ""
         self._answered_select = None
         self._recent_lines.clear()
+        self._screen = ScreenBuffer()
         self._line_counter = 0
         self._answered_at_line = -1
         self.vpn_username = ""
@@ -1792,6 +1912,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._ansi_carry = split.group(0)
             text = text[: split.start()]
 
+        self._screen.feed(text)
         return self._output_scanner.feed(strip_ansi(text))
 
     async def _retry_with_openssl_fix(self) -> bool:
@@ -1832,6 +1953,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._output_scanner = OutputScanner()
         self._ansi_carry = ""
         self._recent_lines.clear()
+        self._screen = ScreenBuffer()
         self._line_counter = 0
         self._answered_at_line = -1
         self._auth_banner = None
@@ -1897,21 +2019,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # so it has to be checked before the tail-based text prompt detection -
         # otherwise "? Which gateway do you want to connect to?" would be
         # answered with the username.
-        select_frame = detect_select_prompt(list(self._recent_lines))
+        select_frame = detect_select_prompt(self._screen.lines())
         if select_frame is not None:
             if select_frame["message"] == self._answered_select:
                 self._prompt_task = None
                 return
 
-            async def _debounced_select(line_count: int):
+            async def _debounced_select(version: int):
                 await asyncio.sleep(PROMPT_DEBOUNCE_SECONDS)
                 # Only act if no further output arrived (frame fully rendered)
-                if len(self._recent_lines) != line_count:
+                if self._screen.version != version:
                     return
                 await self._handle_select_prompt(select_frame)
 
             self._prompt_task = asyncio.create_task(
-                _debounced_select(len(self._recent_lines))
+                _debounced_select(self._screen.version)
             )
             return
 
@@ -2199,8 +2321,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         Down wraps around in inquire, so this reaches every entry, including
         ones outside the visible page. None means gpclient did not redraw.
+
+        inquire redraws only the rows that changed (issue #25), so the frame is
+        read from the screen model, and only once the screen has stood still
+        for a poll interval: a frame read in the middle of a redraw mixes old
+        and new rows.
         """
-        previous = detect_select_prompt(list(self._recent_lines))
+        previous = detect_select_prompt(self._screen.lines())
         previous_option = (
             previous["options"][previous["cursor"]] if previous else None
         )
@@ -2209,9 +2336,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + SELECT_REDRAW_TIMEOUT
+        seen_version = self._screen.version
         while loop.time() < deadline:
             await asyncio.sleep(SELECT_POLL_INTERVAL)
-            frame = detect_select_prompt(list(self._recent_lines))
+            if self._screen.version != seen_version:
+                seen_version = self._screen.version
+                continue
+            frame = detect_select_prompt(self._screen.lines())
             if frame is None:
                 continue
             if frame["options"][frame["cursor"]] != previous_option:

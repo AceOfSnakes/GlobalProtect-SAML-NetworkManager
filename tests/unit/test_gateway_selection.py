@@ -116,6 +116,17 @@ class TestDetectSelectPrompt:
         assert service_module.detect_select_prompt(SINGLE_PAGE[:1]) is None
         assert service_module.detect_select_prompt([]) is None
 
+    def test_frame_without_a_highlighted_entry_is_not_a_frame(self, service_module):
+        # A Select always highlights one entry: this is a frame caught in the
+        # middle of a redraw (issue #25)
+        lines = [
+            "? Which gateway do you want to connect to?",
+            "  gw-a (a.example.com)",
+            "  gw-b (b.example.com)",
+            "[↑↓ to move, enter to select, type to filter]",
+        ]
+        assert service_module.detect_select_prompt(lines) is None
+
     def test_help_footer_without_question_is_not_a_frame(self, service_module):
         assert (
             service_module.detect_select_prompt(
@@ -651,7 +662,7 @@ class TestAnswerGatewayList:
         self._run(plugin, frame)
         assert plugin._answered_select == frame["message"]
 
-        plugin._recent_lines.extend(SINGLE_PAGE)
+        plugin._screen.feed("\r\n".join(SINGLE_PAGE) + "\r\n")
         plugin._schedule_prompt_check()
         assert plugin._prompt_task is None
 
