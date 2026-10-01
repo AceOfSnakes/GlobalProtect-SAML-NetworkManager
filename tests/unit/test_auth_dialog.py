@@ -12,6 +12,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 DIALOG = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__), "..", "..", "auth-dialog", "nm-gpclient-auth-dialog.py"
@@ -20,7 +22,9 @@ DIALOG = os.path.abspath(
 SERVICE = "org.freedesktop.NetworkManager.gpclient"
 
 
-def run_dialog(data=None, secrets=None, hints=(), interaction=True, reprompt=False):
+def run_dialog(
+    data=None, secrets=None, hints=(), interaction=True, reprompt=False, env=None
+):
     args = [
         sys.executable,
         DIALOG,
@@ -54,6 +58,7 @@ def run_dialog(data=None, secrets=None, hints=(), interaction=True, reprompt=Fal
         capture_output=True,
         text=True,
         timeout=20,
+        env=env,
     )
 
 
@@ -108,6 +113,34 @@ class TestCredentialsConnections:
         assert "interaction is not allowed" in result.stderr
 
 
+    def test_stored_password_not_reused_on_reprompt(self):
+        # NetworkManager sets -r after a failed login: the stored password is
+        # known to be wrong and must not be handed back
+        result = run_dialog(
+            data={"gateway": "vpn.example.com", "auth-mode": "credentials"},
+            secrets={"password": "s3cret"},
+            interaction=False,
+            reprompt=True,
+        )
+        assert result.returncode == 1
+        assert "s3cret" not in result.stdout
+        assert "interaction is not allowed" in result.stderr
+
+    @pytest.mark.parametrize("flags", ["0", "2"])
+    def test_password_flags_not_required_only_when_exactly_4(self, flags):
+        # 0 (saved by the system) and 2 (not saved) still need the password
+        result = run_dialog(
+            data={
+                "gateway": "vpn.example.com",
+                "auth-mode": "credentials",
+                "password-flags": flags,
+            },
+            interaction=False,
+        )
+        assert result.returncode == 1
+        assert "interaction is not allowed" in result.stderr
+
+
 class TestHints:
     def test_challenge_hint_needs_interaction(self):
         # A one-time token from the service (SecretsRequired) must never be
@@ -140,3 +173,25 @@ class TestHints:
         )
         assert result.returncode == 1
         assert "Unsupported VPN service" in result.stdout + result.stderr
+
+    def test_dialog_failure_is_reported_not_answered(self, tmp_path):
+        # A `gi` that cannot be imported (no GTK installed): the dialog must
+        # fail cleanly instead of answering with an empty secret
+        stub = tmp_path / "stub"
+        (stub / "gi").mkdir(parents=True)
+        (stub / "gi" / "__init__.py").write_text('raise ImportError("no GTK here")\n')
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(stub)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+        )
+
+        result = run_dialog(
+            data={"gateway": "vpn.example.com"},
+            hints=["x-vpn-message:Please enter RSA token", "otp"],
+            env=env,
+        )
+
+        assert result.returncode == 1
+        assert "Failed to show auth dialog" in result.stderr
+        assert "no GTK here" in result.stderr
+        assert result.stdout == ""

@@ -5,6 +5,8 @@ Unit tests for interactive prompt detection in the nm-gpclient service
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
+import pytest
+
 
 class TestStripAnsi:
     def test_plain_text_unchanged(self, service_module):
@@ -23,6 +25,23 @@ class TestStripAnsi:
     def test_newlines_preserved(self, service_module):
         raw = "line1\r\nline2\n"
         assert service_module.strip_ansi(raw) == "line1\r\nline2\n"
+
+    @pytest.mark.parametrize("control", ["\x00", "\x07", "\x08", "\x0b", "\x7f"])
+    def test_control_characters_are_dropped(self, service_module, control):
+        assert service_module.strip_ansi(f"ab{control}cd") == "abcd"
+
+    def test_tab_survives_control_character_filter(self, service_module):
+        assert service_module.strip_ansi("a\tb") == "a\tb"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "\x1b]0;window title\x07? Username: ",  # OSC terminated by BEL
+            "\x1b]0;window title\x1b\\? Username: ",  # OSC terminated by ST
+        ],
+    )
+    def test_osc_sequences_removed(self, service_module, raw):
+        assert service_module.strip_ansi(raw) == "? Username: "
 
 
 class TestAuthBanner:
@@ -49,6 +68,20 @@ class TestAuthBanner:
         assert (
             service_module.parse_auth_banner("[INFO] connecting to portal") is None
         )
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Please enter RSA token (Proxy: proxy.example.com)",  # unknown kind
+            "Please enter RSA token (portal: vpn.example.com)",  # kinds are exact
+            "(Portal: vpn.example.com)",  # no message
+            "",
+        ],
+    )
+    def test_banner_with_unknown_kind_or_missing_parts_is_ignored(
+        self, service_module, line
+    ):
+        assert service_module.parse_auth_banner(line) is None
 
 
 class TestDetectPrompt:
@@ -79,6 +112,12 @@ class TestDetectPrompt:
     def test_finalized_text_answer_is_not_a_prompt(self, service_module):
         assert service_module.detect_prompt("? Username: jdoe") is None
 
+    @pytest.mark.parametrize("tail", ["?", "? ", "? : ", "  ?  ", "?:"])
+    def test_prompt_marker_without_a_label_is_not_a_prompt(
+        self, service_module, tail
+    ):
+        assert service_module.detect_prompt(tail) is None
+
     def test_echo_of_our_answer_is_skipped(self, service_module):
         assert (
             service_module.detect_prompt(
@@ -97,6 +136,91 @@ class TestClassifyPrompt:
         for label in ("Password", "Passcode", "PIN", "Enter the next tokencode"):
             assert service_module.classify_prompt(label) == "password"
 
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password for user jdoe",
+            "Enter login password",
+            "User password",
+            "Login Password",
+            "UserPassword",  # one tokenizer: camel case splits into User|Password
+            "LoginPassword",
+            "Email password",
+            "E-mail password",
+        ],
+    )
+    def test_password_label_with_a_username_word_is_a_password(
+        self, service_module, label
+    ):
+        assert service_module.classify_prompt(label) == "password"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Username (not your password)",
+            "Login or email (Pass ID)",
+            "Username [not the passcode]",
+            "E-mail (Passwort nicht hier)",
+        ],
+    )
+    def test_password_word_in_parentheses_does_not_make_a_password(
+        self, service_module, label
+    ):
+        # The hint in brackets is not the thing being asked for
+        assert service_module.classify_prompt(label) == "username"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password (your user name is not needed)",
+            "Secret (login)",
+            "(user) Password",
+            "Enter code (email)",
+        ],
+    )
+    def test_username_word_in_parentheses_does_not_make_a_username(
+        self, service_module, label
+    ):
+        assert service_module.classify_prompt(label) == "password"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Domain password",
+            "Network password",
+            "Passwort",
+            "Passwd",
+            "Passphrase",
+            "Kennwort",
+            "Passport ID",  # no username word: a secret, as it always was
+        ],
+    )
+    def test_password_words_are_whole_words(self, service_module, label):
+        assert service_module.classify_prompt(label) == "password"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Username/Password",
+            "Username or password",
+            "Login / Password",
+            "User ID or Passkey",  # "Passkey" is not a password word
+            "User Passport",  # nor is "Passport"
+            "Email or passphrase",
+            "Username, not your login password",  # the username comes first
+            "Enter user and login password",  # "and" sits between user and password
+            "Login: Password",  # punctuation between: two things are asked for
+            "User-Password",
+        ],
+    )
+    def test_username_first_with_a_password_word_further_on_is_a_username(
+        self, service_module, label
+    ):
+        # A word that merely starts with "pass" is not the password, and a
+        # username word that is not directly followed by "password" names the
+        # first of two things asked for
+        assert service_module.classify_prompt(label) == "username"
+
 
 class TestOneTimeSecret:
     def test_rsa_banner_is_one_time(self, service_module):
@@ -111,6 +235,216 @@ class TestOneTimeSecret:
         assert not service_module.is_one_time_secret(
             "Please enter the login credentials"
         )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Please enter RSA token",
+            "Enter your RSA SecurID PIN",
+            "Enter TAN",
+            "TAN:",
+            "Enter the PIN",
+            "One-time OTP",
+            "Enter Your 6 Digit Passcode",
+            "Enter your login code",
+            "Enter the next tokencode",
+            "Security challenge",
+            "Enter the codes",
+            "otp_code",
+            "TOTP",
+        ],
+    )
+    def test_one_time_words_are_found_as_whole_words(self, service_module, text):
+        assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "mTAN",
+            "Enter your pushTAN",
+            "chipTAN",
+            "PINcode",
+            "authcode",
+            "Sicherheitscode",
+            "Sicherheitscodes",
+            "Enter the SecurToken",
+            "Hardwaretoken",
+            "Enter TOTP code",
+        ],
+    )
+    def test_one_time_words_at_the_end_of_a_compound_are_found(
+        self, service_module, text
+    ):
+        assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Password for Pakistan gateway",  # "tan" at the end of a name
+            "Kingpin password",  # "pin" at the end of a word
+            "Ursa password",  # "rsa" at the end of a word
+            "Postcode password",  # "code" at the end of a word
+            "Zipcode",
+            "Barcodes",
+            "Password for Tanaka",
+            "Password for mantan",  # not a known TAN compound
+            "Unicode",
+            "Countrycode",
+            "Areacode",
+            "Postalcode",
+            "Promocode",
+        ],
+    )
+    def test_compounds_that_are_not_one_time_secrets_do_not_count(
+        self, service_module, text
+    ):
+        assert not service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Password for instance db1",  # "tan" inside "instance"
+            "Pinnacle password",  # "pin" at the start of "Pinnacle"
+            "Enter password (encoded)",  # "code" inside "encoded"
+            "Stand-alone password",  # "tan" inside "Stand"
+            "Password for the Tanaka account",  # "tan" at the start of a name
+            "Spinning wheel password",  # "pin" inside "Spinning"
+            "Barcode password",  # "code" at the end of a word
+            "Cotangent",  # "tan" inside a word
+            "",
+        ],
+    )
+    def test_one_time_words_inside_other_words_do_not_count(
+        self, service_module, text
+    ):
+        assert not service_module.is_one_time_secret(text)
+
+
+class TestOneTimeCodeExclusions:
+    """"code" is not one-time when the word before it says what kind of code
+    it is, whether it is glued to it ("Postcode", "PostCode") or a word of its
+    own ("Post code", "ZIP-Code")."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "ZIP-Code",
+            "Zip code",
+            "ZIP Code",
+            "Post code",
+            "Post-Code",
+            "Country code",
+            "Area code",
+            "Bar code",
+            "Barcode",
+            "Postal code",
+            "Promo code",
+            "Unicode",
+            "Uni code",
+            "Enter your country code",
+            "Area codes",
+            "Enter ZIP-Code",
+        ],
+    )
+    def test_code_after_a_kind_of_code_is_not_one_time(self, service_module, text):
+        assert not service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Security code",
+            "Verification code",
+            "Enter the code",
+            "authcode",
+            "Sicherheitscode",
+            "PINcode",
+            "tokencode",
+            "Zip code and security code",  # the second "code" is asked for
+            "Country code, PIN",  # the PIN is asked for
+            "Zip PIN code",  # "code" follows PIN, not Zip
+            "Code",
+            "ZIP Code 1234 code",
+            "Enter the code for the area",  # "area" comes after
+        ],
+    )
+    def test_other_codes_stay_one_time(self, service_module, text):
+        assert service_module.is_one_time_secret(text)
+
+
+class TestSplitLabel:
+    def test_words_and_sub_words_with_offsets(self, service_module):
+        text = "UserPassword-2 PIN"
+        assert service_module.split_label(text) == [
+            ("UserPassword", [("User", 0, 4), ("Password", 4, 12)]),
+            ("PIN", [("PIN", 15, 18)]),
+        ]
+
+    def test_no_words_no_sub_words(self, service_module):
+        assert service_module.split_label("") == []
+        assert service_module.split_label("12 _ - 3") == []
+
+
+class TestOneTimeSecretSubWords:
+    """Labels are split into sub-words before the keywords are looked for:
+    at non-alphanumerics and underscores, at letter/digit changes, at
+    lower->Upper and at ACRONYM->Word ("OTPPassword" is OTP + Password)."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "OTPPassword",
+            "PIN1",
+            "Token2",
+            "Enter PIN2",
+            "Security code_",
+            "TokenPassword",
+            "PINPassword",
+            "myPIN",
+            "pushTAN",
+            "mTANs",
+            "PIN_",
+            "_otp_",
+            "RSA1",
+            "Code2",
+            "OTP-1",
+            "Challenge3",
+            "OTPcode",
+            "SicherheitscodeNr2",
+        ],
+    )
+    def test_keyword_sub_words_are_found(self, service_module, text):
+        assert service_module.is_one_time_secret(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Pakistan1",
+            "Pakistan_",
+            "Kingpin2",
+            "Kingpin_",
+            "Ursa1",
+            "Postcode_",
+            "Postcode2",
+            "PostCode",  # camel case must not undo the Postcode exclusion
+            "ZipCode",
+            "ZIPCode",
+            "BarCode1",
+            "Barcodes2",
+            "Tanaka2",
+            "mantan1",
+            "Instance7",
+            "Pinnacle3",
+            "encoded_",
+            "Stand-alone1",
+            "PasswordField",
+            "UserName2",
+            "Password2",
+        ],
+    )
+    def test_other_words_with_digits_or_underscores_do_not_count(
+        self, service_module, text
+    ):
+        assert not service_module.is_one_time_secret(text)
 
 
 class TestClassifyPromptKind:
@@ -163,6 +497,225 @@ class TestClassifyPromptKind:
             p._classify_prompt_kind("Passcode", "Please enter RSA token") == "otp"
         )
 
+    def test_username_keyword_with_neutral_banner_stays_username(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Login", "Please enter the login credentials")
+            == "username"
+        )
+
+    def test_phase_reset_forgets_answered_flags(self, service_module):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        p._answered_password = True
+
+        p._reset_phase_state()
+
+        assert p._answered_username is False
+        assert p._answered_password is False
+        # Nothing answered any more: the first prompt is the username again
+        assert p._classify_prompt_kind("Benutzername", "") == "username"
+
+    def test_phase_reset_keeps_a_prefilled_username_answered(self, service_module):
+        p = self._plugin(service_module, prefilled=True)
+        p._answered_password = True
+
+        p._reset_phase_state()
+
+        assert p._answered_username is True
+        assert p._answered_password is False
+
+    @pytest.mark.parametrize(
+        "label", ["Password for user jdoe", "Enter login password"]
+    )
+    def test_password_label_containing_user_or_login_word_is_password(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "password"
+
+    def test_localized_prompt_before_password_is_not_otp(self, service_module):
+        # The one-time-by-position rule only applies AFTER the password
+        p = self._plugin(service_module)
+        p._answered_username = True
+        p._answered_password = False
+        assert p._classify_prompt_kind("Wprowadź kod z SMS", "") == "password"
+
+    def test_first_prompt_without_prefill_is_username_even_if_labelled_password(
+        self, service_module
+    ):
+        # Documents the positional rule: the label does not matter for the
+        # first prompt when no username was pre-filled
+        p = self._plugin(service_module, prefilled=False)
+        assert p._classify_prompt_kind("Password", "") == "username"
+
+    def test_username_prompt_under_otp_banner_is_username(self, service_module):
+        # Issue #6: the RSA banner precedes the Username prompt too
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Username", "Please enter RSA token")
+            == "username"
+        )
+
+    def test_localized_username_prompt_under_otp_banner_is_otp(self, service_module):
+        # Restored behaviour from before the positional rule: a label with no
+        # username keyword ("Benutzername") under an RSA banner counts as the
+        # token prompt. The banner is only overridden by a KEYWORD username
+        # label; making it positional too turned a Gateway phase's bare
+        # "Password" into a username (see the Gateway phase test below).
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Benutzername", "Please enter RSA token")
+            == "otp"
+        )
+
+    def test_localized_username_prompt_under_neutral_banner_is_username(
+        self, service_module
+    ):
+        # Counterpart: without a one-time banner the position still decides
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind(
+                "Benutzername", "Please enter the login credentials"
+            )
+            == "username"
+        )
+
+    def test_gateway_phase_password_under_rsa_banner_is_otp(self, service_module):
+        # The portal phase asked username and password; the Gateway phase has
+        # no stored username to pre-fill, so the state resets to "username not
+        # answered" and gpclient asks only "Password" under the RSA banner.
+        p = self._plugin(service_module, prefilled=False)
+        p._answered_username = True
+        p._answered_password = True
+        p._reset_phase_state()
+
+        assert (
+            p._classify_prompt_kind("Password", "Please enter RSA token (Gateway)")
+            == "otp"
+        )
+
+    def test_gateway_phase_password_under_neutral_banner_is_still_positional(
+        self, service_module
+    ):
+        # Counterpart: no one-time banner, no username answered yet -> the
+        # first prompt of the phase is taken for the username
+        p = self._plugin(service_module, prefilled=False)
+        p._answered_username = True
+        p._answered_password = True
+        p._reset_phase_state()
+
+        assert (
+            p._classify_prompt_kind("Password", "Please enter the login credentials")
+            == "username"
+        )
+
+    def test_password_prompt_under_neutral_banner_is_password(self, service_module):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert (
+            p._classify_prompt_kind("Password", "Please enter the login credentials")
+            == "password"
+        )
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Username (not your PIN)",
+            "Login [token sent separately]",
+            "User (RSA token is asked later)",
+            "Email [OTP not needed here]",
+        ],
+    )
+    def test_one_time_word_in_a_hint_does_not_make_a_username_an_otp(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        assert p._classify_prompt_kind(label, "") == "username"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            # Before round 3 a one-time word in a hint of a secret made these
+            # an OTP. Hints can be negations ("Password (not your PIN)"), so
+            # they are never looked at any more: without an OTP banner a
+            # password label is a password.
+            "Password (RSA token)",
+            "Password (PIN + token code)",
+            "Secret [Enter your passcode]",
+            "Password (login token)",
+            "Password (not your PIN)",
+            "Password [not the OTP]",
+        ],
+    )
+    def test_one_time_word_in_a_hint_of_a_secret_does_not_make_an_otp(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "password"
+
+    @pytest.mark.parametrize(
+        "label", ["Password (RSA token)", "Password (not your PIN)", "Password"]
+    )
+    def test_password_with_an_rsa_banner_is_still_an_otp(self, service_module, label):
+        # The banner, not the hint, says a token is wanted
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "Please enter RSA token") == "otp"
+
+    @pytest.mark.parametrize(
+        "label", ["Passcode (login)", "PIN (not your password)", "OTP [user]"]
+    )
+    def test_one_time_word_in_the_main_part_is_an_otp_whatever_the_hint_says(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "otp"
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Password (your user name is not needed)",
+            "Secret (login)",
+            "Password (info)",
+        ],
+    )
+    def test_hints_without_a_one_time_word_leave_a_secret_a_password(
+        self, service_module, label
+    ):
+        p = self._plugin(service_module)
+        p._answered_username = True
+        assert p._classify_prompt_kind(label, "") == "password"
+
+    def test_username_hint_prompt_under_a_one_time_banner_is_a_username(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert (
+            p._classify_prompt_kind("Username (not your PIN)", "Please enter RSA token")
+            == "username"
+        )
+
+    def test_one_time_word_in_the_main_part_beats_a_username_word_in_a_hint(
+        self, service_module
+    ):
+        p = self._plugin(service_module)
+        assert p._classify_prompt_kind("Passcode (login)", "") == "otp"
+
+    def test_username_flow_under_otp_banner_end_to_end(self, service_module):
+        # The whole issue #6 sequence: username, then the token as password
+        p = self._plugin(service_module)
+        banner = "Please enter RSA token"
+
+        assert p._classify_prompt_kind("Username", banner) == "username"
+        p._answered_username = True
+        assert p._classify_prompt_kind("Password", banner) == "otp"
+
 
 class TestOutputScanner:
     def test_complete_lines_and_tail(self, service_module):
@@ -176,6 +729,22 @@ class TestOutputScanner:
         scanner.feed("? Pass")
         lines = scanner.feed("word: ")
         assert lines == []
+        assert scanner.tail == "? Password: "
+
+    @pytest.mark.parametrize("text", ["\r\n \r\n\t\n", "\n\n\n", "\r\r"])
+    def test_blank_and_whitespace_lines_are_dropped(self, service_module, text):
+        scanner = service_module.OutputScanner()
+        assert scanner.feed(text) == []
+        assert scanner.tail == ""
+
+    def test_unterminated_text_is_never_returned_as_a_line(self, service_module):
+        scanner = service_module.OutputScanner()
+
+        assert scanner.feed("? Password: ") == []
+        assert scanner.tail == "? Password: "
+
+        # Nothing new arrived: still no line, tail unchanged
+        assert scanner.feed("") == []
         assert scanner.tail == "? Password: "
 
     def test_carriage_return_redraw_splits_lines(self, service_module):

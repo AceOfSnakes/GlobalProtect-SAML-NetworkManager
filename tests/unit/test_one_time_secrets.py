@@ -107,6 +107,143 @@ class TestForgetOneTimeSecret:
 
         assert calls == []
 
+    def test_failed_nmcli_is_retried_on_the_next_prompt(self, service_module):
+        """A failed write must not count as done: the code would stay in the
+        profile and the agent would hand it back without asking."""
+        plugin, calls = self._plugin(service_module)
+        results = [False, True, True]  # the first attempt stops after one call
+
+        async def flaky(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = flaky
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is False
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is True
+        assert calls[1:] == [
+            ("+vpn.data", "otp-flags=2"),
+            ("-vpn.secrets", "otp"),
+        ]
+
+        # Done for real now: no third round
+        asyncio.run(plugin._forget_one_time_secret())
+        assert len(calls) == 3
+
+    def test_dropping_the_stored_value_failing_is_retried(self, service_module):
+        plugin, calls = self._plugin(service_module)
+        results = [True, False, True, True]
+
+        async def flaky(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = flaky
+
+        asyncio.run(plugin._forget_one_time_secret())
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(calls) == 4
+        assert plugin._otp_flags_written is True
+
+    def test_failing_flag_write_does_not_try_to_drop_the_value(self, service_module):
+        """Without the not-saved flag the secret cannot be dropped for good:
+        the second nmcli call is not run, but the attempt still counts."""
+        plugin, calls = self._plugin(service_module)
+
+        async def first_fails(*arguments):
+            calls.append(arguments)
+            return False
+
+        plugin._nmcli_modify = first_fails
+
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert calls == [("+vpn.data", "otp-flags=2")]
+        assert plugin._otp_flag_attempts == 1
+        assert plugin._otp_flags_written is False
+
+    def test_flag_written_but_drop_failing_runs_both_calls(self, service_module):
+        plugin, calls = self._plugin(service_module)
+        results = [True, False]
+
+        async def second_fails(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = second_fails
+
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert calls == [("+vpn.data", "otp-flags=2"), ("-vpn.secrets", "otp")]
+        assert plugin._otp_flag_attempts == 1
+        assert plugin._otp_flags_written is False
+
+    def test_failure_then_success_on_retry_is_done(self, service_module):
+        plugin, calls = self._plugin(service_module)
+        results = [False, True, True]
+
+        async def flaky(*arguments):
+            calls.append(arguments)
+            return results.pop(0)
+
+        plugin._nmcli_modify = flaky
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is False
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert plugin._otp_flags_written is True
+
+        asyncio.run(plugin._forget_one_time_secret())
+        assert len(calls) == 3  # nothing after success
+
+    def test_permanent_failure_stops_after_two_attempts(
+        self, service_module, caplog
+    ):
+        """Every nmcli call may wait 10 s: a profile that cannot be changed
+        must not cost 20 s at every one-time prompt."""
+        plugin, calls = self._plugin(service_module)
+
+        async def failing(*arguments):
+            calls.append(arguments)
+            return False
+
+        plugin._nmcli_modify = failing
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            for _ in range(5):
+                asyncio.run(plugin._forget_one_time_secret())
+
+        # Two attempts; the first call of each failed, so no second call
+        assert calls == [("+vpn.data", "otp-flags=2")] * 2
+        assert plugin._otp_flags_written is False
+        # Said once, when giving up
+        assert caplog.text.count("Giving up on marking the one-time code") == 1
+
+    def test_first_failure_does_not_give_up_yet(self, service_module, caplog):
+        plugin, calls = self._plugin(service_module)
+
+        async def failing(*arguments):
+            calls.append(arguments)
+            return False
+
+        plugin._nmcli_modify = failing
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(calls) == 1
+        assert "Giving up" not in caplog.text
+
+    def test_attempts_start_at_zero_for_a_new_connection(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        assert plugin._otp_flag_attempts == 0
+
 
 class TestSplitEscapeSequences:
     def test_sequence_split_across_reads_does_not_leak(self, service_module):
@@ -131,6 +268,23 @@ class TestSplitEscapeSequences:
 
         assert lines == ["? Password: "]
         assert service_module.detect_prompt(lines[0]) == "Password"
+
+    def test_complete_sequence_leaves_nothing_carried(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        lines = plugin._consume_output("\x1b[39m? Password: \r\n")
+
+        assert lines == ["? Password: "]
+        assert plugin._ansi_carry == ""
+
+    def test_split_sequence_is_carried_until_completed(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("\x1b[3")
+        assert plugin._ansi_carry == "\x1b[3"
+
+        plugin._consume_output("9m")
+        assert plugin._ansi_carry == ""
 
     def test_complete_sequence_is_not_held_back(self, service_module):
         text = "\x1b[39m? Password: "
