@@ -392,3 +392,45 @@ class TestTunnelUpStopsScreenWork:
         plugin._tunnel_up = True
         plugin._schedule_prompt_check()
         assert len(calls) == 1
+
+
+class TestUtf8SplitAcrossReads:
+    def test_character_split_inside_its_bytes_stays_whole(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        data = "gw-zürich".encode("utf-8")
+        cut = data.index(b"\xc3") + 1  # inside the two bytes of 'ü'
+
+        text = plugin._decode_output(data[:cut]) + plugin._decode_output(data[cut:])
+
+        assert text == "gw-zürich"
+        assert "\ufffd" not in text
+
+    def test_split_character_reaches_the_screen_intact(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        data = "gw-zürich\r\n".encode("utf-8")
+        cut = data.index(b"\xc3") + 1
+
+        plugin._consume_output(plugin._decode_output(data[:cut]))
+        plugin._consume_output(plugin._decode_output(data[cut:]))
+
+        assert list(plugin._screen.lines())[0] == "gw-zürich"
+
+    @pytest.mark.parametrize(
+        "data", [b"a\xffb", b"a\xc3(b", b"a\x80b", b"\xf0\x28\x8c\x28"]
+    )
+    def test_invalid_bytes_still_give_a_replacement_character(
+        self, service_module, data
+    ):
+        plugin = service_module.GpclientVPNPlugin()
+
+        text = plugin._decode_output(data)
+
+        assert "\ufffd" in text
+
+    def test_decoder_is_reset_for_a_new_attempt(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._decode_output(b"a\xc3")  # half of a character is pending
+
+        plugin._reset_output_state()
+
+        assert plugin._decode_output(b"b") == "b"

@@ -9,6 +9,7 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 """
 
 import asyncio
+import codecs
 import fcntl
 import ipaddress
 import logging
@@ -22,9 +23,10 @@ import struct
 import subprocess
 import sys
 import termios
+import unicodedata
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from sdbus import (
     DbusInterfaceCommonAsync,
@@ -273,10 +275,15 @@ GATEWAY_CHOSEN_RE = re.compile(
 # connection or interactively via the SecretsRequired/NewSecrets D-Bus flow.
 
 # CSI / OSC / other escape sequences emitted by inquire (crossterm)
-ANSI_CSI = r"\x1b\[(?P<params>[0-9;?]*)[ -/]*(?P<final>[@-~])"  # colors, cursor, clear
+# Parameter bytes are 0x30-0x3F ([0-?]), intermediate bytes 0x20-0x2F
+ANSI_CSI = r"\x1b\[(?P<params>[0-?]*)[ -/]*(?P<final>[@-~])"  # colors, cursor, clear
 ANSI_OSC = r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
-ANSI_FE = r"\x1b[@-Z\\-_]"  # other Fe escape sequences
-ANSI_ESCAPE_RE = re.compile(f"{ANSI_CSI}|{ANSI_OSC}|{ANSI_FE}")
+# An OSC that has no terminator up to the end of the text (see
+# INCOMPLETE_ANSI_RE: only an overlong one gets here)
+ANSI_OSC_OPEN = r"(?P<osc_open>\x1b\][^\x07\x1b]*\x1b?\Z)"
+# Every other escape sequence: nF (ESC ( B), Fp (ESC 7), Fe and Fs
+ANSI_OTHER = r"\x1b[ -/]*[0-~]"
+ANSI_ESCAPE_RE = re.compile(f"{ANSI_CSI}|{ANSI_OSC}|{ANSI_OSC_OPEN}|{ANSI_OTHER}")
 
 # Size of the PTY gpclient runs on (TIOCSWINSZ). Wide, so prompts do not wrap
 # mid-line; ScreenBuffer models the same grid.
@@ -289,11 +296,12 @@ CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # An escape sequence cut in half by a read boundary. Without holding the head
 # back, ESC is dropped as a control character and the rest leaks into the text -
 # which is how a prompt label ended up as "[39m Password" in the #2 report.
-# Covers a CSI head (with or without intermediate bytes), a lone ESC and an
-# unterminated OSC. The OSC part is bounded so that one that never ends cannot
-# hold the output back forever.
+# Covers a CSI head (with or without intermediate bytes), a lone ESC (or one
+# with intermediate bytes only, like the ESC ( of ESC ( B) and an unterminated
+# OSC. The OSC part is bounded so that one that never ends cannot hold the
+# output back forever.
 INCOMPLETE_ANSI_RE = re.compile(
-    r"\x1b\[[0-9;?]*[ -/]*$" r"|\x1b\][^\x07\x1b]{0,256}\x1b?$" r"|\x1b$"
+    r"\x1b\[[0-?]*[ -/]*\Z" r"|\x1b\][^\x07\x1b]{0,256}\x1b?\Z" r"|\x1b[ -/]*\Z"
 )
 
 # "Please enter RSA token (Portal: vpn.example.com)" banner printed by
@@ -475,7 +483,7 @@ def is_one_time_secret(text: str) -> bool:
     return False
 
 
-def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
+def detect_select_prompt(lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     """Detect an inquire Select frame (the gateway list) in the output lines.
 
     Returns a dict with the question, the visible options in render order, the
@@ -813,34 +821,57 @@ class ScreenBuffer:
     Models just enough of a terminal for inquire's incremental redraws: text
     overwrites at the cursor, \\r and \\n, relative cursor moves and the erase
     sequences. Colours and everything else are ignored. The input must not end
-    in the middle of an escape sequence (_consume_output holds those back).
+    in the middle of an escape sequence (_consume_output holds those back), with
+    one exception: an overlong OSC without terminator is skipped up to the end
+    of the text and, on the next feed, up to its terminator.
     `version` changes whenever the screen may have changed.
+
+    Characters take as many columns as inquire (unicode-width) gives them: wide
+    (East Asian W/F) ones two - the character in the first cell and an empty
+    string in the second - and combining marks none (they join the previous
+    cell).
     """
 
     MAX_ROWS = 200
     TAB_WIDTH = 8
     _TOKEN_RE = re.compile(
-        f"{ANSI_CSI}|{ANSI_OSC}|{ANSI_FE}"
+        f"{ANSI_ESCAPE_RE.pattern}"
         r"|(?P<text>[^\x1b]+)"
         r"|\x1b"  # stray ESC
     )
+    _OSC_END_RE = re.compile(r"\x07|\x1b\\")
 
     def __init__(self):
         self._rows: List[List[str]] = [[]]
         self._row = 0
         self._col = 0
+        self._in_osc = False  # inside an OSC whose terminator is still to come
         self.version = 0
+        self._lines_cache: Tuple[str, ...] = ()
+        self._lines_version = -1
 
-    def lines(self) -> List[str]:
-        return ["".join(row).rstrip() for row in self._rows]
+    def lines(self) -> Tuple[str, ...]:
+        """The screen rows (a tuple, cached until the next feed)"""
+        if self._lines_version != self.version:
+            self._lines_cache = tuple("".join(row).rstrip() for row in self._rows)
+            self._lines_version = self.version
+        return self._lines_cache
 
     def feed(self, text: str) -> None:
         if not text:
             return
         self.version += 1
+        if self._in_osc:
+            end = self._OSC_END_RE.search(text)
+            if end is None:
+                return
+            self._in_osc = False
+            text = text[end.end() :]
         for match in self._TOKEN_RE.finditer(text):
             if match.group("text") is not None:
                 self._write(match.group("text"))
+            elif match.group("osc_open") is not None:
+                self._in_osc = True
             elif match.group("final") is not None:
                 self._csi(match.group("params"), match.group("final"))
 
@@ -857,18 +888,40 @@ class ScreenBuffer:
                 self._col = min(next_stop, PTY_COLUMNS - 1)
             elif CONTROL_CHARS_RE.match(char):
                 continue
+            elif unicodedata.combining(char):
+                self._attach_combining(char)
             else:
-                if self._col >= PTY_COLUMNS:  # autowrap, like a real terminal
+                width = 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+                if self._col + width > PTY_COLUMNS:  # autowrap, like a terminal
                     self._col = 0
                     self._line_feed()
-                row = self._rows[self._row]
-                if len(row) < self._col:
-                    row.extend(" " * (self._col - len(row)))
-                if self._col < len(row):
-                    row[self._col] = char
-                else:
-                    row.append(char)
-                self._col += 1
+                self._put(char, width)
+
+    def _put(self, char: str, width: int) -> None:
+        """Write `char` into `width` cells at the cursor and advance"""
+        row = self._rows[self._row]
+        end = self._col + width
+        if len(row) < end:
+            row.extend(" " * (end - len(row)))
+        # Overwriting one half of a wide character blanks the other half
+        for index in range(self._col, end):
+            if row[index] == "" and index > 0:
+                row[index - 1] = " "
+        if end < len(row) and row[end] == "":
+            row[end] = " "
+        row[self._col] = char
+        for index in range(self._col + 1, end):
+            row[index] = ""
+        self._col = end
+
+    def _attach_combining(self, char: str) -> None:
+        """Add a zero-width combining mark to the cell left of the cursor"""
+        row = self._rows[self._row]
+        index = self._col - 1
+        if 0 <= index < len(row) and row[index] == "":  # second half of a wide one
+            index -= 1
+        if 0 <= index < len(row):
+            row[index] += char
 
     def _line_feed(self) -> None:
         self._move_to_row(self._row + 1)
@@ -885,7 +938,7 @@ class ScreenBuffer:
             self._row = max(0, self._row - excess)
 
     def _csi(self, params: str, final: str) -> None:
-        if params.startswith("?"):  # private modes (cursor visibility, ...)
+        if params[:1] in ("<", "=", ">", "?"):  # private (cursor visibility, ...)
             return
         numbers = []
         for part in params.split(";"):
@@ -895,7 +948,7 @@ class ScreenBuffer:
                 # Longer values are far beyond the screen anyway; the cut also
                 # keeps int() away from absurdly long digit strings
                 numbers.append(int(part[:9]))
-            else:  # e.g. "1?2": not a sequence we understand
+            else:  # e.g. "38:5:1" (SGR) or "1?2": nothing we model
                 return
         first = numbers[0]
         count = first if first else 1  # a move by 0 is a move by 1
@@ -960,7 +1013,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._connection_uuid = ""
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
-        self._answered_select = None  # message of the Select we answered
 
         # Routing configuration
         self.never_default = False
@@ -984,17 +1036,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
-        self._output_scanner = OutputScanner()
-        self._ansi_carry = ""  # incomplete escape sequence from the last read
         # Recent complete output lines, used for logging, text prompts that
         # inquire has already terminated with a newline, and _last_output_line
         self._recent_lines: deque = deque(maxlen=96)
-        # What the terminal would show right now; the only way to see an
-        # incrementally redrawn Select frame (issue #25)
-        self._screen = ScreenBuffer()
-        self._tunnel_up = False  # STARTED emitted: stop watching for a Select
-        self._line_counter = 0  # monotonic count of complete lines seen
-        self._answered_at_line = -1  # line count when we last answered a prompt
+        self._reset_output_state()
         self._auth_banner = None  # last "message (Portal: server)" banner
         self._prompt_task = None  # debounce task for prompt handling
         self._answering = False  # a prompt is currently being answered
@@ -1092,14 +1137,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answered_username = False
         self._answered_password = False
         self._login_failed = False
-        self._output_scanner = OutputScanner()
-        self._ansi_carry = ""
-        self._recent_lines.clear()
-        self._screen = ScreenBuffer()
-        self._tunnel_up = False
-        self._line_counter = 0
-        self._answered_at_line = -1
-        self._answered_select = None
+        self._reset_output_state()
         self._gateway_list = []
         self._openssl_error_seen = False
         self._openssl_retried = False
@@ -1369,12 +1407,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._connection_uuid = ""
         self._gateway_list = []
         self._stored_gateway_list = ""
-        self._answered_select = None
-        self._recent_lines.clear()
-        self._screen = ScreenBuffer()
-        self._tunnel_up = False
-        self._line_counter = 0
-        self._answered_at_line = -1
+        self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
         self._interactive = False
@@ -1838,9 +1871,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 if not chunk:
                     break
 
-                lines = self._consume_output(
-                    chunk.decode("utf-8", errors="replace")
-                )
+                lines = self._consume_output(self._decode_output(chunk))
 
                 # Once the answered prompt is committed as a full line (its
                 # echo flushed), stop suppressing on the old answer - otherwise
@@ -1852,8 +1883,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._last_answer = ""
 
                 for raw_line in lines:
-                    # Keep the raw line: the Select frame's option marker is
-                    # only recognisable by its position (marker, space, value)
+                    # Raw, not stripped: _recent_lines only feeds logging and
+                    # the text prompt checks (a Select is read from _screen)
                     self._recent_lines.append(raw_line)
                     self._line_counter += 1
 
@@ -1927,6 +1958,29 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         except Exception as e:
             logger.error(f"Error monitoring gpclient output: {e}")
 
+    def _reset_output_state(self) -> None:
+        """Forget everything read from gpclient's PTY (a new attempt starts)"""
+        self._output_scanner = OutputScanner()
+        self._ansi_carry = ""  # incomplete escape sequence from the last read
+        # Multi-byte characters are cut by read boundaries
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._recent_lines.clear()
+        # What the terminal would show right now; the only way to see an
+        # incrementally redrawn Select frame (issue #25)
+        self._screen = ScreenBuffer()
+        self._tunnel_up = False  # STARTED emitted: stop watching for a Select
+        self._line_counter = 0  # monotonic count of complete lines seen
+        self._answered_at_line = -1  # line count when we last answered a prompt
+        self._answered_select = None  # message of the Select we answered
+
+    def _decode_output(self, chunk: bytes) -> str:
+        """Decode a PTY read; a character split across reads stays whole.
+
+        Without this the halves become U+FFFD, and inquire - which redraws only
+        the rows that changed - would never repair them on the screen.
+        """
+        return self._decoder.decode(chunk)
+
     def _consume_output(self, text: str) -> List[str]:
         """Clean a chunk of PTY output and return the lines it completed.
 
@@ -1982,17 +2036,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.gpclient_process = None
 
         # Fresh output state for the new attempt
-        self._output_scanner = OutputScanner()
-        self._ansi_carry = ""
-        self._recent_lines.clear()
-        self._screen = ScreenBuffer()
-        self._tunnel_up = False
-        self._line_counter = 0
-        self._answered_at_line = -1
+        self._reset_output_state()
         self._auth_banner = None
         self._answering = False
         self._last_answer = ""
-        self._answered_select = None
         self._phase_key = None
         self._reset_phase_state()
 
@@ -2048,8 +2095,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if self._prompt_task and not self._prompt_task.done():
             self._prompt_task.cancel()
 
-        # A list prompt (the gateway list) is a whole frame of complete lines,
-        # so it has to be checked before the tail-based text prompt detection -
+        # A list prompt (the gateway list) is read from the screen model, and
+        # has to be checked before the tail-based text prompt detection -
         # otherwise "? Which gateway do you want to connect to?" would be
         # answered with the username.
         select_frame = (
@@ -2337,7 +2384,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._write_keys(KEY_ENTER, f"select {current!r}")
                     return
 
-                next_frame = await self._press_list_down()
+                next_frame = await self._press_list_down(current_frame)
                 if next_frame is None:
                     logger.warning(
                         "gpclient stopped redrawing the gateway list - selecting "
@@ -2351,21 +2398,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-    async def _press_list_down(self) -> Optional[Dict[str, Any]]:
+    async def _press_list_down(
+        self, previous: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """Move the list cursor one entry down, return the redrawn frame.
 
-        Down wraps around in inquire, so this reaches every entry, including
-        ones outside the visible page. None means gpclient did not redraw.
+        `previous` is the frame the walk is on. Down wraps around in inquire, so
+        this reaches every entry, including ones outside the visible page. None
+        means gpclient did not redraw.
 
         inquire redraws only the rows that changed (issue #25), so the frame is
         read from the screen model, and only once the screen has stood still
         for a poll interval: a frame read in the middle of a redraw mixes old
         and new rows.
         """
-        previous = detect_select_prompt(self._screen.lines())
-        previous_option = (
-            previous["options"][previous["cursor"]] if previous else None
-        )
+        previous_option = previous["options"][previous["cursor"]]
 
         self._write_keys(KEY_DOWN, "move down the gateway list")
 

@@ -282,7 +282,7 @@ class TestAnswerGatewayList:
     def test_no_preference_selects_the_first_proposal(self, service_module):
         sent = []
         plugin = make_plugin(service_module, preferred="", sent=sent)
-        plugin._press_list_down = lambda: (_ for _ in ()).throw(
+        plugin._press_list_down = lambda previous: (_ for _ in ()).throw(
             AssertionError("must not walk the list")
         )
 
@@ -297,7 +297,7 @@ class TestAnswerGatewayList:
         options = service_module.detect_select_prompt(SINGLE_PAGE)["options"]
         moves = [frame_with_cursor(options, 1), frame_with_cursor(options, 2)]
 
-        async def fake_down():
+        async def fake_down(previous):
             return moves.pop(0)
 
         plugin._press_list_down = fake_down
@@ -310,7 +310,7 @@ class TestAnswerGatewayList:
     def test_unavailable_preference_falls_back_to_first(self, service_module):
         sent = []
         plugin = make_plugin(service_module, preferred="gw-tokyo", sent=sent)
-        plugin._press_list_down = lambda: (_ for _ in ()).throw(
+        plugin._press_list_down = lambda previous: (_ for _ in ()).throw(
             AssertionError("must not walk a fully visible list")
         )
 
@@ -332,7 +332,7 @@ class TestAnswerGatewayList:
             for index in list(range(1, len(options))) + [0]
         ]
 
-        async def fake_down():
+        async def fake_down(previous):
             return moves.pop(0)
 
         plugin._press_list_down = fake_down
@@ -351,7 +351,7 @@ class TestAnswerGatewayList:
         position = []
         moves = [frame_with_cursor(options, c, more=True) for c in cursors]
 
-        async def fake_down():
+        async def fake_down(previous):
             frame = moves.pop(0)
             position.append(frame["options"][frame["cursor"]])
             return frame
@@ -455,7 +455,7 @@ class TestAnswerGatewayList:
         the walk did: Down keys pressed and the entry under the cursor at Enter"""
         state = {"cursor": 0, "downs": 0, "selected": []}
 
-        async def fake_down():
+        async def fake_down(previous):
             state["cursor"] = (state["cursor"] + 1) % len(options)
             state["downs"] += 1
             return frame_with_cursor(options, state["cursor"], more=True)
@@ -603,8 +603,8 @@ class TestAnswerGatewayList:
         state = self._long_list(plugin, options)
         real_down = plugin._press_list_down
 
-        async def changing_down():
-            frame = await real_down()
+        async def changing_down(previous):
+            frame = await real_down(previous)
             if state["downs"] == 152:  # lapped at 150, now at entry 2
                 options[3] = "gw-1 (b.example.com)"
                 return frame_with_cursor(options, state["cursor"], more=True)
@@ -627,8 +627,8 @@ class TestAnswerGatewayList:
         real_down = plugin._press_list_down
         skipped = []
 
-        async def skipping_down():
-            frame = await real_down()
+        async def skipping_down(previous):
+            frame = await real_down(previous)
             if not skipped and state["downs"] == 155:
                 # one Down moved the cursor two entries
                 skipped.append(True)
@@ -646,7 +646,7 @@ class TestAnswerGatewayList:
         sent = []
         plugin = make_plugin(service_module, preferred="gw-london", sent=sent)
 
-        async def no_redraw():
+        async def no_redraw(previous):
             return None
 
         plugin._press_list_down = no_redraw

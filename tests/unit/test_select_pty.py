@@ -530,6 +530,8 @@ class TestPressListDown:
         ]
         plugin._screen.feed("\r\n".join(first) + "\r\n")
 
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
         async def scenario():
             async def redraw_later():
                 await asyncio.sleep(0.1)
@@ -541,7 +543,7 @@ class TestPressListDown:
                 plugin._screen.feed("\r\n")
 
             asyncio.create_task(redraw_later())
-            return await plugin._press_list_down()
+            return await plugin._press_list_down(previous)
 
         frame = asyncio.run(scenario())
 
@@ -563,13 +565,15 @@ class TestPressListDown:
             "[to move, to select]\r\n"
         )
 
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
         async def scenario():
             async def half_redraw():
                 await asyncio.sleep(0.1)
                 plugin._screen.feed("\x1b[3A\r  gw-a (a.example.com)\x1b[K\r\n")
 
             asyncio.create_task(half_redraw())
-            return await plugin._press_list_down()
+            return await plugin._press_list_down(previous)
 
         assert asyncio.run(scenario()) is None
 
@@ -583,6 +587,8 @@ class TestPressListDown:
             "[to move, to select]\r\n"
         )
 
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
         async def scenario():
             async def redraw_in_two_steps():
                 await asyncio.sleep(0.1)
@@ -591,7 +597,7 @@ class TestPressListDown:
                 plugin._screen.feed("> gw-b (b.example.com)\x1b[K\r\n\r\n")
 
             asyncio.create_task(redraw_in_two_steps())
-            return await plugin._press_list_down()
+            return await plugin._press_list_down(previous)
 
         frame = asyncio.run(scenario())
 
@@ -607,7 +613,45 @@ class TestPressListDown:
             "[to move, to select]\r\n"
         )
 
-        assert asyncio.run(plugin._press_list_down()) is None
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
+        assert asyncio.run(plugin._press_list_down(previous)) is None
+
+    def test_unchanged_frame_is_not_taken_for_a_move(
+        self, service_module, monkeypatch
+    ):
+        """The frame the walk is on comes from the caller: a screen that shows
+        it unchanged after Down is no redraw, even when the screen could not be
+        read before the key was sent."""
+        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.2)
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(
+            "? Which gateway do you want to connect to?\r\n"
+            "> gw-a (a.example.com)\r\n"
+            "  gw-b (b.example.com)\r\n"
+            "[to move, to select]\r\n"
+        )
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+        # The screen is mid-redraw (no readable frame) when the key goes out
+        # and then settles on the very same frame
+        plugin._screen = service_module.ScreenBuffer()
+        plugin._screen.feed("garbage\r\n")
+
+        async def scenario():
+            async def settle_unchanged():
+                await asyncio.sleep(0.1)
+                plugin._screen.feed(
+                    "? Which gateway do you want to connect to?\r\n"
+                    "> gw-a (a.example.com)\r\n"
+                    "  gw-b (b.example.com)\r\n"
+                    "[to move, to select]\r\n"
+                )
+
+            asyncio.create_task(settle_unchanged())
+            return await plugin._press_list_down(previous)
+
+        assert asyncio.run(scenario()) is None
 
 
 async def _run_with_credentials(service_module, fake_path, username, password):
