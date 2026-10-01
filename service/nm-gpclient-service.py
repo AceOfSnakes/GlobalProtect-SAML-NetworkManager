@@ -274,17 +274,6 @@ GATEWAY_CHOSEN_RE = re.compile(
 # the output stream and answer them either from secrets stored in the NM
 # connection or interactively via the SecretsRequired/NewSecrets D-Bus flow.
 
-# CSI / OSC / other escape sequences emitted by inquire (crossterm)
-# Parameter bytes are 0x30-0x3F ([0-?]), intermediate bytes 0x20-0x2F
-ANSI_CSI = r"\x1b\[(?P<params>[0-?]*)[ -/]*(?P<final>[@-~])"  # colors, cursor, clear
-ANSI_OSC = r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
-# An OSC that has no terminator up to the end of the text (see
-# INCOMPLETE_ANSI_RE: only an overlong one gets here)
-ANSI_OSC_OPEN = r"(?P<osc_open>\x1b\][^\x07\x1b]*\x1b?\Z)"
-# Every other escape sequence: nF (ESC ( B), Fp (ESC 7), Fe and Fs
-ANSI_OTHER = r"\x1b[ -/]*[0-~]"
-ANSI_ESCAPE_RE = re.compile(f"{ANSI_CSI}|{ANSI_OSC}|{ANSI_OSC_OPEN}|{ANSI_OTHER}")
-
 # Size of the PTY gpclient runs on (TIOCSWINSZ). Wide, so prompts do not wrap
 # mid-line; ScreenBuffer models the same grid.
 PTY_ROWS = 24
@@ -373,10 +362,75 @@ LABEL_WORD_RE = re.compile(r"[^\W\d_]+")
 LABEL_SUB_WORD_RE = re.compile(r"[A-Z]+(?![^\W\d_A-Z])|[A-Z]?[^\W\d_A-Z]+")
 
 
+class EscapeTokenizer:
+    """Split terminal output into text runs and CSI sequences.
+
+    The one definition of the escape syntax: the line stream (plain text for
+    OutputScanner) and ScreenBuffer both work from its tokens. Tokens are
+    ("text", str) and ("csi", params, intermediates, final); every other escape
+    sequence (OSC, nF like ESC ( B, Fp like ESC 7, Fe, Fs, a stray ESC) is
+    recognised and dropped.
+
+    The input must not end in the middle of an escape sequence (_consume_output
+    holds those back), with one exception: an overlong OSC without terminator
+    is skipped up to the end of the text and, on the next feed, up to its
+    terminator. That state lives here. An OSC body ends at BEL or ESC \\, or at
+    any other ESC, which then starts the next sequence.
+    """
+
+    _TOKEN_RE = re.compile(
+        # Parameter bytes are 0x30-0x3F, intermediate bytes 0x20-0x2F
+        r"\x1b\[(?P<params>[0-?]*)(?P<intermediates>[ -/]*)(?P<final>[@-~])"
+        r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\|(?=\x1b[^\\]))"
+        r"|(?P<osc_open>\x1b\][^\x07\x1b]*(?P<osc_esc>\x1b)?\Z)"
+        r"|\x1b[ -/]*[0-~]"
+        r"|(?P<text>[^\x1b]+)"
+        r"|\x1b"  # stray ESC
+    )
+    _OSC_END_RE = re.compile(r"\x07|\x1b\\|(?=\x1b[^\\])")
+
+    def __init__(self):
+        self._in_osc = False  # inside an OSC whose terminator is still to come
+        self._osc_esc = False  # ... and the text ended with an ESC (ESC \\?)
+
+    def feed(self, text: str) -> List[Tuple[str, ...]]:
+        """Tokenize a chunk (the state carries over to the next one)"""
+        if self._in_osc:
+            if self._osc_esc:
+                text = "\x1b" + text
+            end = self._OSC_END_RE.search(text)
+            if end is None:
+                self._osc_esc = text.endswith("\x1b")
+                return []
+            self._in_osc = self._osc_esc = False
+            text = text[end.end() :]
+        tokens: List[Tuple[str, ...]] = []
+        for match in self._TOKEN_RE.finditer(text):
+            if match.group("text") is not None:
+                tokens.append(("text", match.group("text")))
+            elif match.group("final") is not None:
+                tokens.append(
+                    (
+                        "csi",
+                        match.group("params"),
+                        match.group("intermediates"),
+                        match.group("final"),
+                    )
+                )
+            elif match.group("osc_open") is not None:
+                self._in_osc = True
+                self._osc_esc = match.group("osc_esc") is not None
+        return tokens
+
+
+def tokens_text(tokens: Sequence[Tuple[str, ...]]) -> str:
+    """The plain text of tokens: control chars (except \\n \\r \\t) removed"""
+    return CONTROL_CHARS_RE.sub("", "".join(t[1] for t in tokens if t[0] == "text"))
+
+
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences and control chars (except \\n \\r \\t)"""
-    text = ANSI_ESCAPE_RE.sub("", text)
-    return CONTROL_CHARS_RE.sub("", text)
+    return tokens_text(EscapeTokenizer().feed(text))
 
 
 def parse_auth_banner(line: str) -> Optional[Dict[str, str]]:
@@ -820,32 +874,27 @@ class ScreenBuffer:
 
     Models just enough of a terminal for inquire's incremental redraws: text
     overwrites at the cursor, \\r and \\n, relative cursor moves and the erase
-    sequences. Colours and everything else are ignored. The input must not end
-    in the middle of an escape sequence (_consume_output holds those back), with
-    one exception: an overlong OSC without terminator is skipped up to the end
-    of the text and, on the next feed, up to its terminator.
+    sequences. Colours and everything else are ignored. The escape syntax is
+    EscapeTokenizer's; feed() takes text, apply() takes its tokens.
     `version` changes whenever the screen may have changed.
 
     Characters take as many columns as inquire (unicode-width) gives them: wide
     (East Asian W/F) ones two - the character in the first cell and an empty
-    string in the second - and combining marks none (they join the previous
-    cell).
+    string in the second - and zero-width ones (combining marks, format
+    characters) none (they join the previous cell).
     """
 
-    MAX_ROWS = 200
+    # Relative cursor moves cannot reach above the visible screen (PTY_ROWS),
+    # so twice that is margin enough; every lines() and detect_select_prompt
+    # pass walks all rows
+    MAX_ROWS = 2 * PTY_ROWS
     TAB_WIDTH = 8
-    _TOKEN_RE = re.compile(
-        f"{ANSI_ESCAPE_RE.pattern}"
-        r"|(?P<text>[^\x1b]+)"
-        r"|\x1b"  # stray ESC
-    )
-    _OSC_END_RE = re.compile(r"\x07|\x1b\\")
 
     def __init__(self):
         self._rows: List[List[str]] = [[]]
         self._row = 0
         self._col = 0
-        self._in_osc = False  # inside an OSC whose terminator is still to come
+        self._tokenizer = EscapeTokenizer()  # for feed(); apply() takes tokens
         self.version = 0
         self._lines_cache: Tuple[str, ...] = ()
         self._lines_version = -1
@@ -858,22 +907,18 @@ class ScreenBuffer:
         return self._lines_cache
 
     def feed(self, text: str) -> None:
-        if not text:
+        self.apply(self._tokenizer.feed(text))
+
+    def apply(self, tokens: Sequence[Tuple[str, ...]]) -> None:
+        """Apply EscapeTokenizer tokens"""
+        if not tokens:
             return
         self.version += 1
-        if self._in_osc:
-            end = self._OSC_END_RE.search(text)
-            if end is None:
-                return
-            self._in_osc = False
-            text = text[end.end() :]
-        for match in self._TOKEN_RE.finditer(text):
-            if match.group("text") is not None:
-                self._write(match.group("text"))
-            elif match.group("osc_open") is not None:
-                self._in_osc = True
-            elif match.group("final") is not None:
-                self._csi(match.group("params"), match.group("final"))
+        for token in tokens:
+            if token[0] == "text":
+                self._write(token[1])
+            else:
+                self._csi(*token[1:])
 
     def _write(self, text: str) -> None:
         for char in text:
@@ -888,7 +933,7 @@ class ScreenBuffer:
                 self._col = min(next_stop, PTY_COLUMNS - 1)
             elif CONTROL_CHARS_RE.match(char):
                 continue
-            elif unicodedata.combining(char):
+            elif self._zero_width(char):
                 self._attach_combining(char)
             else:
                 width = 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
@@ -896,6 +941,16 @@ class ScreenBuffer:
                     self._col = 0
                     self._line_feed()
                 self._put(char, width)
+
+    @staticmethod
+    def _zero_width(char: str) -> bool:
+        """Combining marks and format characters (ZWSP, ZWJ, VS16) take no cell.
+
+        combining() alone misses e.g. Thai vowel signs, which are Mn.
+        """
+        return bool(unicodedata.combining(char)) or (
+            unicodedata.category(char) in ("Mn", "Me", "Cf")
+        )
 
     def _put(self, char: str, width: int) -> None:
         """Write `char` into `width` cells at the cursor and advance"""
@@ -937,7 +992,9 @@ class ScreenBuffer:
             del self._rows[:excess]
             self._row = max(0, self._row - excess)
 
-    def _csi(self, params: str, final: str) -> None:
+    def _csi(self, params: str, intermediates: str, final: str) -> None:
+        if intermediates:  # e.g. "ESC [ 2 SP A" (scroll right): not a cursor move
+            return
         if params[:1] in ("<", "=", ">", "?"):  # private (cursor visibility, ...)
             return
         numbers = []
@@ -1962,6 +2019,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Forget everything read from gpclient's PTY (a new attempt starts)"""
         self._output_scanner = OutputScanner()
         self._ansi_carry = ""  # incomplete escape sequence from the last read
+        self._tokenizer = EscapeTokenizer()  # keeps running after the tunnel is up
         # Multi-byte characters are cut by read boundaries
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._recent_lines.clear()
@@ -1997,9 +2055,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._ansi_carry = split.group(0)
             text = text[: split.start()]
 
+        # One parse for both consumers, so they cannot disagree about the syntax
+        tokens = self._tokenizer.feed(text)
         if not self._tunnel_up:
-            self._screen.feed(text)
-        return self._output_scanner.feed(strip_ansi(text))
+            self._screen.apply(tokens)
+        return self._output_scanner.feed(tokens_text(tokens))
 
     async def _retry_with_openssl_fix(self) -> bool:
         """Restart gpclient once with --fix-openssl after a legacy TLS error.
@@ -2408,9 +2468,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         means gpclient did not redraw.
 
         inquire redraws only the rows that changed (issue #25), so the frame is
-        read from the screen model, and only once the screen has stood still
-        for a poll interval: a frame read in the middle of a redraw mixes old
-        and new rows.
+        read from the screen model, and only once the same frame shows on two
+        consecutive polls: a frame read in the middle of a redraw mixes old and
+        new rows, and such a frame does not stay the same. Unrelated output
+        does not hold the walk up.
         """
         previous_option = previous["options"][previous["cursor"]]
 
@@ -2418,17 +2479,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + SELECT_REDRAW_TIMEOUT
-        seen_version = self._screen.version
+        last_seen = None
         while loop.time() < deadline:
             await asyncio.sleep(SELECT_POLL_INTERVAL)
-            if self._screen.version != seen_version:
-                seen_version = self._screen.version
-                continue
             frame = detect_select_prompt(self._screen.lines())
-            if frame is None:
-                continue
-            if frame["options"][frame["cursor"]] != previous_option:
-                return frame
+            seen = (
+                None
+                if frame is None
+                else (tuple(frame["options"]), frame["cursor"], frame["more"])
+            )
+            if seen is not None and seen == last_seen:
+                if frame["options"][frame["cursor"]] != previous_option:
+                    return frame
+            last_seen = seen
         return None
 
     async def _nmcli_modify(self, *arguments: str) -> bool:

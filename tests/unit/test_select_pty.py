@@ -654,6 +654,88 @@ class TestPressListDown:
         assert asyncio.run(scenario()) is None
 
 
+class TestPressListDownStability:
+    FRAME = (
+        "? Which gateway do you want to connect to?\r\n"
+        "> gw-a (a.example.com)\r\n"
+        "  gw-b (b.example.com)\r\n"
+        "[to move, to select]\r\n"
+    )
+
+    def test_unrelated_output_does_not_hold_the_walk_up(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(self.FRAME)
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
+        async def scenario():
+            stop = False
+
+            async def noise():
+                while not stop:
+                    # Bumps the screen version, changes nothing on the screen
+                    plugin._screen.feed("\x1b[?25h")
+                    await asyncio.sleep(0.01)
+
+            async def redraw_later():
+                await asyncio.sleep(0.1)
+                plugin._screen.feed("\x1b[3A\r  gw-a (a.example.com)\x1b[K\r\n")
+                plugin._screen.feed("> gw-b (b.example.com)\x1b[K\r\n\r\n")
+
+            tasks = [asyncio.create_task(noise()), asyncio.create_task(redraw_later())]
+            try:
+                return await plugin._press_list_down(previous)
+            finally:
+                stop = True
+                await asyncio.gather(*tasks)
+
+        frame = asyncio.run(scenario())
+
+        assert frame is not None
+        assert frame["options"][frame["cursor"]] == "gw-b (b.example.com)"
+
+    def test_a_frame_that_changes_between_polls_is_not_accepted(
+        self, service_module, monkeypatch
+    ):
+        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.3)
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(self.FRAME)
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
+        def frame_with_cursor_on(index):
+            names = ["gw-a", "gw-b", "gw-c"]
+            return tuple(
+                ["? Which gateway do you want to connect to?"]
+                + [("> " if i == index else "  ") + n for i, n in enumerate(names)]
+                + ["[to move, to select]"]
+            )
+
+        class FlippingScreen:
+            version = 0
+            calls = 0
+
+            def lines(self):
+                self.calls += 1
+                return frame_with_cursor_on(1 + self.calls % 2)
+
+        plugin._screen = FlippingScreen()
+
+        assert asyncio.run(plugin._press_list_down(previous)) is None
+
+    def test_the_same_frame_twice_is_accepted(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(self.FRAME)
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+        plugin._screen.feed("\x1b[3A\r  gw-a (a.example.com)\x1b[K\r\n")
+        plugin._screen.feed("> gw-b (b.example.com)\x1b[K\r\n\r\n")
+
+        frame = asyncio.run(plugin._press_list_down(previous))
+
+        assert frame["cursor"] == 1
+
+
 async def _run_with_credentials(service_module, fake_path, username, password):
     """Run a fake gpclient with stored credentials and no way to ask the user"""
     plugin = service_module.GpclientVPNPlugin()

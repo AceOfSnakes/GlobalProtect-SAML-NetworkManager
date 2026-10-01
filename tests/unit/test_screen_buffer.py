@@ -327,6 +327,143 @@ class TestOverlongOsc:
         assert list(plugin._screen.lines())[0] == "ab"
 
 
+class TestSingleParser:
+    """The line stream and the screen share one tokenizer (EscapeTokenizer)"""
+
+    BODY = "x" * 300
+
+    def test_overlong_osc_split_across_reads_does_not_leak_into_lines(
+        self, service_module
+    ):
+        plugin = service_module.GpclientVPNPlugin()
+        assert plugin._consume_output("\x1b]0;" + self.BODY) == []
+        assert plugin._consume_output("yyy\x07after\r\n") == ["after"]
+        assert list(plugin._screen.lines())[0] == "after"
+
+    def test_text_around_a_normal_osc_is_kept(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        assert plugin._consume_output("a\x1b]0;title\x07b\r\n") == ["ab"]
+        assert list(plugin._screen.lines())[0] == "ab"
+
+    def test_osc_state_keeps_running_after_the_tunnel_is_up(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._tunnel_up = True
+        assert plugin._consume_output("\x1b]0;" + self.BODY) == []
+        assert plugin._consume_output("yyy\x07after\r\n") == ["after"]
+        assert plugin._screen.version == 0  # only the screen stopped
+
+    def test_reset_forgets_an_open_osc(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._consume_output("\x1b]0;" + self.BODY)
+        plugin._reset_output_state()
+        assert plugin._consume_output("abc\r\n") == ["abc"]
+
+    def test_without_a_reset_an_open_osc_swallows_the_text(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._consume_output("\x1b]0;" + self.BODY)
+        assert plugin._consume_output("abc\r\n") == []
+
+    def test_strip_ansi_uses_a_fresh_tokenizer_each_time(self, service_module):
+        service_module.strip_ansi("\x1b]0;" + self.BODY)
+        assert service_module.strip_ansi("abc") == "abc"
+
+
+class TestOscAbortedByEscape:
+    def test_screen_continues_with_the_next_sequence(self, screen):
+        screen.feed("a\x1b]0;title\x1b[31mb\r\n")
+        assert list(screen.lines())[0] == "ab"
+
+    def test_line_stream_continues_with_the_next_sequence(self, service_module):
+        assert service_module.strip_ansi("a\x1b]0;title\x1b[31mb\r\n") == "ab\r\n"
+
+    def test_the_aborting_sequence_is_still_applied(self, screen):
+        screen.feed("abc\x1b]0;title\x1b[2Dx")
+        assert list(screen.lines()) == ["axc"]
+
+    @pytest.mark.parametrize("end", ["\x07", "\x1b\\"])
+    def test_bel_and_string_terminator_still_end_it(self, service_module, screen, end):
+        screen.feed(f"a\x1b]0;title{end}b\r\n")
+        assert list(screen.lines())[0] == "ab"
+        assert service_module.strip_ansi(f"a\x1b]0;title{end}b\r\n") == "ab\r\n"
+
+    @pytest.mark.parametrize("rest", ["\\b", "[31mb"])
+    def test_escape_at_the_end_of_a_read_is_resolved_by_the_next_one(
+        self, screen, rest
+    ):
+        screen.feed("a\x1b]0;" + "x" * 300 + "\x1b")
+        screen.feed(rest)
+        assert list(screen.lines()) == ["ab"]
+
+    def test_a_trailing_escape_that_is_no_terminator_starts_the_next_sequence(
+        self, screen
+    ):
+        screen.feed("a\x1b]0;" + "x" * 300 + "\x1b")
+        screen.feed("7yy")  # ESC 7 is a complete sequence of its own
+        assert list(screen.lines()) == ["ayy"]
+
+
+class TestCsiIntermediates:
+    @pytest.mark.parametrize(
+        "sequence", ["\x1b[2 A", "\x1b[2 D", "\x1b[1 K", "\x1b[2!J"]
+    )
+    def test_a_csi_with_an_intermediate_byte_is_ignored(self, screen, sequence):
+        screen.feed("ab\r\ncd" + sequence + "X")
+        assert list(screen.lines()) == ["ab", "cdX"]
+
+    @pytest.mark.parametrize(
+        "sequence, expected",
+        [
+            ("\x1b[2A", ["abX", "cd"]),
+            ("\x1b[2D", ["ab", "Xd"]),
+            ("\x1b[K", ["ab", "cdX"]),
+        ],
+    )
+    def test_the_same_sequence_without_an_intermediate_still_works(
+        self, screen, sequence, expected
+    ):
+        screen.feed("ab\r\ncd" + sequence + "X")
+        assert list(screen.lines()) == expected
+
+    def test_tokens_carry_the_intermediates(self, service_module):
+        tokens = service_module.EscapeTokenizer().feed("\x1b[1;2 qa")
+        assert tokens == [("csi", "1;2", " ", "q"), ("text", "a")]
+
+
+class TestZeroWidth:
+    @pytest.mark.parametrize(
+        "char",
+        ["\u0e31", "\u200b", "\u200d", "\ufe0f", "\u0301", "\u20dd"],
+        ids=["thai", "zwsp", "zwj", "vs16", "acute", "enclosing"],
+    )
+    def test_takes_no_column_and_joins_the_previous_cell(self, screen, char):
+        screen.feed(f"a{char}b\x1b[2Dc")
+        assert list(screen.lines()) == ["cb"]
+        assert screen._rows[0][0] == "c"
+
+    @pytest.mark.parametrize("char", ["\u0e31", "\u200b", "\u200d", "\ufe0f"])
+    def test_stays_with_its_character(self, screen, char):
+        screen.feed(f"a{char}b")
+        assert list(screen.lines()) == [f"a{char}b"]
+
+    @pytest.mark.parametrize("char", ["x", "\u0e01", "\u00e9", "\u2014"])
+    def test_a_normal_character_takes_one_column(self, screen, char):
+        screen.feed(f"a{char}b\x1b[3Dc")
+        assert list(screen.lines()) == [f"c{char}b"]
+
+
+class TestRowBudget:
+    def test_budget_is_twice_the_visible_screen(self, service_module):
+        assert service_module.ScreenBuffer.MAX_ROWS == 2 * service_module.PTY_ROWS
+
+    def test_a_move_up_by_the_whole_screen_still_lands_on_the_row(
+        self, service_module, screen
+    ):
+        rows = service_module.PTY_ROWS
+        screen.feed("".join(f"row {i}\r\n" for i in range(rows * 3)))
+        screen.feed(f"\x1b[{rows}A\rX")
+        assert list(screen.lines())[-1 - rows] == f"Xow {rows * 3 - rows}"
+
+
 class TestLinesCache:
     def test_same_object_until_the_next_feed(self, screen):
         screen.feed("abc")
