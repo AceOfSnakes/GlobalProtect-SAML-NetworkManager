@@ -273,11 +273,15 @@ GATEWAY_CHOSEN_RE = re.compile(
 # connection or interactively via the SecretsRequired/NewSecrets D-Bus flow.
 
 # CSI / OSC / other escape sequences emitted by inquire (crossterm)
-ANSI_ESCAPE_RE = re.compile(
-    r"\x1b\[[0-9;?]*[ -/]*[@-~]"  # CSI sequences (colors, cursor, clear)
-    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC sequences
-    r"|\x1b[@-Z\\-_]"  # other Fe escape sequences
-)
+ANSI_CSI = r"\x1b\[(?P<params>[0-9;?]*)[ -/]*(?P<final>[@-~])"  # colors, cursor, clear
+ANSI_OSC = r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+ANSI_FE = r"\x1b[@-Z\\-_]"  # other Fe escape sequences
+ANSI_ESCAPE_RE = re.compile(f"{ANSI_CSI}|{ANSI_OSC}|{ANSI_FE}")
+
+# Size of the PTY gpclient runs on (TIOCSWINSZ). Wide, so prompts do not wrap
+# mid-line; ScreenBuffer models the same grid.
+PTY_ROWS = 24
+PTY_COLUMNS = 200
 
 # Control characters except \n, \r and \t
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -285,7 +289,12 @@ CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # An escape sequence cut in half by a read boundary. Without holding the head
 # back, ESC is dropped as a control character and the rest leaks into the text -
 # which is how a prompt label ended up as "[39m Password" in the #2 report.
-INCOMPLETE_ANSI_RE = re.compile(r"\x1b\[?[0-9;?]*$")
+# Covers a CSI head (with or without intermediate bytes), a lone ESC and an
+# unterminated OSC. The OSC part is bounded so that one that never ends cannot
+# hold the output back forever.
+INCOMPLETE_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*$" r"|\x1b\][^\x07\x1b]{0,256}\x1b?$" r"|\x1b$"
+)
 
 # "Please enter RSA token (Portal: vpn.example.com)" banner printed by
 # gpclient before a standard (non-SAML) authentication round.
@@ -809,10 +818,9 @@ class ScreenBuffer:
     """
 
     MAX_ROWS = 200
+    TAB_WIDTH = 8
     _TOKEN_RE = re.compile(
-        r"\x1b\[(?P<params>[0-9;?]*)[ -/]*(?P<final>[@-~])"  # CSI
-        r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC
-        r"|\x1b[@-Z\\-_]"  # other Fe escape sequences
+        f"{ANSI_CSI}|{ANSI_OSC}|{ANSI_FE}"
         r"|(?P<text>[^\x1b]+)"
         r"|\x1b"  # stray ESC
     )
@@ -840,14 +848,19 @@ class ScreenBuffer:
         for char in text:
             if char == "\r":
                 self._col = 0
-            elif char == "\n":
-                self._row += 1
-                self._ensure_row()
+            elif char in "\n\x0b\x0c":  # VT and FF act as line feed
+                self._line_feed()
             elif char == "\b":
                 self._col = max(0, self._col - 1)
-            elif CONTROL_CHARS_RE.match(char) or char == "\t":
+            elif char == "\t":
+                next_stop = (self._col // self.TAB_WIDTH + 1) * self.TAB_WIDTH
+                self._col = min(next_stop, PTY_COLUMNS - 1)
+            elif CONTROL_CHARS_RE.match(char):
                 continue
             else:
+                if self._col >= PTY_COLUMNS:  # autowrap, like a real terminal
+                    self._col = 0
+                    self._line_feed()
                 row = self._rows[self._row]
                 if len(row) < self._col:
                     row.extend(" " * (self._col - len(row)))
@@ -857,9 +870,15 @@ class ScreenBuffer:
                     row.append(char)
                 self._col += 1
 
-    def _ensure_row(self) -> None:
-        while len(self._rows) <= self._row:
-            self._rows.append([])
+    def _line_feed(self) -> None:
+        self._move_to_row(self._row + 1)
+
+    def _move_to_row(self, row: int) -> None:
+        """Move to `row`, growing the buffer once and trimming it to MAX_ROWS"""
+        self._row = row
+        missing = row + 1 - len(self._rows)
+        if missing > 0:
+            self._rows.extend([] for _ in range(missing))
         excess = len(self._rows) - self.MAX_ROWS
         if excess > 0:
             del self._rows[:excess]
@@ -868,21 +887,29 @@ class ScreenBuffer:
     def _csi(self, params: str, final: str) -> None:
         if params.startswith("?"):  # private modes (cursor visibility, ...)
             return
-        numbers = [int(part) if part else None for part in params.split(";")]
+        numbers = []
+        for part in params.split(";"):
+            if not part:
+                numbers.append(None)
+            elif part.isdigit():
+                # Longer values are far beyond the screen anyway; the cut also
+                # keeps int() away from absurdly long digit strings
+                numbers.append(int(part[:9]))
+            else:  # e.g. "1?2": not a sequence we understand
+                return
         first = numbers[0]
         count = first if first else 1  # a move by 0 is a move by 1
 
         if final == "A":
             self._row = max(0, self._row - count)
         elif final == "B":
-            self._row += count
-            self._ensure_row()
+            self._move_to_row(self._row + min(count, self.MAX_ROWS))
         elif final == "C":
-            self._col += count
+            self._col = min(self._col + count, PTY_COLUMNS - 1)
         elif final == "D":
             self._col = max(0, self._col - count)
         elif final == "G":
-            self._col = max(0, count - 1)
+            self._col = min(max(0, count - 1), PTY_COLUMNS - 1)
         elif final == "K":
             row = self._rows[self._row]
             mode = first or 0
@@ -897,10 +924,10 @@ class ScreenBuffer:
             if mode == 0:
                 del self._rows[self._row][self._col :]
                 del self._rows[self._row + 1 :]
-            elif mode in (2, 3):
-                self._rows = [[]]
-                self._row = 0
-                self._col = 0
+            elif mode == 2:
+                # Clears the content but not the cursor, so relative moves
+                # keep lining up. Mode 3 (scrollback) does not touch the screen.
+                self._rows = [[] for _ in self._rows]
 
 
 class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN):
@@ -959,13 +986,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._pty_transport = None
         self._output_scanner = OutputScanner()
         self._ansi_carry = ""  # incomplete escape sequence from the last read
-        # Recent complete output lines, used to recognise multi-line prompts
-        # (the inquire Select frame with the gateway list) and prompts that
-        # inquire has already terminated with a newline
+        # Recent complete output lines, used for logging, text prompts that
+        # inquire has already terminated with a newline, and _last_output_line
         self._recent_lines: deque = deque(maxlen=96)
         # What the terminal would show right now; the only way to see an
         # incrementally redrawn Select frame (issue #25)
         self._screen = ScreenBuffer()
+        self._tunnel_up = False  # STARTED emitted: stop watching for a Select
         self._line_counter = 0  # monotonic count of complete lines seen
         self._answered_at_line = -1  # line count when we last answered a prompt
         self._auth_banner = None  # last "message (Portal: server)" banner
@@ -1069,6 +1096,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._ansi_carry = ""
         self._recent_lines.clear()
         self._screen = ScreenBuffer()
+        self._tunnel_up = False
         self._line_counter = 0
         self._answered_at_line = -1
         self._answered_select = None
@@ -1344,6 +1372,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answered_select = None
         self._recent_lines.clear()
         self._screen = ScreenBuffer()
+        self._tunnel_up = False
         self._line_counter = 0
         self._answered_at_line = -1
         self.vpn_username = ""
@@ -1735,7 +1764,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             master_fd, slave_fd = pty.openpty()
             # Wide window so prompts don't wrap mid-line
             fcntl.ioctl(
-                master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 200, 0, 0)
+                master_fd,
+                termios.TIOCSWINSZ,
+                struct.pack("HHHH", PTY_ROWS, PTY_COLUMNS, 0, 0),
             )
 
             def _child_setup():
@@ -1912,7 +1943,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._ansi_carry = split.group(0)
             text = text[: split.start()]
 
-        self._screen.feed(text)
+        if not self._tunnel_up:
+            self._screen.feed(text)
         return self._output_scanner.feed(strip_ansi(text))
 
     async def _retry_with_openssl_fix(self) -> bool:
@@ -1954,6 +1986,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._ansi_carry = ""
         self._recent_lines.clear()
         self._screen = ScreenBuffer()
+        self._tunnel_up = False
         self._line_counter = 0
         self._answered_at_line = -1
         self._auth_banner = None
@@ -2019,7 +2052,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # so it has to be checked before the tail-based text prompt detection -
         # otherwise "? Which gateway do you want to connect to?" would be
         # answered with the username.
-        select_frame = detect_select_prompt(self._screen.lines())
+        select_frame = (
+            None if self._tunnel_up else detect_select_prompt(self._screen.lines())
+        )
         if select_frame is not None:
             if select_frame["message"] == self._answered_select:
                 self._prompt_task = None
@@ -2972,6 +3007,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                     # Emit state change: activated
                     self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTED)
+                    self._tunnel_up = True
 
                     # The login succeeded, so what we learned along the way is
                     # worth keeping in the profile: the gateway list for the

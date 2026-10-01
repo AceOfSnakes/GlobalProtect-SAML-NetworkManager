@@ -13,6 +13,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 DIALOG = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__), "..", "..", "auth-dialog", "nm-gpclient-auth-dialog.py"
@@ -293,3 +295,100 @@ class TestSplitEscapeSequences:
     def test_lone_escape_is_held_back(self, service_module):
         match = service_module.INCOMPLETE_ANSI_RE.search("hello\x1b")
         assert match and match.group(0) == "\x1b"
+
+
+class TestSplitEscapeSequencesExtended:
+    def test_osc_split_across_reads_does_not_leak(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        assert plugin._consume_output("a\x1b]0;ti") == []
+        assert plugin._ansi_carry == "\x1b]0;ti"
+        lines = plugin._consume_output("tle\x07b\r\n")
+
+        assert lines == ["ab"]
+        assert plugin._screen.lines()[0] == "ab"
+        assert plugin._ansi_carry == ""
+
+    def test_osc_waiting_for_its_string_terminator_is_held_back(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("a\x1b]0;title\x1b")
+        lines = plugin._consume_output("\\b\r\n")
+
+        assert lines == ["ab"]
+        assert plugin._screen.lines()[0] == "ab"
+
+    def test_csi_with_intermediate_bytes_split_across_reads(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("a\x1b[1 ")
+        assert plugin._ansi_carry == "\x1b[1 "
+        lines = plugin._consume_output("qb\r\n")
+
+        assert lines == ["ab"]
+        assert plugin._screen.lines()[0] == "ab"
+
+    def test_lone_escape_split_from_its_csi(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("a\x1b")
+        lines = plugin._consume_output("[31mb\r\n")
+
+        assert lines == ["ab"]
+        assert plugin._screen.lines()[0] == "ab"
+
+    def test_overlong_unterminated_osc_is_not_held_forever(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("\x1b]0;" + "x" * 300)
+
+        assert plugin._ansi_carry == ""
+
+    def test_short_unterminated_osc_is_held(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._consume_output("\x1b]0;" + "x" * 100)
+
+        assert plugin._ansi_carry != ""
+
+    @pytest.mark.parametrize(
+        "text", ["\x1b]0;title\x07", "\x1b]0;title\x1b\\", "\x1b[1 q", "\x1b[39m", "x"]
+    )
+    def test_complete_sequences_are_not_held_back(self, service_module, text):
+        assert service_module.INCOMPLETE_ANSI_RE.search("a" + text) is None
+
+
+class TestTunnelUpStopsScreenWork:
+    def test_screen_is_fed_before_the_tunnel_is_up(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        version = plugin._screen.version
+
+        plugin._consume_output("hello\r\n")
+
+        assert plugin._screen.version != version
+
+    def test_screen_is_not_fed_once_the_tunnel_is_up(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._tunnel_up = True
+        version = plugin._screen.version
+
+        lines = plugin._consume_output("hello\r\n")
+
+        assert plugin._screen.version == version
+        assert lines == ["hello"]
+
+    def test_no_select_check_once_the_tunnel_is_up(self, service_module, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            service_module,
+            "detect_select_prompt",
+            lambda lines: calls.append(lines) or None,
+        )
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin._schedule_prompt_check()
+        assert len(calls) == 1
+
+        plugin._tunnel_up = True
+        plugin._schedule_prompt_check()
+        assert len(calls) == 1

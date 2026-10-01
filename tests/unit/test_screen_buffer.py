@@ -5,6 +5,8 @@ detection (issue #25: inquire redraws incrementally with cursor moves).
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
+import time
+
 import pytest
 
 
@@ -43,8 +45,30 @@ class TestText:
         assert screen.lines() == ["abc"]
 
     def test_control_characters_are_dropped(self, screen):
-        screen.feed("a\x00\x07\x7fb\tc")
+        screen.feed("a\x00\x07\x7fb\x01c")
         assert screen.lines() == ["abc"]
+
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("\tX", " " * 8 + "X"),
+            ("abc\tX", "abc" + " " * 5 + "X"),
+            ("12345678\tX", "12345678" + " " * 8 + "X"),
+        ],
+    )
+    def test_tab_moves_to_the_next_multiple_of_8(self, screen, text, expected):
+        screen.feed(text)
+        assert screen.lines() == [expected]
+
+    def test_tab_stops_at_the_right_edge(self, service_module, screen):
+        width = service_module.PTY_COLUMNS
+        screen.feed("\t" * width + "X")
+        assert screen.lines() == [" " * (width - 1) + "X"]
+
+    @pytest.mark.parametrize("char", ["\x0b", "\x0c"])
+    def test_vt_and_ff_are_line_feeds(self, screen, char):
+        screen.feed(f"ab{char}cd")
+        assert screen.lines() == ["ab", "  cd"]
 
 
 class TestIgnoredEscapes:
@@ -126,11 +150,17 @@ class TestErase:
         screen.feed("one\r\ntwo\x1b[1A\x1b[2D\x1b[0J")
         assert screen.lines() == ["o"]
 
-    @pytest.mark.parametrize("sequence", ["\x1b[2J", "\x1b[3J"])
-    def test_erase_all(self, screen, sequence):
-        screen.feed("one\r\ntwo")
-        screen.feed(sequence + "x")
-        assert screen.lines() == ["x"]
+    def test_erase_display_clears_content_but_keeps_the_cursor(self, screen):
+        screen.feed("one\r\ntwo\x1b[2Jx")
+        assert screen.lines() == ["", "   x"]
+
+    def test_relative_moves_still_line_up_after_erase_display(self, screen):
+        screen.feed("one\r\ntwo\x1b[2J\x1b[1A\rY")
+        assert screen.lines() == ["Y", ""]
+
+    def test_erase_scrollback_leaves_the_screen_alone(self, screen):
+        screen.feed("one\r\ntwo\x1b[3Jx")
+        assert screen.lines() == ["one", "twox"]
 
     def test_erase_to_end_of_line_without_a_row_is_harmless(self, screen):
         screen.feed("\x1b[K\x1b[2K\x1b[J")
@@ -163,3 +193,62 @@ class TestVersionAndLimit:
         screen.feed("\x1b[1A\rX")
         assert screen.lines()[-2] == f"Xow {cap + 9}"
         assert screen.lines()[-3] == f"row {cap + 8}"
+
+
+class TestBounds:
+    """Output must never make the buffer grow without limit (root daemon)"""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "\x1b[30000000B",
+            "\x1b[300000000C" + "x",
+            "\x1b[300000000G" + "x",
+            "\n" * 100000,
+            "x" * 100000,
+            "\x1b[" + "9" * 6000 + "Bx",
+            "\x1b[" + "9" * 6000 + "Cx",
+        ],
+    )
+    def test_huge_counts_stay_inside_the_grid(self, service_module, screen, text):
+        started = time.monotonic()
+        screen.feed(text)
+        assert time.monotonic() - started < 2
+        lines = screen.lines()
+        assert len(lines) <= service_module.ScreenBuffer.MAX_ROWS
+        assert all(len(line) <= service_module.PTY_COLUMNS for line in lines)
+        assert len(screen._rows) <= service_module.ScreenBuffer.MAX_ROWS
+        assert all(len(row) <= service_module.PTY_COLUMNS for row in screen._rows)
+
+    def test_column_moves_clamp_to_the_last_column(self, service_module, screen):
+        width = service_module.PTY_COLUMNS
+        screen.feed("\x1b[999Cx")
+        assert screen.lines() == [" " * (width - 1) + "x"]
+
+    def test_text_wraps_at_the_right_edge(self, service_module, screen):
+        width = service_module.PTY_COLUMNS
+        screen.feed("a" * width + "bc")
+        assert screen.lines() == ["a" * width, "bc"]
+
+    def test_text_inside_the_width_does_not_wrap(self, service_module, screen):
+        width = service_module.PTY_COLUMNS
+        screen.feed("a" * width)
+        assert screen.lines() == ["a" * width]
+
+    def test_pty_size_matches_the_window_size_the_service_sets(self, service_module):
+        source = open(service_module.__file__).read()
+        assert 'struct.pack("HHHH", PTY_ROWS, PTY_COLUMNS, 0, 0)' in source
+
+
+class TestMalformedSequences:
+    @pytest.mark.parametrize(
+        "text",
+        ["a\x1b[1?2hb", "a\x1b[?1?2hb", "a\x1b[1;2?3Hb", "a\x1b[2?Jb", "a\x1b[9?Bb"],
+    )
+    def test_params_with_a_misplaced_question_mark_are_ignored(self, screen, text):
+        screen.feed(text)
+        assert screen.lines() == ["ab"]
+
+    def test_valid_sequences_after_a_malformed_one_still_work(self, screen):
+        screen.feed("a\x1b[1?2hb\x1b[2Dc")
+        assert screen.lines() == ["cb"]
