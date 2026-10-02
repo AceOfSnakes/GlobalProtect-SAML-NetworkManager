@@ -153,6 +153,31 @@ jobs:
           name: debs-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
           path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
+      - name: Upgrade test from the last release
+        # Installs the newest release from the public apt repository in a fresh
+        # ubuntu container and upgrades it to the packages built above (see
+        # .github/scripts/upgrade-test.sh). Every scenario runs; the step fails
+        # at the end if any of them failed.
+        env:
+          UBUNTU: ${{ matrix.ubuntu }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          failed=""
+          for scenario in gnome plasma plasma-new; do
+            echo "::group::Upgrade test: $scenario"
+            if ! docker run --rm \
+                -v "$PWD/output/ubuntu${UBUNTU}-${ARCH}:/debs:ro" \
+                -v "$PWD/.github/scripts:/scripts:ro" \
+                "ubuntu:${UBUNTU}" bash /scripts/upgrade-test.sh "$scenario" /debs; then
+              failed="$failed $scenario"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::Upgrade test failed for:$failed"
+            exit 1
+          fi
+
   release:
     needs: build
     runs-on: ubuntu-latest

@@ -48,6 +48,25 @@ nmcli connection show "Test VPN" | grep vpn
 nmcli connection delete "Test VPN"
 ```
 
+## Upgrade test
+
+CI proves that users of the last release upgrade cleanly to the packages of a
+build. For every Ubuntu version and architecture the step "Upgrade test from the
+last release" of `.github/workflows/build-release.yml` starts a fresh
+`ubuntu:<version>` container, installs the newest release from the public apt
+repository (scenarios `gnome`, `plasma` for the old package name, which is now a
+transitional package, and `plasma-new` for `-plasma-5`/`-plasma-6`), then runs
+`apt upgrade` to the new `.deb` files and checks that nothing is kept back,
+removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
+`.github/scripts/check_upgrade.py`). A scenario is skipped when the release has
+no such package for that Ubuntu version or architecture. To run it by hand
+against built packages (it needs network access and changes only the container):
+
+```bash
+docker run --rm -v "$PWD/output/ubuntu24.04-amd64:/debs:ro" -v "$PWD/.github/scripts:/scripts:ro" \
+  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs   # or: plasma, plasma-new
+```
+
 ## Troubleshooting
 
 ### Common errors
