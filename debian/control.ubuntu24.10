@@ -82,6 +82,8 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          plasma-nm
+Replaces: network-manager-gpclient-plasma (<< 1.5.0~)
+Breaks: network-manager-gpclient-plasma (<< 1.5.0~)
 Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
  This package provides GUI configuration editor for GlobalProtect VPN
  connections in KDE Plasma desktop environment.
@@ -97,6 +99,8 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          plasma-nm
+Replaces: network-manager-gpclient-plasma (<< 1.5.0~)
+Breaks: network-manager-gpclient-plasma (<< 1.5.0~)
 Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
  This package provides GUI configuration editor for GlobalProtect VPN
  connections in KDE Plasma desktop environment (Plasma 6 / Qt6 / KF6).
@@ -105,3 +109,13 @@ Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
   - KDE Plasma NetworkManager applet
  .
  This package is for KDE Plasma 6 desktop.
+
+Package: network-manager-gpclient-plasma
+Architecture: any
+Section: oldlibs
+Priority: optional
+Depends: ${misc:Depends},
+         network-manager-gpclient-plasma-6 | network-manager-gpclient-plasma-5
+Description: transitional package for network-manager-gpclient-plasma-6
+ This is a transitional package for the former KDE Plasma GUI package. It
+ can be safely removed once network-manager-gpclient-plasma-6 is installed.

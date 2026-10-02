@@ -35,22 +35,20 @@ Depends: ${shlibs:Depends},
          python3-sdbus,
          openconnect
 Conflicts: globalprotect-openconnect
-Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
+Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-5
 Description: NetworkManager VPN plugin for GlobalProtect (core service)
  This package provides the core NetworkManager VPN service for GlobalProtect
  (Palo Alto Networks) VPN connections with SAML/SSO authentication support.
  .
  This package contains:
   - Python-based VPN service backend
-  - Backend plugin for nmcli (libnm-vpn-plugin-gpclient.so)
   - Configuration files
   - Helper scripts (edge-wrapper)
   - gpclient and gpauth binaries (from GlobalProtect-openconnect)
  .
- This package allows using GlobalProtect VPN from command line (nmcli).
- For GUI configuration, install either:
+ To use this plugin, you need to install either:
   - network-manager-gpclient-gnome for GNOME/GTK desktops
-  - network-manager-gpclient-plasma for KDE Plasma desktop
+  - network-manager-gpclient-plasma-5 for KDE Plasma desktop
 
 Package: network-manager-gpclient-gnome
 Architecture: any
@@ -71,12 +69,14 @@ Description: NetworkManager GlobalProtect VPN plugin - GNOME GUI
  .
  This package is for GNOME, MATE, Cinnamon, XFCE and other GTK-based desktops.
 
-Package: network-manager-gpclient-plasma
+Package: network-manager-gpclient-plasma-5
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          plasma-nm
+Replaces: network-manager-gpclient-plasma (<< 1.5.0~)
+Breaks: network-manager-gpclient-plasma (<< 1.5.0~)
 Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
  This package provides GUI configuration editor for GlobalProtect VPN
  connections in KDE Plasma desktop environment.
@@ -85,3 +85,13 @@ Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
   - KDE Plasma NetworkManager applet
  .
  This package is for KDE Plasma desktop.
+
+Package: network-manager-gpclient-plasma
+Architecture: any
+Section: oldlibs
+Priority: optional
+Depends: ${misc:Depends},
+         network-manager-gpclient-plasma-5
+Description: transitional package for network-manager-gpclient-plasma-5
+ This is a transitional package for the former KDE Plasma GUI package. It
+ can be safely removed once network-manager-gpclient-plasma-5 is installed.

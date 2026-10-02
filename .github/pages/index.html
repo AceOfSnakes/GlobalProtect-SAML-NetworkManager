@@ -47,7 +47,9 @@ https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main"
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
 # or
-sudo apt install network-manager-gpclient-plasma   # KDE Plasma</code></pre>
+sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04, 24.04)
+# or
+sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)</code></pre>
 
 <p>Then add the VPN in your desktop's network settings: <em>Add VPN &rarr; GlobalProtect</em>,
 enter the portal address, connect.</p>
@@ -63,7 +65,7 @@ enter the portal address, connect.</p>
 
 <h2>Uninstall</h2>
 
-<pre><code>sudo apt remove network-manager-gpclient network-manager-gpclient-gnome network-manager-gpclient-plasma
+<pre><code>sudo apt remove network-manager-gpclient network-manager-gpclient-gnome network-manager-gpclient-plasma-5 network-manager-gpclient-plasma-6
 sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update</code></pre>
 

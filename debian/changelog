@@ -1,5 +1,27 @@
-network-manager-gpclient (1.4.2-1) unstable; urgency=medium
+network-manager-gpclient (1.5.0-1) unstable; urgency=medium
 
+  * Fix the wrong gateway being selected from a paged gateway list (closes
+    #25): gpclient's list redraws only the rows that changed, which the
+    service did not follow, so it pressed Enter on whatever was highlighted
+    (Ireland preferred, France North connected). The service now reads
+    gpclient's output through a model of the terminal screen
+  * Cache the portal's whole gateway list, not only the first page: a list
+    longer than one page is read page by page (PageDown, then Home) before
+    the gateway is selected. New vpn.data gateway-list-count marks the cached
+    list as complete; the list is read again when the portal reports another
+    number of gateways
+  * Fix the interactive login: a username prompt under an RSA banner was
+    taken for a one-time code, a password label mentioning "user" for a
+    username, ordinary passwords ("instance", "encoded") were never answered
+    from the profile because one-time keywords matched as substrings, a
+    failed nmcli call left the one-time code in the profile, and the walk
+    through a paged gateway list stopped at a substring match (gw-1 selected
+    gw-10)
+  * Fix the SAML browser for usernames with a dot, EntraID usernames
+    (user@domain) and upper case ones; on KDE the default browser is started
+    through xdg-open; the wrapper logs more
+  * browser-wrapper identifies the desktop user by the UID passed by the
+    service, never by a user name, and never starts the browser as root
   * Report the DNS servers and search domains the gateway pushes to
     NetworkManager in Ip4Config (closes #15). They used to be applied by
     vpnc-script alone, straight to systemd-resolved, so NetworkManager knew
@@ -10,8 +32,20 @@ network-manager-gpclient (1.4.2-1) unstable; urgency=medium
     CISCO_SPLIT_DNS in /run/nm-gpclient/dns-state for the service to read
   * vpn.data dns still overrides the pushed servers; dns-domains are added to
     the pushed search domains
+  * Packages for arm64 (closes #21) next to amd64, for every Ubuntu release
+  * Packages for Ubuntu 24.10. The Plasma editor package is split into
+    network-manager-gpclient-plasma-5 (Ubuntu 22.04, 24.04) and
+    network-manager-gpclient-plasma-6 (Ubuntu 24.10, 26.04)
+  * network-manager-gpclient-plasma is now a transitional package that pulls
+    in the matching new one and can be removed afterwards. The new packages
+    replace and break the old one below 1.5.0~, so an upgrade neither stops
+    on the files they share nor keeps the core package at 1.4.1
+  * Dependencies list the t64 library names next to the older ones, so the
+    packages install on releases with and without the 64-bit time_t rename
+  * The release notes start with a table of downloads by Ubuntu release and
+    architecture; pull requests get installable test packages
 
- -- WMP <example@example.org>  Thu, 24 Sep 2026 12:00:00 +0200
+ -- WMP <example@example.org>  Fri, 02 Oct 2026 12:00:00 +0200
 
 network-manager-gpclient (1.4.1-1) unstable; urgency=medium
 
