@@ -119,15 +119,34 @@ class TestPublished:
         assert "+pr24.<run>" in summary
         assert "installs it over the release" in summary
 
-    def test_the_summary_names_one_plasma_package(self):
+    def test_the_summary_names_the_plasma_package_and_the_one_for_kde_neon(self):
         summary = published()["output"]["summary"]
 
-        assert "# or -plasma, as installed" in summary
-        assert "-plasma-5" not in summary and "-plasma-6" not in summary
+        assert "# or -plasma (-plasma-6 on KDE neon), as installed" in summary
+        assert "On KDE neon (Ubuntu 24.04 with Plasma 6) the Plasma package is `network-manager-gpclient-plasma-6`." in summary
+        assert "-plasma-5" not in summary
         assert "plasma-nm" not in summary
 
-    @pytest.mark.parametrize("package", ["network-manager-gpclient-plasma-5", "network-manager-gpclient-plasma-6"])
-    def test_a_package_of_the_former_split_is_not_listed_by_name(self, package):
+    def test_the_package_for_kde_neon_is_listed_by_name(self):
+        debs = DEBS + ["network-manager-gpclient-plasma-6_1.4.2-1~noble1_amd64.deb"]
+
+        summary = published(debs=debs)["output"]["summary"]
+
+        assert ("Published packages (6 files, network-manager-gpclient, network-manager-gpclient-gnome, "
+                "network-manager-gpclient-plasma, network-manager-gpclient-plasma-6)") in summary
+        assert "- `network-manager-gpclient-plasma-6_1.4.2-1.noble1_amd64.deb`" in summary
+        assert check.PACKAGE_RE.match(debs[-1]).group(1) == "network-manager-gpclient-plasma-6"
+
+    def test_the_package_for_kde_neon_is_accepted_for_upload(self):
+        result = published(debs=["network-manager-gpclient-plasma-6_1.4.2-1~noble1+pr24.57_amd64.deb"])
+
+        assert result["conclusion"] == "success"
+
+    @pytest.mark.parametrize("package", [
+        "network-manager-gpclient-plasma-5", "network-manager-gpclient-plasma-7", "network-manager-gpclient-plasma-66",
+        "network-manager-gpclient-plasma-6-extra", "network-manager-gpclient-plasma6",
+    ])
+    def test_another_plasma_package_is_not_listed_by_name(self, package):
         assert check.PACKAGE_RE.match(package + "_1.4.2-1~noble1_amd64.deb") is None
 
     def test_the_default_repository_adds_no_repo_option(self):

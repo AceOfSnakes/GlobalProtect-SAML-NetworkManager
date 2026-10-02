@@ -16,6 +16,12 @@ debian/rules builds the plugin against the Qt that debian/control lists in
 Build-Depends (qtbase5-dev or qt6-base-dev, exactly one), and the Dockerfile of
 the release installs the same Qt and KDE Frameworks packages.
 
+Ubuntu 24.04 has a second build, for KDE neon (Ubuntu 24.04 with Plasma 6 from
+archive.neon.kde.org): debian/control.ubuntu24.04-neon with Dockerfile.ubuntu24.04-neon
+builds network-manager-gpclient-plasma-6 (Qt6) and nothing else, and the noble
+network-manager-gpclient-plasma (Qt5) conflicts with it. debian/rules recognises
+such a control file by its lack of the core package and builds the Plasma plugin only.
+
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
@@ -32,7 +38,9 @@ CONTROLS = sorted(glob.glob(os.path.join(DEBIAN, "control*")))
 
 CORE = "network-manager-gpclient"
 PLASMA = CORE + "-plasma"
-FORMER = {"qt5": PLASMA + "-5", "qt6": PLASMA + "-6"}
+PLASMA6 = PLASMA + "-6"
+FORMER = {"qt5": PLASMA + "-5", "qt6": PLASMA6}
+NEON = "control.ubuntu24.04-neon"
 BOUND = "1.5.1~"
 VERSIONED = " (= ${binary:Version})"
 # The Qt of every control file; debian/control is a copy of the one of Ubuntu 24.04
@@ -50,6 +58,15 @@ FORMERS = {
     "control.ubuntu24.04": [PLASMA + "-5"],
     "control.ubuntu24.10": [PLASMA + "-5", PLASMA + "-6"],
     "control.ubuntu26.04": [PLASMA + "-6"],
+}
+# What the Plasma package of every control file conflicts with: on Ubuntu 24.04 the
+# package for KDE neon, which has the same files in the Qt6 directory
+CONFLICTS = {
+    "control": [PLASMA6],
+    "control.ubuntu22.04": [],
+    "control.ubuntu24.04": [PLASMA6],
+    "control.ubuntu24.10": [],
+    "control.ubuntu26.04": [],
 }
 DOCKERFILES = {
     "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
@@ -111,9 +128,10 @@ def covers(bound, version):
     return upstream(version) < upstream(bound[:-1])
 
 
-def check_control(text, qt, formers=None):
+def check_control(text, qt, formers=None, conflicts=()):
     """Problems with the Plasma package of a control file that builds with `qt` (empty list when fine);
-    `formers` are the former test packages it replaces and breaks (default: the one of that Qt)"""
+    `formers` are the former test packages it replaces and breaks (default: the one of that Qt),
+    `conflicts` the packages it conflicts with (default: none)"""
     formers = formers or [FORMER[qt]]
     packages = parse_control(text)
     problems = []
@@ -155,8 +173,8 @@ def check_control(text, qt, formers=None):
         for value in values:
             if value not in [relation(former) for former in formers]:
                 problems.append("%s has %s: %s" % (PLASMA, field.capitalize(), value))
-    if "conflicts" in plasma:
-        problems.append("%s conflicts with %s" % (PLASMA, plasma["conflicts"]))
+    if relations(plasma.get("conflicts", "")) != list(conflicts):
+        problems.append("%s conflicts with %r, expected %r" % (PLASMA, plasma.get("conflicts"), list(conflicts)))
 
     core = packages.get(CORE, {})
     if core.get("recommends") != "%s-gnome | %s" % (CORE, PLASMA):
@@ -169,9 +187,10 @@ def read(name):
         return handle.read()
 
 
-def good(qt, formers=None):
+def good(qt, formers=None, conflicts=()):
     """A correct control file"""
     formers = formers or [FORMER[qt]]
+    conflict_line = "Conflicts: %s\n" % ", ".join(conflicts) if conflicts else ""
     versioned = ",\n         ".join(relation(f) for f in formers)
     qt_dev = "qtbase5-dev" if qt == "qt5" else "qt6-base-dev"
     deps = sorted(BUILD_DEPENDS[qt] - {qt_dev})
@@ -203,9 +222,9 @@ Depends: ${shlibs:Depends},
          plasma-nm
 Replaces: %s
 Breaks: %s
-Description: Plasma GUI
+%sDescription: Plasma GUI
  text
-""" % (build, versioned, versioned)
+""" % (build, versioned, versioned, conflict_line)
 
 
 GOOD = {"qt5": good("qt5"), "qt6": good("qt6")}
@@ -267,7 +286,7 @@ class TestCheckControl:
         ("Breaks on the core package", "Breaks: {f} (<< 1.5.1~)", "Breaks: network-manager-gpclient (<< 1.5.1~)"),
         ("Replaces on the old name of 1.4.1", "Replaces: {f} (<< 1.5.1~)",
          "Replaces: network-manager-gpclient-plasma (<< 1.5.1~)"),
-        ("Conflicts", "Description: Plasma GUI", "Conflicts: network-manager-gpclient-plasma-6\nDescription: Plasma GUI"),
+        ("Conflicts", "Description: Plasma GUI", "Conflicts: network-manager-gpclient-plasma-7\nDescription: Plasma GUI"),
         ("Architecture all", "Package: network-manager-gpclient-plasma\nArchitecture: any",
          "Package: network-manager-gpclient-plasma\nArchitecture: all"),
         ("no plasma-nm", "         plasma-nm\n", "         plasma-nm-extra\n"),
@@ -331,6 +350,15 @@ class TestCheckControl:
         assert check_control(GOOD["qt5"], "qt6") != []
         assert check_control(GOOD["qt6"], "qt5") != []
 
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    def test_the_expected_conflict_is_accepted_and_a_missing_or_other_one_is_reported(self, qt):
+        with_conflict = good(qt, conflicts=[PLASMA6])
+        assert check_control(with_conflict, qt, conflicts=[PLASMA6]) == []
+        assert any("conflicts with" in p for p in check_control(GOOD[qt], qt, conflicts=[PLASMA6]))
+        assert any("conflicts with" in p for p in check_control(with_conflict, qt))
+        assert any("conflicts with" in p for p in check_control(with_conflict, qt, conflicts=[PLASMA + "-7"]))
+        assert any("conflicts with" in p for p in check_control(with_conflict, qt, conflicts=[PLASMA6, PLASMA + "-7"]))
+
 
 class TestUpperBound:
     @pytest.mark.parametrize("version", EXISTING_VERSIONS)
@@ -352,23 +380,33 @@ class TestUpperBound:
 
 class TestControlFiles:
     def test_every_control_file_is_covered(self):
-        assert sorted(os.path.basename(p) for p in CONTROLS) == sorted(QT)
+        assert sorted(os.path.basename(p) for p in CONTROLS) == sorted([*QT, NEON])
 
     @pytest.mark.parametrize("name, qt", sorted(QT.items()))
     def test_the_plasma_package_is_declared(self, name, qt):
-        assert check_control(read(name), qt, FORMERS[name]) == []
+        assert check_control(read(name), qt, FORMERS[name], CONFLICTS[name]) == []
 
     @pytest.mark.parametrize("name, qt", sorted(QT.items()))
     def test_the_files_are_not_accepted_for_the_other_qt(self, name, qt):
-        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5", FORMERS[name]) != []
+        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5", FORMERS[name], CONFLICTS[name]) != []
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_conflicts_of_the_plasma_package_are_those_of_the_file_only(self, name):
+        assert relations(parse_control(read(name))[PLASMA].get("conflicts", "")) == CONFLICTS[name]
+        other = [c for c in (PLASMA6, PLASMA + "-7") if c not in CONFLICTS[name]]
+        assert check_control(read(name), QT[name], FORMERS[name], CONFLICTS[name] + other[:1]) != []
+        assert (CONFLICTS[name] == []) or check_control(read(name), QT[name], FORMERS[name]) != []
+
+    def test_only_ubuntu_24_04_conflicts_with_the_plasma_6_package_of_kde_neon(self):
+        assert sorted(n for n, c in CONFLICTS.items() if c) == ["control", "control.ubuntu24.04"]
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_a_file_that_replaces_other_former_packages_than_its_own_is_reported(self, name):
         qt = QT[name]
-        assert check_control(read(name), qt, ["network-manager-gpclient-plasma-7"]) != []
+        assert check_control(read(name), qt, ["network-manager-gpclient-plasma-7"], CONFLICTS[name]) != []
         if name != "control.ubuntu24.10":
             # only 24.10 had test builds of both
-            assert check_control(read(name), qt, BOTH) != []
+            assert check_control(read(name), qt, BOTH, CONFLICTS[name]) != []
 
     def test_debian_control_is_the_copy_for_ubuntu_24_04(self):
         assert read("control") == read("control.ubuntu24.04")
@@ -399,7 +437,7 @@ class TestControlFiles:
         assert any("lacks" in p and missing in p for p in check_control(broken, "qt6", BOTH))
 
     def test_the_file_of_24_04_does_not_pass_as_the_one_of_24_10(self):
-        assert check_control(read("control.ubuntu24.04"), "qt5", BOTH) != []
+        assert check_control(read("control.ubuntu24.04"), "qt5", BOTH, [PLASMA6]) != []
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_packages_are_the_core_gnome_and_plasma_ones(self, name):
@@ -447,8 +485,11 @@ class TestControlFiles:
         assert os.path.exists(os.path.join(DEBIAN, PLASMA + ".install"))
 
     @pytest.mark.parametrize("name", sorted(QT))
-    def test_no_package_conflicts_or_provides(self, name):
-        assert not [l for l in read(name).splitlines() if l.startswith(("Provides:", "Conflicts:"))][1:]
+    def test_no_package_provides_and_only_the_known_ones_conflict(self, name):
+        lines = [l for l in read(name).splitlines() if l.startswith(("Provides:", "Conflicts:"))]
+        # the core package conflicts with globalprotect-openconnect, the Plasma package as in CONFLICTS
+        expected = ["Conflicts: globalprotect-openconnect"] + ["Conflicts: " + c for c in CONFLICTS[name]]
+        assert lines == expected
 
 
 def build_depends_of(text):
@@ -487,22 +528,221 @@ class TestDockerfiles:
         assert dockerfile_packages(text) == {"build-essential", "qt6-base-dev", "curl"}
 
 
+# The Build-Depends of the neon control file: what the Plasma 6 plugin needs and nothing of the rest
+NEON_BUILD_DEPENDS = BUILD_DEPENDS["qt6"] | {"debhelper-compat", "cmake", "extra-cmake-modules", "plasma-nm"}
+NEON_DEPENDS = ["${shlibs:Depends}", "${misc:Depends}", CORE + VERSIONED, "plasma-nm (>= 4:6)"]
+
+
+def check_neon(text):
+    """Problems with the control file for KDE neon (empty list when fine): one binary package,
+    network-manager-gpclient-plasma-6, that needs Plasma 6 and conflicts with the Qt5 one"""
+    packages = parse_control(text)
+    problems = []
+    names = sorted(p for p in packages if p)
+    if names != [PLASMA6]:
+        problems.append("the packages are %s, expected only %s" % (names, PLASMA6))
+    source = packages.get("", {})
+    if source.get("source") != CORE:
+        problems.append("the source package is %r, not %s" % (source.get("source"), CORE))
+    build = {item.split("(")[0].split("|")[0].strip() for item in relations(source.get("build-depends", ""))}
+    if build != NEON_BUILD_DEPENDS:
+        problems.append("Build-Depends lacks %s and has %s" % (sorted(NEON_BUILD_DEPENDS - build), sorted(build - NEON_BUILD_DEPENDS)))
+    plasma = packages.get(PLASMA6)
+    if plasma is None:
+        return problems
+    if plasma.get("architecture") != "any":
+        problems.append("%s has Architecture %r, not 'any'" % (PLASMA6, plasma.get("architecture")))
+    if relations(plasma.get("depends", "")) != NEON_DEPENDS:
+        problems.append("%s depends on %s, expected %s" % (PLASMA6, relations(plasma.get("depends", "")), NEON_DEPENDS))
+    if relations(plasma.get("conflicts", "")) != [PLASMA]:
+        problems.append("%s conflicts with %r, expected %s" % (PLASMA6, plasma.get("conflicts"), PLASMA))
+    for field in ("replaces", "breaks", "provides"):
+        if field in plasma:
+            problems.append("%s has %s: %s" % (PLASMA6, field.capitalize(), plasma[field]))
+    if "KDE neon" not in plasma.get("description", ""):
+        problems.append("the description of %s does not say that it is for KDE neon" % PLASMA6)
+    return problems
+
+
+class TestNeonControl:
+    def test_the_control_file_for_kde_neon_is_correct(self):
+        assert check_neon(read(NEON)) == []
+
+    def test_it_builds_the_plasma_6_package_only_with_qt6(self):
+        packages = parse_control(read(NEON))
+        assert sorted(p for p in packages if p) == [PLASMA6]
+        build = build_depends_of(read(NEON))
+        assert "qt6-base-dev" in build and not build & BUILD_DEPENDS["qt5"]
+        assert not [b for b in build if re.match(r"lib(gtk|nm|nma|ssl|dbus|openconnect|webkit)", b)]
+
+    def test_the_source_package_is_the_one_of_the_other_control_files(self):
+        assert parse_control(read(NEON))[""]["source"] == parse_control(read("control.ubuntu24.04"))[""]["source"]
+
+    @pytest.mark.parametrize("name, old, new", [
+        ("another source", "Source: network-manager-gpclient\n", "Source: other\n"),
+        ("the core package", "\nPackage: network-manager-gpclient-plasma-6\n",
+         "\nPackage: network-manager-gpclient\nArchitecture: any\nDescription: core\n x\n\nPackage: network-manager-gpclient-plasma-6\n"),
+        ("the package of the other name", "Package: network-manager-gpclient-plasma-6\n",
+         "Package: network-manager-gpclient-plasma\n"),
+        ("Architecture all", "Architecture: any", "Architecture: all"),
+        ("no Conflicts", "Conflicts: network-manager-gpclient-plasma\n", ""),
+        ("Conflicts with the wrong package", "Conflicts: network-manager-gpclient-plasma\n",
+         "Conflicts: network-manager-gpclient-gnome\n"),
+        ("Conflicts with a version", "Conflicts: network-manager-gpclient-plasma\n",
+         "Conflicts: network-manager-gpclient-plasma (<< 1.5.1~)\n"),
+        ("no Plasma 6 in the Depends", "plasma-nm (>= 4:6)", "plasma-nm"),
+        ("Plasma 5 in the Depends", "plasma-nm (>= 4:6)", "plasma-nm (>= 4:5)"),
+        ("no versioned core package", " (= ${binary:Version})", ""),
+        ("Replaces", "Conflicts: network-manager-gpclient-plasma\n",
+         "Conflicts: network-manager-gpclient-plasma\nReplaces: network-manager-gpclient-plasma-5 (<< 1.5.1~)\n"),
+        ("Breaks", "Conflicts: network-manager-gpclient-plasma\n",
+         "Conflicts: network-manager-gpclient-plasma\nBreaks: network-manager-gpclient-plasma (<< 1.5.1~)\n"),
+        ("Qt5 Build-Depends", "               qt6-base-dev,\n", "               qt6-base-dev,\n               qtbase5-dev,\n"),
+        ("GNOME Build-Depends", "               qt6-base-dev,\n", "               qt6-base-dev,\n               libgtk-3-dev,\n"),
+        ("no KF6 Build-Depends", "               libkf6coreaddons-dev,\n", ""),
+        ("no plasma-nm Build-Depends", "libkf6coreaddons-dev,\n               plasma-nm\n", "libkf6coreaddons-dev\n"),
+        ("the description without KDE neon", "KDE neon", "KDE"),
+    ])
+    def test_a_broken_neon_control_file_is_reported(self, name, old, new):
+        text = read(NEON)
+        assert old in text, name
+        assert check_neon(text.replace(old, new)) != [], name
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_other_control_files_are_not_neon_control_files(self, name):
+        assert check_neon(read(name)) != []
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_neon_control_file_is_not_a_control_file_of_a_release(self, name):
+        for former in (FORMERS[name], BOTH):
+            assert check_control(read(NEON), "qt6", former, CONFLICTS[name]) != []
+
+    def test_the_package_conflicts_with_the_one_that_conflicts_with_it(self):
+        neon = parse_control(read(NEON))[PLASMA6]
+        noble = parse_control(read("control.ubuntu24.04"))[PLASMA]
+        assert relations(neon["conflicts"]) == [PLASMA]
+        assert relations(noble["conflicts"]) == [PLASMA6]
+
+    def test_the_noble_package_still_breaks_and_replaces_only_the_former_test_package(self):
+        noble = parse_control(read("control.ubuntu24.04"))[PLASMA]
+        assert relations(noble["breaks"]) == [relation(PLASMA + "-5")]
+        assert relations(noble["replaces"]) == [relation(PLASMA + "-5")]
+
+    def test_the_package_is_not_a_former_test_package_that_a_control_file_replaces(self):
+        # 1.5.0 builds network-manager-gpclient-plasma-6 for neon; the 24.10 and 26.04 files still
+        # replace and break the -plasma-6 of the pull request test builds below 1.5.1~, which have
+        # the same files in the same Qt6 directory
+        for name in ("control.ubuntu24.10", "control.ubuntu26.04"):
+            assert relation(PLASMA6) in relations(parse_control(read(name))[PLASMA]["breaks"])
+
+
+NEON_DOCKERFILE = "Dockerfile.ubuntu24.04-neon"
+
+
+class TestNeonDockerfile:
+    @staticmethod
+    def text():
+        with open(os.path.join(ROOT, NEON_DOCKERFILE), encoding="utf-8") as handle:
+            return handle.read()
+
+    def packages(self):
+        """The packages of the build dependencies, installed after the repository is set up"""
+        text = self.text()
+        return dockerfile_packages(text[text.index("bash /usr/local/sbin/neon-repo.sh"):])
+
+    def test_it_installs_the_build_depends_of_the_neon_control_file_and_the_build_tools(self):
+        tools = {"build-essential", "debhelper", "fakeroot"}
+        assert self.packages() - tools == build_depends_of(read(NEON)) - {"debhelper-compat"}
+        assert tools <= self.packages()
+
+    def test_it_installs_the_qt6_packages_of_the_control_file_and_none_of_qt5(self):
+        names = TestDockerfiles.qt_packages(self.packages())
+        assert names == TestDockerfiles.qt_packages(build_depends_of(read(NEON)))
+        assert names >= BUILD_DEPENDS["qt6"] and not names & BUILD_DEPENDS["qt5"]
+
+    def test_it_is_not_the_dockerfile_of_a_release(self):
+        with open(os.path.join(ROOT, "Dockerfile.ubuntu26.04"), encoding="utf-8") as handle:
+            assert self.packages() != dockerfile_packages(handle.read())
+
+    def test_it_installs_no_gnome_packages_and_no_rust(self):
+        assert not [p for p in self.packages() if re.match(r"lib(gtk|nm|nma|ssl|dbus|openconnect|webkit)", p)]
+        assert "rustup" not in self.text() and "cargo" not in self.text()
+
+    def test_it_is_based_on_ubuntu_24_04(self):
+        assert self.text().startswith("FROM ubuntu:24.04\n")
+
+    def test_it_sets_up_the_neon_repository_with_the_script_before_it_installs_the_packages(self):
+        text = self.text()
+        assert "COPY .github/scripts/neon-repo.sh /usr/local/sbin/neon-repo.sh" in text
+        assert text.index("COPY .github/scripts/neon-repo.sh") < text.index("bash /usr/local/sbin/neon-repo.sh")
+        assert text.index("bash /usr/local/sbin/neon-repo.sh") < text.index("qt6-base-dev")
+        # the script needs these to download and check the key
+        before = text[:text.index("bash /usr/local/sbin/neon-repo.sh")]
+        assert "ca-certificates" in before and "curl" in before and "gnupg" in before
+
+    def test_the_address_and_the_key_of_the_repository_are_only_in_the_script(self):
+        text = self.text()
+        assert "neon.kde.org" not in text and "444DABCF" not in text.upper()
+
+    def test_the_script_is_in_the_build_context(self):
+        assert os.path.isfile(os.path.join(ROOT, ".github", "scripts", "neon-repo.sh"))
+        with open(os.path.join(ROOT, ".dockerignore"), encoding="utf-8") as handle:
+            ignored = [l.strip() for l in handle if l.strip() and not l.startswith("#")]
+        assert not [l for l in ignored if l.startswith(".github") or l in ("*.sh", "*")]
+
+    def test_it_builds_as_the_builder_user_in_build_source(self):
+        text = self.text()
+        assert "WORKDIR /build/source\n" in text
+        assert text.index("USER builder") < text.index("COPY --chown=builder:builder")
+        assert "USER root" not in text.split("USER builder")[1]
+
+    def test_the_parser_finds_the_packages_after_the_script(self):
+        text = "COPY a b\nRUN apt-get install -y curl && bash /usr/local/sbin/neon-repo.sh\nRUN apt-get install -y \\\n    qt6-base-dev \\\n    cmake \\\n    && x\n"
+        assert dockerfile_packages(text[text.index("bash /usr/local/sbin/neon-repo.sh"):]) == {"qt6-base-dev", "cmake"}
+
+
 RULES = read("rules")
+
+
+def make_variables(tmp_path, control_text):
+    """{PLASMA_QT_MAJOR, PLASMA_PACKAGE, HAS_CORE} of debian/rules for a debian/control with this content"""
+    lines = RULES.splitlines()
+    first = next(i for i, l in enumerate(lines) if l.startswith("qt_listed"))
+    last = next(i for i, l in enumerate(lines) if l.startswith("HAS_CORE"))
+    (tmp_path / "debian").mkdir(exist_ok=True)
+    (tmp_path / "debian" / "control").write_text(control_text, encoding="utf-8")
+    names = ["PLASMA_QT_MAJOR", "PLASMA_PACKAGE", "HAS_CORE"]
+    echo = "".join("\t@echo '%s=[$(%s)]'\n" % (n, n) for n in names)
+    (tmp_path / "mini.mk").write_text("\n".join(lines[first:last + 1]) + "\nprint:\n" + echo, encoding="utf-8")
+    result = subprocess.run(["make", "-s", "-f", "mini.mk", "print"], cwd=tmp_path, capture_output=True, text=True,
+                            timeout=30)
+    assert result.returncode == 0, result.stderr
+    return {l.split("=", 1)[0]: l.split("=", 1)[1][1:-1] for l in result.stdout.splitlines()}
 
 
 def make_variable(tmp_path, control_text):
     """PLASMA_QT_MAJOR of debian/rules for a debian/control with this content"""
-    lines = RULES.splitlines()
-    first = next(i for i, l in enumerate(lines) if l.startswith("qt_listed"))
-    last = next(i for i, l in enumerate(lines) if l.startswith("PLASMA_QT_MAJOR"))
+    return make_variables(tmp_path, control_text)["PLASMA_QT_MAJOR"]
+
+
+def run_rules(tmp_path, control_text, target, dry_run=False):
+    """Run a target of debian/rules for a debian/control with this content, with fakes for what the
+    target runs: `make` (MAKE is a script that logs its arguments), cmake and cargo (they log theirs).
+    Returns (CompletedProcess, the log lines)"""
     (tmp_path / "debian").mkdir(exist_ok=True)
     (tmp_path / "debian" / "control").write_text(control_text, encoding="utf-8")
-    (tmp_path / "mini.mk").write_text("\n".join(lines[first:last + 1]) + "\nprint:\n\t@echo '[$(PLASMA_QT_MAJOR)]'\n",
-                                      encoding="utf-8")
-    result = subprocess.run(["make", "-s", "-f", "mini.mk", "print"], cwd=tmp_path, capture_output=True, text=True,
-                            timeout=30)
-    assert result.returncode == 0, result.stderr
-    return result.stdout.strip()[1:-1]
+    (tmp_path / "debian" / "rules").write_text(RULES, encoding="utf-8")
+    (tmp_path / "external" / "GlobalProtect-openconnect").mkdir(parents=True, exist_ok=True)
+    fakes = tmp_path / "fakes"
+    fakes.mkdir(exist_ok=True)
+    for name in ("fakemake", "cmake", "cargo"):
+        (fakes / name).write_text('#!/bin/sh\necho "%s $*" >> "%s"\n' % (name, tmp_path / "log"))
+        (fakes / name).chmod(0o755)
+    command = ["make", "-f", "debian/rules", target, "MAKE=%s" % (fakes / "fakemake")]
+    result = subprocess.run(command + (["-n"] if dry_run else []), cwd=tmp_path, capture_output=True, text=True,
+                            env={"PATH": "%s:/usr/bin:/bin" % fakes}, timeout=30)
+    log = (tmp_path / "log").read_text().splitlines() if (tmp_path / "log").exists() else []
+    return result, log
 
 
 # The Qt package in the syntaxes of Build-Depends: (old, new) replaces the entry of GOOD
@@ -596,6 +836,9 @@ class TestRules:
     def test_a_missing_qt_stops_the_build(self):
         assert 'test -n "$(PLASMA_QT_MAJOR)"' in RULES
 
+    def test_a_missing_plasma_package_stops_the_build_and_the_install(self):
+        assert RULES.count('test -n "$(PLASMA_PACKAGE)"') == 2
+
     def test_the_plugin_is_built_for_that_qt(self):
         assert "-DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR)" in RULES
         assert "pkg-config --exists Qt" not in RULES
@@ -605,7 +848,7 @@ class TestRules:
         assert install
         for line in install:
             if "$(CURDIR)" in line:
-                assert "debian/network-manager-gpclient-plasma/usr/" in line, line
+                assert "debian/$(PLASMA_PACKAGE)/usr/" in line, line
         assert "/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/" in RULES
 
     def test_the_multiarch_directory_is_never_hard_coded(self):
@@ -626,6 +869,128 @@ class TestRules:
         assert "build-5" not in RULES and "build-6" not in RULES
 
 
+
+class TestRulesPlasmaOnly:
+    """debian/control.ubuntu24.04-neon has no core package: the build makes the Plasma plugin only,
+    into network-manager-gpclient-plasma-6. Every other control file builds everything."""
+
+    @pytest.mark.parametrize("name, package", [
+        (NEON, PLASMA6), ("control.ubuntu22.04", PLASMA), ("control.ubuntu24.04", PLASMA),
+        ("control.ubuntu24.10", PLASMA), ("control.ubuntu26.04", PLASMA), ("control", PLASMA),
+    ])
+    def test_the_variables_follow_the_packages_of_the_control_file(self, tmp_path, name, package):
+        variables = make_variables(tmp_path, read(name))
+
+        assert variables["PLASMA_PACKAGE"] == package
+        assert (variables["HAS_CORE"] == CORE) == (name != NEON)
+
+    def test_the_neon_control_file_builds_qt6(self, tmp_path):
+        assert make_variables(tmp_path, read(NEON))["PLASMA_QT_MAJOR"] == "6"
+
+    @pytest.mark.parametrize("extra", [PLASMA, PLASMA + "-5", PLASMA + "-7"])
+    def test_a_control_file_with_two_plasma_packages_has_no_plasma_package(self, tmp_path, extra):
+        # the second of the two allowed names, or none of them
+        text = read(NEON) + "\nPackage: %s\nArchitecture: any\nDescription: x\n y\n" % extra
+        expected = "" if extra == PLASMA else PLASMA6
+        assert make_variables(tmp_path, text)["PLASMA_PACKAGE"] == expected
+
+    def test_a_package_name_that_only_starts_like_a_plasma_package_is_not_one(self, tmp_path):
+        text = read(NEON).replace("Package: " + PLASMA6, "Package: " + PLASMA6 + "-extra")
+        assert make_variables(tmp_path, text)["PLASMA_PACKAGE"] == ""
+
+    def test_a_package_in_a_comment_or_a_description_is_not_a_package(self, tmp_path):
+        text = "# Package: %s\n" % PLASMA + read(NEON).replace(" This package provides", " Package: %s\n This package provides" % PLASMA)
+        assert make_variables(tmp_path, text)["PLASMA_PACKAGE"] == PLASMA6
+
+    @pytest.mark.parametrize("name", [NEON])
+    def test_the_build_makes_the_plasma_plugin_only(self, tmp_path, name):
+        result, log = run_rules(tmp_path, read(name), "override_dh_auto_build")
+
+        assert result.returncode == 0, result.stderr
+        # cmake builds the plugin for Qt6, then make runs; no GNOME plugins, no submodules, no cargo
+        assert log == ["cmake .. -DQT_MAJOR_VERSION=6", "fakemake "]
+
+    @pytest.mark.parametrize("name", [n for n in sorted(QT) if n != "control"])
+    def test_the_other_control_files_build_everything(self, tmp_path, name):
+        result, log = run_rules(tmp_path, read(name), "override_dh_auto_build")
+
+        assert result.returncode == 0, result.stderr
+        assert log == ["fakemake init-submodules", "fakemake gnome-plugins",
+                       "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ",
+                       "cargo build --release --bin gpclient --bin gpauth --bin gpservice"]
+
+    @pytest.mark.parametrize("name", [NEON, "control.ubuntu24.04", "control.ubuntu26.04"])
+    @pytest.mark.parametrize("extra", [PLASMA, PLASMA6])
+    def test_two_plasma_packages_stop_the_build_before_the_plugin_is_built(self, tmp_path, name, extra):
+        base = read(name)
+        if "Package: " + extra in base:
+            extra = PLASMA if extra == PLASMA6 else PLASMA6
+        text = base + "\nPackage: %s\nArchitecture: any\nDescription: x\n y\n" % extra
+
+        result, log = run_rules(tmp_path, text, "override_dh_auto_build")
+
+        assert result.returncode != 0
+        assert "exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6" in result.stdout
+        assert "cmake" not in " ".join(log) and "cargo" not in " ".join(log)
+
+    @pytest.mark.parametrize("name", [NEON, "control.ubuntu24.04"])
+    def test_no_plasma_package_stops_the_build_and_the_install(self, tmp_path, name):
+        text = re.sub(r"Package: %s\n.*?(\n\n|\Z)" % PLASMA6 if name == NEON else r"Package: %s\n.*?(\n\n|\Z)" % PLASMA,
+                      "", read(name), flags=re.S)
+        assert ("Package: " + PLASMA) not in text.replace("Package: " + CORE, "")
+        for target in ("override_dh_auto_build", "override_dh_auto_install"):
+            result, log = run_rules(tmp_path, text, target)
+
+            assert result.returncode != 0, target
+            assert "exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6" in result.stdout
+            assert "cmake" not in " ".join(log)
+
+    @staticmethod
+    def commands(output):
+        """The install, ln and mkdir commands of a dry run, continued lines joined"""
+        joined = output.replace("\\\n", " ")
+        return [l.strip() for l in joined.splitlines() if l.strip().startswith(("install ", "ln ", "mkdir "))]
+
+    @classmethod
+    def installed_directories(cls, output):
+        return sorted(set(re.findall(r"/debian/([a-z0-9-]+)/", " ".join(cls.commands(output)))))
+
+    def test_the_install_puts_the_plugin_into_the_plasma_6_package_only(self, tmp_path):
+        result, _ = run_rules(tmp_path, read(NEON), "override_dh_auto_install", dry_run=True)
+
+        assert result.returncode == 0, result.stderr
+        assert self.installed_directories(result.stdout) == [PLASMA6]
+        installs = [c for c in self.commands(result.stdout) if c.startswith("install ")]
+        assert len(installs) == 2
+        for command in installs:
+            assert "/debian/%s/usr/lib/" % PLASMA6 in command
+            assert "/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui." in command
+
+    @pytest.mark.parametrize("name, package", [("control.ubuntu24.04", PLASMA), ("control.ubuntu26.04", PLASMA)])
+    def test_the_install_of_the_other_control_files_fills_every_package(self, tmp_path, name, package):
+        result, _ = run_rules(tmp_path, read(name), "override_dh_auto_install", dry_run=True)
+
+        assert result.returncode == 0, result.stderr
+        assert self.installed_directories(result.stdout) == sorted([CORE, CORE + "-gnome", package])
+
+    def test_the_install_for_neon_has_no_core_files(self, tmp_path):
+        result, _ = run_rules(tmp_path, read(NEON), "override_dh_auto_install", dry_run=True)
+
+        text = " ".join(self.commands(result.stdout)).replace("plasmanetworkmanagement_gpclientui", "")
+        text = text.replace(PLASMA6, "")
+        for core_file in ("nm-gpclient-service", "gpclient", "gpauth", "browser-wrapper", "libnm-vpn-plugin",
+                          "nm-gpclient.service", "90-gpclient-routing", "gpgui.desktop", "-gnome/"):
+            assert core_file not in text, core_file
+
+    def test_the_install_for_other_files_has_the_core_files(self, tmp_path):
+        result, _ = run_rules(tmp_path, read("control.ubuntu26.04"), "override_dh_auto_install", dry_run=True)
+
+        text = " ".join(self.commands(result.stdout))
+        for core_file in ("nm-gpclient-service", "usr/bin/gpclient", "usr/bin/gpauth", "browser-wrapper",
+                          "libnm-vpn-plugin-gpclient.so", "90-gpclient-routing"):
+            assert core_file in text, core_file
+
+
 class TestChangelog:
     def top(self):
         text = read("changelog")
@@ -642,6 +1007,17 @@ class TestChangelog:
         assert "Breaks them, so apt full-upgrade removes them" in top
         assert "apt install network-manager-gpclient-plasma installs the editor" in top
         assert "are replaced by it" not in top
+
+    def test_the_plasma_6_package_for_kde_neon_is_announced_once(self):
+        top = " ".join(self.top().split())
+        assert top.count("New network-manager-gpclient-plasma-6 for KDE neon (Ubuntu 24.04 with Plasma 6") == 1
+        assert "built against the neon repository for amd64 only" in top
+        assert "conflicts with the Qt5 network-manager-gpclient-plasma of Ubuntu 24.04" in top
+        assert "PR #16" in top
+
+    def test_the_plasma_6_package_is_not_announced_as_transitional(self):
+        top = " ".join(self.top().split())
+        assert "transitional" not in top and "replaces network-manager-gpclient-plasma-6" not in top
 
     def test_no_transitional_package_is_announced(self):
         top = self.top()

@@ -37,6 +37,7 @@ PACKAGES = [
     "network-manager-gpclient-gnome",
     "network-manager-gpclient-plasma",
 ]
+PLASMA6 = "network-manager-gpclient-plasma-6"
 BASE = "https://github.com/%s/releases/download/%s" % (REPO, TAG)
 START, END = release_notes.START, release_notes.END
 
@@ -134,8 +135,8 @@ def test_text_of_the_notes_points_to_apt_and_the_install_command(tmp_path):
 
 def test_text_of_the_notes_names_the_desktop_packages(tmp_path):
     out = run(tmp_path, full_matrix()).stdout
-    assert "one desktop package (`-gnome` or `-plasma`)" in out
-    assert "-plasma-5" not in out and "-plasma-6" not in out
+    assert "one desktop package (`-gnome`, `-plasma` or, on KDE neon, `-plasma-6`)" in out
+    assert "-plasma-5" not in out
 
 
 def test_text_of_the_notes_sends_ubuntu_22_04_to_the_readme_for_sdbus(tmp_path):
@@ -151,10 +152,38 @@ def test_packages_in_a_cell_follow_the_fixed_order(tmp_path):
     assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "gnome", "plasma", "aaa-extra", "zzz-extra"]
 
 
-def test_the_packages_of_the_former_split_are_not_in_the_fixed_order(tmp_path):
-    names = ["network-manager-gpclient-plasma-6", PACKAGES[2], "network-manager-gpclient-plasma-5", PACKAGES[0]]
+def test_plasma_6_for_kde_neon_follows_plasma_in_the_fixed_order(tmp_path):
+    names = ["aaa-extra", PLASMA6, PACKAGES[2], PACKAGES[1], PACKAGES[0]]
     row = table_rows(run(tmp_path, debs(*names)).stdout)[2]
-    assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "plasma", "plasma-5", "plasma-6"]
+    assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "gnome", "plasma", "plasma-6", "aaa-extra"]
+
+
+def test_a_former_test_package_is_not_in_the_fixed_order(tmp_path):
+    names = [PLASMA6, PACKAGES[2], "network-manager-gpclient-plasma-5", PACKAGES[0]]
+    row = table_rows(run(tmp_path, debs(*names)).stdout)[2]
+    # -plasma-5 is an unknown package: after the ones of the fixed order
+    assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "plasma", "plasma-6", "plasma-5"]
+
+
+def test_the_order_has_plasma_6_after_plasma_and_nothing_of_the_former_split_before_it():
+    assert release_notes.ORDER == ["gpclient", "gnome", "plasma", "plasma-6"]
+
+
+def test_the_row_of_ubuntu_24_04_shows_both_plasma_packages_where_plasma_6_was_built(tmp_path):
+    assets = full_matrix() + debs(PLASMA6)
+    rows = table_rows(run(tmp_path, assets).stdout)
+    noble = next(r for r in rows if "(noble)" in r)
+    amd64, arm64 = noble.split("|")[2:4]
+    assert [s for s in re.findall(r"\[([^\]]+)\]", amd64)] == ["gpclient", "gnome", "plasma", "plasma-6"]
+    assert link(PLASMA6, "noble", "amd64") in amd64
+    assert "plasma-6" not in arm64
+    for row in rows:
+        if row is not noble:
+            assert "plasma-6" not in row
+
+
+def test_without_plasma_6_no_row_shows_it(tmp_path):
+    assert "plasma-6" not in " ".join(table_rows(run(tmp_path, full_matrix()).stdout))
 
 
 def test_only_amd64_gives_a_single_column(tmp_path):

@@ -9,6 +9,10 @@
 # picks the .deb files for your Ubuntu release, architecture and desktop from that
 # release and hands them to apt. apt asks for confirmation unless --yes is given.
 #
+# On Ubuntu 24.04 the Plasma editor is network-manager-gpclient-plasma-6 (built
+# against the KDE neon repository) when this is KDE neon or plasma-nm 6 or newer
+# is installed, and network-manager-gpclient-plasma (Plasma 5) otherwise.
+#
 # The packages of a pull request carry a version above the release's one
 # (1.4.2-1~noble1+pr24.57 sorts after 1.4.2-1~noble1), so apt installs them over
 # the released version.
@@ -33,7 +37,9 @@ usage: install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/RE
   <PR number>          the pull request whose test packages to install
   --desktop gnome|plasma
                        which editor plugin to install (default: plasma when
-                       XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome)
+                       XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome). For
+                       plasma on Ubuntu 24.04, KDE neon or an installed plasma-nm
+                       6 or newer means -plasma-6, otherwise -plasma
   --repo OWNER/REPO    the GitHub repository that published the packages
                        (default: WMP/GlobalProtect-SAML-NetworkManager)
   --yes                do not ask apt for confirmation (apt install -y)
@@ -99,8 +105,12 @@ os_value() {
 }
 
 [ -r "$OS_RELEASE" ] || die "cannot read $OS_RELEASE: this script supports Ubuntu only"
-[ "$(os_value ID)" = "ubuntu" ] \
-    || die "this is '$(os_value ID)', not Ubuntu: the test packages are built for Ubuntu 22.04, 24.04, 24.10 and 26.04 only"
+os_id="$(os_value ID)"
+# KDE neon is Ubuntu 24.04 with Plasma 6
+case "$os_id" in
+    ubuntu|neon) ;;
+    *) die "this is '$os_id', not Ubuntu or KDE neon: the test packages are built for Ubuntu 22.04, 24.04, 24.10 and 26.04 (and KDE neon, which is Ubuntu 24.04 with Plasma 6) only" ;;
+esac
 
 version_id="$(os_value VERSION_ID)"
 codename="$(os_value VERSION_CODENAME)"
@@ -118,6 +128,9 @@ case "$codename" in
     *) die "Ubuntu ${version_id:-?} (${codename:-unknown}) is not supported: the test packages are built for jammy (22.04), noble (24.04), oracular (24.10) and resolute (26.04)" ;;
 esac
 
+[ "$os_id" != "neon" ] || [ "$codename" = "noble" ] \
+    || die "KDE neon is supported on its Ubuntu 24.04 (noble) base only, not on ${codename:-unknown}"
+
 arch="$(dpkg --print-architecture)"
 case "$arch" in
     amd64|arm64) ;;
@@ -129,6 +142,23 @@ if [ -z "$desktop" ]; then
         *[Kk][Dd][Ee]*) desktop=plasma ;;
         *) desktop=gnome ;;
     esac
+fi
+
+# The Plasma package. Ubuntu 24.04 has Plasma 5, but KDE neon, and any 24.04
+# with plasma-nm 6 or newer installed (the neon repository), has Plasma 6: the
+# editor plugin has to fit, and that is network-manager-gpclient-plasma-6. Every
+# other release has one Plasma package, network-manager-gpclient-plasma.
+plasma_package="network-manager-gpclient-plasma"
+if [ "$desktop" = plasma ] && [ "$codename" = noble ]; then
+    if [ "$os_id" = neon ]; then
+        plasma_package="network-manager-gpclient-plasma-6"
+    else
+        plasma_nm="$(dpkg-query -W -f='${Version}' plasma-nm 2>/dev/null || true)"
+        plasma_nm="${plasma_nm#*:}" # the epoch: 4:6.1.5-0ubuntu1
+        if [[ $plasma_nm =~ ^([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -ge 6 ]; then
+            plasma_package="network-manager-gpclient-plasma-6"
+        fi
+    fi
 fi
 
 # --- The release -------------------------------------------------------------
@@ -157,12 +187,12 @@ esac
 # none). GitHub stores the "~" of a release asset as "." (1.4.2-1.noble1), so
 # both are accepted. The names come from the release listing and are matched
 # strictly before they are used anywhere.
-selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" <<'PY'
+selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" "$plasma_package" <<'PY'
 import json
 import re
 import sys
 
-path, codename, arch, desktop, pr = sys.argv[1:6]
+path, codename, arch, desktop, pr, plasma_package = sys.argv[1:7]
 try:
     with open(path, encoding="utf-8") as handle:
         assets = json.load(handle).get("assets", [])
@@ -192,13 +222,14 @@ wanted = ["network-manager-gpclient"]
 if desktop == "gnome":
     wanted.append("network-manager-gpclient-gnome")
 else:
-    wanted.append("network-manager-gpclient-plasma")
+    wanted.append(plasma_package)
 
 for package in wanted:
     asset = find(package)
     if asset is None:
-        sys.exit("the release has no %s package for %s/%s (the build of this PR may have failed or is not finished)"
-                 % (package, codename, arch))
+        why = " (it is built for amd64 only)" if package.endswith("-plasma-6") and arch != "amd64" else ""
+        sys.exit("the release has no %s package for %s/%s%s (the build of this PR may have failed or is not finished)"
+                 % (package, codename, arch, why))
     print("%s\t%s\t%s" % (package, asset[0], asset[1]))
 PY
 )" || die "cannot pick the packages for Ubuntu $codename/$arch from release $tag (see the message above)"

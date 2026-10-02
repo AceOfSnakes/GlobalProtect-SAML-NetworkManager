@@ -76,6 +76,24 @@ Dependencies:
 - `network-manager-gpclient (= ${binary:Version})`
 - `plasma-nm`
 
+### 4. network-manager-gpclient-plasma-6
+
+**For KDE neon: Ubuntu 24.04 with Plasma 6.** `amd64` only.
+
+Ubuntu 24.04 ships Plasma 5, KDE neon ships Plasma 6 / KF6 from
+`https://archive.neon.kde.org/user`, so `network-manager-gpclient-plasma` (Qt5) does not
+work there. This package has the same plugin built for Qt6 / KF6 against the neon
+repository, in `/usr/lib/<multiarch>/qt6/plugins/plasma/network/vpn/`. It is built by
+`debian/control.ubuntu24.04-neon` with `Dockerfile.ubuntu24.04-neon`: that control file
+has this package only, and `debian/rules` then builds the Plasma plugin and nothing else.
+Version `<version>~noble1` like the other 24.04 packages; it goes to the `noble` suite.
+
+Dependencies:
+- `network-manager-gpclient (= ${binary:Version})`
+- `plasma-nm (>= 4:6)`
+
+Conflicts with `network-manager-gpclient-plasma` (the same file names).
+
 ## Building Packages
 
 ### Recommended method (Docker-based):
@@ -106,7 +124,8 @@ Download packages from [GitHub Releases](https://github.com/WMP/GlobalProtect-SA
 Install two packages:
 1. **network-manager-gpclient** - core package (required)
 2. **network-manager-gpclient-gnome** - for GNOME/GTK desktops, or
-   **network-manager-gpclient-plasma** - for KDE Plasma
+   **network-manager-gpclient-plasma** - for KDE Plasma, or
+   **network-manager-gpclient-plasma-6** - for KDE neon (Ubuntu 24.04 with Plasma 6)
 
 ```bash
 sudo dpkg -i <downloaded-packages>.deb
@@ -118,7 +137,7 @@ sudo apt-get install -f  # install dependencies
 | Ubuntu Version | GTK3 | GTK4 | Plasma  |
 |----------------|------|------|---------|
 | 22.04 LTS      | ✅   | ❌   | ✅ (Qt5) |
-| 24.04 LTS      | ✅   | ✅   | ✅ (Qt5) |
+| 24.04 LTS      | ✅   | ✅   | ✅ (Qt5; Qt6 on KDE neon, `amd64`) |
 | 24.10          | ✅   | ✅   | ✅ (Qt6) |
 | 26.04 LTS      | ✅   | ✅   | ✅ (Qt6) |
 

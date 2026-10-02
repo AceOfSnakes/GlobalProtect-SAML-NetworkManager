@@ -39,6 +39,23 @@ The Plasma plugin's CMakeLists auto-detects Qt6/KF6 if both Qt5 and Qt6 are
 installed. To force a specific major version pass `-DQT_MAJOR_VERSION=6` (or 5)
 to cmake.
 
+### Ubuntu 24.04 with Plasma 6 (KDE neon)
+
+KDE neon is Ubuntu 24.04 with Plasma 6 / KF6 from `https://archive.neon.kde.org/user`
+(suite `noble`). The noble archive has no KF6, so `network-manager-gpclient-plasma-6`
+is a second build for 24.04, only of the Plasma plugin (no GNOME plugins, no Rust):
+`debian/control.ubuntu24.04-neon` (one binary package) with `Dockerfile.ubuntu24.04-neon`,
+which sets the repository up with `.github/scripts/neon-repo.sh` (it checks the
+fingerprint of the repository key). `debian/rules` recognises such a control file by
+its lack of the core package. CI builds it after the main 24.04 build, with the same
+version (`~noble1`), for `amd64` only: neon has no `plasma-nm` for `arm64`. Locally:
+
+```bash
+docker build -t gpclient-builder:ubuntu24.04-neon -f Dockerfile.ubuntu24.04-neon .
+docker run --rm -v $(pwd)/output:/output gpclient-builder:ubuntu24.04-neon bash -c \
+  'cp debian/control.ubuntu24.04-neon debian/control && dpkg-buildpackage -us -uc -b && cp /build/*.deb /output/'
+```
+
 ### Rust Installation
 
 This project uses GlobalProtect-openconnect which requires **Rust 1.85+**.
@@ -94,7 +111,8 @@ dpkg-buildpackage -us -uc -b
 Install two packages from `output/ubuntu24.04/` (or `ubuntu22.04`):
 1. **network-manager-gpclient** - core package (required)
 2. **network-manager-gpclient-gnome** - for GNOME/GTK desktops, or
-   **network-manager-gpclient-plasma** - for KDE Plasma
+   **network-manager-gpclient-plasma** - for KDE Plasma, or
+   **network-manager-gpclient-plasma-6** - for KDE neon (Ubuntu 24.04 with Plasma 6, `amd64`)
 
 ```bash
 sudo dpkg -i <packages>.deb

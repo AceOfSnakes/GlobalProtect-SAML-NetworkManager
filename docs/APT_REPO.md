@@ -18,7 +18,12 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpcli
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
 sudo apt install network-manager-gpclient-plasma   # KDE Plasma
+sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with Plasma 6), amd64 only
 ```
+
+On KDE neon use `network-manager-gpclient-plasma-6`: it is in the `noble` suite
+next to the others, built against the neon repository, and conflicts with
+`network-manager-gpclient-plasma` (Plasma 5).
 
 Same thing in deb822 format, if you prefer `/etc/apt/sources.list.d/*.sources`:
 

@@ -13,6 +13,12 @@
 #   plasma      install network-manager-gpclient-plasma from the release; the
 #               editor plugin must be in the Qt directory of the Ubuntu release
 #               (qt5 on 22.04 and 24.04, qt6 on 24.10 and 26.04) afterwards
+#   neon        install network-manager-gpclient-plasma-6 on KDE neon: Ubuntu
+#               24.04 with the KDE neon repository (neon-repo.sh, the one the
+#               package is built against), whose editor plugin must be in the
+#               qt6 directory. Only on Ubuntu 24.04 and where this build has the
+#               package for the architecture (it is amd64 only); anywhere else
+#               the scenario prints SKIP and succeeds
 #
 # With a gui-out-dir, a GUI smoke test of the installed editor plugin follows
 # the successful upgrade (gui-smoke.sh; screenshots go to that directory).
@@ -43,15 +49,11 @@ fail() {
 }
 
 case "$SCENARIO" in
-    gnome | plasma) ;;
-    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma)" ;;
+    gnome | plasma | neon) ;;
+    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma, neon)" ;;
 esac
 [ "$(id -u)" = 0 ] || fail "run as root, inside a throw-away container"
 [ -d "$DEBS_DIR" ] || fail "no such directory: $DEBS_DIR"
-
-# Containers have no init system: do not let postinst scripts start services
-printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
-chmod 755 /usr/sbin/policy-rc.d
 
 # Ubuntu releases that are end of life: their archive moved to
 # old-releases.ubuntu.com. Keep in sync with the Dockerfile.ubuntu<version> that
@@ -72,11 +74,41 @@ case " $EOL_CODENAMES " in
         ;;
 esac
 
+# neon_skip_reason: why the neon scenario has nothing to test here (empty when it
+# has). KDE neon is Ubuntu 24.04, and its package is built for amd64 only.
+neon_skip_reason() {
+    local arch debs
+    [ "$OS_CODENAME" = noble ] || { echo "KDE neon is Ubuntu 24.04 (noble), this is ${OS_CODENAME:-unknown}"; return 0; }
+    arch="$(dpkg --print-architecture)"
+    shopt -s nullglob
+    debs=("$DEBS_DIR"/network-manager-gpclient-plasma-6_*~noble1*_"${arch}".deb)
+    shopt -u nullglob
+    [ ${#debs[@]} -gt 0 ] || echo "no network-manager-gpclient-plasma-6 for noble/$arch in $DEBS_DIR"
+}
+
+if [ "$SCENARIO" = neon ]; then
+    SKIP_REASON="$(neon_skip_reason)"
+    if [ -n "$SKIP_REASON" ]; then
+        echo "SKIP: scenario neon: $SKIP_REASON"
+        exit 0
+    fi
+fi
+
+# Containers have no init system: do not let postinst scripts start services
+printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+chmod 755 /usr/sbin/policy-rc.d
+
 echo "::group::Prepare ($SCENARIO)"
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl lsb-release dpkg-dev python3 > /dev/null
 CODENAME="$(lsb_release -cs)"
 ARCH="$(dpkg --print-architecture)"
+if [ "$SCENARIO" = neon ]; then
+    # The same repository, with the key checked against its fingerprint, as the
+    # image the package was built in (Dockerfile.ubuntu24.04-neon)
+    apt-get install -y -qq --no-install-recommends gnupg > /dev/null
+    bash "$HERE/neon-repo.sh"
+fi
 echo "::endgroup::"
 
 # The released repository may have no suite for this Ubuntu release at all (1.4.1
@@ -105,6 +137,7 @@ candidate() {
 case "$SCENARIO" in
     gnome) PACKAGE=network-manager-gpclient-gnome ;;
     plasma) PACKAGE=network-manager-gpclient-plasma ;;
+    neon) PACKAGE=network-manager-gpclient-plasma-6 ;;
 esac
 
 # upgrade_possible: adds the released repository, exactly as README.md
@@ -125,6 +158,11 @@ prepare_local_repo() {
     mkdir -p "$LOCAL_REPO"
     shopt -s nullglob
     for deb in "$DEBS_DIR"/*~"${CODENAME}"1*_"${ARCH}".deb "$DEBS_DIR"/*."${CODENAME}"1*_"${ARCH}".deb; do
+        # The package for KDE neon conflicts with the Plasma 5 one: the neon
+        # scenario only takes it
+        case "$(basename "$deb")" in
+            network-manager-gpclient-plasma-6_*) [ "$SCENARIO" = neon ] || continue ;;
+        esac
         cp "$deb" "$LOCAL_REPO/"
     done
     shopt -u nullglob
@@ -189,9 +227,9 @@ cat "$WORK/after.txt"
 # check_upgrade.py checks the packages and, for Plasma, the editor plugin: it is
 # listed by dpkg -L, exists and is in the Qt directory of the release
 PLASMA_FILES=()
-if [ "$SCENARIO" = plasma ]; then
-    dpkg -L network-manager-gpclient-plasma > "$WORK/plasma-files.txt" \
-        || fail "network-manager-gpclient-plasma is not installed after the $MODE"
+if [ "$SCENARIO" = plasma ] || [ "$SCENARIO" = neon ]; then
+    dpkg -L "$PACKAGE" > "$WORK/plasma-files.txt" \
+        || fail "$PACKAGE is not installed after the $MODE"
     PLASMA_FILES=(--plasma-files "$WORK/plasma-files.txt")
 fi
 python3 "$HERE/check_upgrade.py" "${MODE_ARGS[@]}" --after "$WORK/after.txt" \

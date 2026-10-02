@@ -8,12 +8,16 @@
     check_upgrade.py --fresh --after after.txt ...      # nothing was installed before
     check_upgrade.py --print-plugin plasma-files.txt    # the path of the editor plugin
 
+The scenarios are gnome, plasma (network-manager-gpclient-plasma, the Qt of the Ubuntu
+release) and neon (network-manager-gpclient-plasma-6 of KDE neon, Ubuntu 24.04 with
+Plasma 6: a Qt6 plugin on noble only).
+
 The two files are the output of
 `dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\\n' 'network-manager-gpclient*'`
 taken before and after the upgrade. With --fresh there is no "before": every
 package that is installed must be fully installed at the expected version.
 The optional --plasma-files is the output of
-`dpkg -L network-manager-gpclient-plasma` after the upgrade: the editor plugin
+`dpkg -L <the Plasma package>` after the upgrade: the editor plugin
 it lists must exist and be in the Qt directory of the release (it is owned by
 the package: the list is the package's own). --print-plugin prints that plugin
 for gui-smoke.sh. Exit status: 0 = clean, 1 = problems (all of them are listed on
@@ -29,7 +33,14 @@ PREFIX = "network-manager-gpclient"
 CORE = PREFIX
 GNOME = PREFIX + "-gnome"
 PLASMA = PREFIX + "-plasma"
-SCENARIOS = ("gnome", "plasma")
+PLASMA5 = PLASMA + "-5"
+PLASMA6 = PLASMA + "-6"
+SCENARIOS = ("gnome", "plasma", "neon")
+# The scenarios of a Plasma package (they check its editor plugin)
+PLASMA_SCENARIOS = ("plasma", "neon")
+# KDE neon is based on Ubuntu 24.04; its Plasma 6 package has a Qt6 plugin there, where the
+# Plasma package of Ubuntu itself has a Qt5 one
+NEON_CODENAME = "noble"
 # The Qt the Plasma package of each Ubuntu release is built with: the directory
 # of its editor plugin, /usr/lib/<multiarch>/<qt>/plugins/. Keep in sync with
 # debian/control.ubuntu*: qtbase5-dev or qt6-base-dev in Build-Depends
@@ -42,8 +53,6 @@ PLASMA_QT = {
 }
 PLUGIN_NAME = "plasmanetworkmanagement_gpclientui.so"
 PLUGIN_RE = re.compile(r"^/usr/lib/[^/]+/(qt[56])/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui\.so$")
-# The packages of the former split: they are not built any more
-FORMER_RE = re.compile("^" + re.escape(PLASMA) + "-[56]$")
 STATUS_RE = re.compile(r"^[a-zA-Z]{2,3}$")
 
 
@@ -76,15 +85,41 @@ def parse_status(text):
     return packages
 
 
+def plasma_package(scenario):
+    """The Plasma package of a scenario"""
+    return PLASMA6 if scenario == "neon" else PLASMA
+
+
+def plasma_qt(scenario, codename):
+    """The Qt of the editor plugin of the Plasma package of the scenario on this Ubuntu release"""
+    if scenario not in PLASMA_SCENARIOS:
+        raise ValueError(f"the {scenario} scenario has no Plasma package (use: {', '.join(PLASMA_SCENARIOS)})")
+    if codename not in PLASMA_QT:
+        raise ValueError(f"unknown Ubuntu codename {codename!r} (known: {', '.join(PLASMA_QT)})")
+    if scenario == "neon":
+        if codename != NEON_CODENAME:
+            raise ValueError(f"the neon scenario is for {NEON_CODENAME} (Ubuntu 24.04) only, not {codename}")
+        return "qt6"
+    return PLASMA_QT[codename]
+
+
+def unwanted_plasma_packages(scenario):
+    """The Plasma packages that must not be installed in the scenario: the ones of the former split
+    (-plasma-5, and -plasma-6 where it is not the package of the scenario), and in the neon scenario
+    the Qt5 one, which conflicts with the Plasma 6 package"""
+    if scenario == "neon":
+        return [PLASMA, PLASMA5]
+    return [PLASMA5, PLASMA6]
+
+
 def desktop_packages(scenario, codename):
     """The GUI packages the scenario must end up with"""
     if scenario not in SCENARIOS:
         raise ValueError(f"unknown scenario {scenario!r} (known: {', '.join(SCENARIOS)})")
     if scenario == "gnome":
         return [GNOME]
-    if codename not in PLASMA_QT:
-        raise ValueError(f"unknown Ubuntu codename {codename!r} (known: {', '.join(PLASMA_QT)})")
-    return [PLASMA]
+    plasma_qt(scenario, codename)
+    return [plasma_package(scenario)]
 
 
 def plugins_of(files):
@@ -92,23 +127,23 @@ def plugins_of(files):
     return [line.strip() for line in files.splitlines() if line.strip().endswith(PLUGIN_NAME)]
 
 
-def check_plugin(files, codename, exists=os.path.isfile):
-    """The problems of the editor plugin in `files` (the output of dpkg -L for the Plasma package);
-    `exists(path)` tells whether a listed file is on disk"""
-    if codename not in PLASMA_QT:
-        raise ValueError(f"unknown Ubuntu codename {codename!r} (known: {', '.join(PLASMA_QT)})")
+def check_plugin(files, codename, exists=os.path.isfile, scenario="plasma"):
+    """The problems of the editor plugin in `files` (the output of dpkg -L for the Plasma package of
+    the scenario); `exists(path)` tells whether a listed file is on disk"""
+    qt = plasma_qt(scenario, codename)
+    package = plasma_package(scenario)
     plugins = plugins_of(files)
     if not plugins:
-        return [f"{PLASMA} lists no {PLUGIN_NAME}"]
+        return [f"{package} lists no {PLUGIN_NAME}"]
     problems = []
     for plugin in plugins:
         if not exists(plugin):
-            problems.append(f"{plugin} of {PLASMA} is missing on disk")
+            problems.append(f"{plugin} of {package} is missing on disk")
         match = PLUGIN_RE.match(plugin)
         if not match:
             problems.append(f"{plugin} is not in /usr/lib/<multiarch>/<qt>/plugins/plasma/network/vpn/")
-        elif match.group(1) != PLASMA_QT[codename]:
-            problems.append(f"{plugin} is a {match.group(1)} plugin, {codename} uses {PLASMA_QT[codename]}")
+        elif match.group(1) != qt:
+            problems.append(f"{plugin} is a {match.group(1)} plugin, {scenario} on {codename} uses {qt}")
     return problems
 
 
@@ -146,9 +181,9 @@ def check(before, after, expected_version, scenario, codename):
     for name in wanted:
         if name not in after or after[name][1] != "ii":
             problems.append(f"{name} is not installed {when} (the {scenario} scenario on {codename} needs it)")
-    for name in sorted(after):
-        if FORMER_RE.match(name) and after[name][1] != "un":
-            problems.append(f"{name} is installed {when}, but there is only {PLASMA}")
+    for name in unwanted_plasma_packages(scenario):
+        if name in after and after[name][1] != "un":
+            problems.append(f"{name} is installed {when}, but there is only {plasma_package(scenario)}")
     if CORE not in after or after[CORE][1] != "ii":
         problems.append(f"{CORE} is not installed {when}")
     return problems
@@ -167,7 +202,7 @@ def main(argv=None):
     parser.add_argument("--expected-version", help="the version of the new packages")
     parser.add_argument("--scenario", help="one of: " + ", ".join(SCENARIOS))
     parser.add_argument("--codename", help="Ubuntu codename, e.g. noble")
-    parser.add_argument("--plasma-files", help="dpkg -L output of the Plasma package after the upgrade")
+    parser.add_argument("--plasma-files", help="dpkg -L output of the Plasma package of the scenario after the upgrade")
     parser.add_argument("--root", default="", help="prefix of the paths in --plasma-files on disk (default: none)")
     parser.add_argument("--print-plugin", metavar="FILES", help="print the editor plugin listed in this dpkg -L output")
     args = parser.parse_args(argv)
@@ -180,7 +215,7 @@ def main(argv=None):
             print(f"ERROR: {error}", file=sys.stderr)
             return 2
         if not plugins:
-            print(f"ERROR: {PLASMA} lists no {PLUGIN_NAME}", file=sys.stderr)
+            print(f"ERROR: the Plasma package lists no {PLUGIN_NAME}", file=sys.stderr)
             return 1
         print(plugins[0])
         return 0
@@ -196,11 +231,11 @@ def main(argv=None):
             args.codename,
         )
         if args.plasma_files:
-            if args.scenario != "plasma":
-                raise ValueError("--plasma-files needs the plasma scenario")
+            if args.scenario not in PLASMA_SCENARIOS:
+                raise ValueError("--plasma-files needs the plasma or neon scenario")
             with open(args.plasma_files, encoding="utf-8") as handle:
                 problems += check_plugin(
-                    handle.read(), args.codename, lambda path: os.path.isfile(args.root + path)
+                    handle.read(), args.codename, lambda path: os.path.isfile(args.root + path), args.scenario
                 )
     except (ValueError, OSError) as error:
         print(f"ERROR: {error}", file=sys.stderr)

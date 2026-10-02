@@ -32,7 +32,7 @@ NAME_RE = re.compile(
 )
 CORE = "network-manager-gpclient"
 # Short names in the order of a cell; any other package follows alphabetically
-ORDER = ["gpclient", "gnome", "plasma"]
+ORDER = ["gpclient", "gnome", "plasma", "plasma-6"]
 UBUNTU = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
 EMPTY = "—"
 
@@ -122,8 +122,8 @@ def render(repo, tag, assets):
         "",
         "The recommended way to install is the apt repository: see "
         "[docs/APT_REPO.md](%s/docs/APT_REPO.md). With single files, take "
-        "`network-manager-gpclient` and one desktop package (`-gnome` or "
-        "`-plasma`) from the same row and architecture and install them together, "
+        "`network-manager-gpclient` and one desktop package (`-gnome`, `-plasma` or, "
+        "on KDE neon, `-plasma-6`) from the same row and architecture and install them together, "
         "e.g. `sudo apt install ./network-manager-gpclient_*.deb "
         "./network-manager-gpclient-gnome_*.deb`. On Ubuntu 22.04 `python3-sdbus` is "
         "not in apt: see the [README](%s/README.md) first." % (blob, blob),

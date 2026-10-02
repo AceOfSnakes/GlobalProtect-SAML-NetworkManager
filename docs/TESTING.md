@@ -56,7 +56,8 @@ last release" of `.github/workflows/build-release.yml` starts a fresh
 `ubuntu:<version>` container, installs the newest release from the public apt
 repository (scenarios `gnome` and `plasma`; `plasma` also checks that the editor
 plugin is in the Qt directory of the release: `qt5` on 22.04 and 24.04, `qt6` on
-24.10 and 26.04), then runs
+24.10 and 26.04; the scenario `neon` does the same for
+`network-manager-gpclient-plasma-6` on KDE neon, see below), then runs
 `apt upgrade` to the new `.deb` files and checks that nothing is kept back,
 removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
 `.github/scripts/check_upgrade.py`). Before the upgrade it checks that the build
@@ -72,7 +73,7 @@ against built packages (it needs network access and changes only the container):
 mkdir -p gui-smoke
 docker run --rm -v "$PWD/output/ubuntu24.04-amd64:/debs:ro" -v "$PWD/.github/scripts:/scripts:ro" \
   -v "$PWD/gui-smoke:/out" \
-  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs /out   # or: plasma
+  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs /out   # or: plasma, neon
 ```
 
 ### GUI smoke test
@@ -89,7 +90,14 @@ connection editor starts:
   username, the authentication mode and the "Address is a gateway" check button.
   It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
   for GTK4 in a second process.
-- **Plasma** (`plasma`): a load check only. `ldd` finds every library
+- **KDE neon** (`neon`): installs `network-manager-gpclient-plasma-6` in an
+  `ubuntu:24.04` container to which `.github/scripts/neon-repo.sh` has added the KDE
+  neon repository (the script the build image uses too; it checks the key's
+  fingerprint), expects the plugin in the `qt6` directory and runs the Plasma load
+  check below with PyQt6. The scenario runs only on Ubuntu 24.04 where this build has
+  the package for the architecture (`amd64`); elsewhere it prints `SKIP` and
+  succeeds.
+- **Plasma** (`plasma`, and `neon`): a load check only. `ldd` finds every library
   of `plasmanetworkmanagement_gpclientui.so`, its metadata names our service,
   and `QPluginLoader` (PyQt5 for a `qt5` plugin, PyQt6 for a `qt6` one) loads it
   with `QT_QPA_PLATFORM=offscreen`; a PyQt package that cannot be installed fails

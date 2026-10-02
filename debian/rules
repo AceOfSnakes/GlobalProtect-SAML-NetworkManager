@@ -21,10 +21,22 @@ HAS_QT5 := ${call qt_listed,qtbase5-dev}
 HAS_QT6 := ${call qt_listed,qt6-base-dev}
 PLASMA_QT_MAJOR := $(if $(HAS_QT5),$(if $(HAS_QT6),,5),$(if $(HAS_QT6),6,))
 
+# The packages debian/control builds. debian/control.ubuntu24.04-neon (KDE neon:
+# Ubuntu 24.04 with Plasma 6) has the Plasma package network-manager-gpclient-plasma-6
+# only, no core package: such a build makes just the Plasma plugin (no GNOME
+# plugins, no Rust, nothing of the core install; HAS_CORE is empty). Every other
+# control file has the core package and network-manager-gpclient-plasma.
+# PLASMA_PACKAGE is the one Plasma package, empty when there are none or several.
+CONTROL_PACKAGES := ${shell awk 'tolower($$0) ~ /^package:/ { print $$2 }' debian/control}
+PLASMA_PACKAGES := $(filter network-manager-gpclient-plasma network-manager-gpclient-plasma-6,${CONTROL_PACKAGES})
+PLASMA_PACKAGE := $(if $(filter 1,$(words ${PLASMA_PACKAGES})),${PLASMA_PACKAGES},)
+HAS_CORE := $(filter network-manager-gpclient,${CONTROL_PACKAGES})
+
 %:
 	dh $@
 
 override_dh_auto_build:
+ifneq ($(HAS_CORE),)
 	# Ensure GlobalProtect-openconnect nested submodules (openconnect + libxml2)
 	# are checked out. The openconnect crate build.rs needs their C sources to
 	# build and patch the static library; without a recursive checkout the
@@ -34,20 +46,28 @@ override_dh_auto_build:
 
 	# Build GNOME plugins only (Rust binaries are built separately below)
 	$(MAKE) gnome-plugins
+endif
 
 	# Build the Plasma plugin against the Qt that debian/control builds with
 	@test -n "$(PLASMA_QT_MAJOR)" || { \
 		echo "debian/control must have exactly one of qtbase5-dev and qt6-base-dev in Build-Depends"; exit 1; }
+	@test -n "$(PLASMA_PACKAGE)" || { \
+		echo "debian/control must have exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6"; exit 1; }
 	mkdir -p plugins/plasma/build
 	cd plugins/plasma/build && cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
 
+ifneq ($(HAS_CORE),)
 	# Build Rust binaries (gpclient, gpauth, and gpservice)
 	# Cargo will reuse compiled dependencies from target cache volume
 	# Only local crates (gpauth, gpclient, gpservice, gpapi, common, openconnect) will be recompiled
 	@echo "Building gpclient, gpauth, and gpservice (reusing cached dependencies)..."
 	cd external/GlobalProtect-openconnect && cargo build --release --bin gpclient --bin gpauth --bin gpservice
+endif
 
 override_dh_auto_install:
+	@test -n "$(PLASMA_PACKAGE)" || { \
+		echo "debian/control must have exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6"; exit 1; }
+ifneq ($(HAS_CORE),)
 	# Install backend plugin (base package - needed for nmcli)
 	install -D -m 644 libnm-vpn-plugin-gpclient.so \
 		$(CURDIR)/debian/network-manager-gpclient/usr/lib/$(DEB_HOST_MULTIARCH)/NetworkManager/libnm-vpn-plugin-gpclient.so
@@ -69,22 +89,25 @@ override_dh_auto_install:
 	# Install auth dialog (interactive credentials/RSA token prompts, GTK)
 	install -D -m 755 auth-dialog/nm-gpclient-auth-dialog.py \
 		$(CURDIR)/debian/network-manager-gpclient-gnome/usr/libexec/nm-gpclient-auth-dialog
+endif
 
-	# Install Plasma plugin
+	# Install Plasma plugin (into network-manager-gpclient-plasma, or into
+	# network-manager-gpclient-plasma-6 of the KDE neon variant)
 	# Plugin install path depends on the Qt major version we built against:
 	#   Qt5 (Ubuntu 22.04/24.04): /usr/lib/<multiarch>/qt5/plugins/...
-	#   Qt6 (Ubuntu 24.10/26.04): /usr/lib/<multiarch>/qt6/plugins/...
+	#   Qt6 (Ubuntu 24.10/26.04, KDE neon on 24.04): /usr/lib/<multiarch>/qt6/plugins/...
 	install -D -m 644 plugins/plasma/build/plasmanetworkmanagement_gpclientui.so \
-		$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
+		$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
 	install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-		$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
+		$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
 	# KF5 used a .desktop service file (/usr/share/kservices5); KF6 dropped that
 	# mechanism and reads only the embedded JSON metadata, so we skip the file there.
 	@if [ "$(PLASMA_QT_MAJOR)" = 5 ]; then \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.desktop \
-			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
+			$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
 	fi
 
+ifneq ($(HAS_CORE),)
 	# Install core service files (base package)
 	install -D -m 644 plugins/gnome/nm-gpclient-service.name \
 		$(CURDIR)/debian/network-manager-gpclient/usr/lib/NetworkManager/VPN/nm-gpclient-service.name
@@ -127,6 +150,7 @@ override_dh_auto_install:
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing \
 		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/connect.d/90-gpclient-routing
+endif
 
 
 override_dh_auto_clean:

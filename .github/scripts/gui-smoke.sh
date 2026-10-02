@@ -9,7 +9,9 @@
 #                         release ships it) under Xvfb with a test connection,
 #                         checks what it shows and saves a screenshot as
 #                         <out-dir>/gnome-gtk<3|4>-<codename>-<arch>.png
-#   plasma                load check only (ldd, plugin metadata, QPluginLoader);
+#   plasma, neon          load check only (ldd, plugin metadata, QPluginLoader)
+#                         of network-manager-gpclient-plasma, or of
+#                         network-manager-gpclient-plasma-6 on KDE neon;
 #                         no screenshot, that would need a C++ harness
 set -euo pipefail
 
@@ -25,8 +27,8 @@ fail() {
 }
 
 case "$SCENARIO" in
-    gnome | plasma) ;;
-    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma)" ;;
+    gnome | plasma | neon) ;;
+    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma, neon)" ;;
 esac
 [ -n "$OUT" ] || fail "usage: gui-smoke.sh <scenario> <out-dir>"
 [ "$(id -u)" = 0 ] || fail "run as root, inside a throw-away container"
@@ -84,6 +86,7 @@ if [ "$SCENARIO" = gnome ]; then
     fi
 else
     PLASMA=network-manager-gpclient-plasma
+    [ "$SCENARIO" != neon ] || PLASMA=network-manager-gpclient-plasma-6
     dpkg-query -W -f='${db:Status-Abbrev}' "$PLASMA" | grep -q '^ii' || fail "$PLASMA is not installed"
     # The same lookup as the upgrade test's: check_upgrade.py has already
     # checked that the plugin exists and where it is

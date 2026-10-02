@@ -7,7 +7,9 @@ Every positive test has negative counterparts: a kept-back core package, a
 removed GUI plugin, a package left in the rc/iU state, a package of the former
 -plasma-5 / -plasma-6 split left behind, an editor plugin in the wrong Qt directory
 for the release, an old version left behind, an unknown scenario and malformed
-input are all reported.
+input are all reported. The neon scenario (network-manager-gpclient-plasma-6 of KDE
+neon, a Qt6 plugin on Ubuntu 24.04 only) has its own counterparts: the Qt5 package
+installed next to it, a Qt5 plugin, another release.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -51,6 +53,7 @@ PLASMA_BEFORE = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpcl
 
 
 PLASMA_AFTER = [("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-plasma", NEW, "ii")]
+NEON_AFTER = [("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-plasma-6", NEW, "ii")]
 
 
 def EXISTS(path):
@@ -326,6 +329,98 @@ class TestPluginOnDisk:
         assert [p.rsplit("/", 1)[1] for p in check_upgrade.plugins_of(plugin_files())] == ["plasmanetworkmanagement_gpclientui.so"]
 
 
+class TestNeonScenario:
+    """KDE neon: network-manager-gpclient-plasma-6 with a Qt6 plugin on Ubuntu 24.04"""
+
+    def fresh(self, after, codename="noble", expected=NEW):
+        return check_upgrade.check(None, parsed(*after), expected, "neon", codename)
+
+    def test_a_fresh_install_of_the_plasma_6_package_is_clean(self):
+        assert self.fresh(NEON_AFTER) == []
+
+    def test_an_upgrade_of_the_plasma_6_package_is_clean(self):
+        before = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpclient-plasma-6", OLD, "ii")]
+
+        assert run_check(before, NEON_AFTER, "neon", "noble") == []
+
+    def test_the_package_of_the_other_scenarios_is_not_what_the_neon_scenario_needs(self):
+        problems = self.fresh(PLASMA_AFTER)
+
+        assert any("network-manager-gpclient-plasma-6 is not installed" in p for p in problems)
+        assert any("network-manager-gpclient-plasma is installed" in p for p in problems)
+
+    def test_the_plasma_6_package_is_not_what_the_plasma_scenario_needs(self):
+        problems = run_check(PLASMA_BEFORE, NEON_AFTER, "plasma", "noble")
+
+        assert any("network-manager-gpclient-plasma is not installed" in p for p in problems)
+        assert any("network-manager-gpclient-plasma-6 is installed" in p for p in problems)
+
+    @pytest.mark.parametrize("other", ["network-manager-gpclient-plasma", "network-manager-gpclient-plasma-5"])
+    def test_the_qt5_package_installed_next_to_it_is_reported(self, other):
+        problems = self.fresh(NEON_AFTER + [(other, NEW, "ii")])
+
+        assert any(f"{other} is installed" in p for p in problems)
+
+    def test_a_package_that_dpkg_only_knows_is_fine(self):
+        assert self.fresh(NEON_AFTER + [("network-manager-gpclient-plasma", "", "un")]) == []
+
+    def test_a_missing_plasma_6_package_is_reported(self):
+        problems = self.fresh([("network-manager-gpclient", NEW, "ii")])
+
+        assert any("network-manager-gpclient-plasma-6 is not installed" in p for p in problems)
+
+    def test_an_old_version_is_reported(self):
+        problems = self.fresh([("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-plasma-6", OLD, "ii")])
+
+        assert any("network-manager-gpclient-plasma-6 is at version" in p for p in problems)
+
+    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    def test_another_release_is_refused(self, codename):
+        with pytest.raises(ValueError, match="neon scenario is for noble"):
+            self.fresh(NEON_AFTER, codename)
+
+    @pytest.mark.parametrize("codename", ["", "focal", "Noble"])
+    def test_an_unknown_codename_is_refused(self, codename):
+        with pytest.raises(ValueError, match="codename"):
+            self.fresh(NEON_AFTER, codename)
+
+    def test_the_qt6_plugin_of_the_plasma_6_package_is_accepted(self):
+        assert check_upgrade.check_plugin(plugin_files("qt6"), "noble", EXISTS, "neon") == []
+
+    def test_the_qt5_plugin_is_reported_for_neon_and_the_qt6_one_for_plasma_on_noble(self):
+        neon = check_upgrade.check_plugin(plugin_files("qt5"), "noble", EXISTS, "neon")
+        plasma = check_upgrade.check_plugin(plugin_files("qt6"), "noble", EXISTS, "plasma")
+
+        assert len(neon) == 1 and "is a qt5 plugin, neon on noble uses qt6" in neon[0]
+        assert len(plasma) == 1 and "is a qt6 plugin, plasma on noble uses qt5" in plasma[0]
+
+    def test_a_package_without_the_plugin_is_reported_by_name(self):
+        assert check_upgrade.check_plugin("/usr\n", "noble", EXISTS, "neon") == [
+            "network-manager-gpclient-plasma-6 lists no plasmanetworkmanagement_gpclientui.so"]
+
+    def test_a_listed_plugin_that_is_not_on_disk_is_reported(self):
+        problems = check_upgrade.check_plugin(plugin_files("qt6"), "noble", lambda path: False, "neon")
+
+        assert len(problems) == 1 and "of network-manager-gpclient-plasma-6 is missing on disk" in problems[0]
+
+    @pytest.mark.parametrize("scenario", ["gnome", "kde", ""])
+    def test_a_scenario_without_a_plasma_package_has_no_plugin_to_check(self, scenario):
+        with pytest.raises(ValueError, match="no Plasma package"):
+            check_upgrade.check_plugin(plugin_files("qt6"), "noble", EXISTS, scenario)
+
+    def test_the_qt_of_the_scenario_is_the_one_of_the_neon_control_file(self):
+        with open(os.path.join(ROOT, "debian", "control.ubuntu24.04-neon"), encoding="utf-8") as handle:
+            build_depends = handle.read().split("\nStandards-Version:")[0]
+        assert re.search(r"^\s+qt6-base-dev,", build_depends, re.M) and "qtbase5-dev" not in build_depends
+        assert check_upgrade.plasma_qt("neon", "noble") == "qt6"
+        assert check_upgrade.NEON_CODENAME == "noble"
+
+    def test_the_package_of_each_scenario(self):
+        assert check_upgrade.desktop_packages("neon", "noble") == ["network-manager-gpclient-plasma-6"]
+        assert check_upgrade.desktop_packages("plasma", "noble") == ["network-manager-gpclient-plasma"]
+        assert check_upgrade.desktop_packages("gnome", "noble") == ["network-manager-gpclient-gnome"]
+
+
 class TestQtMapping:
     """PLASMA_QT must follow debian/control.ubuntu*: qtbase5-dev (Qt5) or
     qt6-base-dev (Qt6) in Build-Depends, never both"""
@@ -345,7 +440,9 @@ class TestQtMapping:
         assert check_upgrade.PLASMA_QT[codename] == self.qt_of_control(version)
 
     def test_covers_every_control_file(self):
-        controls = {f[len("control.ubuntu"):] for f in os.listdir(os.path.join(ROOT, "debian")) if f.startswith("control.ubuntu")}
+        # the control files of a release, not of its variants (control.ubuntu24.04-neon)
+        controls = {m.group(1) for m in (re.fullmatch(r"control\.ubuntu([0-9.]+)", f)
+                                         for f in os.listdir(os.path.join(ROOT, "debian"))) if m}
 
         assert controls == set(CODENAMES)
         assert set(check_upgrade.PLASMA_QT) == set(CODENAMES.values())
@@ -461,11 +558,29 @@ class TestCommandLine:
         assert result.returncode == 1
         assert f"is a {qt} plugin" in result.stderr
 
+    def test_the_qt6_plugin_of_the_neon_scenario_exits_zero(self, tmp_path):
+        result = self.run(tmp_path, None, lines(*NEON_AFTER), "neon", "noble", files=plugin_files("qt6"))
+
+        assert result.returncode == 0, result.stderr
+        assert "install clean (neon, noble)" in result.stdout
+
+    def test_the_qt5_plugin_of_the_neon_scenario_exits_one(self, tmp_path):
+        result = self.run(tmp_path, None, lines(*NEON_AFTER), "neon", "noble", files=plugin_files("qt5"))
+
+        assert result.returncode == 1
+        assert "is a qt5 plugin, neon on noble uses qt6" in result.stderr
+
+    def test_the_neon_scenario_on_another_release_exits_two(self, tmp_path):
+        result = self.run(tmp_path, None, lines(*NEON_AFTER), "neon", "resolute", files=plugin_files("qt6"))
+
+        assert result.returncode == 2
+        assert "neon scenario is for noble" in result.stderr
+
     def test_plasma_files_for_the_gnome_scenario_exits_two(self, tmp_path):
         result = self.run(tmp_path, lines(*GNOME_BEFORE), lines(*GNOME_AFTER), "gnome", files=plugin_files())
 
         assert result.returncode == 2
-        assert "--plasma-files needs the plasma scenario" in result.stderr
+        assert "--plasma-files needs the plasma or neon scenario" in result.stderr
 
     def test_a_missing_plasma_files_exits_two(self, tmp_path):
         (tmp_path / "before.txt").write_text(lines(*PLASMA_BEFORE))

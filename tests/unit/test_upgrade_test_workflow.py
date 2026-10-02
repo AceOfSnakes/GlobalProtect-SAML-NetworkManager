@@ -29,7 +29,7 @@ UPLOAD_STEP = "Upload GUI screenshots"
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SCRIPT = os.path.join(ROOT, ".github", "scripts", "upgrade-test.sh")
 GUI_SCRIPT = os.path.join(ROOT, ".github", "scripts", "gui-smoke.sh")
-SCENARIOS = ["gnome", "plasma"]
+SCENARIOS = ["gnome", "plasma", "neon"]
 
 FAKE_DOCKER = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/docker_calls"
@@ -97,7 +97,7 @@ class TestStepInTheWorkflow:
     def test_all_scenarios_are_listed(self):
         script = workflow_steps.step_script(WORKFLOW, STEP)
 
-        assert "for scenario in gnome plasma; do" in script
+        assert "for scenario in gnome plasma neon; do" in script
         assert "plasma-new" not in script
 
     def test_mounts_and_image(self):
@@ -190,11 +190,11 @@ class TestRunningTheStep:
         assert f"::error::Upgrade test failed for: {failing}" in result.stdout
 
     def test_all_failures_are_listed(self, tmp_path):
-        result, calls = run_step(tmp_path, fail="gnome plasma")
+        result, calls = run_step(tmp_path, fail="gnome plasma neon")
 
         assert result.returncode == 1
-        assert len(calls) == 2
-        assert "::error::Upgrade test failed for: gnome plasma" in result.stdout
+        assert len(calls) == 3
+        assert "::error::Upgrade test failed for: gnome plasma neon" in result.stdout
 
     def test_output_of_each_scenario_is_in_its_own_group(self, tmp_path):
         result, _ = run_step(tmp_path, fail="plasma")
@@ -225,24 +225,26 @@ class TestScript:
         call = 'bash "$HERE/gui-smoke.sh" "$SCENARIO" "$GUI_OUT"'
 
         assert text.count(call) == 1
-        assert "SKIP" not in text
+        # the only scenario that skips itself does so at the start, never after the checks
+        assert "SKIP" not in text[text.index('python3 "$HERE/check_upgrade.py"'):]
         assert text.index("check_upgrade.py") < text.index(call)
         assert text.index('echo "PASS: ') < text.index(call)
         # nothing but the end of the script follows the call
         assert text.rstrip().endswith("fi")
         assert text[text.index(call):].count("\n") <= 2
 
-    def test_one_plasma_package_and_no_transitional_one(self):
+    def test_one_plasma_package_per_scenario_and_no_transitional_one(self):
         text = self.read()
 
         assert "plasma) PACKAGE=network-manager-gpclient-plasma ;;" in text
-        assert "plasma-5" not in text and "plasma-6" not in text and "transitional" not in text
+        assert "neon) PACKAGE=network-manager-gpclient-plasma-6 ;;" in text
+        assert "plasma-5" not in text and "transitional" not in text
 
-    def test_the_qt_directory_is_checked_for_plasma_only(self):
+    def test_the_qt_directory_is_checked_for_the_plasma_and_neon_scenarios_only(self):
         text = self.read()
 
         assert text.count("--plasma-files") == 1
-        assert 'if [ "$SCENARIO" = plasma ]; then\n    dpkg -L network-manager-gpclient-plasma' in text
+        assert ('if [ "$SCENARIO" = plasma ] || [ "$SCENARIO" = neon ]; then\n    dpkg -L "$PACKAGE"') in text
 
     def test_the_plugin_is_checked_in_one_place_only(self):
         # check_upgrade.py checks it (listed, on disk, Qt directory); no copy in bash
@@ -257,7 +259,7 @@ class TestScript:
         assert 'GUI_OUT="${3:-}"' in text
         assert 'if [ -n "$GUI_OUT" ]; then\n    bash "$HERE/gui-smoke.sh"' in text
 
-    @pytest.mark.parametrize("scenario", ["", "kde", "GNOME", "plasma-6", "plasma-5", "plasma-new"])
+    @pytest.mark.parametrize("scenario", ["", "kde", "GNOME", "plasma-6", "plasma-5", "plasma-new", "NEON", "neon2", "kde-neon"])
     def test_unknown_scenario_is_refused(self, scenario, tmp_path):
         result = subprocess.run(["bash", SCRIPT, scenario, str(tmp_path)], capture_output=True, text=True, timeout=30)
 
@@ -458,8 +460,13 @@ class TestFlow:
         assert text.count("prepare_local_repo\n") == 2  # one call in each branch
         assert text.count("prepare_local_repo() {") == 1
 
-    def test_nothing_exits_with_success_before_the_end(self):
-        assert "exit 0" not in script_text()
+    def test_nothing_exits_with_success_before_the_end_but_the_skip_of_the_neon_scenario(self):
+        text = script_text()
+
+        assert text.count("exit 0") == 1
+        # at the start: before anything is installed or changed
+        assert text.index("exit 0") < text.index("policy-rc.d") < text.index("apt-get update")
+        assert 'echo "SKIP: scenario neon: $SKIP_REASON"\n        exit 0' in text
 
 
 class TestVersionGuard:
@@ -515,7 +522,7 @@ class TestPrepareLocalRepo:
         "apt-get": 'echo "$*" >> "$FAKE_DIR/apt_calls"\n',
     }
 
-    def run_function(self, tmp_path, debs, codename="noble", arch="arm64"):
+    def run_function(self, tmp_path, debs, codename="noble", arch="arm64", scenario="plasma"):
         bin_dir = make_bin(tmp_path, self.FAKES)
         debs_dir = tmp_path / "debs"
         debs_dir.mkdir()
@@ -523,7 +530,7 @@ class TestPrepareLocalRepo:
             (debs_dir / name).write_text("")
         script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\n'
                   f'DEBS_DIR={debs_dir}\nLOCAL_REPO={tmp_path}/repo\nLOCAL_LIST={tmp_path}/local.list\n'
-                  f'CODENAME={codename}\nARCH={arch}\n'
+                  f'CODENAME={codename}\nARCH={arch}\nSCENARIO={scenario}\n'
                   + function_of(script_text(), "prepare_local_repo")
                   + 'prepare_local_repo\necho "EXPECTED=$EXPECTED"\n')
         return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
@@ -592,12 +599,31 @@ class TestGuiSmokeScript:
         assert result.returncode == 1
         assert "usage: gui-smoke.sh" in result.stderr
 
-    def test_the_plasma_probe_takes_the_one_plasma_package(self):
+    def test_the_plasma_probe_takes_the_plasma_package_and_for_neon_the_plasma_6_one(self):
         with open(GUI_SCRIPT, encoding="utf-8") as handle:
             text = handle.read()
 
         assert "PLASMA=network-manager-gpclient-plasma\n" in text
-        assert "plasma-5" not in text and "plasma-6" not in text and "plasma-new" not in text
+        assert '    [ "$SCENARIO" != neon ] || PLASMA=network-manager-gpclient-plasma-6\n' in text
+        assert "plasma-5" not in text and "plasma-new" not in text
+        assert text.count("plasma-6") == 2  # the header and the assignment
+
+    def test_the_neon_scenario_is_the_plasma_probe_with_pyqt_of_the_plugin_directory(self):
+        with open(GUI_SCRIPT, encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert "    gnome | plasma | neon) ;;\n" in text
+        assert "*/qt6/*) PYQT=python3-pyqt6 ;;" in text
+        # neon is not a branch of its own: the one that is not gnome is the Plasma probe
+        assert text.count('"$SCENARIO" = gnome') == 1
+        assert '"$SCENARIO" = neon' not in text.replace('[ "$SCENARIO" != neon ]', "")
+
+    @pytest.mark.parametrize("scenario", ["NEON", "neon2", "kde-neon", "plasma-6"])
+    def test_a_scenario_that_is_not_neon_is_refused(self, scenario, tmp_path):
+        result = subprocess.run(["bash", GUI_SCRIPT, scenario, str(tmp_path)], capture_output=True, text=True, timeout=30)
+
+        assert result.returncode == 1
+        assert "unknown scenario" in result.stderr
 
     @pytest.mark.skipif(os.geteuid() == 0, reason="the refusal is for non-root users")
     def test_refuses_to_run_as_non_root(self, tmp_path):
@@ -646,7 +672,7 @@ class TestEndOfLifeReleases:
     def run_block(self, tmp_path, codename):
         """Run the EOL block with /etc/apt redirected into tmp_path"""
         text = self.script_text()
-        block = text[text.index("EOL_CODENAMES="):text.index('echo "::group::Prepare')]
+        block = text[text.index("EOL_CODENAMES="):text.index("# neon_skip_reason:")]
         block = block.replace('$(. /etc/os-release && echo "${VERSION_CODENAME:-}")', codename)
         block = block.replace("/etc/apt/", f"{tmp_path}/")
         (tmp_path / "sources.list.d").mkdir()
@@ -668,3 +694,166 @@ class TestEndOfLifeReleases:
 
         assert not (tmp_path / "sources.list.d" / "ubuntu.sources").exists()
         assert "archive.ubuntu.com" in (tmp_path / "sources.list").read_text()
+
+
+NEON_PLASMA6 = "network-manager-gpclient-plasma-6_1.5.0-1~noble1_amd64.deb"
+
+
+class TestNeonScenario:
+    """The scenario neon: KDE neon (Ubuntu 24.04 with the neon repository), network-manager-gpclient-plasma-6"""
+
+    FAKE_DPKG = 'echo "$FAKE_ARCH"\n'
+    FAKE_ID = 'echo 0\n'
+    FAKE_APT_GET = 'echo "$*" >> "$FAKE_DIR/apt_calls"\nexit 1\n'
+
+    def run_function(self, tmp_path, debs, codename="noble", arch="amd64"):
+        """(result) of neon_skip_reason with a debs directory holding `debs`"""
+        bin_dir = make_bin(tmp_path, {"dpkg": self.FAKE_DPKG})
+        debs_dir = tmp_path / "debs"
+        debs_dir.mkdir()
+        for name in debs:
+            (debs_dir / name).write_text("")
+        script = (f'DEBS_DIR={debs_dir}\nOS_CODENAME={codename}\n' + function_of(script_text(), "neon_skip_reason")
+                  + 'neon_skip_reason\necho "RETURNED $?"\n')
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                              env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_ARCH": arch})
+
+    def test_a_noble_build_with_the_plasma_6_package_for_the_architecture_is_tested(self, tmp_path):
+        result = self.run_function(tmp_path, [NEON_PLASMA6, "network-manager-gpclient_1.5.0-1~noble1_amd64.deb"])
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "RETURNED 0\n"
+
+    def test_a_pull_request_build_is_tested_too(self, tmp_path):
+        result = self.run_function(tmp_path, ["network-manager-gpclient-plasma-6_1.5.0-1~noble1+pr31.62_amd64.deb"])
+
+        assert result.stdout == "RETURNED 0\n"
+
+    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute", "", "Noble"])
+    def test_another_release_is_skipped_even_with_the_package(self, tmp_path, codename):
+        result = self.run_function(tmp_path, [NEON_PLASMA6], codename=codename)
+
+        assert "KDE neon is Ubuntu 24.04 (noble), this is " in result.stdout
+        assert result.stdout.endswith("RETURNED 0\n")
+
+    @pytest.mark.parametrize("arch, debs", [
+        ("arm64", [NEON_PLASMA6]),
+        ("amd64", []),
+        ("amd64", ["network-manager-gpclient_1.5.0-1~noble1_amd64.deb", "network-manager-gpclient-plasma_1.5.0-1~noble1_amd64.deb"]),
+        ("amd64", ["network-manager-gpclient-plasma-6_1.5.0-1~jammy1_amd64.deb"]),
+        ("amd64", ["network-manager-gpclient-plasma-6_1.5.0-1~noble1_arm64.deb"]),
+        ("amd64", ["network-manager-gpclient-plasma-66_1.5.0-1~noble1_amd64.deb"]),
+    ])
+    def test_a_build_without_the_package_for_this_architecture_and_release_is_skipped(self, tmp_path, arch, debs):
+        result = self.run_function(tmp_path, debs, arch=arch)
+
+        assert f"no network-manager-gpclient-plasma-6 for noble/{arch} in" in result.stdout
+        assert result.stdout.endswith("RETURNED 0\n")
+
+    def run_script(self, tmp_path, scenario, debs, codename="noble", arch="amd64"):
+        """The script as root with fakes (id, dpkg, apt-get that fails), its system paths in tmp_path.
+        Returns (result, whether apt-get was called, whether policy-rc.d was written)"""
+        bin_dir = make_bin(tmp_path, {"dpkg": self.FAKE_DPKG, "id": self.FAKE_ID, "apt-get": self.FAKE_APT_GET})
+        debs_dir = tmp_path / "debs"
+        debs_dir.mkdir()
+        for name in debs:
+            (debs_dir / name).write_text("")
+        (tmp_path / "os-release").write_text(f"VERSION_CODENAME={codename}\n")
+        (tmp_path / "apt").mkdir()
+        text = script_text().replace("/usr/sbin/policy-rc.d", f"{tmp_path}/policy-rc.d").replace(
+            "/etc/os-release", f"{tmp_path}/os-release").replace("/etc/apt/", f"{tmp_path}/apt/")
+        (tmp_path / "upgrade-test.sh").write_text(text)
+        result = subprocess.run(
+            ["bash", str(tmp_path / "upgrade-test.sh"), scenario, str(debs_dir)], capture_output=True, text=True, timeout=30,
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_ARCH": arch, "FAKE_DIR": str(tmp_path), "TMPDIR": str(tmp_path)},
+        )
+        return result, (tmp_path / "apt_calls").exists(), (tmp_path / "policy-rc.d").exists()
+
+    def test_the_scenario_skips_itself_before_it_changes_anything(self, tmp_path):
+        result, apt_called, policy_written = self.run_script(tmp_path, "neon", [])
+
+        assert result.returncode == 0, result.stderr
+        assert "SKIP: scenario neon: no network-manager-gpclient-plasma-6 for noble/amd64" in result.stdout
+        assert not apt_called and not policy_written
+
+    def test_the_scenario_skips_itself_on_another_release(self, tmp_path):
+        result, apt_called, policy_written = self.run_script(tmp_path, "neon", [NEON_PLASMA6], codename="resolute")
+
+        assert result.returncode == 0, result.stderr
+        assert "SKIP: scenario neon: KDE neon is Ubuntu 24.04 (noble), this is resolute" in result.stdout
+        assert not apt_called and not policy_written
+
+    def test_the_scenario_goes_on_where_the_package_was_built(self, tmp_path):
+        result, apt_called, policy_written = self.run_script(tmp_path, "neon", [NEON_PLASMA6])
+
+        # the fake apt-get fails: the script got as far as installing
+        assert result.returncode != 0
+        assert "SKIP" not in result.stdout
+        assert apt_called and policy_written
+
+    @pytest.mark.parametrize("scenario", ["gnome", "plasma"])
+    @pytest.mark.parametrize("debs, codename", [([], "noble"), ([NEON_PLASMA6], "noble"), ([], "resolute")])
+    def test_the_other_scenarios_never_skip(self, tmp_path, scenario, debs, codename):
+        result, apt_called, policy_written = self.run_script(tmp_path, scenario, debs, codename=codename)
+
+        assert result.returncode != 0
+        assert "SKIP" not in result.stdout
+        assert apt_called and policy_written
+
+    def test_the_skip_comes_before_the_policy_file_and_the_first_apt_call(self):
+        text = script_text()
+
+        assert text.index('SKIP_REASON="$(neon_skip_reason)"') < text.index("SKIP:") < text.index("policy-rc.d")
+        assert text.index("policy-rc.d") < text.index("apt-get update")
+        assert text.index('if [ "$SCENARIO" = neon ]; then\n    SKIP_REASON=') < text.index("policy-rc.d")
+
+    def test_the_neon_repository_is_added_by_the_script_the_dockerfile_uses_and_only_for_neon(self):
+        text = script_text()
+        prepare = text[text.index('echo "::group::Prepare'):text.index('echo "::endgroup::"')]
+
+        assert 'if [ "$SCENARIO" = neon ]; then' in prepare
+        assert prepare.index("gnupg") < prepare.index('bash "$HERE/neon-repo.sh"')
+        assert text.count('bash "$HERE/neon-repo.sh"') == 1
+        with open(os.path.join(ROOT, "Dockerfile.ubuntu24.04-neon"), encoding="utf-8") as handle:
+            assert "neon-repo.sh" in handle.read()
+        # the address and the key are in the script only
+        assert "neon.kde.org" not in text and "444DABCF" not in text.upper()
+        assert os.path.isfile(os.path.join(ROOT, ".github", "scripts", "neon-repo.sh"))
+
+    def test_the_repository_is_added_before_the_first_use_of_apt(self):
+        text = script_text()
+
+        # prepare, then the package is looked up in the released repository or installed
+        assert text.index('bash "$HERE/neon-repo.sh"') < text.index("upgrade_possible; then") < text.index("apt-get install -y --no-install-recommends \"$PACKAGE\"")
+
+    def test_the_scenario_checks_the_plugin_of_the_plasma_6_package(self):
+        text = script_text()
+
+        assert 'dpkg -L "$PACKAGE"' in text
+        assert "neon) PACKAGE=network-manager-gpclient-plasma-6 ;;" in text
+
+
+class TestNeonPackageInTheLocalRepository:
+    """Only the neon scenario takes network-manager-gpclient-plasma-6 from the build: it conflicts with
+    the Plasma 5 package of the other scenarios and its dependencies are from KDE neon"""
+
+    DEBS = ["network-manager-gpclient_1.5.0-1~noble1_amd64.deb", "network-manager-gpclient-plasma_1.5.0-1~noble1_amd64.deb",
+            NEON_PLASMA6, "network-manager-gpclient-gnome_1.5.0-1~noble1_amd64.deb"]
+
+    def repo(self, tmp_path, scenario):
+        result = TestPrepareLocalRepo().run_function(tmp_path, self.DEBS, codename="noble", arch="amd64", scenario=scenario)
+        assert result.returncode == 0, result.stderr
+        return sorted(n for n in os.listdir(tmp_path / "repo") if n.endswith(".deb"))
+
+    def test_the_neon_scenario_takes_the_plasma_6_package(self, tmp_path):
+        assert NEON_PLASMA6 in self.repo(tmp_path, "neon")
+
+    @pytest.mark.parametrize("scenario", ["gnome", "plasma", ""])
+    def test_the_other_scenarios_do_not(self, tmp_path, scenario):
+        names = self.repo(tmp_path, scenario)
+
+        assert NEON_PLASMA6 not in names
+        assert sorted(names) == sorted(d for d in self.DEBS if d != NEON_PLASMA6)
+
+    def test_every_other_package_goes_to_the_neon_scenario_too(self, tmp_path):
+        assert sorted(self.repo(tmp_path, "neon")) == sorted(self.DEBS)
