@@ -8,7 +8,9 @@ no transitional packages are built.
 Test packages of pull requests (versions like 1.5.0-1~noble1+pr31.62) did have
 network-manager-gpclient-plasma-5 (Qt5 releases) and -plasma-6 (Qt6 releases)
 with the same files as the new package, so every control file replaces and breaks
-the one with the same Qt below 1.5.1~, and no other.
+the ones that were built for its release below 1.5.1~, and no other: -plasma-5
+on Ubuntu 22.04 and 24.04, -plasma-6 on 26.04, both on 24.10 (its test builds
+produced both).
 
 debian/rules builds the plugin against the Qt that debian/control lists in
 Build-Depends (qtbase5-dev or qt6-base-dev, exactly one), and the Dockerfile of
@@ -40,6 +42,14 @@ QT = {
     "control.ubuntu24.04": "qt5",
     "control.ubuntu24.10": "qt6",
     "control.ubuntu26.04": "qt6",
+}
+# The former test packages every control file replaces and breaks
+FORMERS = {
+    "control": [PLASMA + "-5"],
+    "control.ubuntu22.04": [PLASMA + "-5"],
+    "control.ubuntu24.04": [PLASMA + "-5"],
+    "control.ubuntu24.10": [PLASMA + "-5", PLASMA + "-6"],
+    "control.ubuntu26.04": [PLASMA + "-6"],
 }
 DOCKERFILES = {
     "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
@@ -86,8 +96,8 @@ def relations(value):
     return [" ".join(item.split()) for item in value.replace("\n", " ").split(",") if item.strip()]
 
 
-def relation(qt):
-    return "%s (<< %s)" % (FORMER[qt], BOUND)
+def relation(former):
+    return "%s (<< %s)" % (former, BOUND)
 
 
 def upstream(version):
@@ -101,8 +111,10 @@ def covers(bound, version):
     return upstream(version) < upstream(bound[:-1])
 
 
-def check_control(text, qt):
-    """Problems with the Plasma package of a control file that builds with `qt` (empty list when fine)"""
+def check_control(text, qt, formers=None):
+    """Problems with the Plasma package of a control file that builds with `qt` (empty list when fine);
+    `formers` are the former test packages it replaces and breaks (default: the one of that Qt)"""
+    formers = formers or [FORMER[qt]]
     packages = parse_control(text)
     problems = []
     source = packages.get("", {})
@@ -137,10 +149,11 @@ def check_control(text, qt):
             problems.append("%s does not depend on %s" % (PLASMA, needed))
     for field in ("replaces", "breaks"):
         values = relations(plasma.get(field, ""))
-        if relation(qt) not in values:
-            problems.append("%s lacks %s: %s" % (PLASMA, field.capitalize(), relation(qt)))
+        for former in formers:
+            if relation(former) not in values:
+                problems.append("%s lacks %s: %s" % (PLASMA, field.capitalize(), relation(former)))
         for value in values:
-            if value != relation(qt):
+            if value not in [relation(former) for former in formers]:
                 problems.append("%s has %s: %s" % (PLASMA, field.capitalize(), value))
     if "conflicts" in plasma:
         problems.append("%s conflicts with %s" % (PLASMA, plasma["conflicts"]))
@@ -156,8 +169,10 @@ def read(name):
         return handle.read()
 
 
-def good(qt):
+def good(qt, formers=None):
     """A correct control file"""
+    formers = formers or [FORMER[qt]]
+    versioned = ",\n         ".join(relation(f) for f in formers)
     qt_dev = "qtbase5-dev" if qt == "qt5" else "qt6-base-dev"
     deps = sorted(BUILD_DEPENDS[qt] - {qt_dev})
     build = ",\n               ".join(["debhelper-compat (= 13)", qt_dev] + deps)
@@ -186,14 +201,15 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          plasma-nm
-Replaces: %s (<< 1.5.1~)
-Breaks: %s (<< 1.5.1~)
+Replaces: %s
+Breaks: %s
 Description: Plasma GUI
  text
-""" % (build, FORMER[qt], FORMER[qt])
+""" % (build, versioned, versioned)
 
 
 GOOD = {"qt5": good("qt5"), "qt6": good("qt6")}
+BOTH = [PLASMA + "-5", PLASMA + "-6"]
 
 
 class TestParseControl:
@@ -340,11 +356,19 @@ class TestControlFiles:
 
     @pytest.mark.parametrize("name, qt", sorted(QT.items()))
     def test_the_plasma_package_is_declared(self, name, qt):
-        assert check_control(read(name), qt) == []
+        assert check_control(read(name), qt, FORMERS[name]) == []
 
     @pytest.mark.parametrize("name, qt", sorted(QT.items()))
     def test_the_files_are_not_accepted_for_the_other_qt(self, name, qt):
-        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5") != []
+        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5", FORMERS[name]) != []
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_a_file_that_replaces_other_former_packages_than_its_own_is_reported(self, name):
+        qt = QT[name]
+        assert check_control(read(name), qt, ["network-manager-gpclient-plasma-7"]) != []
+        if name != "control.ubuntu24.10":
+            # only 24.10 had test builds of both
+            assert check_control(read(name), qt, BOTH) != []
 
     def test_debian_control_is_the_copy_for_ubuntu_24_04(self):
         assert read("control") == read("control.ubuntu24.04")
@@ -353,11 +377,29 @@ class TestControlFiles:
                                           ("control.ubuntu24.10", "qt6"), ("control.ubuntu26.04", "qt6")])
     def test_qt5_on_22_04_and_24_04_and_qt6_on_24_10_and_26_04(self, name, qt):
         package = parse_control(read(name))[PLASMA]
-        assert relations(package["replaces"]) == [relation(qt)]
-        assert relations(package["breaks"]) == [relation(qt)]
+        expected = [relation(f) for f in FORMERS[name]]
+        assert relations(package["replaces"]) == expected
+        assert relations(package["breaks"]) == expected
         build = parse_control(read(name))[""]["build-depends"]
         assert ("qtbase5-dev" in build) == (qt == "qt5")
         assert ("qt6-base-dev" in build) == (qt == "qt6")
+
+    def test_24_10_replaces_and_breaks_both_former_packages(self):
+        package = parse_control(read("control.ubuntu24.10"))[PLASMA]
+        for field in ("replaces", "breaks"):
+            assert relations(package[field]) == [relation(PLASMA + "-5"), relation(PLASMA + "-6")]
+
+    @pytest.mark.parametrize("missing", BOTH)
+    def test_a_24_10_file_without_one_of_the_former_packages_is_reported(self, missing):
+        text = good("qt6", BOTH)
+        assert check_control(text, "qt6", BOTH) == []
+        broken = text.replace(",\n         %s (<< 1.5.1~)" % missing, "").replace(
+            "%s (<< 1.5.1~),\n         " % missing, "")
+        assert broken != text
+        assert any("lacks" in p and missing in p for p in check_control(broken, "qt6", BOTH))
+
+    def test_the_file_of_24_04_does_not_pass_as_the_one_of_24_10(self):
+        assert check_control(read("control.ubuntu24.04"), "qt5", BOTH) != []
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_packages_are_the_core_gnome_and_plasma_ones(self, name):
@@ -373,6 +415,29 @@ class TestControlFiles:
         description = parse_control(read(name))[CORE]["description"]
         assert "- %s for KDE Plasma" % PLASMA in description
         assert "plasma-5" not in description and "plasma-6" not in description
+
+    CORE_TEXT = (" The core package alone is enough to use GlobalProtect VPN from the command\n"
+                 " line (nmcli): it ships the NetworkManager plugin libnm-vpn-plugin-gpclient.so.\n"
+                 " The GUI packages add the connection editors:")
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_core_package_description_says_that_it_alone_supports_nmcli(self, name):
+        text = read(name)
+        stanza = text[text.index("Package: %s\n" % CORE):text.index("Package: %s-gnome\n" % CORE)]
+        assert self.CORE_TEXT in stanza
+        assert stanza.index(self.CORE_TEXT) < stanza.index("- %s-gnome for" % CORE)
+
+    def test_the_core_package_description_is_the_same_in_every_file(self):
+        found = {parse_control(read(name))[CORE]["description"] for name in QT}
+        assert len(found) == 1
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_core_package_really_ships_the_nmcli_plugin(self, name):
+        # the description names the file; the rules install it into the core package only
+        assert re.search(r"libnm-vpn-plugin-gpclient\.so\n?\s*\\?\s*\$\(CURDIR\)/debian/%s/usr/lib/"
+                         % CORE, RULES)
+        assert "libnm-vpn-plugin-gpclient.so" in parse_control(read(name))[CORE]["description"]
+        assert "libnm-vpn-plugin-gpclient.so" not in parse_control(read(name))[CORE + "-gnome"]["description"]
 
     @pytest.mark.parametrize("former", sorted(FORMER.values()))
     def test_the_former_packages_have_no_install_file(self, former):
@@ -428,7 +493,7 @@ RULES = read("rules")
 def make_variable(tmp_path, control_text):
     """PLASMA_QT_MAJOR of debian/rules for a debian/control with this content"""
     lines = RULES.splitlines()
-    first = next(i for i, l in enumerate(lines) if l.startswith("HAS_QT5"))
+    first = next(i for i, l in enumerate(lines) if l.startswith("qt_listed"))
     last = next(i for i, l in enumerate(lines) if l.startswith("PLASMA_QT_MAJOR"))
     (tmp_path / "debian").mkdir(exist_ok=True)
     (tmp_path / "debian" / "control").write_text(control_text, encoding="utf-8")
@@ -438,6 +503,35 @@ def make_variable(tmp_path, control_text):
                             timeout=30)
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()[1:-1]
+
+
+# The Qt package in the syntaxes of Build-Depends: (old, new) replaces the entry of GOOD
+SYNTAXES = {
+    "qt5": [
+        ("qtbase5-dev,", "qtbase5-dev (>= 5.15),"),
+        ("qtbase5-dev,", "qtbase5-dev:native,"),
+        ("qtbase5-dev,", "qtbase5-dev:native (>= 5.15),"),
+        ("qtbase5-dev,", "qtbase5-dev | qt5-default,"),
+        ("qtbase5-dev,", "qtbase5-dev ,"),
+        ("qtbase5-dev,", "qtbase5-dev\t,"),
+        ("               qtbase5-dev,\n", "\tqtbase5-dev,\n"),
+        ("               curl\n", "               curl,\n               qtbase5-dev\n"),
+        ("Build-Depends: debhelper-compat (= 13),\n               qtbase5-dev,\n",
+         "Build-Depends: qtbase5-dev, debhelper-compat (= 13),\n"),
+        ("Build-Depends: debhelper-compat (= 13),\n               qtbase5-dev,\n",
+         "Build-Depends: qtbase5-dev (>= 5.15),\n               debhelper-compat (= 13),\n"),
+        ("qtbase5-dev,", "debhelper | qtbase5-dev,"),
+    ],
+    "qt6": [
+        ("qt6-base-dev,", "qt6-base-dev (>= 6.4),"),
+        ("qt6-base-dev,", "qt6-base-dev:native,"),
+        ("qt6-base-dev,", "qt6-base-dev:native (>= 6.4),"),
+        ("qt6-base-dev,", "qt6-base-dev | qt6-base-dev-x,"),
+        ("               curl\n", "               curl,\n               qt6-base-dev\n"),
+        ("Build-Depends: debhelper-compat (= 13),\n               qt6-base-dev,\n",
+         "Build-Depends: qt6-base-dev, debhelper-compat (= 13),\n"),
+    ],
+}
 
 
 class TestRules:
@@ -455,6 +549,48 @@ class TestRules:
 
     def test_a_package_name_that_only_contains_the_qt_package_is_not_taken_for_it(self, tmp_path):
         text = GOOD["qt6"].replace("qt6-base-dev,", "qt6-base-dev-tools-x,", 1)
+        assert make_variable(tmp_path, text) == ""
+
+    @pytest.mark.parametrize("qt, old, new", [(q, o, n) for q in ("qt5", "qt6") for o, n in SYNTAXES[q]])
+    def test_the_qt_package_is_found_in_every_syntax_of_build_depends(self, tmp_path, qt, old, new):
+        text = GOOD[qt]
+        assert old in text, old
+        assert make_variable(tmp_path, text.replace(old, new, 1)) == qt[-1]
+
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    @pytest.mark.parametrize("name", ["qtbase5-dev-tools", "qt6-base-dev-tools", "xqtbase5-dev", "xqt6-base-dev",
+                                      "libqtbase5-dev", "qtbase5-dev2", "qt6-base-dev-x"])
+    def test_a_longer_package_name_only_is_not_taken_for_the_qt_package(self, tmp_path, qt, name):
+        text = re.sub(r"^( +)(qtbase5-dev|qt6-base-dev),$", r"\g<1>%s," % name, GOOD[qt], flags=re.M)
+        assert name in text
+        assert make_variable(tmp_path, text) == ""
+
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    @pytest.mark.parametrize("entry, old, new", [
+        ("{0} (>= 1),", "               curl\n", "               {entry}\n               curl\n"),
+        ("{0}:native,", "               curl\n", "               {entry}\n               curl\n"),
+        ("{0}", "               curl\n", "               curl,\n               {entry}\n"),
+    ])
+    def test_both_qt_packages_in_any_syntax_give_no_qt(self, tmp_path, qt, entry, old, new):
+        other = "qtbase5-dev" if qt == "qt6" else "qt6-base-dev"
+        both = GOOD[qt].replace(old, new.format(entry=entry.format(other)))
+        assert other in both
+        assert make_variable(tmp_path, both) == ""
+
+    @pytest.mark.parametrize("field", ["Build-Depends-Indep", "Build-Conflicts", "Depends", "Recommends", "X-Build-Depends"])
+    def test_a_qt_package_in_another_field_does_not_count(self, tmp_path, field):
+        text = re.sub(r"^ +(qtbase5-dev|qt6-base-dev),\n", "", GOOD["qt5"], flags=re.M)
+        text = text.replace("Standards-Version", "%s: qtbase5-dev (>= 5.15)\nStandards-Version" % field)
+        assert make_variable(tmp_path, text) == ""
+
+    def test_a_qt_package_in_the_continuation_of_the_next_field_does_not_count(self, tmp_path):
+        text = re.sub(r"^ +(qtbase5-dev|qt6-base-dev),\n", "", GOOD["qt5"], flags=re.M)
+        text = text.replace("Standards-Version: 4.6.2", "Standards-Version: 4.6.2\nX-Notes: none\n qtbase5-dev (>= 5.15),")
+        assert make_variable(tmp_path, text) == ""
+
+    def test_a_commented_out_qt_package_does_not_count(self, tmp_path):
+        text = GOOD["qt5"].replace("               qtbase5-dev,\n", "#              qtbase5-dev,\n")
+        assert text != GOOD["qt5"]
         assert make_variable(tmp_path, text) == ""
 
     def test_a_missing_qt_stops_the_build(self):
@@ -499,6 +635,13 @@ class TestChangelog:
         top = self.top()
         assert "network-manager-gpclient-plasma," in top
         assert "Qt5 on Ubuntu 22.04 and 24.04" in top and "Qt6" in top
+
+    def test_the_former_test_packages_are_removed_not_replaced(self):
+        top = " ".join(self.top().split())
+        assert "network-manager-gpclient-plasma-5 and -plasma-6, were never released" in top
+        assert "Breaks them, so apt full-upgrade removes them" in top
+        assert "apt install network-manager-gpclient-plasma installs the editor" in top
+        assert "are replaced by it" not in top
 
     def test_no_transitional_package_is_announced(self):
         top = self.top()

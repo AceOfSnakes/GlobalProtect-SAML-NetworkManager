@@ -5,9 +5,10 @@
 
 Run by .github/scripts/gui-smoke.sh. The plugin must have no missing library
 (ldd), carry the metadata of our service and load with QPluginLoader (PyQt5 for
-a qt5 plugin, PyQt6 for qt6). Without PyQt only the JSON file next to the
-plugin is checked and the log says so. There is no screenshot: showing the
-editor needs a C++ harness against plasma-nm. Exit status: 0 = fine, 1 = a check
+a qt5 plugin, PyQt6 for qt6; a missing PyQt fails the check). PyQt5 cannot read
+the metadata of a loaded plugin: the JSON file next to the plugin is checked
+then. There is no screenshot: showing the editor needs a C++ harness against
+plasma-nm. Exit status: 0 = fine, 1 = a check
 failed, 2 = bad arguments. The decisions are in gui_smoke_lib.py.
 """
 
@@ -28,21 +29,21 @@ def fail(message):
 
 
 def load_with_qt(path, major):
-    """Load the plugin with QPluginLoader: (metadata dict or None, None), or
-    (None, reason) when PyQt is missing. PyQt5 has no QPluginLoader.metaData()
-    (it does not wrap QJsonObject): the metadata is None then, the plugin is
-    still loaded."""
+    """Load the plugin with QPluginLoader and return its metadata dict. PyQt5
+    has no QPluginLoader.metaData() (it does not wrap QJsonObject): the result
+    is None then, the plugin is still loaded. A missing PyQt or a plugin that
+    does not load fails."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         core = importlib.import_module(f"PyQt{major}.QtCore")
     except ImportError as error:
-        return None, str(error)
+        fail(f"PyQt{major} is not available: {error}")
     loader = core.QPluginLoader(path)
     meta = loader.metaData() if hasattr(loader, "metaData") else None
     if not loader.load():
         fail(f"QPluginLoader cannot load {path}: {loader.errorString()}")
     print(f"OK: QPluginLoader loads {path}")
-    return meta, None
+    return meta
 
 
 def read_json_metadata(plugin):
@@ -78,9 +79,7 @@ def main(argv=None):
     major = lib.qt_major(args.plugin)
     if major is None:
         fail(f"cannot tell Qt 5 from Qt 6 by the path {args.plugin}")
-    meta, reason = load_with_qt(args.plugin, major)
-    if reason is not None:
-        print(f"WARN: PyQt{major} is not available ({reason}): checking the JSON file only, not loading the plugin")
+    meta = load_with_qt(args.plugin, major)
     if meta is None:
         meta = read_json_metadata(args.plugin)
     problems = lib.check_plasma_metadata(meta, service)

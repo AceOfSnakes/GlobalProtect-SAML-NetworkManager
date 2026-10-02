@@ -8,8 +8,17 @@ include /usr/share/dpkg/architecture.mk
 # The Qt of the Plasma plugin is the one debian/control (a copy of
 # debian/control.ubuntu<version>) lists in Build-Depends: qtbase5-dev for Qt5,
 # qt6-base-dev for Qt6. Empty when it lists both or none; the build stops then.
-HAS_QT5 := $(shell grep -qE '^[[:space:]]+qtbase5-dev,' debian/control && echo yes)
-HAS_QT6 := $(shell grep -qE '^[[:space:]]+qt6-base-dev,' debian/control && echo yes)
+# ${call qt_listed,<package>} is "yes" when the Build-Depends field (from its
+# line to the next field) lists the package as a whole name: followed by a
+# version "(>= 5.15)", an architecture ":native", a comma, "|" or the end of the
+# line; on the line of the field or below it, also as the last entry.
+qt_listed = ${shell awk -v pkg=${1} ' \
+	/^\#/ { next } \
+	/^[ \t]*$$/ { infield = 0; next } \
+	/^[^ \t]/ { infield = (tolower($$0) ~ /^build-depends:/); sub(/^[^:]*:/, "") } \
+	infield && (" " $$0) ~ ("[ \t,|]" pkg "([ \t(:,|]|$$)") { print "yes"; exit }' debian/control}
+HAS_QT5 := ${call qt_listed,qtbase5-dev}
+HAS_QT6 := ${call qt_listed,qt6-base-dev}
 PLASMA_QT_MAJOR := $(if $(HAS_QT5),$(if $(HAS_QT6),,5),$(if $(HAS_QT6),6,))
 
 %:

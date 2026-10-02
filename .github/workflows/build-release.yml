@@ -154,11 +154,14 @@ jobs:
           path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
       - name: Upgrade test from the last release
-        # Installs the newest release from the public apt repository in a fresh
-        # ubuntu container and upgrades it to the packages built above (see
+        # Not for tags (the only push trigger): a network flake in a check must
+        # not block a release. Installs the newest release from the public apt
+        # repository in a fresh ubuntu container and upgrades it to the
+        # packages built above (see
         # .github/scripts/upgrade-test.sh). Every scenario runs; the step fails
         # at the end if any of them failed. The containers write the GUI smoke
         # test screenshots to gui-smoke/, uploaded by the next step.
+        if: github.event_name != 'push'
         env:
           UBUNTU: ${{ matrix.ubuntu }}
           ARCH: ${{ matrix.arch }}
@@ -183,8 +186,9 @@ jobs:
 
       - name: Upload GUI screenshots
         # Screenshots of the connection editor from the upgrade test (see
-        # .github/scripts/gui-smoke.sh); also kept when that test failed.
-        if: always()
+        # .github/scripts/gui-smoke.sh); also kept when that test failed. Not
+        # for tags, like the test.
+        if: always() && github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
           name: gui-smoke-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}

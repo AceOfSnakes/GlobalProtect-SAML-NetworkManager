@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Checks the result of a package upgrade (used by .github/scripts/upgrade-test.sh).
+"""Checks the result of a package upgrade or fresh install (used by
+.github/scripts/upgrade-test.sh).
 
     check_upgrade.py --before before.txt --after after.txt \\
         --expected-version 1.5.0-1~noble1 --scenario plasma --codename noble \\
         --plasma-files plasma-files.txt
+    check_upgrade.py --fresh --after after.txt ...      # nothing was installed before
+    check_upgrade.py --print-plugin plasma-files.txt    # the path of the editor plugin
 
 The two files are the output of
 `dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\\n' 'network-manager-gpclient*'`
-taken before and after the upgrade. The optional --plasma-files is the output of
+taken before and after the upgrade. With --fresh there is no "before": every
+package that is installed must be fully installed at the expected version.
+The optional --plasma-files is the output of
 `dpkg -L network-manager-gpclient-plasma` after the upgrade: the editor plugin
-must be in the Qt directory of the release. Exit status: 0 = the upgrade is clean,
-1 = problems (all of them are listed on stderr), 2 = bad arguments or input.
-Standard library only.
+it lists must exist and be in the Qt directory of the release (it is owned by
+the package: the list is the package's own). --print-plugin prints that plugin
+for gui-smoke.sh. Exit status: 0 = clean, 1 = problems (all of them are listed on
+stderr), 2 = bad arguments or input. Standard library only.
 """
 
 import argparse
+import os
 import re
 import sys
 
@@ -33,6 +40,7 @@ PLASMA_QT = {
     "oracular": "qt6",  # 24.10
     "resolute": "qt6",  # 26.04
 }
+PLUGIN_NAME = "plasmanetworkmanagement_gpclientui.so"
 PLUGIN_RE = re.compile(r"^/usr/lib/[^/]+/(qt[56])/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui\.so$")
 # The packages of the former split: they are not built any more
 FORMER_RE = re.compile("^" + re.escape(PLASMA) + "-[56]$")
@@ -79,15 +87,23 @@ def desktop_packages(scenario, codename):
     return [PLASMA]
 
 
-def check_plugin(files, codename):
-    """The problems of the editor plugin in `files` (the output of dpkg -L for the Plasma package)"""
+def plugins_of(files):
+    """The editor plugins in `files` (the output of dpkg -L for the Plasma package)"""
+    return [line.strip() for line in files.splitlines() if line.strip().endswith(PLUGIN_NAME)]
+
+
+def check_plugin(files, codename, exists=os.path.isfile):
+    """The problems of the editor plugin in `files` (the output of dpkg -L for the Plasma package);
+    `exists(path)` tells whether a listed file is on disk"""
     if codename not in PLASMA_QT:
         raise ValueError(f"unknown Ubuntu codename {codename!r} (known: {', '.join(PLASMA_QT)})")
-    plugins = [line.strip() for line in files.splitlines() if line.strip().endswith("plasmanetworkmanagement_gpclientui.so")]
+    plugins = plugins_of(files)
     if not plugins:
-        return [f"{PLASMA} lists no plasmanetworkmanagement_gpclientui.so"]
+        return [f"{PLASMA} lists no {PLUGIN_NAME}"]
     problems = []
     for plugin in plugins:
+        if not exists(plugin):
+            problems.append(f"{plugin} of {PLASMA} is missing on disk")
         match = PLUGIN_RE.match(plugin)
         if not match:
             problems.append(f"{plugin} is not in /usr/lib/<multiarch>/<qt>/plugins/plasma/network/vpn/")
@@ -98,11 +114,16 @@ def check_plugin(files, codename):
 
 def check(before, after, expected_version, scenario, codename):
     """The list of problems of the upgrade (empty = clean). `before` and `after`
-    come from parse_status()."""
+    come from parse_status(). `before` is None for a fresh install: nothing was
+    installed, so everything installed must be fully installed at the expected
+    version."""
     if not expected_version:
         raise ValueError("the expected version is empty")
     wanted = desktop_packages(scenario, codename)
     problems = []
+    when = "after the upgrade" if before is not None else "after the install"
+    kept_back = " (kept back?)" if before is not None else ""
+    before = before or {}
 
     for name, (version, state) in sorted(before.items()):
         if state == "un":
@@ -116,20 +137,20 @@ def check(before, after, expected_version, scenario, codename):
         if state == "un":
             continue
         if state != "ii" and name not in before:
-            problems.append(f"{name} is in state '{state}' after the upgrade (not fully installed)")
+            problems.append(f"{name} is in state '{state}' {when} (not fully installed)")
         elif state == "ii" and version != expected_version:
             problems.append(
-                f"{name} is at version {version} after the upgrade, expected {expected_version} (kept back?)"
+                f"{name} is at version {version} {when}, expected {expected_version}{kept_back}"
             )
 
     for name in wanted:
         if name not in after or after[name][1] != "ii":
-            problems.append(f"{name} is not installed after the upgrade (the {scenario} scenario on {codename} needs it)")
+            problems.append(f"{name} is not installed {when} (the {scenario} scenario on {codename} needs it)")
     for name in sorted(after):
         if FORMER_RE.match(name) and after[name][1] != "un":
-            problems.append(f"{name} is installed after the upgrade, but there is only {PLASMA}")
+            problems.append(f"{name} is installed {when}, but there is only {PLASMA}")
     if CORE not in after or after[CORE][1] != "ii":
-        problems.append(f"{CORE} is not installed after the upgrade")
+        problems.append(f"{CORE} is not installed {when}")
     return problems
 
 
@@ -140,31 +161,57 @@ def read(path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--before", required=True, help="dpkg-query output before the upgrade")
-    parser.add_argument("--after", required=True, help="dpkg-query output after the upgrade")
-    parser.add_argument("--expected-version", required=True, help="the version of the new packages")
-    parser.add_argument("--scenario", required=True, help="one of: " + ", ".join(SCENARIOS))
-    parser.add_argument("--codename", required=True, help="Ubuntu codename, e.g. noble")
+    parser.add_argument("--before", help="dpkg-query output before the upgrade")
+    parser.add_argument("--fresh", action="store_true", help="a fresh install: there is no --before")
+    parser.add_argument("--after", help="dpkg-query output after the upgrade")
+    parser.add_argument("--expected-version", help="the version of the new packages")
+    parser.add_argument("--scenario", help="one of: " + ", ".join(SCENARIOS))
+    parser.add_argument("--codename", help="Ubuntu codename, e.g. noble")
     parser.add_argument("--plasma-files", help="dpkg -L output of the Plasma package after the upgrade")
+    parser.add_argument("--root", default="", help="prefix of the paths in --plasma-files on disk (default: none)")
+    parser.add_argument("--print-plugin", metavar="FILES", help="print the editor plugin listed in this dpkg -L output")
     args = parser.parse_args(argv)
+
+    if args.print_plugin:
+        try:
+            with open(args.print_plugin, encoding="utf-8") as handle:
+                plugins = plugins_of(handle.read())
+        except OSError as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 2
+        if not plugins:
+            print(f"ERROR: {PLASMA} lists no {PLUGIN_NAME}", file=sys.stderr)
+            return 1
+        print(plugins[0])
+        return 0
+
+    for option in ("after", "expected_version", "scenario", "codename"):
+        if not getattr(args, option):
+            parser.error("--%s is required" % option.replace("_", "-"))
+    if bool(args.before) == args.fresh:
+        parser.error("give exactly one of --before and --fresh")
     try:
         problems = check(
-            read(args.before), read(args.after), args.expected_version, args.scenario, args.codename
+            read(args.before) if args.before else None, read(args.after), args.expected_version, args.scenario,
+            args.codename,
         )
         if args.plasma_files:
             if args.scenario != "plasma":
                 raise ValueError("--plasma-files needs the plasma scenario")
             with open(args.plasma_files, encoding="utf-8") as handle:
-                problems += check_plugin(handle.read(), args.codename)
+                problems += check_plugin(
+                    handle.read(), args.codename, lambda path: os.path.isfile(args.root + path)
+                )
     except (ValueError, OSError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
+    what = "install" if args.fresh else "upgrade"
     if problems:
-        print(f"UPGRADE CHECK FAILED ({args.scenario}, {args.codename}):", file=sys.stderr)
+        print(f"{what.upper()} CHECK FAILED ({args.scenario}, {args.codename}):", file=sys.stderr)
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
-    print(f"OK: upgrade clean ({args.scenario}, {args.codename}), all packages at {args.expected_version}")
+    print(f"OK: {what} clean ({args.scenario}, {args.codename}), all packages at {args.expected_version}")
     return 0
 
 

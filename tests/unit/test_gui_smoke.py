@@ -416,13 +416,13 @@ class TestQtLoad:
     def test_metadata_comes_from_qt_when_it_has_it(self, monkeypatch, capsys):
         self.fake_pyqt(monkeypatch, 6, with_metadata=True)
 
-        assert gui_smoke_plasma.load_with_qt("/p.so", 6) == ({"MetaData": {"from": "qt"}}, None)
+        assert gui_smoke_plasma.load_with_qt("/p.so", 6) == {"MetaData": {"from": "qt"}}
         assert "OK: QPluginLoader loads /p.so" in capsys.readouterr().out
 
     def test_pyqt5_without_metadata_still_loads_the_plugin(self, monkeypatch, capsys):
         self.fake_pyqt(monkeypatch, 5, with_metadata=False)
 
-        assert gui_smoke_plasma.load_with_qt("/p.so", 5) == (None, None)
+        assert gui_smoke_plasma.load_with_qt("/p.so", 5) is None
         assert "OK: QPluginLoader loads /p.so" in capsys.readouterr().out
 
     @pytest.mark.parametrize("with_metadata", [True, False])
@@ -435,12 +435,53 @@ class TestQtLoad:
         assert stop.value.code == 1
         assert "cannot open shared object" in capsys.readouterr().err
 
-    def test_missing_pyqt_is_reported_not_failed(self, monkeypatch):
+    @pytest.mark.parametrize("major", [5, 6])
+    def test_missing_pyqt_fails(self, monkeypatch, capsys, major):
+        monkeypatch.setitem(sys.modules, "PyQt%d.QtCore" % major, None)
+
+        with pytest.raises(SystemExit) as stop:
+            gui_smoke_plasma.load_with_qt("/p.so", major)
+
+        assert stop.value.code == 1
+        assert "PyQt%d is not available" % major in capsys.readouterr().err
+
+    def plugin_dir(self, tmp_path, with_json):
+        plugin = tmp_path / "usr" / "lib" / "x" / "qt5" / "plugins" / "plasma" / "network" / "vpn" / "p.so"
+        plugin.parent.mkdir(parents=True)
+        plugin.write_bytes(b"")
+        name = tmp_path / "x.name"
+        name.write_text("[VPN Connection]\nname=gpclient\nservice=org.example.gp\n[libnm]\nplugin=/x/libnm.so\n")
+        if with_json:
+            plugin.with_suffix(".json").write_text('{"KPlugin": {"Id": "x"}, "X-NetworkManager-Services": "org.example.gp"}')
+        return ["--plugin", str(plugin), "--name-file", str(name)]
+
+    def test_main_without_pyqt_fails_even_with_a_good_json_file(self, tmp_path, monkeypatch, capsys):
+        # the JSON file is not a substitute for loading the plugin
+        argv = self.plugin_dir(tmp_path, with_json=True)
+        monkeypatch.setattr(gui_smoke_plasma.subprocess, "run",
+                            lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})())
         monkeypatch.setitem(sys.modules, "PyQt5.QtCore", None)
 
-        meta, reason = gui_smoke_plasma.load_with_qt("/p.so", 5)
+        with pytest.raises(SystemExit) as stop:
+            gui_smoke_plasma.main(argv)
 
-        assert meta is None and reason
+        assert stop.value.code == 1
+        out = capsys.readouterr()
+        assert "PyQt5 is not available" in out.err
+        assert "WARN" not in out.out and "JSON" not in out.out
+
+    def test_main_with_pyqt5_checks_the_json_file(self, tmp_path, monkeypatch, capsys):
+        TestQtLoad().fake_pyqt(monkeypatch, 5, with_metadata=False)
+        argv = self.plugin_dir(tmp_path, with_json=False)
+        monkeypatch.setattr(gui_smoke_plasma.subprocess, "run",
+                            lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+
+        with pytest.raises(SystemExit) as stop:
+            gui_smoke_plasma.main(argv)
+
+        # PyQt5 loaded the plugin; its metadata come from the JSON file, which is missing here
+        assert stop.value.code == 1
+        assert "p.json" in capsys.readouterr().err
 
     def test_metadata_falls_back_to_the_json_file(self, tmp_path):
         (tmp_path / "p.json").write_text('{"KPlugin": {"Id": "x"}}')
@@ -452,6 +493,28 @@ class TestQtLoad:
             gui_smoke_plasma.read_json_metadata(str(tmp_path / "p.so"))
 
         assert "p.json" in capsys.readouterr().err
+
+
+class TestGuiSmokeScriptPyqt:
+    def script(self):
+        with open(os.path.join(SCRIPTS, "gui-smoke.sh"), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_a_failed_pyqt_install_fails_the_smoke_test(self):
+        text = self.script()
+
+        assert '--no-install-recommends "$PYQT" > /dev/null \\\n        || fail "$PYQT cannot be installed' in text
+
+    def test_the_plugin_path_comes_from_check_upgrade_not_from_a_second_pattern(self):
+        text = self.script()
+
+        assert 'check_upgrade.py" --print-plugin' in text
+        # only the failure message names the file
+        assert "grep" not in text.split("--print-plugin")[1].split("fail ")[0]
+        assert text.count("plasmanetworkmanagement_gpclientui") == 1 and 'fail "$PLASMA installs no plasmanetworkmanagement_gpclientui.so"' in text
+
+    def test_no_warning_instead_of_a_failure(self):
+        assert "WARN" not in self.script()
 
 
 class TestGtkVersionPins:

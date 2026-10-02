@@ -85,16 +85,18 @@ if [ "$SCENARIO" = gnome ]; then
 else
     PLASMA=network-manager-gpclient-plasma
     dpkg-query -W -f='${db:Status-Abbrev}' "$PLASMA" | grep -q '^ii' || fail "$PLASMA is not installed"
-    PLUGIN="$(file_of "$PLASMA" 'plasmanetworkmanagement_gpclientui\.so$')"
-    [ -f "$PLUGIN" ] || fail "$PLASMA installs no plasmanetworkmanagement_gpclientui.so"
+    # The same lookup as the upgrade test's: check_upgrade.py has already
+    # checked that the plugin exists and where it is
+    dpkg -L "$PLASMA" > "$XDG_RUNTIME_DIR/plasma-files.txt"
+    PLUGIN="$(python3 "$HERE/check_upgrade.py" --print-plugin "$XDG_RUNTIME_DIR/plasma-files.txt")" \
+        || fail "$PLASMA installs no plasmanetworkmanagement_gpclientui.so"
     case "$PLUGIN" in
         */qt6/*) PYQT=python3-pyqt6 ;;
         *) PYQT=python3-pyqt5 ;;
     esac
     apt-get update -qq
-    # Without PyQt the probe checks the metadata file only and says so
     apt-get install -y -qq --no-install-recommends "$PYQT" > /dev/null \
-        || echo "WARN: $PYQT cannot be installed on $CODENAME/$ARCH"
+        || fail "$PYQT cannot be installed on $CODENAME/$ARCH"
     echo "::group::GUI smoke test: load $PLUGIN"
     QT_QPA_PLATFORM=offscreen python3 "$HERE/gui_smoke_plasma.py" --plugin "$PLUGIN" --name-file "$NAME_FILE" \
         || fail "Plasma plugin load check"

@@ -16,6 +16,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 import base64
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -131,6 +132,28 @@ class TestStepInTheWorkflow:
         assert "path: gui-smoke/*.png" in step
         assert "if-no-files-found: ignore" in step
 
+    def test_push_is_only_the_tag_trigger(self):
+        # the steps below skip "push" events: that must be tags only
+        with open(os.path.join(workflow_steps.WORKFLOWS, WORKFLOW), encoding="utf-8") as handle:
+            text = handle.read()
+
+        triggers = text[text.index("\non:\n"):text.index("\npermissions:")]
+        assert "  push:\n    tags:\n      - \"v*\"\n" in triggers
+        assert "branches" not in triggers
+
+    def test_the_test_and_the_upload_do_not_run_for_tags(self):
+        # a network flake must not block a release
+        for name in (STEP, UPLOAD_STEP):
+            step = workflow_steps.step_lines(WORKFLOW, name)
+            conditions = [l.strip() for l in step if l.startswith("        if:")]
+            assert len(conditions) == 1, name
+            assert "github.event_name != 'push'" in conditions[0], name
+
+    def test_the_upload_still_runs_after_a_failed_test(self):
+        step = "\n".join(workflow_steps.step_lines(WORKFLOW, UPLOAD_STEP))
+
+        assert "        if: always() && github.event_name != 'push'\n" in step
+
     def test_the_build_job_gets_no_permissions_of_its_own(self):
         with open(os.path.join(workflow_steps.WORKFLOWS, WORKFLOW), encoding="utf-8") as handle:
             text = handle.read()
@@ -202,9 +225,8 @@ class TestScript:
         call = 'bash "$HERE/gui-smoke.sh" "$SCENARIO" "$GUI_OUT"'
 
         assert text.count(call) == 1
-        assert text.index('echo "SKIP: ') < text.index(call)
+        assert "SKIP" not in text
         assert text.index("check_upgrade.py") < text.index(call)
-        assert text.index("check_plugin network-manager-gpclient-plasma") < text.index(call)
         assert text.index('echo "PASS: ') < text.index(call)
         # nothing but the end of the script follows the call
         assert text.rstrip().endswith("fi")
@@ -213,7 +235,7 @@ class TestScript:
     def test_one_plasma_package_and_no_transitional_one(self):
         text = self.read()
 
-        assert "OLD_PACKAGE=network-manager-gpclient-plasma ;;" in text
+        assert "plasma) PACKAGE=network-manager-gpclient-plasma ;;" in text
         assert "plasma-5" not in text and "plasma-6" not in text and "transitional" not in text
 
     def test_the_qt_directory_is_checked_for_plasma_only(self):
@@ -221,7 +243,13 @@ class TestScript:
 
         assert text.count("--plasma-files") == 1
         assert 'if [ "$SCENARIO" = plasma ]; then\n    dpkg -L network-manager-gpclient-plasma' in text
-        assert 'if [ "$SCENARIO" = plasma ]; then\n    check_plugin network-manager-gpclient-plasma' in text
+
+    def test_the_plugin_is_checked_in_one_place_only(self):
+        # check_upgrade.py checks it (listed, on disk, Qt directory); no copy in bash
+        text = self.read()
+
+        assert "check_plugin" not in text and "plugin_of" not in text
+        assert "plasmanetworkmanagement_gpclientui" not in text
 
     def test_gui_smoke_test_runs_only_with_an_output_directory(self):
         text = self.read()
@@ -244,27 +272,41 @@ class TestScript:
         assert "run as root" in result.stderr
 
 
-class TestReleasedSuite:
-    """check_released_suite: skip when the released repository has no suite for the release"""
+def function_of(text, name):
+    """The shell function `name` of a script"""
+    start = text.index(name + "() {")
+    return text[start:text.index("\n}\n", start) + 3]
 
-    FAKE_CURL = r"""#!/bin/bash
-echo "$*" >> "$FAKE_DIR/curl_calls"
+
+def script_text():
+    with open(SCRIPT, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def make_bin(tmp_path, tools):
+    """A bin directory with fake tools {name: script}"""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name, body in tools.items():
+        tool = bin_dir / name
+        tool.write_text("#!/bin/bash\n" + body)
+        tool.chmod(0o755)
+    return bin_dir
+
+
+class TestReleasedSuite:
+    """check_released_suite: returns 1 when the released repository has no suite for the release"""
+
+    FAKE_CURL = r"""echo "$*" >> "$FAKE_DIR/curl_calls"
 [ "$FAKE_EXIT" = 0 ] || exit "$FAKE_EXIT"
 printf '%s' "$FAKE_CODE"
 """
 
     def run_function(self, tmp_path, code, curl_exit=0):
-        with open(SCRIPT, encoding="utf-8") as handle:
-            text = handle.read()
-        start = text.index("check_released_suite() {")
-        function = text[start:text.index("\n}\n", start) + 3]
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        curl = bin_dir / "curl"
-        curl.write_text(self.FAKE_CURL)
-        curl.chmod(0o755)
+        bin_dir = make_bin(tmp_path, {"curl": self.FAKE_CURL})
         script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\nREPO_URL=https://example.org/repo\nCODENAME=oracular\n'
-                  + function + 'check_released_suite\necho CONTINUE\n')
+                  + function_of(script_text(), "check_released_suite")
+                  + 'check_released_suite\necho "RETURNED $?"\n')
         return subprocess.run(
             ["bash", "-c", script],
             env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path), "FAKE_CODE": code,
@@ -272,18 +314,19 @@ printf '%s' "$FAKE_CODE"
             capture_output=True, text=True, timeout=30,
         )
 
-    def test_a_suite_that_exists_continues(self, tmp_path):
+    def test_a_suite_that_exists_returns_zero(self, tmp_path):
         result = self.run_function(tmp_path, "200")
 
         assert result.returncode == 0, result.stderr
-        assert result.stdout == "CONTINUE\n"
+        assert result.stdout == "RETURNED 0\n"
         assert "https://example.org/repo/dists/oracular/Release" in (tmp_path / "curl_calls").read_text()
 
-    def test_a_missing_suite_is_skipped_with_exit_zero(self, tmp_path):
+    def test_a_missing_suite_returns_one_and_does_not_exit(self, tmp_path):
         result = self.run_function(tmp_path, "404")
 
         assert result.returncode == 0, result.stderr
-        assert result.stdout == "SKIP: the released repository has no oracular suite\n"
+        assert result.stdout == "RETURNED 1\n"
+        assert "SKIP" not in result.stdout
 
     @pytest.mark.parametrize("code, curl_exit", [("500", 0), ("503", 0), ("403", 0), ("301", 0), ("000", 6), ("", 28), ("000", 0)])
     def test_any_other_answer_or_a_network_error_fails(self, tmp_path, code, curl_exit):
@@ -291,14 +334,234 @@ printf '%s' "$FAKE_CODE"
 
         assert result.returncode == 1
         assert "FAIL: cannot read" in result.stderr
-        assert "SKIP" not in result.stdout and "CONTINUE" not in result.stdout
+        assert "RETURNED" not in result.stdout
 
     def test_the_check_comes_before_the_released_repository_is_added(self):
-        with open(SCRIPT, encoding="utf-8") as handle:
-            text = handle.read()
+        text = script_text()
+        function = function_of(text, "upgrade_possible")
 
-        call = text.index("\ncheck_released_suite\n")
-        assert text.index("CODENAME=\"$(lsb_release") < call < text.index("gpclient.list")
+        assert function.index("check_released_suite || return 1") < function.index("$RELEASED_LIST")
+        assert function.index("check_released_suite || return 1") < function.index("gpclient-archive-keyring.gpg")
+
+
+class TestUpgradeOrFresh:
+    """upgrade_possible decides between the upgrade test and the fresh install of this build"""
+
+    FAKE_CURL = r"""echo "$*" >> "$FAKE_DIR/curl_calls"
+case "$*" in
+    *keyring*) printf 'KEY' ;;
+    *) printf '%s' "$FAKE_CODE" ;;
+esac
+"""
+    FAKE_APT_CACHE = r"""printf 'network-manager-gpclient-gnome:\n  Installed: (none)\n%s\n' "$FAKE_CANDIDATE"
+"""
+    FAKE_APT_GET = r"""echo "$*" >> "$FAKE_DIR/apt_calls"
+"""
+
+    def decide(self, tmp_path, code, candidate):
+        """(result, files) of upgrade_possible with a released repository that answers `code` for its
+        Release file and shows `candidate` (a policy line, e.g. '  Candidate: 1.4.1-1~noble1')"""
+        bin_dir = make_bin(tmp_path, {"curl": self.FAKE_CURL, "apt-cache": self.FAKE_APT_CACHE,
+                                      "apt-get": self.FAKE_APT_GET})
+        text = script_text()
+        script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\n'
+                  f'REPO_URL=https://example.org/repo\nCODENAME=noble\nARCH=arm64\nKEYRING={tmp_path}/keyring\n'
+                  f'RELEASED_LIST={tmp_path}/gpclient.list\nPACKAGE=network-manager-gpclient-gnome\n'
+                  + function_of(text, "check_released_suite") + function_of(text, "candidate")
+                  + function_of(text, "upgrade_possible")
+                  + 'if upgrade_possible; then echo UPGRADE; else echo FRESH; fi\n')
+        result = subprocess.run(
+            ["bash", "-c", script],
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path), "FAKE_CODE": code,
+                 "FAKE_CANDIDATE": candidate},
+            capture_output=True, text=True, timeout=30,
+        )
+        return result
+
+    def test_a_released_package_means_an_upgrade(self, tmp_path):
+        result = self.decide(tmp_path, "200", "  Candidate: 1.4.1-1~noble1")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "UPGRADE\n"
+        assert "deb [arch=arm64 signed-by=%s/keyring] https://example.org/repo noble main" % tmp_path in (
+            tmp_path / "gpclient.list").read_text()
+        assert (tmp_path / "keyring").read_text() == "KEY"
+        assert (tmp_path / "apt_calls").read_text() == "update -qq\n"
+
+    def test_a_suite_that_does_not_exist_means_a_fresh_install(self, tmp_path):
+        result = self.decide(tmp_path, "404", "  Candidate: 1.4.1-1~noble1")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "FRESH\n"
+        assert not (tmp_path / "gpclient.list").exists() and not (tmp_path / "keyring").exists()
+
+    @pytest.mark.parametrize("candidate", ["  Candidate: (none)", ""])
+    def test_a_suite_without_the_package_means_a_fresh_install(self, tmp_path, candidate):
+        result = self.decide(tmp_path, "200", candidate)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "FRESH\n"
+
+    @pytest.mark.parametrize("code", ["500", "403", "000", ""])
+    def test_a_broken_network_fails_instead_of_installing_fresh(self, tmp_path, code):
+        result = self.decide(tmp_path, code, "  Candidate: 1.4.1-1~noble1")
+
+        assert result.returncode == 1
+        assert "FRESH" not in result.stdout and "UPGRADE" not in result.stdout
+        assert "FAIL: cannot read" in result.stderr
+
+
+class TestFlow:
+    """The order of the script, as text"""
+
+    def branches(self):
+        text = script_text()
+        start = text.index("\nif upgrade_possible; then\n")
+        middle = text.index("\nelse\n", start)
+        end = text.index("\nfi\n", middle)
+        return text[start:middle], text[middle:end], text[end:]
+
+    def test_the_fresh_branch_says_why_and_installs_this_build(self):
+        _, fresh, _ = self.branches()
+
+        message = 'echo "No released $PACKAGE for $CODENAME/$ARCH: fresh install of this build instead"'
+        install = 'apt-get install -y --no-install-recommends "$PACKAGE"'
+        assert message in fresh
+        assert fresh.index(message) < fresh.index("prepare_local_repo") < fresh.index(install)
+        assert "MODE=fresh" in fresh and "MODE_ARGS=(--fresh)" in fresh
+        # only this build, and no upgrade
+        assert 'rm -f "$RELEASED_LIST"' in fresh and fresh.index('rm -f "$RELEASED_LIST"') < fresh.index("prepare_local_repo")
+        assert "apt upgrade" not in fresh and "--before" not in fresh
+
+    def test_the_upgrade_branch_installs_the_release_first_and_upgrades(self):
+        upgrade, _, _ = self.branches()
+
+        order = ['apt-get install -y --no-install-recommends "$PACKAGE"', "before.txt", "prepare_local_repo",
+                 "check_newer", "apt upgrade -y --no-install-recommends"]
+        positions = [upgrade.index(item) for item in order]
+        assert positions == sorted(positions)
+        assert "MODE=upgrade" in upgrade and "MODE_ARGS=(--before" in upgrade
+        assert "--fresh" not in upgrade
+
+    def test_both_paths_are_checked_by_the_same_call_and_followed_by_the_gui_smoke_test(self):
+        _, _, tail = self.branches()
+
+        call = 'python3 "$HERE/check_upgrade.py" "${MODE_ARGS[@]}"'
+        assert tail.count(call) == 1
+        assert "--plasma-files" in tail
+        assert tail.index(call) < tail.index('echo "PASS: ') < tail.index("gui-smoke.sh")
+
+    def test_the_local_repository_is_prepared_by_one_function(self):
+        text = script_text()
+
+        assert text.count("dpkg-scanpackages") == 1
+        assert text.count("prepare_local_repo\n") == 2  # one call in each branch
+        assert text.count("prepare_local_repo() {") == 1
+
+    def test_nothing_exits_with_success_before_the_end(self):
+        assert "exit 0" not in script_text()
+
+
+class TestVersionGuard:
+    """check_newer: apt installs the build over the release only when it is greater"""
+
+    def run_guard(self, built, released):
+        script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\n' + function_of(script_text(), "check_newer")
+                  + f'check_newer "{built}" "{released}"\necho NEWER\n')
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+
+    @pytest.mark.skipif(shutil.which("dpkg") is None, reason="needs dpkg")
+    @pytest.mark.parametrize("built, released", [
+        ("1.5.0-1~noble1", "1.4.1-1~noble1"),
+        ("1.5.0-1~noble1+pr31.62", "1.4.1-1~noble1"),
+        ("1.5.0-1~noble1+pr31.62", "1.4.2-1~noble1+pr24.57"),
+        ("1.5.1-1~noble1", "1.5.0-1~noble1"),
+        ("1.5.0-1~noble1+pr31.63", "1.5.0-1~noble1+pr31.62"),
+    ])
+    def test_a_newer_build_passes(self, built, released):
+        result = self.run_guard(built, released)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "NEWER\n"
+
+    @pytest.mark.skipif(shutil.which("dpkg") is None, reason="needs dpkg")
+    @pytest.mark.parametrize("built, released", [
+        ("1.4.1-1~noble1", "1.4.1-1~noble1"),
+        ("1.4.1-1~noble1", "1.5.0-1~noble1"),
+        ("1.5.0-1~noble1+pr31.62", "1.5.0-1~noble1+pr31.63"),
+        ("1.5.0-1~noble1", "1.5.0-1~noble1+pr31.62"),
+    ])
+    def test_a_build_that_is_not_newer_fails_with_a_clear_message(self, built, released):
+        result = self.run_guard(built, released)
+
+        assert result.returncode == 1
+        assert result.stderr == (f"FAIL: the build {built} is not newer than the released {released}: "
+                                 "the upgrade would not install it\n")
+        assert "NEWER" not in result.stdout
+
+    def test_the_guard_runs_before_the_upgrade_and_compares_with_the_installed_release(self):
+        text = script_text()
+
+        assert "dpkg --compare-versions \"$1\" gt \"$2\"" in function_of(text, "check_newer")
+        assert 'RELEASED="$(dpkg-query -W -f=\'${Version}\' network-manager-gpclient)"' in text
+        assert 'check_newer "$EXPECTED" "$RELEASED"' in text
+        assert text.index('RELEASED="$(dpkg-query') < text.index('check_newer "$EXPECTED"') < text.index("apt upgrade -y")
+
+
+class TestPrepareLocalRepo:
+    FAKES = {
+        "dpkg-deb": r"""name="$(basename "$2")"; v="${name#*_}"; echo "${v%_*}" """,
+        "dpkg-scanpackages": "echo Packages-of-the-fake\n",
+        "apt-get": 'echo "$*" >> "$FAKE_DIR/apt_calls"\n',
+    }
+
+    def run_function(self, tmp_path, debs, codename="noble", arch="arm64"):
+        bin_dir = make_bin(tmp_path, self.FAKES)
+        debs_dir = tmp_path / "debs"
+        debs_dir.mkdir()
+        for name in debs:
+            (debs_dir / name).write_text("")
+        script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\n'
+                  f'DEBS_DIR={debs_dir}\nLOCAL_REPO={tmp_path}/repo\nLOCAL_LIST={tmp_path}/local.list\n'
+                  f'CODENAME={codename}\nARCH={arch}\n'
+                  + function_of(script_text(), "prepare_local_repo")
+                  + 'prepare_local_repo\necho "EXPECTED=$EXPECTED"\n')
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                              env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path)})
+
+    def test_only_the_packages_of_this_release_and_architecture_are_used(self, tmp_path):
+        result = self.run_local(tmp_path)
+
+        assert result.returncode == 0, result.stderr
+        assert "EXPECTED=1.5.0-1~noble1+pr31.62\n" in result.stdout
+        assert sorted(os.listdir(tmp_path / "repo")) == sorted(
+            ["network-manager-gpclient_1.5.0-1~noble1+pr31.62_arm64.deb",
+             "network-manager-gpclient-gnome_1.5.0-1~noble1+pr31.62_arm64.deb", "Packages"])
+        assert (tmp_path / "local.list").read_text() == "deb [trusted=yes] file:%s/repo ./\n" % tmp_path
+        assert (tmp_path / "apt_calls").read_text() == "update -qq\n"
+
+    def run_local(self, tmp_path):
+        return self.run_function(tmp_path, [
+            "network-manager-gpclient_1.5.0-1~noble1+pr31.62_arm64.deb",
+            "network-manager-gpclient-gnome_1.5.0-1~noble1+pr31.62_arm64.deb",
+            "network-manager-gpclient_1.5.0-1~noble1+pr31.62_amd64.deb",
+            "network-manager-gpclient_1.5.0-1~jammy1+pr31.62_arm64.deb",
+        ])
+
+    @pytest.mark.parametrize("debs", [[], ["network-manager-gpclient_1.5.0-1~jammy1_arm64.deb"],
+                                      ["network-manager-gpclient_1.5.0-1~noble1_amd64.deb"]])
+    def test_no_package_for_this_release_and_architecture_fails(self, tmp_path, debs):
+        result = self.run_function(tmp_path, debs)
+
+        assert result.returncode == 1
+        assert "FAIL: no .deb for noble/arm64" in result.stderr
+
+    def test_two_versions_fail(self, tmp_path):
+        result = self.run_function(tmp_path, ["network-manager-gpclient_1.5.0-1~noble1_arm64.deb",
+                                              "network-manager-gpclient-gnome_1.4.1-1~noble1_arm64.deb"])
+
+        assert result.returncode == 1
+        assert "more than one version" in result.stderr
 
 
 class TestGuiSmokeScript:

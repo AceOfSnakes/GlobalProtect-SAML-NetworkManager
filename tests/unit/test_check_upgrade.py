@@ -53,6 +53,11 @@ PLASMA_BEFORE = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpcl
 PLASMA_AFTER = [("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-plasma", NEW, "ii")]
 
 
+def EXISTS(path):
+    """Every listed file is on disk"""
+    return True
+
+
 def plugin_files(qt="qt5", multiarch="x86_64-linux-gnu"):
     """dpkg -L of the Plasma package"""
     base = f"/usr/lib/{multiarch}/{qt}/plugins/plasma/network/vpn"
@@ -207,17 +212,17 @@ class TestPluginDirectory:
     @pytest.mark.parametrize("multiarch", ["x86_64-linux-gnu", "aarch64-linux-gnu"])
     @pytest.mark.parametrize("codename, qt", sorted(check_upgrade.PLASMA_QT.items()))
     def test_the_qt_directory_of_the_release_is_accepted(self, codename, qt, multiarch):
-        assert check_upgrade.check_plugin(plugin_files(qt, multiarch), codename) == []
+        assert check_upgrade.check_plugin(plugin_files(qt, multiarch), codename, EXISTS) == []
 
     @pytest.mark.parametrize("codename, wrong", [("jammy", "qt6"), ("noble", "qt6"), ("oracular", "qt5"), ("resolute", "qt5")])
     def test_the_other_qt_is_reported(self, codename, wrong):
-        problems = check_upgrade.check_plugin(plugin_files(wrong), codename)
+        problems = check_upgrade.check_plugin(plugin_files(wrong), codename, EXISTS)
 
         assert len(problems) == 1 and f"is a {wrong} plugin" in problems[0]
 
     @pytest.mark.parametrize("files", ["", "/usr\n/usr/share/doc\n", "/usr/lib/x/qt5/plugins/plasma/network/vpn/other.so\n"])
     def test_a_package_without_the_plugin_is_reported(self, files):
-        assert check_upgrade.check_plugin(files, "noble") == ["network-manager-gpclient-plasma lists no plasmanetworkmanagement_gpclientui.so"]
+        assert check_upgrade.check_plugin(files, "noble", EXISTS) == ["network-manager-gpclient-plasma lists no plasmanetworkmanagement_gpclientui.so"]
 
     @pytest.mark.parametrize("path", [
         "/opt/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so",
@@ -226,20 +231,99 @@ class TestPluginDirectory:
         "/usr/lib/x86_64-linux-gnu/qt4/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so",
     ])
     def test_a_plugin_outside_the_plugin_directory_is_reported(self, path):
-        problems = check_upgrade.check_plugin(path + "\n", "noble")
+        problems = check_upgrade.check_plugin(path + "\n", "noble", EXISTS)
 
         assert len(problems) == 1 and "is not in /usr/lib/<multiarch>/<qt>/plugins/plasma/network/vpn/" in problems[0]
 
     def test_one_plugin_in_each_qt_directory_reports_the_wrong_one(self):
         files = plugin_files("qt5") + plugin_files("qt6")
 
-        assert len(check_upgrade.check_plugin(files, "noble")) == 1
-        assert len(check_upgrade.check_plugin(files, "resolute")) == 1
+        assert len(check_upgrade.check_plugin(files, "noble", EXISTS)) == 1
+        assert len(check_upgrade.check_plugin(files, "resolute", EXISTS)) == 1
 
     @pytest.mark.parametrize("codename", ["", "focal", "Noble"])
     def test_unknown_codename(self, codename):
         with pytest.raises(ValueError, match="codename"):
-            check_upgrade.check_plugin(plugin_files(), codename)
+            check_upgrade.check_plugin(plugin_files(), codename, EXISTS)
+
+
+class TestFreshInstall:
+    """No "before": whatever is installed must be complete and at the expected version"""
+
+    def fresh(self, after, scenario="gnome", codename="noble", expected=NEW):
+        return check_upgrade.check(None, parsed(*after), expected, scenario, codename)
+
+    def test_gnome(self):
+        assert self.fresh(GNOME_AFTER) == []
+
+    @pytest.mark.parametrize("codename", sorted(CODENAMES.values()))
+    def test_plasma_on_every_release(self, codename):
+        assert self.fresh(PLASMA_AFTER, "plasma", codename) == []
+
+    def test_packages_unknown_to_dpkg_are_ignored(self):
+        assert self.fresh(GNOME_AFTER + [("network-manager-gpclient-plasma-5", "", "un")]) == []
+
+    def test_an_old_version_is_reported_without_a_hint_about_keeping_back(self):
+        after = [("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-gnome", OLD, "ii")]
+
+        problems = self.fresh(after)
+
+        assert problems == [f"network-manager-gpclient-gnome is at version {OLD} after the install, expected {NEW}"]
+
+    @pytest.mark.parametrize("status", ["iU", "iF", "iH", "hi", "ri", "rc"])
+    def test_a_package_that_is_not_fully_installed_is_reported(self, status):
+        after = [("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-gnome", NEW, status)]
+
+        problems = self.fresh(after)
+
+        assert any("network-manager-gpclient-gnome is in state" in p and "not fully installed" in p for p in problems)
+
+    def test_the_wanted_package_missing(self):
+        problems = self.fresh([("network-manager-gpclient", NEW, "ii")], "plasma", "resolute")
+
+        assert any("network-manager-gpclient-plasma is not installed after the install" in p for p in problems)
+
+    def test_the_core_package_missing(self):
+        problems = self.fresh([("network-manager-gpclient-gnome", NEW, "ii")])
+
+        assert any("network-manager-gpclient is not installed" in p for p in problems)
+
+    def test_the_gnome_package_is_not_what_the_plasma_scenario_needs(self):
+        assert self.fresh(GNOME_AFTER, "plasma", "noble") != []
+
+    @pytest.mark.parametrize("former", ["network-manager-gpclient-plasma-5", "network-manager-gpclient-plasma-6"])
+    def test_a_package_of_the_former_split_is_reported(self, former):
+        assert any(former in p for p in self.fresh(PLASMA_AFTER + [(former, NEW, "ii")], "plasma"))
+
+    def test_an_empty_expected_version(self):
+        with pytest.raises(ValueError, match="expected version"):
+            self.fresh(GNOME_AFTER, expected="")
+
+    def test_the_upgrade_wording_is_unchanged(self):
+        after = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpclient-gnome", NEW, "ii")]
+
+        assert any("after the upgrade" in p and "kept back" in p for p in run_check(GNOME_BEFORE, after))
+
+
+class TestPluginOnDisk:
+    @pytest.mark.parametrize("codename, qt", sorted(check_upgrade.PLASMA_QT.items()))
+    def test_a_listed_plugin_that_exists_is_fine(self, codename, qt):
+        seen = []
+
+        def exists(path):
+            seen.append(path)
+            return True
+
+        assert check_upgrade.check_plugin(plugin_files(qt), codename, exists) == []
+        assert len(seen) == 1 and seen[0].endswith("plasmanetworkmanagement_gpclientui.so")
+
+    def test_a_listed_plugin_that_is_not_on_disk_is_reported(self):
+        problems = check_upgrade.check_plugin(plugin_files("qt5"), "noble", lambda path: False)
+
+        assert len(problems) == 1 and problems[0].endswith("of network-manager-gpclient-plasma is missing on disk")
+
+    def test_plugins_of_lists_only_the_so_file(self):
+        assert [p.rsplit("/", 1)[1] for p in check_upgrade.plugins_of(plugin_files())] == ["plasmanetworkmanagement_gpclientui.so"]
 
 
 class TestQtMapping:
@@ -273,21 +357,96 @@ class TestQtMapping:
 
 
 class TestCommandLine:
-    def run(self, tmp_path, before, after, scenario="gnome", codename="noble", expected=NEW, files=None):
-        (tmp_path / "before.txt").write_text(before)
+    def run(self, tmp_path, before, after, scenario="gnome", codename="noble", expected=NEW, files=None,
+            on_disk=True):
+        """before=None: a fresh install. The files of `files` are created below tmp_path/root
+        (--root) unless on_disk is false"""
         (tmp_path / "after.txt").write_text(after)
-        extra = []
+        extra = ["--fresh"] if before is None else ["--before", str(tmp_path / "before.txt")]
+        if before is not None:
+            (tmp_path / "before.txt").write_text(before)
         if files is not None:
             (tmp_path / "files.txt").write_text(files)
-            extra = ["--plasma-files", str(tmp_path / "files.txt")]
+            extra += ["--plasma-files", str(tmp_path / "files.txt"), "--root", str(tmp_path / "root")]
+            for path in check_upgrade.plugins_of(files) if on_disk else []:
+                (tmp_path / "root" / path.lstrip("/")).parent.mkdir(parents=True, exist_ok=True)
+                (tmp_path / "root" / path.lstrip("/")).write_text("")
         return subprocess.run(
             [
-                sys.executable, SCRIPT,
-                "--before", str(tmp_path / "before.txt"), "--after", str(tmp_path / "after.txt"),
+                sys.executable, SCRIPT, "--after", str(tmp_path / "after.txt"),
                 "--expected-version", expected, "--scenario", scenario, "--codename", codename, *extra,
             ],
             capture_output=True, text=True, timeout=30,
         )
+
+    def test_a_plugin_that_is_missing_on_disk_exits_one(self, tmp_path):
+        result = self.run(tmp_path, lines(*PLASMA_BEFORE), lines(*PLASMA_AFTER), "plasma", "noble",
+                          files=plugin_files("qt5"), on_disk=False)
+
+        assert result.returncode == 1
+        assert "is missing on disk" in result.stderr
+
+    def test_a_fresh_install_exits_zero(self, tmp_path):
+        result = self.run(tmp_path, None, lines(*PLASMA_AFTER), "plasma", "resolute", files=plugin_files("qt6"))
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.startswith("OK: install clean")
+
+    def test_a_broken_fresh_install_exits_one(self, tmp_path):
+        after = [("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-plasma", OLD, "ii")]
+
+        result = self.run(tmp_path, None, lines(*after), "plasma", "resolute", files=plugin_files("qt6"))
+
+        assert result.returncode == 1
+        assert "INSTALL CHECK FAILED" in result.stderr
+        assert "after the install" in result.stderr and "after the upgrade" not in result.stderr
+
+    @pytest.mark.parametrize("args", [[], ["--fresh", "--before", "b.txt"]])
+    def test_exactly_one_of_before_and_fresh_is_required(self, tmp_path, args):
+        (tmp_path / "b.txt").write_text(lines(*GNOME_BEFORE))
+        (tmp_path / "after.txt").write_text(lines(*GNOME_AFTER))
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "--after", "after.txt", "--expected-version", NEW, "--scenario", "gnome",
+             "--codename", "noble", *args],
+            cwd=tmp_path, capture_output=True, text=True, timeout=30,
+        )
+
+        assert result.returncode == 2
+        assert "exactly one of --before and --fresh" in result.stderr
+
+    @pytest.mark.parametrize("missing", ["--after", "--expected-version", "--scenario", "--codename"])
+    def test_a_missing_option_exits_two(self, tmp_path, missing):
+        (tmp_path / "after.txt").write_text(lines(*GNOME_AFTER))
+        options = {"--after": "after.txt", "--expected-version": NEW, "--scenario": "gnome", "--codename": "noble"}
+        argv = [x for k, v in options.items() if k != missing for x in (k, v)]
+        result = subprocess.run([sys.executable, SCRIPT, "--fresh", *argv], cwd=tmp_path, capture_output=True,
+                                text=True, timeout=30)
+
+        assert result.returncode == 2
+        assert missing in result.stderr
+
+    def test_print_plugin_prints_the_first_plugin(self, tmp_path):
+        (tmp_path / "f.txt").write_text(plugin_files("qt6", "aarch64-linux-gnu"))
+        result = subprocess.run([sys.executable, SCRIPT, "--print-plugin", str(tmp_path / "f.txt")],
+                                capture_output=True, text=True, timeout=30)
+
+        assert result.returncode == 0
+        assert result.stdout == "/usr/lib/aarch64-linux-gnu/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so\n"
+
+    @pytest.mark.parametrize("content, code", [("", 1), ("/usr\n/usr/share/doc\n", 1)])
+    def test_print_plugin_without_a_plugin_exits_one(self, tmp_path, content, code):
+        (tmp_path / "f.txt").write_text(content)
+        result = subprocess.run([sys.executable, SCRIPT, "--print-plugin", str(tmp_path / "f.txt")],
+                                capture_output=True, text=True, timeout=30)
+
+        assert result.returncode == code and result.stdout == ""
+        assert "lists no plasmanetworkmanagement_gpclientui.so" in result.stderr
+
+    def test_print_plugin_of_a_missing_file_exits_two(self, tmp_path):
+        result = subprocess.run([sys.executable, SCRIPT, "--print-plugin", str(tmp_path / "none.txt")],
+                                capture_output=True, text=True, timeout=30)
+
+        assert result.returncode == 2 and result.stdout == ""
 
     @pytest.mark.parametrize("codename, qt", [("noble", "qt5"), ("resolute", "qt6")])
     def test_the_plugin_in_the_qt_directory_of_the_release_exits_zero(self, tmp_path, codename, qt):

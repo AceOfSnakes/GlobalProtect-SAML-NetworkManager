@@ -17,8 +17,10 @@
 # With a gui-out-dir, a GUI smoke test of the installed editor plugin follows
 # the successful upgrade (gui-smoke.sh; screenshots go to that directory).
 #
-# Prints "SKIP: ..." and exits 0 when the release has no such package for this
-# Ubuntu release and architecture (e.g. 24.10 and arm64 had no 1.4.1 builds).
+# When the released repository has no such package for this Ubuntu release and
+# architecture (e.g. 24.10 and arm64 had no 1.4.1 builds), there is nothing to
+# upgrade from: the package is installed fresh from this build and checked the
+# same way (check_upgrade.py --fresh).
 set -euo pipefail
 
 SCENARIO="${1:-}"
@@ -28,6 +30,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="https://wmp.github.io/GlobalProtect-SAML-NetworkManager"
 KEYRING="/usr/share/keyrings/gpclient-archive-keyring.gpg"
 LOCAL_REPO="/repo"
+LOCAL_LIST="/etc/apt/sources.list.d/gpclient-local.list"
+RELEASED_LIST="/etc/apt/sources.list.d/gpclient.list"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -73,9 +77,10 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl lsb-release dpkg-dev python3 > /dev/null
 CODENAME="$(lsb_release -cs)"
 ARCH="$(dpkg --print-architecture)"
+echo "::endgroup::"
 
 # The released repository may have no suite for this Ubuntu release at all (1.4.1
-# had no 24.10 builds): skip then. Only a 404 means that; any other answer or a
+# had no 24.10 builds). Only a 404 means that (returns 1); any other answer or a
 # network error fails the test, so a broken network is never taken for "nothing
 # to upgrade from".
 check_released_suite() {
@@ -83,21 +88,11 @@ check_released_suite() {
     code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 20 --max-time 120 \
         "$REPO_URL/dists/$CODENAME/Release")" || code="000"
     case "$code" in
-        200) ;;
-        404)
-            echo "SKIP: the released repository has no $CODENAME suite"
-            exit 0
-            ;;
+        200) return 0 ;;
+        404) return 1 ;;
         *) fail "cannot read $REPO_URL/dists/$CODENAME/Release (HTTP $code)" ;;
     esac
 }
-
-# The released repository, exactly as README.md "Installation" adds it
-check_released_suite
-curl -fsSL "$REPO_URL/gpclient-archive-keyring.gpg" > "$KEYRING"
-echo "deb [arch=$ARCH signed-by=$KEYRING] $REPO_URL $CODENAME main" > /etc/apt/sources.list.d/gpclient.list
-apt-get update -qq
-echo "::endgroup::"
 
 # candidate <package>: the version apt would install, empty if there is none
 candidate() {
@@ -108,82 +103,101 @@ candidate() {
 }
 
 case "$SCENARIO" in
-    gnome) OLD_PACKAGE=network-manager-gpclient-gnome ;;
-    plasma) OLD_PACKAGE=network-manager-gpclient-plasma ;;
+    gnome) PACKAGE=network-manager-gpclient-gnome ;;
+    plasma) PACKAGE=network-manager-gpclient-plasma ;;
 esac
-if [ -z "$(candidate "$OLD_PACKAGE")" ]; then
-    echo "SKIP: no released $OLD_PACKAGE for $CODENAME/$ARCH"
-    exit 0
-fi
 
-echo "::group::Install the released $OLD_PACKAGE"
-apt-get install -y --no-install-recommends "$OLD_PACKAGE"
-echo "::endgroup::"
+# upgrade_possible: adds the released repository, exactly as README.md
+# "Installation" does, and succeeds when it has $PACKAGE for this release and
+# architecture. Fails (returns 1) when it has no suite or no such package.
+upgrade_possible() {
+    check_released_suite || return 1
+    curl -fsSL "$REPO_URL/gpclient-archive-keyring.gpg" > "$KEYRING"
+    echo "deb [arch=$ARCH signed-by=$KEYRING] $REPO_URL $CODENAME main" > "$RELEASED_LIST"
+    apt-get update -qq
+    [ -n "$(candidate "$PACKAGE")" ]
+}
+
+# The packages of this build for this release and architecture as a local
+# apt repository; sets EXPECTED to their version
+prepare_local_repo() {
+    echo "::group::Local repository from $DEBS_DIR"
+    mkdir -p "$LOCAL_REPO"
+    shopt -s nullglob
+    for deb in "$DEBS_DIR"/*~"${CODENAME}"1*_"${ARCH}".deb "$DEBS_DIR"/*."${CODENAME}"1*_"${ARCH}".deb; do
+        cp "$deb" "$LOCAL_REPO/"
+    done
+    shopt -u nullglob
+    chmod -R a+rX "$LOCAL_REPO"
+    ls "$LOCAL_REPO"/*.deb > /dev/null 2>&1 || fail "no .deb for $CODENAME/$ARCH in $DEBS_DIR"
+    EXPECTED="$(for deb in "$LOCAL_REPO"/*.deb; do dpkg-deb -f "$deb" Version; done | sort -u)"
+    [ "$(echo "$EXPECTED" | wc -l)" = 1 ] || fail "the packages have more than one version: $(echo "$EXPECTED" | tr '\n' ' ')"
+    echo "New version: $EXPECTED"
+    (cd "$LOCAL_REPO" && dpkg-scanpackages . /dev/null > Packages)
+    echo "deb [trusted=yes] file:$LOCAL_REPO ./" > "$LOCAL_LIST"
+    apt-get update -qq
+    echo "::endgroup::"
+}
+
+# check_newer <built> <released>: apt installs the build over the release only
+# when its version is greater
+check_newer() {
+    dpkg --compare-versions "$1" gt "$2" \
+        || fail "the build $1 is not newer than the released $2: the upgrade would not install it"
+}
+
 status() {
     dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\n' 'network-manager-gpclient*'
 }
-status > "$WORK/before.txt"
-echo "Installed before the upgrade:"
-cat "$WORK/before.txt"
 
-# The packages of this build for this release and architecture
-echo "::group::Local repository from $DEBS_DIR"
-mkdir -p "$LOCAL_REPO"
-shopt -s nullglob
-for deb in "$DEBS_DIR"/*~"${CODENAME}"1*_"${ARCH}".deb "$DEBS_DIR"/*."${CODENAME}"1*_"${ARCH}".deb; do
-    cp "$deb" "$LOCAL_REPO/"
-done
-shopt -u nullglob
-chmod -R a+rX "$LOCAL_REPO"
-ls "$LOCAL_REPO"/*.deb > /dev/null 2>&1 || fail "no .deb for $CODENAME/$ARCH in $DEBS_DIR"
-EXPECTED="$(for deb in "$LOCAL_REPO"/*.deb; do dpkg-deb -f "$deb" Version; done | sort -u)"
-[ "$(echo "$EXPECTED" | wc -l)" = 1 ] || fail "the packages have more than one version: $(echo "$EXPECTED" | tr '\n' ' ')"
-echo "New version: $EXPECTED"
-(cd "$LOCAL_REPO" && dpkg-scanpackages . /dev/null > Packages)
-echo "deb [trusted=yes] file:$LOCAL_REPO ./" > /etc/apt/sources.list.d/gpclient-local.list
-apt-get update -qq
-# Informational: apt-get upgrade keeps back what needs new packages
-echo "apt-get -s upgrade:"
-apt-get -s upgrade | grep -E "gpclient|^[0-9]+ upgraded" || true
-echo "::endgroup::"
+if upgrade_possible; then
+    echo "::group::Install the released $PACKAGE"
+    apt-get install -y --no-install-recommends "$PACKAGE"
+    echo "::endgroup::"
+    status > "$WORK/before.txt"
+    echo "Installed before the upgrade:"
+    cat "$WORK/before.txt"
 
-echo "::group::apt upgrade"
-apt upgrade -y --no-install-recommends
-echo "::endgroup::"
+    prepare_local_repo
+    RELEASED="$(dpkg-query -W -f='${Version}' network-manager-gpclient)"
+    check_newer "$EXPECTED" "$RELEASED"
+    # Informational: apt-get upgrade keeps back what needs new packages
+    echo "apt-get -s upgrade:"
+    apt-get -s upgrade | grep -E "gpclient|^[0-9]+ upgraded" || true
+
+    echo "::group::apt upgrade"
+    apt upgrade -y --no-install-recommends
+    echo "::endgroup::"
+    MODE=upgrade
+    MODE_ARGS=(--before "$WORK/before.txt")
+else
+    echo "No released $PACKAGE for $CODENAME/$ARCH: fresh install of this build instead"
+    # only this build: not the released packages of other names
+    rm -f "$RELEASED_LIST"
+    prepare_local_repo
+    echo "::group::Install $PACKAGE from this build"
+    apt-get install -y --no-install-recommends "$PACKAGE"
+    echo "::endgroup::"
+    MODE=fresh
+    MODE_ARGS=(--fresh)
+fi
 
 status > "$WORK/after.txt"
-echo "Installed after the upgrade:"
+echo "Installed after the $MODE:"
 cat "$WORK/after.txt"
 
-# The editor plugin of a Plasma package is on disk and owned by that package
-plugin_of() {
-    dpkg -L "$1" | grep 'plasmanetworkmanagement_gpclientui\.so$' | head -n 1
-}
-check_plugin() {
-    local package="$1" plugin owner
-    plugin="$(plugin_of "$package")"
-    [ -n "$plugin" ] || fail "$package lists no plasmanetworkmanagement_gpclientui.so"
-    [ -f "$plugin" ] || fail "$plugin of $package is missing on disk"
-    owner="$(dpkg -S "$plugin" | cut -d: -f1)"
-    [ "$owner" = "$package" ] || fail "$plugin is owned by '$owner', expected $package"
-    echo "OK: $plugin is installed and owned by $package"
-}
-
-# --expected-version etc. are checked by the Python helper; for Plasma it also
-# checks the Qt directory of the editor plugin against the release
+# check_upgrade.py checks the packages and, for Plasma, the editor plugin: it is
+# listed by dpkg -L, exists and is in the Qt directory of the release
 PLASMA_FILES=()
 if [ "$SCENARIO" = plasma ]; then
     dpkg -L network-manager-gpclient-plasma > "$WORK/plasma-files.txt" \
-        || fail "network-manager-gpclient-plasma is not installed after the upgrade"
+        || fail "network-manager-gpclient-plasma is not installed after the $MODE"
     PLASMA_FILES=(--plasma-files "$WORK/plasma-files.txt")
 fi
-python3 "$HERE/check_upgrade.py" --before "$WORK/before.txt" --after "$WORK/after.txt" \
+python3 "$HERE/check_upgrade.py" "${MODE_ARGS[@]}" --after "$WORK/after.txt" \
     --expected-version "$EXPECTED" --scenario "$SCENARIO" --codename "$CODENAME" "${PLASMA_FILES[@]}"
 
-if [ "$SCENARIO" = plasma ]; then
-    check_plugin network-manager-gpclient-plasma
-fi
-echo "PASS: $SCENARIO upgrade on $CODENAME/$ARCH to $EXPECTED"
+echo "PASS: $SCENARIO $MODE on $CODENAME/$ARCH to $EXPECTED"
 if [ -n "$GUI_OUT" ]; then
     bash "$HERE/gui-smoke.sh" "$SCENARIO" "$GUI_OUT"
 fi

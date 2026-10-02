@@ -36,9 +36,10 @@ network-manager-gpclient (1.5.0-1) unstable; urgency=medium
   * Packages for Ubuntu 24.10
   * The Plasma editor stays one package, network-manager-gpclient-plasma,
     built for the Plasma of each release: Qt5 on Ubuntu 22.04 and 24.04, Qt6
-    on Ubuntu 24.10 and 26.04. The test packages of pull requests named
-    network-manager-gpclient-plasma-5 (22.04, 24.04) and
-    network-manager-gpclient-plasma-6 (24.10, 26.04) are replaced by it
+    on Ubuntu 24.10 and 26.04. The former test packages of pull requests,
+    network-manager-gpclient-plasma-5 and -plasma-6, were never released: the
+    new package Breaks them, so apt full-upgrade removes them and
+    apt install network-manager-gpclient-plasma installs the editor
   * Dependencies list the t64 library names next to the older ones, so the
     packages install on releases with and without the 64-bit time_t rename
   * The release notes start with a table of downloads by Ubuntu release and

@@ -59,8 +59,13 @@ plugin is in the Qt directory of the release: `qt5` on 22.04 and 24.04, `qt6` on
 24.10 and 26.04), then runs
 `apt upgrade` to the new `.deb` files and checks that nothing is kept back,
 removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
-`.github/scripts/check_upgrade.py`). A scenario is skipped when the release has
-no such package for that Ubuntu version or architecture. To run it by hand
+`.github/scripts/check_upgrade.py`). Before the upgrade it checks that the build
+is newer than the release (`dpkg --compare-versions`). When the release has no
+such package for that Ubuntu version or architecture (no suite for 24.10, no
+arm64 builds), there is nothing to upgrade from: the script says so, installs the
+package from the new `.deb` files instead and checks the result the same way
+(`check_upgrade.py --fresh`). The step does not run for tags, so a network
+failure cannot block a release. To run it by hand
 against built packages (it needs network access and changes only the container):
 
 ```bash
@@ -73,8 +78,7 @@ docker run --rm -v "$PWD/output/ubuntu24.04-amd64:/debs:ro" -v "$PWD/.github/scr
 ### GUI smoke test
 
 After a successful upgrade, `upgrade-test.sh` calls `.github/scripts/gui-smoke.sh`
-(only when a third argument names an output directory, and never for a skipped
-scenario). It runs in the same container and checks that the installed
+(only when a third argument names an output directory). It runs in the same container and checks that the installed
 connection editor starts:
 
 - **GNOME** (`gnome`): under Xvfb, `gui_smoke_gtk.py` finds the editor the way
@@ -88,8 +92,9 @@ connection editor starts:
 - **Plasma** (`plasma`): a load check only. `ldd` finds every library
   of `plasmanetworkmanagement_gpclientui.so`, its metadata names our service,
   and `QPluginLoader` (PyQt5 for a `qt5` plugin, PyQt6 for a `qt6` one) loads it
-  with `QT_QPA_PLATFORM=offscreen`. Without PyQt only the JSON file next to the
-  plugin is checked, and the log says so. There is **no screenshot**: showing the
+  with `QT_QPA_PLATFORM=offscreen`; a PyQt package that cannot be installed fails
+  the test. PyQt5 cannot read the metadata of a loaded plugin, so the JSON file
+  next to the plugin is checked then. There is **no screenshot**: showing the
   Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.
 
 The screenshots (`gnome-gtk3-<codename>-<arch>.png`, `gnome-gtk4-...png`) are in
