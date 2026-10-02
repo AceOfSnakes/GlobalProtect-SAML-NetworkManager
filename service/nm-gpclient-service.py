@@ -9,6 +9,7 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 """
 
 import asyncio
+import codecs
 import fcntl
 import ipaddress
 import logging
@@ -22,9 +23,10 @@ import struct
 import subprocess
 import sys
 import termios
+import unicodedata
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from sdbus import (
     DbusInterfaceCommonAsync,
@@ -224,6 +226,14 @@ BROWSER_BINARIES = {
 # We answer it ourselves: the gateway from vpn.data preferred-gateway, or the
 # first proposal when there is none. The list is cached in the connection
 # profile afterwards so the connection editor can offer it (issue #7).
+#
+# Only the FIRST frame is a stream of complete lines. inquire redraws
+# incrementally (FrameRenderer): it moves the cursor back to the top of the
+# frame with relative moves and rewrites only the rows that changed, so after a
+# Down key the help row is not sent again and the new frame cannot be read from
+# the line stream (issue #25: the walk never saw the redraw and confirmed the
+# wrong gateway). The frame is therefore read from ScreenBuffer, a small model
+# of the terminal screen.
 SELECT_HELP_RE = re.compile(r"^\[.*(?:to move|to select|to filter|↑↓).*\]$")
 SELECT_OPTION_MARKERS = ">^v "
 SELECT_FRAME_MAX_LINES = 24
@@ -232,6 +242,10 @@ SELECT_FRAME_MAX_LINES = 24
 # list with Down alone always terminates and reaches every entry - including
 # ones outside the visible page.
 KEY_DOWN = b"\x1b[B"
+# PageDown moves the cursor down by a page without wrapping and stops at the
+# last entry (no redraw when it is already there); Home goes to the first entry
+KEY_PAGE_DOWN = b"\x1b[6~"
+KEY_HOME = b"\x1b[H"
 KEY_ENTER = b"\r"
 SELECT_MAX_STEPS = 200
 SELECT_REDRAW_TIMEOUT = 1.5
@@ -245,6 +259,32 @@ GATEWAY_LIST_SEPARATOR = ";"
 GATEWAY_CHOSEN_RE = re.compile(
     r"Connecting to (?:the only available|the selected) gateway: (?P<gateway>.+?)\s*$"
 )
+
+# gpclient logs how many gateways the portal config holds (gpapi), before it
+# shows the list; a paged list is only complete in the profile once that many
+# were seen. The bound keeps a garbled number from meaning anything.
+GATEWAY_COUNT_RE = re.compile(r"\bFound ([0-9]+) gateways in portal config")
+GATEWAY_COUNT_MAX = 10000
+
+
+def _gateway_count_value(digits: str) -> Optional[int]:
+    """A gateway count from its digits: ASCII only, 1..GATEWAY_COUNT_MAX"""
+    if not (digits.isascii() and digits.isdigit()) or len(digits) > 5:
+        return None
+    count = int(digits)
+    return count if 1 <= count <= GATEWAY_COUNT_MAX else None
+
+
+def parse_gateway_count(line: str) -> Optional[int]:
+    """The N of gpclient's "Found N gateways in portal config", else None"""
+    match = GATEWAY_COUNT_RE.search(line)
+    return _gateway_count_value(match.group(1)) if match else None
+
+
+def parse_stored_gateway_count(value: str) -> Optional[int]:
+    """vpn.data gateway-list-count as a number; None if absent or garbled"""
+    return _gateway_count_value(value.strip())
+
 
 # --- Interactive prompt detection -------------------------------------------
 #
@@ -264,12 +304,10 @@ GATEWAY_CHOSEN_RE = re.compile(
 # the output stream and answer them either from secrets stored in the NM
 # connection or interactively via the SecretsRequired/NewSecrets D-Bus flow.
 
-# CSI / OSC / other escape sequences emitted by inquire (crossterm)
-ANSI_ESCAPE_RE = re.compile(
-    r"\x1b\[[0-9;?]*[ -/]*[@-~]"  # CSI sequences (colors, cursor, clear)
-    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC sequences
-    r"|\x1b[@-Z\\-_]"  # other Fe escape sequences
-)
+# Size of the PTY gpclient runs on (TIOCSWINSZ). Wide, so prompts do not wrap
+# mid-line; ScreenBuffer models the same grid.
+PTY_ROWS = 24
+PTY_COLUMNS = 200
 
 # Control characters except \n, \r and \t
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -277,7 +315,13 @@ CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # An escape sequence cut in half by a read boundary. Without holding the head
 # back, ESC is dropped as a control character and the rest leaks into the text -
 # which is how a prompt label ended up as "[39m Password" in the #2 report.
-INCOMPLETE_ANSI_RE = re.compile(r"\x1b\[?[0-9;?]*$")
+# Covers a CSI head (with or without intermediate bytes), a lone ESC (or one
+# with intermediate bytes only, like the ESC ( of ESC ( B) and an unterminated
+# OSC. The OSC part is bounded so that one that never ends cannot hold the
+# output back forever.
+INCOMPLETE_ANSI_RE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*\Z" r"|\x1b\][^\x07\x1b]{0,256}\x1b?\Z" r"|\x1b[ -/]*\Z"
+)
 
 # "Please enter RSA token (Portal: vpn.example.com)" banner printed by
 # gpclient before a standard (non-SAML) authentication round.
@@ -348,10 +392,75 @@ LABEL_WORD_RE = re.compile(r"[^\W\d_]+")
 LABEL_SUB_WORD_RE = re.compile(r"[A-Z]+(?![^\W\d_A-Z])|[A-Z]?[^\W\d_A-Z]+")
 
 
+class EscapeTokenizer:
+    """Split terminal output into text runs and CSI sequences.
+
+    The one definition of the escape syntax: the line stream (plain text for
+    OutputScanner) and ScreenBuffer both work from its tokens. Tokens are
+    ("text", str) and ("csi", params, intermediates, final); every other escape
+    sequence (OSC, nF like ESC ( B, Fp like ESC 7, Fe, Fs, a stray ESC) is
+    recognised and dropped.
+
+    The input must not end in the middle of an escape sequence (_consume_output
+    holds those back), with one exception: an overlong OSC without terminator
+    is skipped up to the end of the text and, on the next feed, up to its
+    terminator. That state lives here. An OSC body ends at BEL or ESC \\, or at
+    any other ESC, which then starts the next sequence.
+    """
+
+    _TOKEN_RE = re.compile(
+        # Parameter bytes are 0x30-0x3F, intermediate bytes 0x20-0x2F
+        r"\x1b\[(?P<params>[0-?]*)(?P<intermediates>[ -/]*)(?P<final>[@-~])"
+        r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\|(?=\x1b[^\\]))"
+        r"|(?P<osc_open>\x1b\][^\x07\x1b]*(?P<osc_esc>\x1b)?\Z)"
+        r"|\x1b[ -/]*[0-~]"
+        r"|(?P<text>[^\x1b]+)"
+        r"|\x1b"  # stray ESC
+    )
+    _OSC_END_RE = re.compile(r"\x07|\x1b\\|(?=\x1b[^\\])")
+
+    def __init__(self):
+        self._in_osc = False  # inside an OSC whose terminator is still to come
+        self._osc_esc = False  # ... and the text ended with an ESC (ESC \\?)
+
+    def feed(self, text: str) -> List[Tuple[str, ...]]:
+        """Tokenize a chunk (the state carries over to the next one)"""
+        if self._in_osc:
+            if self._osc_esc:
+                text = "\x1b" + text
+            end = self._OSC_END_RE.search(text)
+            if end is None:
+                self._osc_esc = text.endswith("\x1b")
+                return []
+            self._in_osc = self._osc_esc = False
+            text = text[end.end() :]
+        tokens: List[Tuple[str, ...]] = []
+        for match in self._TOKEN_RE.finditer(text):
+            if match.group("text") is not None:
+                tokens.append(("text", match.group("text")))
+            elif match.group("final") is not None:
+                tokens.append(
+                    (
+                        "csi",
+                        match.group("params"),
+                        match.group("intermediates"),
+                        match.group("final"),
+                    )
+                )
+            elif match.group("osc_open") is not None:
+                self._in_osc = True
+                self._osc_esc = match.group("osc_esc") is not None
+        return tokens
+
+
+def tokens_text(tokens: Sequence[Tuple[str, ...]]) -> str:
+    """The plain text of tokens: control chars (except \\n \\r \\t) removed"""
+    return CONTROL_CHARS_RE.sub("", "".join(t[1] for t in tokens if t[0] == "text"))
+
+
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences and control chars (except \\n \\r \\t)"""
-    text = ANSI_ESCAPE_RE.sub("", text)
-    return CONTROL_CHARS_RE.sub("", text)
+    return tokens_text(EscapeTokenizer().feed(text))
 
 
 def parse_auth_banner(line: str) -> Optional[Dict[str, str]]:
@@ -458,7 +567,7 @@ def is_one_time_secret(text: str) -> bool:
     return False
 
 
-def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
+def detect_select_prompt(lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     """Detect an inquire Select frame (the gateway list) in the output lines.
 
     Returns a dict with the question, the visible options in render order, the
@@ -485,7 +594,7 @@ def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
 
     message = window[prompt_index].lstrip()[1:].strip()
     options: List[str] = []
-    cursor = 0
+    cursor = None
     more = False
 
     for line in window[prompt_index + 1 :]:
@@ -501,7 +610,9 @@ def detect_select_prompt(lines: List[str]) -> Optional[Dict[str, Any]]:
             more = True
         options.append(text)
 
-    if not message or not options:
+    # A Select frame always has a highlighted entry; without one the frame is
+    # incomplete (or not a Select at all)
+    if not message or not options or cursor is None:
         return None
 
     return {"message": message, "options": options, "cursor": cursor, "more": more}
@@ -788,6 +899,177 @@ class OutputScanner:
         return [seg for seg in segments[:-1] if seg.strip()]
 
 
+class ScreenBuffer:
+    """Apply raw PTY output (with escape sequences) to a grid of text rows.
+
+    Models just enough of a terminal for inquire's incremental redraws: text
+    overwrites at the cursor, \\r and \\n, relative cursor moves and the erase
+    sequences. Colours and everything else are ignored. The escape syntax is
+    EscapeTokenizer's; feed() takes text, apply() takes its tokens.
+    `version` changes whenever the screen may have changed.
+
+    Characters take as many columns as inquire (unicode-width) gives them: wide
+    (East Asian W/F) ones two - the character in the first cell and an empty
+    string in the second - and zero-width ones (combining marks, format
+    characters) none (they join the previous cell).
+    """
+
+    # Relative cursor moves cannot reach above the visible screen (PTY_ROWS),
+    # so twice that is margin enough; every lines() and detect_select_prompt
+    # pass walks all rows
+    MAX_ROWS = 2 * PTY_ROWS
+    TAB_WIDTH = 8
+
+    def __init__(self):
+        self._rows: List[List[str]] = [[]]
+        self._row = 0
+        self._col = 0
+        self._tokenizer = EscapeTokenizer()  # for feed(); apply() takes tokens
+        self.version = 0
+        self._lines_cache: Tuple[str, ...] = ()
+        self._lines_version = -1
+
+    def lines(self) -> Tuple[str, ...]:
+        """The screen rows (a tuple, cached until the next feed)"""
+        if self._lines_version != self.version:
+            self._lines_cache = tuple("".join(row).rstrip() for row in self._rows)
+            self._lines_version = self.version
+        return self._lines_cache
+
+    def feed(self, text: str) -> None:
+        self.apply(self._tokenizer.feed(text))
+
+    def apply(self, tokens: Sequence[Tuple[str, ...]]) -> None:
+        """Apply EscapeTokenizer tokens"""
+        if not tokens:
+            return
+        self.version += 1
+        for token in tokens:
+            if token[0] == "text":
+                self._write(token[1])
+            else:
+                self._csi(*token[1:])
+
+    def _write(self, text: str) -> None:
+        for char in text:
+            if char == "\r":
+                self._col = 0
+            elif char in "\n\x0b\x0c":  # VT and FF act as line feed
+                self._line_feed()
+            elif char == "\b":
+                self._col = max(0, self._col - 1)
+            elif char == "\t":
+                next_stop = (self._col // self.TAB_WIDTH + 1) * self.TAB_WIDTH
+                self._col = min(next_stop, PTY_COLUMNS - 1)
+            elif CONTROL_CHARS_RE.match(char):
+                continue
+            elif self._zero_width(char):
+                self._attach_combining(char)
+            else:
+                width = 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+                if self._col + width > PTY_COLUMNS:  # autowrap, like a terminal
+                    self._col = 0
+                    self._line_feed()
+                self._put(char, width)
+
+    @staticmethod
+    def _zero_width(char: str) -> bool:
+        """Combining marks and format characters (ZWSP, ZWJ, VS16) take no cell.
+
+        combining() alone misses e.g. Thai vowel signs, which are Mn.
+        """
+        return bool(unicodedata.combining(char)) or (
+            unicodedata.category(char) in ("Mn", "Me", "Cf")
+        )
+
+    def _put(self, char: str, width: int) -> None:
+        """Write `char` into `width` cells at the cursor and advance"""
+        row = self._rows[self._row]
+        end = self._col + width
+        if len(row) < end:
+            row.extend(" " * (end - len(row)))
+        # Overwriting one half of a wide character blanks the other half
+        for index in range(self._col, end):
+            if row[index] == "" and index > 0:
+                row[index - 1] = " "
+        if end < len(row) and row[end] == "":
+            row[end] = " "
+        row[self._col] = char
+        for index in range(self._col + 1, end):
+            row[index] = ""
+        self._col = end
+
+    def _attach_combining(self, char: str) -> None:
+        """Add a zero-width combining mark to the cell left of the cursor"""
+        row = self._rows[self._row]
+        index = self._col - 1
+        if 0 <= index < len(row) and row[index] == "":  # second half of a wide one
+            index -= 1
+        if 0 <= index < len(row):
+            row[index] += char
+
+    def _line_feed(self) -> None:
+        self._move_to_row(self._row + 1)
+
+    def _move_to_row(self, row: int) -> None:
+        """Move to `row`, growing the buffer once and trimming it to MAX_ROWS"""
+        self._row = row
+        missing = row + 1 - len(self._rows)
+        if missing > 0:
+            self._rows.extend([] for _ in range(missing))
+        excess = len(self._rows) - self.MAX_ROWS
+        if excess > 0:
+            del self._rows[:excess]
+            self._row = max(0, self._row - excess)
+
+    def _csi(self, params: str, intermediates: str, final: str) -> None:
+        if intermediates:  # e.g. "ESC [ 2 SP A" (scroll right): not a cursor move
+            return
+        if params[:1] in ("<", "=", ">", "?"):  # private (cursor visibility, ...)
+            return
+        numbers = []
+        for part in params.split(";"):
+            if not part:
+                numbers.append(None)
+            elif part.isdigit():
+                # Longer values are far beyond the screen anyway; the cut also
+                # keeps int() away from absurdly long digit strings
+                numbers.append(int(part[:9]))
+            else:  # e.g. "38:5:1" (SGR) or "1?2": nothing we model
+                return
+        first = numbers[0]
+        count = first if first else 1  # a move by 0 is a move by 1
+
+        if final == "A":
+            self._row = max(0, self._row - count)
+        elif final == "B":
+            self._move_to_row(self._row + min(count, self.MAX_ROWS))
+        elif final == "C":
+            self._col = min(self._col + count, PTY_COLUMNS - 1)
+        elif final == "D":
+            self._col = max(0, self._col - count)
+        elif final == "G":
+            self._col = min(max(0, count - 1), PTY_COLUMNS - 1)
+        elif final == "K":
+            row = self._rows[self._row]
+            mode = first or 0
+            if mode == 0:
+                del row[self._col :]
+            elif mode == 1:
+                row[: self._col + 1] = [" "] * min(len(row), self._col + 1)
+            elif mode == 2:
+                row.clear()
+        elif final == "J":
+            mode = first or 0
+            if mode == 0:
+                del self._rows[self._row][self._col :]
+                del self._rows[self._row + 1 :]
+            elif mode == 2:
+                # Clears the content but not the cursor, so relative moves
+                # keep lining up. Mode 3 (scrollback) does not touch the screen.
+                self._rows = [[] for _ in self._rows]
+
+
 class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN):
     """NetworkManager VPN Plugin for gpclient using python-sdbus"""
 
@@ -818,7 +1100,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._connection_uuid = ""
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
-        self._answered_select = None  # message of the Select we answered
+        self._stored_gateway_count: Optional[int] = None  # gateway-list-count
 
         # Routing configuration
         self.never_default = False
@@ -842,14 +1124,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
-        self._output_scanner = OutputScanner()
-        self._ansi_carry = ""  # incomplete escape sequence from the last read
-        # Recent complete output lines, used to recognise multi-line prompts
-        # (the inquire Select frame with the gateway list) and prompts that
-        # inquire has already terminated with a newline
+        # Recent complete output lines, used for logging, text prompts that
+        # inquire has already terminated with a newline, and _last_output_line
         self._recent_lines: deque = deque(maxlen=96)
-        self._line_counter = 0  # monotonic count of complete lines seen
-        self._answered_at_line = -1  # line count when we last answered a prompt
+        self._reset_output_state()
         self._auth_banner = None  # last "message (Portal: server)" banner
         self._prompt_task = None  # debounce task for prompt handling
         self._answering = False  # a prompt is currently being answered
@@ -947,12 +1225,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answered_username = False
         self._answered_password = False
         self._login_failed = False
-        self._output_scanner = OutputScanner()
-        self._ansi_carry = ""
-        self._recent_lines.clear()
-        self._line_counter = 0
-        self._answered_at_line = -1
-        self._answered_select = None
+        self._reset_output_state()
         self._gateway_list = []
         self._openssl_error_seen = False
         self._openssl_retried = False
@@ -1073,6 +1346,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.as_gateway = data_dict.get("as-gateway", "false").lower() == "true"
             self.preferred_gateway = data_dict.get("preferred-gateway", "").strip()
             self._stored_gateway_list = data_dict.get("gateway-list", "").strip()
+            self._stored_gateway_count = parse_stored_gateway_count(
+                data_dict.get("gateway-list-count", "")
+            )
             logger.info(f"Treat server as gateway: {self.as_gateway}")
             logger.info(
                 "Preferred gateway: "
@@ -1222,10 +1498,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._connection_uuid = ""
         self._gateway_list = []
         self._stored_gateway_list = ""
-        self._answered_select = None
-        self._recent_lines.clear()
-        self._line_counter = 0
-        self._answered_at_line = -1
+        self._stored_gateway_count = None
+        self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
         self._interactive = False
@@ -1615,7 +1889,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             master_fd, slave_fd = pty.openpty()
             # Wide window so prompts don't wrap mid-line
             fcntl.ioctl(
-                master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 200, 0, 0)
+                master_fd,
+                termios.TIOCSWINSZ,
+                struct.pack("HHHH", PTY_ROWS, PTY_COLUMNS, 0, 0),
             )
 
             def _child_setup():
@@ -1687,9 +1963,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 if not chunk:
                     break
 
-                lines = self._consume_output(
-                    chunk.decode("utf-8", errors="replace")
-                )
+                lines = self._consume_output(self._decode_output(chunk))
 
                 # Once the answered prompt is committed as a full line (its
                 # echo flushed), stop suppressing on the old answer - otherwise
@@ -1701,8 +1975,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._last_answer = ""
 
                 for raw_line in lines:
-                    # Keep the raw line: the Select frame's option marker is
-                    # only recognisable by its position (marker, space, value)
+                    # Raw, not stripped: _recent_lines only feeds logging and
+                    # the text prompt checks (a Select is read from _screen)
                     self._recent_lines.append(raw_line)
                     self._line_counter += 1
 
@@ -1713,9 +1987,25 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     last_logged_line = line
                     logger.info(f"gpclient output: {line}")
 
+                    found = parse_gateway_count(line)
+                    if found is not None:
+                        self._gateway_count = found
+
                     chosen = GATEWAY_CHOSEN_RE.search(line)
                     if chosen:
                         self._record_gateways([chosen.group("gateway")])
+                        if (
+                            "the only available" in line
+                            and self._gateway_count == 1
+                        ):
+                            # The portal config holds just this one gateway:
+                            # the whole list, so it replaces the stored one.
+                            # Without "Found 1" gpclient may have fallen back
+                            # to the portal address - that says nothing
+                            self._lap_entries = []
+                            self._append_entries(
+                                self._lap_entries, [chosen.group("gateway")]
+                            )
 
                     if "--as-gateway" in line:
                         logger.warning(
@@ -1776,6 +2066,35 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         except Exception as e:
             logger.error(f"Error monitoring gpclient output: {e}")
 
+    def _reset_output_state(self) -> None:
+        """Forget everything read from gpclient's PTY (a new attempt starts)"""
+        self._output_scanner = OutputScanner()
+        self._ansi_carry = ""  # incomplete escape sequence from the last read
+        self._tokenizer = EscapeTokenizer()  # keeps running after the tunnel is up
+        # Multi-byte characters are cut by read boundaries
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._recent_lines.clear()
+        # What the terminal would show right now; the only way to see an
+        # incrementally redrawn Select frame (issue #25)
+        self._screen = ScreenBuffer()
+        self._tunnel_up = False  # STARTED emitted: stop watching for a Select
+        self._line_counter = 0  # monotonic count of complete lines seen
+        self._answered_at_line = -1  # line count when we last answered a prompt
+        self._answered_select = None  # message of the Select we answered
+        # "Found N gateways in portal config" of this attempt, and the entries
+        # of the whole list when this attempt saw all of it (read page by
+        # page, or a list that is not paged); empty otherwise
+        self._gateway_count: Optional[int] = None
+        self._lap_entries: List[str] = []
+
+    def _decode_output(self, chunk: bytes) -> str:
+        """Decode a PTY read; a character split across reads stays whole.
+
+        Without this the halves become U+FFFD, and inquire - which redraws only
+        the rows that changed - would never repair them on the screen.
+        """
+        return self._decoder.decode(chunk)
+
     def _consume_output(self, text: str) -> List[str]:
         """Clean a chunk of PTY output and return the lines it completed.
 
@@ -1792,7 +2111,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._ansi_carry = split.group(0)
             text = text[: split.start()]
 
-        return self._output_scanner.feed(strip_ansi(text))
+        # One parse for both consumers, so they cannot disagree about the syntax
+        tokens = self._tokenizer.feed(text)
+        if not self._tunnel_up:
+            self._screen.apply(tokens)
+        return self._output_scanner.feed(tokens_text(tokens))
 
     async def _retry_with_openssl_fix(self) -> bool:
         """Restart gpclient once with --fix-openssl after a legacy TLS error.
@@ -1829,15 +2152,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.gpclient_process = None
 
         # Fresh output state for the new attempt
-        self._output_scanner = OutputScanner()
-        self._ansi_carry = ""
-        self._recent_lines.clear()
-        self._line_counter = 0
-        self._answered_at_line = -1
+        self._reset_output_state()
         self._auth_banner = None
         self._answering = False
         self._last_answer = ""
-        self._answered_select = None
         self._phase_key = None
         self._reset_phase_state()
 
@@ -1893,25 +2211,27 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if self._prompt_task and not self._prompt_task.done():
             self._prompt_task.cancel()
 
-        # A list prompt (the gateway list) is a whole frame of complete lines,
-        # so it has to be checked before the tail-based text prompt detection -
+        # A list prompt (the gateway list) is read from the screen model, and
+        # has to be checked before the tail-based text prompt detection -
         # otherwise "? Which gateway do you want to connect to?" would be
         # answered with the username.
-        select_frame = detect_select_prompt(list(self._recent_lines))
+        select_frame = (
+            None if self._tunnel_up else detect_select_prompt(self._screen.lines())
+        )
         if select_frame is not None:
             if select_frame["message"] == self._answered_select:
                 self._prompt_task = None
                 return
 
-            async def _debounced_select(line_count: int):
+            async def _debounced_select(version: int):
                 await asyncio.sleep(PROMPT_DEBOUNCE_SECONDS)
                 # Only act if no further output arrived (frame fully rendered)
-                if len(self._recent_lines) != line_count:
+                if self._screen.version != version:
                     return
                 await self._handle_select_prompt(select_frame)
 
             self._prompt_task = asyncio.create_task(
-                _debounced_select(len(self._recent_lines))
+                _debounced_select(self._screen.version)
             )
             return
 
@@ -2049,15 +2369,44 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         self._write_answer(answer)
 
+    @staticmethod
+    def _gateway_entry(option: str) -> str:
+        """A gateway as it is cached in the profile ("" if nothing is left)"""
+        # ';' separates cached entries and nmcli splits +vpn.data values on
+        # commas, so neither may survive inside an entry
+        entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
+        return " ".join(entry.split())
+
+    def _stored_list_is_complete(self, options: List[str]) -> bool:
+        """Does the profile already hold the whole list this portal offers?
+
+        Only reading a paged list to its end tells, and that takes a few
+        PageDown presses, so it is done once: the stored list counts as complete
+        when gateway-list-count equals the portal's current count (gpclient's
+        "Found N"; without one nothing is trusted) and every gateway on the
+        visible page is in it.
+        """
+        if self._stored_gateway_count is None:
+            return False
+        if self._gateway_count != self._stored_gateway_count:  # also if None
+            return False
+        stored = set(self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR))
+        return all(
+            self._gateway_entry(option) in stored
+            for option in options
+            if self._gateway_entry(option)
+        )
+
+    def _append_entries(self, entries: List[str], options: List[str]) -> None:
+        """Add the options to `entries` as cached entries, each only once"""
+        for option in options:
+            entry = self._gateway_entry(option)
+            if entry and entry not in entries:
+                entries.append(entry)
+
     def _record_gateways(self, options: List[str]) -> None:
         """Remember gateways seen during this attempt, for the profile cache"""
-        for option in options:
-            # ';' separates cached entries and nmcli splits +vpn.data values on
-            # commas, so neither may survive inside an entry
-            entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
-            entry = " ".join(entry.split())
-            if entry and entry not in self._gateway_list:
-                self._gateway_list.append(entry)
+        self._append_entries(self._gateway_list, options)
 
     async def _handle_select_prompt(self, frame: Dict[str, Any]) -> None:
         """Answer gpclient's gateway list without interrupting the user.
@@ -2079,9 +2428,42 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 + (" (list continues past the visible page)" if frame["more"] else "")
             )
 
+            # The whole list, when this attempt gets to see all of it
+            self._lap_entries = []
+            shown = frame  # the frame the selection starts from
+            full = None  # every option of the list, once all of it was read
+            if frame["more"]:
+                if not self._stored_list_is_complete(options):
+                    shown, full = await self._collect_gateway_pages(frame)
+            elif self._gateway_count == len(options):
+                # Not paged: what is shown is the whole list - if the portal
+                # reports no other number of gateways
+                self._append_entries(self._lap_entries, options)
+
             preferred = self.preferred_gateway
             walking = False  # looking through a paged list for `preferred`
-            if not preferred:
+            step_limit = SELECT_MAX_STEPS
+            # Walking on to a gateway known by its name: no lap, no search
+            homing = False
+            if full is not None:
+                # The whole list is known: decide here, then just walk to it
+                target = pick_gateway(full, preferred) if preferred else None
+                if target is None:
+                    target = options[0]
+                    if preferred:
+                        logger.warning(
+                            f"Preferred gateway {preferred!r} is not offered by "
+                            f"the portal - falling back to the first proposal "
+                            f"{target!r} (the connection setting is left "
+                            "unchanged)"
+                        )
+                else:
+                    logger.info(f"Preferred gateway {preferred!r} matches {target!r}")
+                wanted = target
+                matches = lambda option: option == target  # noqa: E731
+                homing = True
+                step_limit = max(SELECT_MAX_STEPS, self._gateway_count + 1)
+            elif not preferred:
                 wanted = options[0]
                 matches = lambda option: option == wanted  # noqa: E731
                 logger.info(
@@ -2118,12 +2500,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         "(the connection setting is left unchanged)"
                     )
 
-            start_option = options[frame["cursor"]]
-            current_frame = frame
+            start_option = shown["options"][shown["cursor"]]
+            current_frame = shown
             steps = 0  # Down presses so far
-            step_limit = SELECT_MAX_STEPS
             substring_hit = None  # first entry that merely contains the name
-            homing = False  # walking on to `substring_hit` by its name
 
             while True:
                 self._record_gateways(current_frame["options"])
@@ -2160,12 +2540,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     )
                     step_limit = steps + SELECT_MAX_STEPS
                 elif lapped and not homing:
+                    first_proposal = options[0]
                     logger.warning(
                         f"Walked the whole list without finding {wanted!r} - "
-                        f"selecting the first proposal {current!r}"
+                        f"selecting the first proposal {first_proposal!r}"
                     )
-                    self._write_keys(KEY_ENTER, "select the first proposal")
-                    return
+                    # The walk began on the first proposal, unless gpclient did
+                    # not redraw after Home: then go on to it by its name
+                    homing = True
+                    matches = lambda option: option == first_proposal  # noqa: E731
+                    step_limit = steps + SELECT_MAX_STEPS
 
                 if matches(current):
                     logger.info(f"Selecting gateway: {current!r}")
@@ -2180,7 +2564,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._write_keys(KEY_ENTER, f"select {current!r}")
                     return
 
-                next_frame = await self._press_list_down()
+                next_frame = await self._press_list_down(current_frame)
                 if next_frame is None:
                     logger.warning(
                         "gpclient stopped redrawing the gateway list - selecting "
@@ -2194,29 +2578,135 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-    async def _press_list_down(self) -> Optional[Dict[str, Any]]:
-        """Move the list cursor one entry down, return the redrawn frame.
+    async def _collect_gateway_pages(
+        self, frame: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], Optional[List[str]]]:
+        """Read a paged gateway list page by page.
 
-        Down wraps around in inquire, so this reaches every entry, including
-        ones outside the visible page. None means gpclient did not redraw.
+        Returns the frame to select from and, when the whole list was seen, all
+        its options in list order (else None).
+
+        PageDown moves the cursor down by a page without wrapping and stops at
+        the last entry, so a few key presses show the whole list (issue #25).
+        Only gpclient's "Found N" tells the end of the list from a gpclient that
+        stopped redrawing, so without it nothing is read. From the first entry
+        the cursor is on the last one after ceil((N - 1) / page) presses; a
+        PageDown without a redraw ends the reading, and it was the end of the
+        list only if that many presses did redraw. The list then goes to
+        `_lap_entries`, which replaces the cached list. Home puts the cursor
+        back on the first proposal; without a redraw the last frame is returned
+        and the selection goes on from there.
         """
-        previous = detect_select_prompt(list(self._recent_lines))
-        previous_option = (
-            previous["options"][previous["cursor"]] if previous else None
-        )
+        count = self._gateway_count  # gpclient's "Found N"
+        self._lap_entries = []
+        if count is None:
+            logger.info(
+                "gpclient did not log the gateway count - not reading the "
+                "gateway list page by page"
+            )
+            return frame, None
 
-        self._write_keys(KEY_DOWN, "move down the gateway list")
+        logger.info("Reading the whole gateway list page by page")
+        full: List[str] = []
+
+        def see(shown: Dict[str, Any]) -> None:
+            self._record_gateways(shown["options"])
+            self._append_entries(self._lap_entries, shown["options"])
+            full.extend(o for o in shown["options"] if o not in full)
+
+        see(frame)
+        last = frame
+        reached_end = False
+        # Redraws that put the cursor on the last entry (page = rows shown)
+        needed = -(-(count - 1) // len(frame["options"]))
+        presses = redraws = 0
+        while True:
+            if len(self._lap_entries) >= count:
+                reached_end = True
+                break
+            if presses >= needed + 2:
+                break
+            next_frame = await self._press_list_key(
+                last, KEY_PAGE_DOWN, "page down the gateway list"
+            )
+            presses += 1
+            if next_frame is None:
+                # No redraw: the cursor is on the last entry - or gpclient
+                # stalled half way
+                reached_end = redraws >= needed
+                break
+            redraws += 1
+            last = next_frame
+            see(last)
+
+        complete = reached_end and len(self._lap_entries) <= count
+        if complete:
+            logger.info(
+                f"Read the whole gateway list: {len(self._lap_entries)} entries"
+            )
+        else:
+            logger.warning(
+                f"Could not read the whole gateway list ({len(self._lap_entries)} "
+                "entries seen) - keeping what the profile has"
+            )
+            self._lap_entries = []
+
+        result = full if complete else None
+        if last is frame:
+            return frame, result
+        home = await self._press_list_key(last, KEY_HOME, "go to the first gateway")
+        if home is None:
+            logger.warning(
+                "gpclient did not redraw the list after Home - selecting from "
+                f"the highlighted entry {last['options'][last['cursor']]!r}"
+            )
+            return last, result
+        return home, result
+
+    async def _press_list_key(
+        self, previous: Dict[str, Any], key: bytes, what: str
+    ) -> Optional[Dict[str, Any]]:
+        """Press a list key, return the redrawn frame.
+
+        `previous` is the frame the cursor is on. Down wraps around in inquire,
+        so it reaches every entry, including ones outside the visible page;
+        PageDown and Home do not wrap. None means the highlighted entry did not
+        change: gpclient did not redraw, or the cursor is where the key leads.
+
+        inquire redraws only the rows that changed (issue #25), so the frame is
+        read from the screen model, and only once the same frame shows on two
+        consecutive polls: a frame read in the middle of a redraw mixes old and
+        new rows, and such a frame does not stay the same. Unrelated output
+        does not hold the walk up.
+        """
+        previous_option = previous["options"][previous["cursor"]]
+
+        self._write_keys(key, what)
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + SELECT_REDRAW_TIMEOUT
+        last_seen = None
         while loop.time() < deadline:
             await asyncio.sleep(SELECT_POLL_INTERVAL)
-            frame = detect_select_prompt(list(self._recent_lines))
-            if frame is None:
-                continue
-            if frame["options"][frame["cursor"]] != previous_option:
-                return frame
+            frame = detect_select_prompt(self._screen.lines())
+            seen = (
+                None
+                if frame is None
+                else (tuple(frame["options"]), frame["cursor"], frame["more"])
+            )
+            if seen is not None and seen == last_seen:
+                if frame["options"][frame["cursor"]] != previous_option:
+                    return frame
+            last_seen = seen
         return None
+
+    async def _press_list_down(
+        self, previous: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Move the list cursor one entry down, return the redrawn frame"""
+        return await self._press_list_key(
+            previous, KEY_DOWN, "move down the gateway list"
+        )
 
     async def _nmcli_modify(self, *arguments: str) -> bool:
         """Run `nmcli connection modify <uuid> ...` (best effort).
@@ -2303,14 +2793,44 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if not self._gateway_list:
             return
 
-        value = GATEWAY_LIST_SEPARATOR.join(self._gateway_list)
-        if value == self._stored_gateway_list:
-            logger.debug("Gateway list unchanged, leaving the profile alone")
-            return
+        count = None
+        if self._lap_entries:
+            # The whole list was seen (read page by page, or not paged): it
+            # replaces what was stored, so gateways the portal dropped
+            # disappear
+            entries = self._lap_entries
+            count = self._gateway_count
+        else:
+            # Only part of the list was seen: never shrink what is stored.
+            # What was seen comes first (the portal's order), then the stored
+            # entries that were not seen this time
+            entries = list(self._gateway_list)
+            entries += [
+                e
+                for e in self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR)
+                if e and e not in entries
+            ]
 
-        logger.info(f"Caching gateway list in the connection profile: {value}")
-        if await self._write_vpn_data("gateway-list", value):
+        value = GATEWAY_LIST_SEPARATOR.join(entries)
+        changed = False
+        if value != self._stored_gateway_list:
+            logger.info(f"Caching gateway list in the connection profile: {value}")
+            if not await self._write_vpn_data("gateway-list", value):
+                return
             self._stored_gateway_list = value
+            changed = True
+        # The count marks the list as complete, so it follows the list
+        if count is not None and count != self._stored_gateway_count:
+            if await self._write_vpn_data("gateway-list-count", str(count)):
+                self._stored_gateway_count = count
+            else:
+                logger.warning(
+                    "Could not store the gateway count - the next connection "
+                    "reads the gateway list again"
+                )
+            changed = True
+        if not changed:
+            logger.debug("Gateway list unchanged, leaving the profile alone")
 
     async def _persist_fix_openssl(self) -> None:
         """Remember that this portal needs the legacy TLS workaround.
@@ -2841,6 +3361,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                     # Emit state change: activated
                     self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTED)
+                    self._tunnel_up = True
 
                     # The login succeeded, so what we learned along the way is
                     # worth keeping in the profile: the gateway list for the
