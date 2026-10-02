@@ -157,18 +157,21 @@ jobs:
         # Installs the newest release from the public apt repository in a fresh
         # ubuntu container and upgrades it to the packages built above (see
         # .github/scripts/upgrade-test.sh). Every scenario runs; the step fails
-        # at the end if any of them failed.
+        # at the end if any of them failed. The containers write the GUI smoke
+        # test screenshots to gui-smoke/, uploaded by the next step.
         env:
           UBUNTU: ${{ matrix.ubuntu }}
           ARCH: ${{ matrix.arch }}
         run: |
           failed=""
+          mkdir -p "$PWD/gui-smoke"
           for scenario in gnome plasma plasma-new; do
             echo "::group::Upgrade test: $scenario"
             if ! docker run --rm \
                 -v "$PWD/output/ubuntu${UBUNTU}-${ARCH}:/debs:ro" \
                 -v "$PWD/.github/scripts:/scripts:ro" \
-                "ubuntu:${UBUNTU}" bash /scripts/upgrade-test.sh "$scenario" /debs; then
+                -v "$PWD/gui-smoke:/out" \
+                "ubuntu:${UBUNTU}" bash /scripts/upgrade-test.sh "$scenario" /debs /out; then
               failed="$failed $scenario"
             fi
             echo "::endgroup::"
@@ -177,6 +180,16 @@ jobs:
             echo "::error::Upgrade test failed for:$failed"
             exit 1
           fi
+
+      - name: Upload GUI screenshots
+        # Screenshots of the connection editor from the upgrade test (see
+        # .github/scripts/gui-smoke.sh); also kept when that test failed.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-smoke-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
+          path: gui-smoke/*.png
+          if-no-files-found: ignore
 
   release:
     needs: build

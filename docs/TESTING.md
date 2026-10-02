@@ -63,9 +63,39 @@ no such package for that Ubuntu version or architecture. To run it by hand
 against built packages (it needs network access and changes only the container):
 
 ```bash
+mkdir -p gui-smoke
 docker run --rm -v "$PWD/output/ubuntu24.04-amd64:/debs:ro" -v "$PWD/.github/scripts:/scripts:ro" \
-  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs   # or: plasma, plasma-new
+  -v "$PWD/gui-smoke:/out" \
+  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs /out   # or: plasma, plasma-new
 ```
+
+### GUI smoke test
+
+After a successful upgrade, `upgrade-test.sh` calls `.github/scripts/gui-smoke.sh`
+(only when a third argument names an output directory, and never for a skipped
+scenario). It runs in the same container and checks that the installed
+connection editor starts:
+
+- **GNOME** (`gnome`): under Xvfb, `gui_smoke_gtk.py` finds the editor the way
+  NetworkManager does (the `.name` file of `network-manager-gpclient`, loaded
+  with `NM.VpnPluginInfo`), opens it for a test connection and shows it in a
+  window. It then saves a screenshot and checks that the widget has a size and
+  shows the gateway, the preferred gateway and the two gateways of the list, the
+  username, the authentication mode and the "Address is a gateway" check button.
+  It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
+  for GTK4 in a second process.
+- **Plasma** (`plasma`, `plasma-new`): a load check only. `ldd` finds every library
+  of `plasmanetworkmanagement_gpclientui.so`, its metadata names our service,
+  and `QPluginLoader` (PyQt5 for `-plasma-5`, PyQt6 for `-plasma-6`) loads it
+  with `QT_QPA_PLATFORM=offscreen`. Without PyQt only the JSON file next to the
+  plugin is checked, and the log says so. There is **no screenshot**: showing the
+  Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.
+
+The screenshots (`gnome-gtk3-<codename>-<arch>.png`, `gnome-gtk4-...png`) are in
+the artifact `gui-smoke-ubuntu-<ubuntu>-<arch>` of the workflow run (step "Upload
+GUI screenshots", also after a failed run). The pure logic of the probes is in
+`.github/scripts/gui_smoke_lib.py`, tested by `tests/unit/test_gui_smoke.py`; the
+GTK and Qt parts themselves run only in CI.
 
 ## Troubleshooting
 

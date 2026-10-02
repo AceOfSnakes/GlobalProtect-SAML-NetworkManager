@@ -6,7 +6,7 @@
 # Run as root inside a fresh ubuntu:<version> container (see
 # .github/workflows/build-release.yml; never on a developer's machine):
 #
-#   upgrade-test.sh <scenario> [debs-dir]
+#   upgrade-test.sh <scenario> [debs-dir [gui-out-dir]]
 #
 # Scenarios:
 #   gnome       install network-manager-gpclient-gnome from the release
@@ -14,12 +14,16 @@
 #               a transitional package) from the release
 #   plasma-new  install the release's own -plasma-5 / -plasma-6, if it has one
 #
+# With a gui-out-dir, a GUI smoke test of the installed editor plugin follows
+# the successful upgrade (gui-smoke.sh; screenshots go to that directory).
+#
 # Prints "SKIP: ..." and exits 0 when the release has no such package for this
 # Ubuntu release and architecture (e.g. 24.10 and arm64 had no 1.4.1 builds).
 set -euo pipefail
 
 SCENARIO="${1:-}"
 DEBS_DIR="${2:-/debs}"
+GUI_OUT="${3:-}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="https://wmp.github.io/GlobalProtect-SAML-NetworkManager"
 KEYRING="/usr/share/keyrings/gpclient-archive-keyring.gpg"
@@ -44,6 +48,25 @@ esac
 # Containers have no init system: do not let postinst scripts start services
 printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
 chmod 755 /usr/sbin/policy-rc.d
+
+# Ubuntu releases that are end of life: their archive moved to
+# old-releases.ubuntu.com. Keep in sync with the Dockerfile.ubuntu<version> that
+# write the same ubuntu.sources (tests/unit checks it).
+EOL_CODENAMES="oracular"
+OS_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
+case " $EOL_CODENAMES " in
+    *" $OS_CODENAME "*)
+        echo "$OS_CODENAME is end of life: using old-releases.ubuntu.com"
+        : > /etc/apt/sources.list
+        printf '%s\n' \
+            "Types: deb" \
+            "URIs: http://old-releases.ubuntu.com/ubuntu/" \
+            "Suites: $OS_CODENAME $OS_CODENAME-updates $OS_CODENAME-backports $OS_CODENAME-security" \
+            "Components: main universe restricted multiverse" \
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg" \
+            > /etc/apt/sources.list.d/ubuntu.sources
+        ;;
+esac
 
 echo "::group::Prepare ($SCENARIO)"
 apt-get update -qq
@@ -157,3 +180,6 @@ if [ "$SCENARIO" != gnome ]; then
     fi
 fi
 echo "PASS: $SCENARIO upgrade on $CODENAME/$ARCH to $EXPECTED"
+if [ -n "$GUI_OUT" ]; then
+    bash "$HERE/gui-smoke.sh" "$SCENARIO" "$GUI_OUT"
+fi
