@@ -58,7 +58,9 @@ repository (scenarios `gnome` and `plasma`; `plasma` also checks that the editor
 plugin is in the Qt directory of the release: `qt5` on 22.04 and 24.04, `qt6` on
 24.10 and 26.04; the scenario `neon` does the same for
 `network-manager-gpclient-plasma-6` on KDE neon, see below), then runs
-`apt upgrade` to the new `.deb` files and checks that nothing is kept back,
+`apt upgrade` to the new `.deb` files (in the `neon` scenario only the installed
+`network-manager-gpclient*` packages are upgraded, not the base system of the neon
+repository) and checks that nothing is kept back,
 removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
 `.github/scripts/check_upgrade.py`). Before the upgrade it checks that the build
 is newer than the release (`dpkg --compare-versions`). When the release has no

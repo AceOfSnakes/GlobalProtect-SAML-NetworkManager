@@ -110,6 +110,67 @@ class TestCleanUpgrades:
         assert run_check(before, after) == []
 
 
+class TestPackagesNotInstalledBefore:
+    """A package that has no files before the upgrade (rc: removed, configuration left; un, pn) was not
+    installed: what the upgrade leaves of it is not a result of the upgrade"""
+
+    @pytest.mark.parametrize("state", ["rc", "un", "pn"])
+    @pytest.mark.parametrize("name", ["network-manager-gpclient-other", "network-manager-gpclient-plasma-5",
+                                      "network-manager-gpclient-plasma-6"])
+    def test_a_package_that_was_not_installed_before_is_not_reported(self, state, name):
+        version = "" if state in ("un", "pn") else OLD
+
+        problems = run_check(GNOME_BEFORE + [(name, version, state)], GNOME_AFTER + [(name, version, state)])
+
+        assert problems == []
+
+    @pytest.mark.parametrize("state", ["rc", "un", "pn"])
+    def test_a_package_that_was_not_installed_before_and_is_gone_after_is_not_reported(self, state):
+        version = "" if state in ("un", "pn") else OLD
+
+        assert run_check(GNOME_BEFORE + [("network-manager-gpclient-other", version, state)], GNOME_AFTER) == []
+
+    @pytest.mark.parametrize("state", ["iU", "iF", "iH", "ii"])
+    def test_a_package_that_was_not_installed_before_is_judged_by_its_state_after(self, state):
+        before = GNOME_BEFORE + [("network-manager-gpclient-other", OLD, "rc")]
+
+        problems = run_check(before, GNOME_AFTER + [("network-manager-gpclient-other", NEW, state)])
+
+        assert (problems == []) == (state == "ii")
+
+    @pytest.mark.parametrize("state", ["ii", "iU", "hi", "ri"])
+    def test_a_package_that_was_installed_before_and_is_in_rc_after_is_reported(self, state):
+        before = GNOME_BEFORE + [("network-manager-gpclient-other", OLD, state)]
+        after = GNOME_AFTER + [("network-manager-gpclient-other", OLD, "rc")]
+
+        problems = run_check(before, after)
+
+        assert any("network-manager-gpclient-other was installed before and is in state 'rc'" in p for p in problems)
+
+    @pytest.mark.parametrize("state", ["ii", "iU", "hi", "ri"])
+    def test_a_package_that_was_installed_before_and_is_gone_after_is_reported(self, state):
+        before = GNOME_BEFORE + [("network-manager-gpclient-other", OLD, state)]
+
+        problems = run_check(before, GNOME_AFTER)
+
+        assert any("network-manager-gpclient-other" in p and "gone" in p for p in problems)
+
+    @pytest.mark.parametrize("state", ["ii", "iU", "hi"])
+    def test_an_installed_package_of_the_former_split_is_still_reported(self, state):
+        problems = run_check(GNOME_BEFORE, GNOME_AFTER + [("network-manager-gpclient-plasma-5", NEW, state)])
+
+        assert any("network-manager-gpclient-plasma-5 is installed" in p for p in problems)
+
+    def test_the_wanted_package_in_rc_is_not_installed(self):
+        core = ("network-manager-gpclient", NEW, "ii")
+        before = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpclient-plasma", OLD, "rc")]
+        after = [core, ("network-manager-gpclient-plasma", OLD, "rc")]
+
+        problems = run_check(before, after, "plasma")
+
+        assert any("network-manager-gpclient-plasma is not installed after the upgrade" in p for p in problems)
+
+
 class TestBrokenUpgrades:
     def test_core_kept_back(self):
         after = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpclient-gnome", NEW, "ii")]
@@ -301,6 +362,21 @@ class TestFreshInstall:
     def test_an_empty_expected_version(self):
         with pytest.raises(ValueError, match="expected version"):
             self.fresh(GNOME_AFTER, expected="")
+
+    @pytest.mark.parametrize("after, scenario", [
+        ([("network-manager-gpclient", OLD, "ii"), ("network-manager-gpclient-gnome", OLD, "ii")], "gnome"),
+        ([("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-gnome", NEW, "iU")], "gnome"),
+        ([("network-manager-gpclient", NEW, "ii")], "gnome"),
+        ([("network-manager-gpclient-gnome", NEW, "ii")], "gnome"),
+        ([("network-manager-gpclient", NEW, "ii"), ("network-manager-gpclient-plasma-5", NEW, "ii")], "plasma"),
+    ])
+    def test_a_fresh_install_never_talks_about_an_upgrade_or_what_was_before(self, after, scenario):
+        problems = self.fresh(after, scenario)
+
+        assert problems
+        for problem in problems:
+            assert "upgrade" not in problem and "before" not in problem and "kept back" not in problem, problem
+            assert "after the install" in problem, problem
 
     def test_the_upgrade_wording_is_unchanged(self):
         after = [("network-manager-gpclient", OLD, "ii"), ("network-manager-gpclient-gnome", NEW, "ii")]

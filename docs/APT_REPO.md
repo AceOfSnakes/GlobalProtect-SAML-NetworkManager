@@ -23,7 +23,8 @@ sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with
 
 On KDE neon use `network-manager-gpclient-plasma-6`: it is in the `noble` suite
 next to the others, built against the neon repository, and conflicts with
-`network-manager-gpclient-plasma` (Plasma 5).
+`network-manager-gpclient-plasma` (Plasma 5): only one Plasma generation can use the
+plugin.
 
 Same thing in deb822 format, if you prefer `/etc/apt/sources.list.d/*.sources`:
 

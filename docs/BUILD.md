@@ -48,7 +48,9 @@ is a second build for 24.04, only of the Plasma plugin (no GNOME plugins, no Rus
 which sets the repository up with `.github/scripts/neon-repo.sh` (it checks the
 fingerprint of the repository key). `debian/rules` recognises such a control file by
 its lack of the core package. CI builds it after the main 24.04 build, with the same
-version (`~noble1`), for `amd64` only: neon has no `plasma-nm` for `arm64`. Locally:
+version (`~noble1`), for `amd64` only: neon has no `plasma-nm` for `arm64`. The control
+file says so (`Architecture: amd64`) and the workflow reads it from there: a variant is built
+for the architectures its binary packages list (`any` is all of them). Locally:
 
 ```bash
 docker build -t gpclient-builder:ubuntu24.04-neon -f Dockerfile.ubuntu24.04-neon .

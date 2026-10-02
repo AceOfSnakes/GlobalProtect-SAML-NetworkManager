@@ -43,7 +43,8 @@ network-manager-gpclient (1.5.0-1) unstable; urgency=medium
   * New network-manager-gpclient-plasma-6 for KDE neon (Ubuntu 24.04 with
     Plasma 6 from archive.neon.kde.org), built against the neon repository for
     amd64 only; it conflicts with the Qt5 network-manager-gpclient-plasma of
-    Ubuntu 24.04. Thanks to the idea of PR #16
+    Ubuntu 24.04 (only one Plasma generation can use the plugin), which needs
+    plasma-nm (<< 4:6) and is refused by apt on Plasma 6. Thanks to the idea of PR #16
   * Dependencies list the t64 library names next to the older ones, so the
     packages install on releases with and without the 64-bit time_t rename
   * The release notes start with a table of downloads by Ubuntu release and

@@ -20,6 +20,10 @@
 #               package for the architecture (it is amd64 only); anywhere else
 #               the scenario prints SKIP and succeeds
 #
+# The upgrade is apt upgrade, except in the neon scenario: with the KDE neon
+# repository enabled that would upgrade the base system too, so only the
+# installed network-manager-gpclient packages are upgraded there.
+#
 # With a gui-out-dir, a GUI smoke test of the installed editor plugin follows
 # the successful upgrade (gui-smoke.sh; screenshots go to that directory).
 #
@@ -74,16 +78,28 @@ case " $EOL_CODENAMES " in
         ;;
 esac
 
+# release_debs <codename> <arch> [package]: sets RELEASE_DEBS to the .deb files in
+# $DEBS_DIR for this Ubuntu release and architecture (the version ends in
+# ~<codename>1..., GitHub stores the "~" of a release asset as "."), only those
+# of <package> when it is given. The one place that matches the file names.
+release_debs() {
+    local codename="$1" arch="$2" package="${3:-*}" deb
+    RELEASE_DEBS=()
+    shopt -s nullglob
+    for deb in "$DEBS_DIR"/${package}_*[~.]"${codename}"1*_"${arch}".deb; do
+        RELEASE_DEBS+=("$deb")
+    done
+    shopt -u nullglob
+}
+
 # neon_skip_reason: why the neon scenario has nothing to test here (empty when it
 # has). KDE neon is Ubuntu 24.04, and its package is built for amd64 only.
 neon_skip_reason() {
-    local arch debs
+    local arch
     [ "$OS_CODENAME" = noble ] || { echo "KDE neon is Ubuntu 24.04 (noble), this is ${OS_CODENAME:-unknown}"; return 0; }
     arch="$(dpkg --print-architecture)"
-    shopt -s nullglob
-    debs=("$DEBS_DIR"/network-manager-gpclient-plasma-6_*~noble1*_"${arch}".deb)
-    shopt -u nullglob
-    [ ${#debs[@]} -gt 0 ] || echo "no network-manager-gpclient-plasma-6 for noble/$arch in $DEBS_DIR"
+    release_debs noble "$arch" network-manager-gpclient-plasma-6
+    [ ${#RELEASE_DEBS[@]} -gt 0 ] || echo "no network-manager-gpclient-plasma-6 for noble/$arch in $DEBS_DIR"
 }
 
 if [ "$SCENARIO" = neon ]; then
@@ -156,8 +172,8 @@ upgrade_possible() {
 prepare_local_repo() {
     echo "::group::Local repository from $DEBS_DIR"
     mkdir -p "$LOCAL_REPO"
-    shopt -s nullglob
-    for deb in "$DEBS_DIR"/*~"${CODENAME}"1*_"${ARCH}".deb "$DEBS_DIR"/*."${CODENAME}"1*_"${ARCH}".deb; do
+    release_debs "$CODENAME" "$ARCH"
+    for deb in "${RELEASE_DEBS[@]}"; do
         # The package for KDE neon conflicts with the Plasma 5 one: the neon
         # scenario only takes it
         case "$(basename "$deb")" in
@@ -165,7 +181,6 @@ prepare_local_repo() {
         esac
         cp "$deb" "$LOCAL_REPO/"
     done
-    shopt -u nullglob
     chmod -R a+rX "$LOCAL_REPO"
     ls "$LOCAL_REPO"/*.deb > /dev/null 2>&1 || fail "no .deb for $CODENAME/$ARCH in $DEBS_DIR"
     EXPECTED="$(for deb in "$LOCAL_REPO"/*.deb; do dpkg-deb -f "$deb" Version; done | sort -u)"
@@ -188,6 +203,21 @@ status() {
     dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\n' 'network-manager-gpclient*'
 }
 
+# upgrade_packages <before.txt>: upgrades to the local repository. gnome and
+# plasma: apt upgrade, as a user does. neon: the neon repository is enabled, so
+# apt upgrade would upgrade the whole base system with it; only the installed
+# network-manager-gpclient packages (the ones in <before.txt>) are upgraded.
+upgrade_packages() {
+    local installed
+    if [ "$SCENARIO" = neon ]; then
+        mapfile -t installed < <(awk '$3 ~ /^i/ {print $1}' "$1")
+        [ ${#installed[@]} -gt 0 ] || fail "no network-manager-gpclient package is installed to upgrade"
+        apt-get install -y --no-install-recommends --only-upgrade "${installed[@]}"
+    else
+        apt upgrade -y --no-install-recommends
+    fi
+}
+
 if upgrade_possible; then
     echo "::group::Install the released $PACKAGE"
     apt-get install -y --no-install-recommends "$PACKAGE"
@@ -204,9 +234,10 @@ if upgrade_possible; then
     apt-get -s upgrade | grep -E "gpclient|^[0-9]+ upgraded" || true
 
     echo "::group::apt upgrade"
-    apt upgrade -y --no-install-recommends
+    upgrade_packages "$WORK/before.txt"
     echo "::endgroup::"
     MODE=upgrade
+    WHEN="after the upgrade"
     MODE_ARGS=(--before "$WORK/before.txt")
 else
     echo "No released $PACKAGE for $CODENAME/$ARCH: fresh install of this build instead"
@@ -217,11 +248,12 @@ else
     apt-get install -y --no-install-recommends "$PACKAGE"
     echo "::endgroup::"
     MODE=fresh
+    WHEN="after the fresh install"
     MODE_ARGS=(--fresh)
 fi
 
 status > "$WORK/after.txt"
-echo "Installed after the $MODE:"
+echo "Installed $WHEN:"
 cat "$WORK/after.txt"
 
 # check_upgrade.py checks the packages and, for Plasma, the editor plugin: it is
@@ -229,7 +261,7 @@ cat "$WORK/after.txt"
 PLASMA_FILES=()
 if [ "$SCENARIO" = plasma ] || [ "$SCENARIO" = neon ]; then
     dpkg -L "$PACKAGE" > "$WORK/plasma-files.txt" \
-        || fail "$PACKAGE is not installed after the $MODE"
+        || fail "$PACKAGE is not installed $WHEN"
     PLASMA_FILES=(--plasma-files "$WORK/plasma-files.txt")
 fi
 python3 "$HERE/check_upgrade.py" "${MODE_ARGS[@]}" --after "$WORK/after.txt" \

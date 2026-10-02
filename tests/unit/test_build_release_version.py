@@ -99,13 +99,17 @@ class Box:
 
     # --- the build step
 
-    def add_variant(self, variant, ubuntu="24.04", dockerfile=True, control=True):
+    def add_variant(self, variant, ubuntu="24.04", dockerfile=True, control=True, arch="amd64", text=None):
         """The files of a build variant of an Ubuntu release (Dockerfile.ubuntu<version>-<variant> and
-        debian/control.ubuntu<version>-<variant>)"""
+        debian/control.ubuntu<version>-<variant>); its binary package has the Architecture `arch`
+        (None: no such field), or the control file is `text`"""
         if dockerfile:
             (self.work / f"Dockerfile.ubuntu{ubuntu}-{variant}").write_text("FROM scratch\n")
         if control:
-            (self.work / "debian" / f"control.ubuntu{ubuntu}-{variant}").write_text(f"Source: {variant}\n")
+            if text is None:
+                field = f"Architecture: {arch}\n" if arch is not None else ""
+                text = f"Source: {variant}\nArchitecture: ignored\n\nPackage: {variant}-pkg\n{field}Description: x\n x\n"
+            (self.work / "debian" / f"control.ubuntu{ubuntu}-{variant}").write_text(text)
 
     def container(self, args, event, pr, run):
         """Run the script that one `docker run` hands to its container, in a fresh copy of the sources:
@@ -361,7 +365,7 @@ class TestBuildVariants:
         assert result["runs"][1]["docker_args"][-4] == NEON_IMAGE
         # the control file of the variant is the one that is built with
         assert result["runs"][0]["control"] == "Source: x\n"
-        assert result["runs"][1]["control"] == "Source: neon\n"
+        assert result["runs"][1]["control"].startswith("Source: neon\n")
 
     @pytest.mark.parametrize("event, pr, suffix", [
         ("pull_request", "24", "+pr24.57"), ("push", "", ""), ("workflow_dispatch", "", ""),
@@ -405,8 +409,8 @@ class TestBuildVariants:
         assert len(result["runs"]) == 1
         assert NEON_IMAGE not in " ".join(box.builds())
 
-    def test_the_neon_variant_is_built_for_amd64_only(self, box):
-        box.add_variant("neon")
+    def test_a_variant_for_amd64_is_not_built_for_arm64(self, box):
+        box.add_variant("neon", arch="amd64")
 
         result = box.build("push", arch="arm64")
 
@@ -414,6 +418,86 @@ class TestBuildVariants:
         assert [environment(r["docker_args"])["CONTROL"] for r in result["runs"]] == [MAIN_CONTROL]
         assert box.builds() == ["build -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu24.04 ."]
         assert "Variant neon is built for amd64 only, not for arm64" in result["step"].stdout
+
+    def test_a_variant_for_arm64_is_not_built_for_amd64_and_is_built_for_arm64(self, box):
+        box.add_variant("neon", arch="arm64")
+
+        skipped = box.build("push", arch="amd64")
+        assert [environment(r["docker_args"])["CONTROL"] for r in skipped["runs"]] == [MAIN_CONTROL]
+        assert "Variant neon is built for arm64 only, not for amd64" in skipped["step"].stdout
+
+    def test_a_variant_for_arm64_is_built_for_arm64(self, box):
+        box.add_variant("neon", arch="arm64")
+
+        built = box.build("push", arch="arm64")
+
+        assert [environment(r["docker_args"])["CONTROL"] for r in built["runs"]] == [MAIN_CONTROL, NEON_CONTROL]
+
+    @pytest.mark.parametrize("arch", ["amd64", "arm64"])
+    def test_a_variant_for_any_architecture_is_built_everywhere(self, box, arch):
+        box.add_variant("neon", arch="any")
+
+        result = box.build("push", arch=arch)
+
+        assert [environment(r["docker_args"])["CONTROL"] for r in result["runs"]] == [MAIN_CONTROL, NEON_CONTROL]
+
+    @pytest.mark.parametrize("arch", ["amd64", "arm64"])
+    @pytest.mark.parametrize("field", ["amd64 arm64", "arm64 amd64", "amd64\tarm64"])
+    def test_a_variant_that_lists_the_architecture_is_built(self, box, arch, field):
+        box.add_variant("neon", arch=field)
+
+        result = box.build("push", arch=arch)
+
+        assert len(result["runs"]) == 2
+
+    @pytest.mark.parametrize("arch", ["amd64", "arm64"])
+    def test_the_architectures_of_every_binary_package_of_a_variant_count(self, box, arch):
+        other = "arm64" if arch == "amd64" else "amd64"
+        box.add_variant("neon", text=(
+            f"Source: neon\n\nPackage: a\nArchitecture: {other}\nDescription: x\n x\n\n"
+            f"Package: b\nArchitecture: {arch}\nDescription: x\n x\n"))
+
+        result = box.build("push", arch=arch)
+
+        assert len(result["runs"]) == 2
+
+    @pytest.mark.parametrize("arch", ["amd64", "arm64"])
+    @pytest.mark.parametrize("other", ["s390x", "amd64-x", "arm", "i386 ppc64el", "all"])
+    def test_a_variant_for_other_architectures_is_not_built(self, box, arch, other):
+        box.add_variant("neon", arch=other)
+
+        result = box.build("push", arch=arch)
+
+        assert result["step"].returncode == 0
+        assert len(result["runs"]) == 1
+        assert f"not for {arch}" in result["step"].stdout
+
+    @pytest.mark.parametrize("arch", ["amd64", "arm64"])
+    def test_the_architecture_of_the_source_stanza_is_not_the_one_of_a_package(self, box, arch):
+        box.add_variant("neon", text=f"Source: neon\nArchitecture: {arch}\n\nPackage: a\nArchitecture: s390x\n")
+
+        result = box.build("push", arch=arch)
+
+        assert len(result["runs"]) == 1
+
+    def test_the_real_control_file_of_the_neon_variant_is_for_amd64_only(self, box):
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        with open(os.path.join(root, NEON_CONTROL), encoding="utf-8") as handle:
+            real = handle.read()
+        box.add_variant("neon", text=real)
+
+        on_arm64 = box.build("push", arch="arm64")
+        assert len(on_arm64["runs"]) == 1
+        assert "Variant neon is built for amd64 only, not for arm64" in on_arm64["step"].stdout
+
+    def test_the_real_control_file_of_the_neon_variant_is_built_for_amd64(self, box):
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        with open(os.path.join(root, NEON_CONTROL), encoding="utf-8") as handle:
+            box.add_variant("neon", text=handle.read())
+
+        on_amd64 = box.build("push", arch="amd64")
+
+        assert [environment(r["docker_args"])["CONTROL"] for r in on_amd64["runs"]] == [MAIN_CONTROL, NEON_CONTROL]
 
     def test_the_main_build_still_runs_for_arm64_when_the_variant_has_no_arm64(self, box):
         box.add_variant("neon")
@@ -423,13 +507,14 @@ class TestBuildVariants:
         assert result["runs"][0]["version"] == f"{RELEASE_VERSION}~{CODENAME}1+pr24.57"
 
     @pytest.mark.parametrize("variant", ["other", "x1"])
-    def test_a_variant_without_a_list_of_architectures_fails_the_step(self, box, variant):
-        box.add_variant(variant)
+    @pytest.mark.parametrize("text", ["Source: x\n", "Source: x\nArchitecture: any\n\nPackage: a\nDescription: x\n x\n"])
+    def test_a_variant_without_an_architecture_in_its_packages_fails_the_step(self, box, variant, text):
+        box.add_variant(variant, text=text)
 
         result = box.build("push")
 
         assert result["step"].returncode != 0
-        assert f"variant {variant} has no list of architectures" in result["step"].stdout
+        assert f"variant {variant} has no Architecture field in its binary packages" in result["step"].stdout
         assert len(box.builds()) == 1
 
     @pytest.mark.parametrize("variant", ["Neon", "ne_on", "ne on", "$(touch injected)", "a;touch injected", "-x", "ne.on"])
@@ -453,7 +538,7 @@ class TestBuildVariants:
         assert result["step"].returncode != 0
         assert len(list(box.fake.glob("docker_run.*"))) == 1
 
-    def test_every_variant_of_the_repository_has_both_files_and_is_known_to_the_workflow(self):
+    def test_every_variant_of_the_repository_has_both_files_and_an_architecture(self):
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         script = step_script("Build Debian packages", {
             "${{ matrix.ubuntu }}": "24.04", "${{ matrix.arch }}": "amd64", "${{ github.workspace }}": "/w"})
@@ -465,14 +550,10 @@ class TestBuildVariants:
             found += 1
             ubuntu, variant = match.groups()
             assert os.path.isfile(os.path.join(root, "debian", f"control.ubuntu{ubuntu}-{variant}")), name
-            assert re.search(rf"^\s+{variant}\) echo [a-z0-9 ]+ ;;$", script, re.M), name
+            with open(os.path.join(root, "debian", f"control.ubuntu{ubuntu}-{variant}"), encoding="utf-8") as handle:
+                assert re.search(r"^Architecture:\s*\S", handle.read().split("\nPackage:", 1)[1], re.M), name
         assert found
-
-    def test_the_neon_variant_does_not_list_arm64(self):
-        script = step_script("Build Debian packages", {
-            "${{ matrix.ubuntu }}": "24.04", "${{ matrix.arch }}": "amd64", "${{ github.workspace }}": "/w"})
-        line = re.search(r"^\s+neon\) echo (.*) ;;$", script, re.M).group(1)
-        assert line == "amd64"
+        assert "variant_arches()" in script and "neon)" not in script
 
 
 class TestVerifyStepVariants:

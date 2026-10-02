@@ -68,6 +68,25 @@ CONFLICTS = {
     "control.ubuntu24.10": [],
     "control.ubuntu26.04": [],
 }
+# The plasma-nm the Plasma package of every control file depends on: the plugin is built with
+# one Plasma generation (Qt5: Plasma 5, Qt6: Plasma 6), so apt must refuse it on the other. KDE neon
+# is Ubuntu 24.04 with Plasma 6, where the Qt5 package (plasma-nm 4:5.x in the archive) must not install
+PLASMA_NM = {
+    "control": "plasma-nm (<< 4:6)",
+    "control.ubuntu22.04": "plasma-nm (<< 4:6)",
+    "control.ubuntu24.04": "plasma-nm (<< 4:6)",
+    "control.ubuntu24.10": "plasma-nm (>= 4:6)",
+    "control.ubuntu26.04": "plasma-nm (>= 4:6)",
+}
+# What the core package recommends: on Ubuntu 24.04 the package for KDE neon is one of the alternatives, or
+# apt would pull the GNOME package onto KDE neon, where -plasma-6 is installed
+RECOMMENDS = {
+    "control": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
+    "control.ubuntu22.04": "%s-gnome | %s" % (CORE, PLASMA),
+    "control.ubuntu24.04": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
+    "control.ubuntu24.10": "%s-gnome | %s" % (CORE, PLASMA),
+    "control.ubuntu26.04": "%s-gnome | %s" % (CORE, PLASMA),
+}
 DOCKERFILES = {
     "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
     "control.ubuntu24.04": "Dockerfile.ubuntu24.04",
@@ -128,11 +147,19 @@ def covers(bound, version):
     return upstream(version) < upstream(bound[:-1])
 
 
-def check_control(text, qt, formers=None, conflicts=()):
+def expected(name, **other):
+    """What check_control expects of the real control file `name`, with `other` expectations instead"""
+    return {"formers": FORMERS[name], "conflicts": CONFLICTS[name], "plasma_nm": PLASMA_NM[name],
+            "recommends": RECOMMENDS[name], **other}
+
+
+def check_control(text, qt, formers=None, conflicts=(), plasma_nm="plasma-nm", recommends=None):
     """Problems with the Plasma package of a control file that builds with `qt` (empty list when fine);
     `formers` are the former test packages it replaces and breaks (default: the one of that Qt),
-    `conflicts` the packages it conflicts with (default: none)"""
+    `conflicts` the packages it conflicts with (default: none), `plasma_nm` the plasma-nm relation it
+    depends on, `recommends` what the core package recommends (default: gnome | plasma)"""
     formers = formers or [FORMER[qt]]
+    recommends = recommends or "%s-gnome | %s" % (CORE, PLASMA)
     packages = parse_control(text)
     problems = []
     source = packages.get("", {})
@@ -162,7 +189,7 @@ def check_control(text, qt, formers=None, conflicts=()):
     if plasma.get("architecture") != "any":
         problems.append("%s has Architecture %r, not 'any'" % (PLASMA, plasma.get("architecture")))
     depends = relations(plasma.get("depends", ""))
-    for needed in (CORE + VERSIONED, "plasma-nm"):
+    for needed in (CORE + VERSIONED, plasma_nm):
         if needed not in depends:
             problems.append("%s does not depend on %s" % (PLASMA, needed))
     for field in ("replaces", "breaks"):
@@ -177,8 +204,8 @@ def check_control(text, qt, formers=None, conflicts=()):
         problems.append("%s conflicts with %r, expected %r" % (PLASMA, plasma.get("conflicts"), list(conflicts)))
 
     core = packages.get(CORE, {})
-    if core.get("recommends") != "%s-gnome | %s" % (CORE, PLASMA):
-        problems.append("%s recommends %r, not '%s-gnome | %s'" % (CORE, core.get("recommends"), CORE, PLASMA))
+    if core.get("recommends") != recommends:
+        problems.append("%s recommends %r, not %r" % (CORE, core.get("recommends"), recommends))
     return problems
 
 
@@ -187,9 +214,10 @@ def read(name):
         return handle.read()
 
 
-def good(qt, formers=None, conflicts=()):
+def good(qt, formers=None, conflicts=(), plasma_nm="plasma-nm", recommends=None):
     """A correct control file"""
     formers = formers or [FORMER[qt]]
+    recommends = recommends or "%s-gnome | %s" % (CORE, PLASMA)
     conflict_line = "Conflicts: %s\n" % ", ".join(conflicts) if conflicts else ""
     versioned = ",\n         ".join(relation(f) for f in formers)
     qt_dev = "qtbase5-dev" if qt == "qt5" else "qt6-base-dev"
@@ -205,7 +233,7 @@ Standards-Version: 4.6.2
 Package: network-manager-gpclient
 Architecture: any
 Depends: ${shlibs:Depends}
-Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
+Recommends: %s
 Description: core
 
 Package: network-manager-gpclient-gnome
@@ -219,12 +247,12 @@ Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
-         plasma-nm
+         %s
 Replaces: %s
 Breaks: %s
 %sDescription: Plasma GUI
  text
-""" % (build, versioned, versioned, conflict_line)
+""" % (build, recommends, plasma_nm, versioned, versioned, conflict_line)
 
 
 GOOD = {"qt5": good("qt5"), "qt6": good("qt6")}
@@ -271,11 +299,13 @@ class TestCheckControl:
     @pytest.mark.parametrize("name, qt", [("control.ubuntu24.04", "qt5"), ("control.ubuntu26.04", "qt6")])
     def test_the_fixtures_have_the_stanzas_and_relations_of_the_real_files(self, name, qt):
         real = parse_control(read(name))
-        fixture = parse_control(GOOD[qt])
+        fixture = parse_control(good(qt, FORMERS[name], CONFLICTS[name], PLASMA_NM[name], RECOMMENDS[name]))
         assert sorted(real) == sorted(fixture)
         for field in ("replaces", "breaks", "depends"):
             assert relations(real[PLASMA][field]) == relations(fixture[PLASMA][field]) or field == "depends"
         assert real[CORE]["recommends"] == fixture[CORE]["recommends"]
+        assert PLASMA_NM[name] in relations(real[PLASMA]["depends"])
+        assert PLASMA_NM[name] in relations(fixture[PLASMA]["depends"])
 
     @pytest.mark.parametrize("qt", ["qt5", "qt6"])
     @pytest.mark.parametrize("name, old, new", [
@@ -384,18 +414,18 @@ class TestControlFiles:
 
     @pytest.mark.parametrize("name, qt", sorted(QT.items()))
     def test_the_plasma_package_is_declared(self, name, qt):
-        assert check_control(read(name), qt, FORMERS[name], CONFLICTS[name]) == []
+        assert check_control(read(name), qt, **expected(name)) == []
 
     @pytest.mark.parametrize("name, qt", sorted(QT.items()))
     def test_the_files_are_not_accepted_for_the_other_qt(self, name, qt):
-        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5", FORMERS[name], CONFLICTS[name]) != []
+        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5", **expected(name)) != []
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_conflicts_of_the_plasma_package_are_those_of_the_file_only(self, name):
         assert relations(parse_control(read(name))[PLASMA].get("conflicts", "")) == CONFLICTS[name]
         other = [c for c in (PLASMA6, PLASMA + "-7") if c not in CONFLICTS[name]]
-        assert check_control(read(name), QT[name], FORMERS[name], CONFLICTS[name] + other[:1]) != []
-        assert (CONFLICTS[name] == []) or check_control(read(name), QT[name], FORMERS[name]) != []
+        assert check_control(read(name), QT[name], **expected(name, conflicts=CONFLICTS[name] + other[:1])) != []
+        assert (CONFLICTS[name] == []) or check_control(read(name), QT[name], **expected(name, conflicts=())) != []
 
     def test_only_ubuntu_24_04_conflicts_with_the_plasma_6_package_of_kde_neon(self):
         assert sorted(n for n, c in CONFLICTS.items() if c) == ["control", "control.ubuntu24.04"]
@@ -403,10 +433,10 @@ class TestControlFiles:
     @pytest.mark.parametrize("name", sorted(QT))
     def test_a_file_that_replaces_other_former_packages_than_its_own_is_reported(self, name):
         qt = QT[name]
-        assert check_control(read(name), qt, ["network-manager-gpclient-plasma-7"], CONFLICTS[name]) != []
+        assert check_control(read(name), qt, **expected(name, formers=["network-manager-gpclient-plasma-7"])) != []
         if name != "control.ubuntu24.10":
             # only 24.10 had test builds of both
-            assert check_control(read(name), qt, BOTH, CONFLICTS[name]) != []
+            assert check_control(read(name), qt, **expected(name, formers=BOTH)) != []
 
     def test_debian_control_is_the_copy_for_ubuntu_24_04(self):
         assert read("control") == read("control.ubuntu24.04")
@@ -437,7 +467,7 @@ class TestControlFiles:
         assert any("lacks" in p and missing in p for p in check_control(broken, "qt6", BOTH))
 
     def test_the_file_of_24_04_does_not_pass_as_the_one_of_24_10(self):
-        assert check_control(read("control.ubuntu24.04"), "qt5", BOTH, [PLASMA6]) != []
+        assert check_control(read("control.ubuntu24.04"), "qt5", **expected("control.ubuntu24.04", formers=BOTH)) != []
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_packages_are_the_core_gnome_and_plasma_ones(self, name):
@@ -446,7 +476,38 @@ class TestControlFiles:
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_core_package_recommends_gnome_or_plasma(self, name):
-        assert parse_control(read(name))[CORE]["recommends"] == "%s-gnome | %s" % (CORE, PLASMA)
+        assert parse_control(read(name))[CORE]["recommends"] == RECOMMENDS[name]
+
+    def test_only_ubuntu_24_04_recommends_the_plasma_6_package_so_that_kde_neon_does_not_get_gnome(self):
+        assert sorted(n for n, r in RECOMMENDS.items() if PLASMA6 in r) == ["control", "control.ubuntu24.04"]
+        for name in sorted(QT):
+            alternatives = [a.strip() for a in parse_control(read(name))[CORE]["recommends"].split("|")]
+            assert (PLASMA6 in alternatives) == (name in ("control", "control.ubuntu24.04")), name
+            assert alternatives[:2] == [CORE + "-gnome", PLASMA], name
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_a_core_package_with_other_recommends_is_reported(self, name):
+        text = read(name)
+        old = "Recommends: " + RECOMMENDS[name]
+        assert old in text
+        for new in ("Recommends: %s-gnome" % CORE, "Recommends: %s | %s" % (PLASMA, CORE + "-gnome"),
+                    "Recommends: %s-gnome | %s | %s" % (CORE, PLASMA, PLASMA + "-7"),
+                    "Recommends: %s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6) if PLASMA6 not in old
+                    else "Recommends: %s-gnome | %s" % (CORE, PLASMA)):
+            assert any("recommends" in p for p in
+                       check_control(text.replace(old, new), QT[name], **expected(name))), new
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_plasma_package_depends_on_the_plasma_generation_of_its_qt(self, name):
+        depends = relations(parse_control(read(name))[PLASMA]["depends"])
+        assert PLASMA_NM[name] in depends
+        assert "plasma-nm" not in depends
+        # Qt5 is Plasma 5 and Qt6 is Plasma 6: an unversioned or the other bound is reported
+        text = read(name)
+        for new in ("plasma-nm", "plasma-nm (>= 4:6)" if QT[name] == "qt5" else "plasma-nm (<< 4:6)"):
+            broken = text.replace("         " + PLASMA_NM[name] + "\n", "         " + new + "\n")
+            assert broken != text
+            assert any("does not depend on" in p for p in check_control(broken, QT[name], **expected(name))), new
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_core_package_description_names_the_plasma_package(self, name):
@@ -550,8 +611,8 @@ def check_neon(text):
     plasma = packages.get(PLASMA6)
     if plasma is None:
         return problems
-    if plasma.get("architecture") != "any":
-        problems.append("%s has Architecture %r, not 'any'" % (PLASMA6, plasma.get("architecture")))
+    if plasma.get("architecture") != "amd64":
+        problems.append("%s has Architecture %r, not 'amd64'" % (PLASMA6, plasma.get("architecture")))
     if relations(plasma.get("depends", "")) != NEON_DEPENDS:
         problems.append("%s depends on %s, expected %s" % (PLASMA6, relations(plasma.get("depends", "")), NEON_DEPENDS))
     if relations(plasma.get("conflicts", "")) != [PLASMA]:
@@ -575,6 +636,12 @@ class TestNeonControl:
         assert "qt6-base-dev" in build and not build & BUILD_DEPENDS["qt5"]
         assert not [b for b in build if re.match(r"lib(gtk|nm|nma|ssl|dbus|openconnect|webkit)", b)]
 
+    def test_the_neon_package_is_built_for_amd64_only_and_the_other_files_for_any(self):
+        # the one place that says it: the workflow reads it from the control file of the variant
+        assert parse_control(read(NEON))[PLASMA6]["architecture"] == "amd64"
+        for name in QT:
+            assert {f["architecture"] for p, f in parse_control(read(name)).items() if p} == {"any"}, name
+
     def test_the_source_package_is_the_one_of_the_other_control_files(self):
         assert parse_control(read(NEON))[""]["source"] == parse_control(read("control.ubuntu24.04"))[""]["source"]
 
@@ -584,7 +651,10 @@ class TestNeonControl:
          "\nPackage: network-manager-gpclient\nArchitecture: any\nDescription: core\n x\n\nPackage: network-manager-gpclient-plasma-6\n"),
         ("the package of the other name", "Package: network-manager-gpclient-plasma-6\n",
          "Package: network-manager-gpclient-plasma\n"),
-        ("Architecture all", "Architecture: any", "Architecture: all"),
+        ("Architecture all", "Architecture: amd64", "Architecture: all"),
+        ("Architecture any", "Architecture: amd64", "Architecture: any"),
+        ("Architecture arm64", "Architecture: amd64", "Architecture: arm64"),
+        ("no Architecture", "Architecture: amd64\n", ""),
         ("no Conflicts", "Conflicts: network-manager-gpclient-plasma\n", ""),
         ("Conflicts with the wrong package", "Conflicts: network-manager-gpclient-plasma\n",
          "Conflicts: network-manager-gpclient-gnome\n"),
@@ -615,7 +685,7 @@ class TestNeonControl:
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_neon_control_file_is_not_a_control_file_of_a_release(self, name):
         for former in (FORMERS[name], BOTH):
-            assert check_control(read(NEON), "qt6", former, CONFLICTS[name]) != []
+            assert check_control(read(NEON), "qt6", **expected(name, formers=former)) != []
 
     def test_the_package_conflicts_with_the_one_that_conflicts_with_it(self):
         neon = parse_control(read(NEON))[PLASMA6]
@@ -989,6 +1059,53 @@ class TestRulesPlasmaOnly:
         for core_file in ("nm-gpclient-service", "usr/bin/gpclient", "usr/bin/gpauth", "browser-wrapper",
                           "libnm-vpn-plugin-gpclient.so", "90-gpclient-routing"):
             assert core_file in text, core_file
+
+
+MAINTAINER_SCRIPTS = ("preinst", "postinst", "prerm", "postrm", "config")
+
+
+def generic_scripts(debian):
+    """The maintainer scripts in `debian` that have no package name in front (debian/postinst): debhelper
+    gives them to the first binary package of debian/control, which is the core package in every
+    control file but the one for KDE neon, where it is network-manager-gpclient-plasma-6"""
+    return [name for name in MAINTAINER_SCRIPTS if os.path.exists(os.path.join(debian, name))]
+
+
+class TestMaintainerScripts:
+    def test_debian_has_no_maintainer_script_without_a_package_name(self):
+        assert generic_scripts(DEBIAN) == []
+
+    @pytest.mark.parametrize("script", MAINTAINER_SCRIPTS)
+    def test_a_generic_maintainer_script_is_found(self, tmp_path, script):
+        (tmp_path / script).write_text("#!/bin/sh\n#DEBHELPER#\n")
+        assert generic_scripts(str(tmp_path)) == [script]
+
+    @pytest.mark.parametrize("script", MAINTAINER_SCRIPTS)
+    def test_a_maintainer_script_of_a_package_is_not_a_generic_one(self, tmp_path, script):
+        (tmp_path / (CORE + "." + script)).write_text("#!/bin/sh\n#DEBHELPER#\n")
+        assert generic_scripts(str(tmp_path)) == []
+
+    def test_the_maintainer_scripts_belong_to_the_core_package(self):
+        found = sorted(n for n in os.listdir(DEBIAN) if n.endswith(tuple("." + s for s in MAINTAINER_SCRIPTS)))
+        assert found == [CORE + ".postinst", CORE + ".postrm"]
+
+    @pytest.mark.parametrize("script, kept", [
+        ("postinst", ["org.freedesktop.DBus.ReloadConfig", "pkill -x nm-gpclient-service", "/etc/nsswitch.conf",
+                      "#DEBHELPER#"]),
+        ("postrm", ["org.freedesktop.DBus.ReloadConfig", "pkill -f \"gpclient.*service\"", "#DEBHELPER#"]),
+    ])
+    def test_the_core_package_keeps_its_maintainer_scripts(self, script, kept):
+        text = read(CORE + "." + script)
+        for part in kept:
+            assert part in text, part
+
+    @pytest.mark.parametrize("name", sorted([*QT, NEON]))
+    def test_the_first_package_of_a_control_file_gets_no_maintainer_script(self, name):
+        # the neon file has no core package: its first package, -plasma-6, must not inherit the core scripts
+        first = next(p for p in re.findall(r"^Package:\s*(\S+)", read(name), re.M))
+        scripts = [s for s in MAINTAINER_SCRIPTS if os.path.exists(os.path.join(DEBIAN, first + "." + s))]
+        assert scripts == ([] if first != CORE else ["postinst", "postrm"])
+        assert (first == CORE) == (name != NEON)
 
 
 class TestChangelog:

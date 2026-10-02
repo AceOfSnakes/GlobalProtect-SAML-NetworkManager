@@ -74,7 +74,8 @@ Supports:
 
 Dependencies:
 - `network-manager-gpclient (= ${binary:Version})`
-- `plasma-nm`
+- `plasma-nm` (on Ubuntu 22.04 and 24.04 `plasma-nm (<< 4:6)`, on 24.10 and 26.04
+  `plasma-nm (>= 4:6)`: the plugin fits the Plasma generation of its Qt)
 
 ### 4. network-manager-gpclient-plasma-6
 
@@ -92,7 +93,10 @@ Dependencies:
 - `network-manager-gpclient (= ${binary:Version})`
 - `plasma-nm (>= 4:6)`
 
-Conflicts with `network-manager-gpclient-plasma` (the same file names).
+Conflicts with `network-manager-gpclient-plasma`: only one Plasma generation can use the
+plugin (Qt5 or Qt6), so only one of the two packages makes sense on a system. They share no
+file (the Qt5 plugin is in the `qt5` directory, this one in `qt6`). The Qt5 package depends
+on `plasma-nm (<< 4:6)`, so apt refuses it on Plasma 6.
 
 ## Building Packages
 

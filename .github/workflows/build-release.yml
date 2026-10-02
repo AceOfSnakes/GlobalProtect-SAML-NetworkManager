@@ -120,17 +120,20 @@ jobs:
               '
           }
 
-          # The architectures a variant is built for. A variant is
-          # Dockerfile.ubuntu<version>-<variant> together with
+          # variant_arches <control file>: the architectures its binary packages
+          # are built for (their Architecture fields), one word per line. A
+          # variant is Dockerfile.ubuntu<version>-<variant> together with
           # debian/control.ubuntu<version>-<variant>: it builds more packages of
           # the same release into the same directory, after the main build.
+          # "any" is every architecture; KDE neon (Ubuntu 24.04 with Plasma 6)
+          # says "amd64" there, because plasma-nm, which the plugin is linked
+          # against, is not in its arm64 repository.
           variant_arches() {
-            case "$1" in
-              # KDE neon (Ubuntu 24.04 with Plasma 6): plasma-nm, which the
-              # plugin is linked against, is not in its arm64 repository
-              neon) echo amd64 ;;
-              *) return 1 ;;
-            esac
+            awk '
+              /^[ \t]*$/ { binary = 0 }
+              tolower($1) == "package:" { binary = 1 }
+              binary && tolower($1) == "architecture:" { for (i = 2; i <= NF; i++) print $i }
+            ' "$1"
           }
 
           build_packages "ubuntu$ubuntu" "Dockerfile.ubuntu$ubuntu" "debian/control.ubuntu$ubuntu"
@@ -149,13 +152,14 @@ jobs:
               echo "::warning::variant $variant of Ubuntu $ubuntu needs both $dockerfile and $control: not built"
               continue
             fi
-            if ! arches=$(variant_arches "$variant"); then
-              echo "::error::variant $variant has no list of architectures in variant_arches"
+            arches=$(variant_arches "$control" | sort -u | tr '\n' ' ')
+            if [ -z "${arches// /}" ]; then
+              echo "::error::variant $variant has no Architecture field in its binary packages in $control"
               exit 1
             fi
             case " $arches " in
-              *" $arch "*) build_packages "ubuntu${ubuntu}-${variant}" "$dockerfile" "$control" ;;
-              *) echo "Variant $variant is built for $arches only, not for $arch" ;;
+              *" any "* | *" $arch "*) build_packages "ubuntu${ubuntu}-${variant}" "$dockerfile" "$control" ;;
+              *) echo "Variant $variant is built for ${arches% } only, not for $arch" ;;
             esac
           done
 

@@ -431,18 +431,20 @@ class TestFlow:
         assert message in fresh
         assert fresh.index(message) < fresh.index("prepare_local_repo") < fresh.index(install)
         assert "MODE=fresh" in fresh and "MODE_ARGS=(--fresh)" in fresh
+        assert 'WHEN="after the fresh install"' in fresh and 'WHEN="after the upgrade"' not in fresh
         # only this build, and no upgrade
         assert 'rm -f "$RELEASED_LIST"' in fresh and fresh.index('rm -f "$RELEASED_LIST"') < fresh.index("prepare_local_repo")
-        assert "apt upgrade" not in fresh and "--before" not in fresh
+        assert "apt upgrade" not in fresh and "upgrade_packages" not in fresh and "--before" not in fresh
 
     def test_the_upgrade_branch_installs_the_release_first_and_upgrades(self):
         upgrade, _, _ = self.branches()
 
         order = ['apt-get install -y --no-install-recommends "$PACKAGE"', "before.txt", "prepare_local_repo",
-                 "check_newer", "apt upgrade -y --no-install-recommends"]
+                 "check_newer", 'upgrade_packages "$WORK/before.txt"']
         positions = [upgrade.index(item) for item in order]
         assert positions == sorted(positions)
         assert "MODE=upgrade" in upgrade and "MODE_ARGS=(--before" in upgrade
+        assert 'WHEN="after the upgrade"' in upgrade and "after the fresh install" not in upgrade
         assert "--fresh" not in upgrade
 
     def test_both_paths_are_checked_by_the_same_call_and_followed_by_the_gui_smoke_test(self):
@@ -512,7 +514,8 @@ class TestVersionGuard:
         assert "dpkg --compare-versions \"$1\" gt \"$2\"" in function_of(text, "check_newer")
         assert 'RELEASED="$(dpkg-query -W -f=\'${Version}\' network-manager-gpclient)"' in text
         assert 'check_newer "$EXPECTED" "$RELEASED"' in text
-        assert text.index('RELEASED="$(dpkg-query') < text.index('check_newer "$EXPECTED"') < text.index("apt upgrade -y")
+        assert text.index('RELEASED="$(dpkg-query') < text.index('check_newer "$EXPECTED"') < text.index(
+            '    upgrade_packages "$WORK/before.txt"')
 
 
 class TestPrepareLocalRepo:
@@ -531,7 +534,7 @@ class TestPrepareLocalRepo:
         script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\n'
                   f'DEBS_DIR={debs_dir}\nLOCAL_REPO={tmp_path}/repo\nLOCAL_LIST={tmp_path}/local.list\n'
                   f'CODENAME={codename}\nARCH={arch}\nSCENARIO={scenario}\n'
-                  + function_of(script_text(), "prepare_local_repo")
+                  + function_of(script_text(), "release_debs") + function_of(script_text(), "prepare_local_repo")
                   + 'prepare_local_repo\necho "EXPECTED=$EXPECTED"\n')
         return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
                               env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path)})
@@ -713,7 +716,8 @@ class TestNeonScenario:
         debs_dir.mkdir()
         for name in debs:
             (debs_dir / name).write_text("")
-        script = (f'DEBS_DIR={debs_dir}\nOS_CODENAME={codename}\n' + function_of(script_text(), "neon_skip_reason")
+        script = (f'DEBS_DIR={debs_dir}\nOS_CODENAME={codename}\n' + function_of(script_text(), "release_debs")
+                  + function_of(script_text(), "neon_skip_reason")
                   + 'neon_skip_reason\necho "RETURNED $?"\n')
         return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
                               env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_ARCH": arch})
@@ -728,6 +732,40 @@ class TestNeonScenario:
         result = self.run_function(tmp_path, ["network-manager-gpclient-plasma-6_1.5.0-1~noble1+pr31.62_amd64.deb"])
 
         assert result.stdout == "RETURNED 0\n"
+
+    @pytest.mark.parametrize("name", [
+        "network-manager-gpclient-plasma-6_1.5.0-1.noble1_amd64.deb",
+        "network-manager-gpclient-plasma-6_1.5.0-1.noble1.pr31.62_amd64.deb",
+        "network-manager-gpclient-plasma-6_1.5.0-1.noble1+pr31.62_amd64.deb",
+    ])
+    def test_the_spelling_with_a_dot_of_github_release_assets_is_tested_too(self, tmp_path, name):
+        result = self.run_function(tmp_path, [name])
+
+        assert result.stdout == "RETURNED 0\n"
+
+    @pytest.mark.parametrize("name", [
+        "network-manager-gpclient-plasma-6_1.5.0-1.jammy1_amd64.deb",
+        "network-manager-gpclient-plasma-6_1.5.0-1.noble1_arm64.deb",
+        "network-manager-gpclient-plasma-66_1.5.0-1.noble1_amd64.deb",
+        "network-manager-gpclient-plasma_1.5.0-1.noble1_amd64.deb",
+        "network-manager-gpclient-plasma-6_1.5.0-1noble1_amd64.deb",
+        "network-manager-gpclient-plasma-6_1.5.0-1.noble_amd64.deb",
+    ])
+    def test_the_dot_spelling_of_another_package_release_or_architecture_is_skipped(self, tmp_path, name):
+        result = self.run_function(tmp_path, [name])
+
+        assert "no network-manager-gpclient-plasma-6 for noble/amd64 in" in result.stdout
+        assert result.stdout.endswith("RETURNED 0\n")
+
+    def test_the_skip_and_the_local_repository_match_the_file_names_with_the_same_function(self):
+        text = script_text()
+
+        assert text.count("release_debs() {") == 1
+        assert "release_debs noble" in function_of(text, "neon_skip_reason")
+        assert "release_debs " in function_of(text, "prepare_local_repo")
+        # no pattern of file names outside of it
+        assert text.count("_*[~.]") == 1
+        assert "~noble1" not in text and "~${CODENAME}" not in text
 
     @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute", "", "Noble"])
     def test_another_release_is_skipped_even_with_the_package(self, tmp_path, codename):
@@ -857,3 +895,98 @@ class TestNeonPackageInTheLocalRepository:
 
     def test_every_other_package_goes_to_the_neon_scenario_too(self, tmp_path):
         assert sorted(self.repo(tmp_path, "neon")) == sorted(self.DEBS)
+
+
+class TestUpgradePackages:
+    """upgrade_packages: apt upgrade for gnome and plasma; in the neon scenario, with the neon repository
+    enabled, only the installed network-manager-gpclient packages (--only-upgrade), not the base system"""
+
+    BEFORE = ("network-manager-gpclient 1.4.1-1~noble1 ii \n"
+              "network-manager-gpclient-plasma-6 1.4.1-1~noble1 ii \n"
+              "network-manager-gpclient-gnome 1.4.1-1~noble1 rc \n"
+              "network-manager-gpclient-plasma-5  un \n"
+              "network-manager-gpclient-other 1.0 pn \n")
+    FAKE = 'echo "$(basename "$0") $*" >> "$FAKE_DIR/calls"\n'
+
+    def run_function(self, tmp_path, scenario, before=None):
+        bin_dir = make_bin(tmp_path, {"apt": self.FAKE, "apt-get": self.FAKE})
+        (tmp_path / "before.txt").write_text(self.BEFORE if before is None else before)
+        script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\n' f'SCENARIO={scenario}\n'
+                  + function_of(script_text(), "upgrade_packages")
+                  + f'upgrade_packages {tmp_path}/before.txt\n')
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                                env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path)})
+        calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
+        return result, calls
+
+    def test_the_neon_scenario_upgrades_only_the_installed_packages_of_the_project(self, tmp_path):
+        result, calls = self.run_function(tmp_path, "neon")
+
+        assert result.returncode == 0, result.stderr
+        assert calls == ["apt-get install -y --no-install-recommends --only-upgrade "
+                         "network-manager-gpclient network-manager-gpclient-plasma-6"]
+
+    @pytest.mark.parametrize("scenario", ["gnome", "plasma"])
+    def test_the_other_scenarios_run_apt_upgrade(self, tmp_path, scenario):
+        result, calls = self.run_function(tmp_path, scenario)
+
+        assert result.returncode == 0, result.stderr
+        assert calls == ["apt upgrade -y --no-install-recommends"]
+
+    def test_the_neon_scenario_never_runs_apt_upgrade(self, tmp_path):
+        _, calls = self.run_function(tmp_path, "neon")
+
+        assert not [c for c in calls if c.startswith("apt ")]
+
+    @pytest.mark.parametrize("before", ["network-manager-gpclient-plasma-5  un \n",
+                                        "network-manager-gpclient 1.4.1-1~noble1 rc \n"])
+    def test_the_neon_scenario_without_an_installed_package_fails_and_upgrades_nothing(self, tmp_path, before):
+        result, calls = self.run_function(tmp_path, "neon", before)
+
+        assert result.returncode == 1
+        assert "FAIL: no network-manager-gpclient package is installed to upgrade" in result.stderr
+        assert calls == []
+
+    def test_the_upgrade_is_the_function_in_the_upgrade_branch_only(self):
+        text = script_text()
+
+        assert text.count("apt upgrade -y --no-install-recommends") == 1
+        assert text.count('upgrade_packages "$WORK/before.txt"') == 1
+        assert "apt upgrade" in function_of(text, "upgrade_packages")
+
+
+class TestWording:
+    """The messages say "after the upgrade" or "after the fresh install", whichever the script did"""
+
+    def test_the_messages_use_the_wording_of_the_mode_not_the_mode_name(self):
+        text = script_text()
+
+        assert 'echo "Installed $WHEN:"' in text
+        assert '|| fail "$PACKAGE is not installed $WHEN"' in text
+        assert "after the $MODE" not in text
+        assert text.count('WHEN="after the upgrade"') == 1 and text.count('WHEN="after the fresh install"') == 1
+
+    def test_each_branch_sets_the_wording_of_its_own_mode(self):
+        text = script_text()
+        start = text.index("\nif upgrade_possible; then\n")
+        middle = text.index("\nelse\n", start)
+
+        assert text.index("MODE=upgrade", start) < text.index('WHEN="after the upgrade"') < middle
+        assert middle < text.index("MODE=fresh") < text.index('WHEN="after the fresh install"')
+
+    @pytest.mark.parametrize("mode, when", [("upgrade", "after the upgrade"), ("fresh", "after the fresh install")])
+    def test_the_installed_list_and_the_failure_of_a_missing_package_name_the_mode(self, tmp_path, mode, when):
+        text = script_text()
+        block = text[text.index('status > "$WORK/after.txt"'):text.index('python3 "$HERE/check_upgrade.py"')]
+        bin_dir = make_bin(tmp_path, {"dpkg": "exit 1\n"})
+        script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\nstatus() { echo "pkg 1 ii"; }\n'
+                  f'WORK={tmp_path}\nSCENARIO=neon\nPACKAGE=network-manager-gpclient-plasma-6\n'
+                  f'MODE={mode}\nWHEN="{when}"\n' + block)
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                                env={"PATH": f"{bin_dir}:/usr/bin:/bin"})
+
+        assert f"Installed {when}:\n" in result.stdout
+        assert result.returncode == 1
+        assert f"FAIL: network-manager-gpclient-plasma-6 is not installed {when}\n" == result.stderr
+        assert "after the fresh\n" not in result.stdout + result.stderr
+        assert "install install" not in result.stdout + result.stderr

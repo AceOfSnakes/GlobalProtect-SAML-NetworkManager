@@ -2,7 +2,7 @@
 # Install the test packages of a pull request on this machine.
 #
 #   bash <(curl -fsSL https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/install-pr-build.sh) <PR number>
-#   install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/REPO] [--yes]
+#   install-pr-build.sh <PR number> [--desktop gnome|plasma|plasma-6] [--repo OWNER/REPO] [--yes]
 #
 # CI publishes every open pull request as the prerelease "pr-<N>" (see
 # .github/workflows/pr-test-packages.yml) and removes it when the PR closes. This
@@ -10,8 +10,9 @@
 # release and hands them to apt. apt asks for confirmation unless --yes is given.
 #
 # On Ubuntu 24.04 the Plasma editor is network-manager-gpclient-plasma-6 (built
-# against the KDE neon repository) when this is KDE neon or plasma-nm 6 or newer
-# is installed, and network-manager-gpclient-plasma (Plasma 5) otherwise.
+# against the KDE neon repository) on KDE neon, and network-manager-gpclient-plasma
+# (Plasma 5) on Ubuntu. Ubuntu 24.04 with plasma-nm 6 or newer from elsewhere is not
+# supported: the script stops, and --desktop plasma-6 installs -plasma-6 anyway.
 #
 # The packages of a pull request carry a version above the release's one
 # (1.4.2-1~noble1+pr24.57 sorts after 1.4.2-1~noble1), so apt installs them over
@@ -32,14 +33,16 @@ die() { echo "install-pr-build: $*" >&2; exit 1; }
 
 usage() {
     cat >&2 <<'EOF'
-usage: install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/REPO] [--yes]
+usage: install-pr-build.sh <PR number> [--desktop gnome|plasma|plasma-6] [--repo OWNER/REPO] [--yes]
 
   <PR number>          the pull request whose test packages to install
-  --desktop gnome|plasma
+  --desktop gnome|plasma|plasma-6
                        which editor plugin to install (default: plasma when
                        XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome). For
-                       plasma on Ubuntu 24.04, KDE neon or an installed plasma-nm
-                       6 or newer means -plasma-6, otherwise -plasma
+                       plasma on Ubuntu 24.04, KDE neon means -plasma-6 and Ubuntu
+                       means -plasma, but not with plasma-nm 6 or newer installed
+                       (stops). plasma-6 (Ubuntu 24.04 only) installs -plasma-6
+                       whatever the system is
   --repo OWNER/REPO    the GitHub repository that published the packages
                        (default: WMP/GlobalProtect-SAML-NetworkManager)
   --yes                do not ask apt for confirmation (apt install -y)
@@ -59,7 +62,7 @@ while [ $# -gt 0 ]; do
         -h|--help) usage; exit 0 ;;
         --yes) assume_yes=1 ;;
         --desktop)
-            [ $# -ge 2 ] || { usage; die "--desktop needs a value: gnome or plasma"; }
+            [ $# -ge 2 ] || { usage; die "--desktop needs a value: gnome, plasma or plasma-6"; }
             desktop="$2"; shift ;;
         --desktop=*) desktop="${1#--desktop=}" ;;
         --repo)
@@ -82,8 +85,8 @@ done
     || die "'$pr' is not a pull request number (1 to 7 digits, no leading zero)"
 
 case "$desktop" in
-    ""|gnome|plasma) ;;
-    *) die "--desktop must be gnome or plasma, not '$desktop'" ;;
+    ""|gnome|plasma|plasma-6) ;;
+    *) die "--desktop must be gnome, plasma or plasma-6, not '$desktop'" ;;
 esac
 
 # OWNER/REPO ends up in URLs: GitHub's own character sets, and no "." or ".." as
@@ -137,6 +140,9 @@ case "$arch" in
     *) die "architecture '$arch' is not supported: the test packages are built for amd64 and arm64" ;;
 esac
 
+[ "$desktop" != "plasma-6" ] || [ "$codename" = "noble" ] \
+    || die "--desktop plasma-6 is for Ubuntu 24.04 (noble) only, not ${codename:-unknown}: the other releases have one Plasma package, network-manager-gpclient-plasma"
+
 if [ -z "$desktop" ]; then
     case "${XDG_CURRENT_DESKTOP:-}" in
         *[Kk][Dd][Ee]*) desktop=plasma ;;
@@ -144,19 +150,23 @@ if [ -z "$desktop" ]; then
     esac
 fi
 
-# The Plasma package. Ubuntu 24.04 has Plasma 5, but KDE neon, and any 24.04
-# with plasma-nm 6 or newer installed (the neon repository), has Plasma 6: the
-# editor plugin has to fit, and that is network-manager-gpclient-plasma-6. Every
-# other release has one Plasma package, network-manager-gpclient-plasma.
+# The Plasma package. Ubuntu 24.04 has Plasma 5, and KDE neon, its Plasma 6
+# variant, has network-manager-gpclient-plasma-6 (built against the KDE neon
+# repository). Ubuntu 24.04 with plasma-nm 6 or newer from elsewhere is not
+# supported: the script does not pick a package for it, --desktop plasma-6 does.
+# Every other release has one Plasma package, network-manager-gpclient-plasma.
 plasma_package="network-manager-gpclient-plasma"
-if [ "$desktop" = plasma ] && [ "$codename" = noble ]; then
+if [ "$desktop" = plasma-6 ]; then
+    plasma_package="network-manager-gpclient-plasma-6"
+    desktop=plasma
+elif [ "$desktop" = plasma ] && [ "$codename" = noble ]; then
     if [ "$os_id" = neon ]; then
         plasma_package="network-manager-gpclient-plasma-6"
     else
         plasma_nm="$(dpkg-query -W -f='${Version}' plasma-nm 2>/dev/null || true)"
         plasma_nm="${plasma_nm#*:}" # the epoch: 4:6.1.5-0ubuntu1
         if [[ $plasma_nm =~ ^([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -ge 6 ]; then
-            plasma_package="network-manager-gpclient-plasma-6"
+            die "this is Ubuntu 24.04 with plasma-nm $plasma_nm (Plasma 6): only KDE neon is supported for Plasma 6 on Ubuntu 24.04. Use --desktop plasma-6 to install network-manager-gpclient-plasma-6 anyway (not tested), or --desktop gnome"
         fi
     fi
 fi

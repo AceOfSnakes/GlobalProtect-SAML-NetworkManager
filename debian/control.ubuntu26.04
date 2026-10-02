@@ -79,7 +79,7 @@ Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
-         plasma-nm
+         plasma-nm (>= 4:6)
 Replaces: network-manager-gpclient-plasma-6 (<< 1.5.1~)
 Breaks: network-manager-gpclient-plasma-6 (<< 1.5.1~)
 Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI

@@ -85,6 +85,12 @@ def parse_status(text):
     return packages
 
 
+def installed(state):
+    """True when the package has files on the system in this two-letter state (want, status): "ii", "iU",
+    "iF", also "hi" (held). "un" and "pn" (not installed) and "rc" (removed, configuration left) have none"""
+    return state[1:2] not in ("n", "c")
+
+
 def plasma_package(scenario):
     """The Plasma package of a scenario"""
     return PLASMA6 if scenario == "neon" else PLASMA
@@ -161,7 +167,7 @@ def check(before, after, expected_version, scenario, codename):
     before = before or {}
 
     for name, (version, state) in sorted(before.items()):
-        if state == "un":
+        if not installed(state):
             continue
         if name not in after or after[name][1] == "un":
             problems.append(f"{name} {version} was installed before and is gone after the upgrade")
@@ -171,7 +177,9 @@ def check(before, after, expected_version, scenario, codename):
     for name, (version, state) in sorted(after.items()):
         if state == "un":
             continue
-        if state != "ii" and name not in before:
+        # A package that was installed before is judged above; one that was in the same state (rc)
+        # before is left over from earlier, not a result of the upgrade
+        if state != "ii" and not (name in before and (installed(before[name][1]) or before[name][1] == state)):
             problems.append(f"{name} is in state '{state}' {when} (not fully installed)")
         elif state == "ii" and version != expected_version:
             problems.append(
@@ -182,7 +190,7 @@ def check(before, after, expected_version, scenario, codename):
         if name not in after or after[name][1] != "ii":
             problems.append(f"{name} is not installed {when} (the {scenario} scenario on {codename} needs it)")
     for name in unwanted_plasma_packages(scenario):
-        if name in after and after[name][1] != "un":
+        if name in after and installed(after[name][1]):
             problems.append(f"{name} is installed {when}, but there is only {plasma_package(scenario)}")
     if CORE not in after or after[CORE][1] != "ii":
         problems.append(f"{CORE} is not installed {when}")
