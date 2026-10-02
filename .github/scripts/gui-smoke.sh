@@ -9,7 +9,7 @@
 #                         release ships it) under Xvfb with a test connection,
 #                         checks what it shows and saves a screenshot as
 #                         <out-dir>/gnome-gtk<3|4>-<codename>-<arch>.png
-#   plasma, plasma-new    load check only (ldd, plugin metadata, QPluginLoader);
+#   plasma                load check only (ldd, plugin metadata, QPluginLoader);
 #                         no screenshot, that would need a C++ harness
 set -euo pipefail
 
@@ -25,8 +25,8 @@ fail() {
 }
 
 case "$SCENARIO" in
-    gnome | plasma | plasma-new) ;;
-    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma, plasma-new)" ;;
+    gnome | plasma) ;;
+    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma)" ;;
 esac
 [ -n "$OUT" ] || fail "usage: gui-smoke.sh <scenario> <out-dir>"
 [ "$(id -u)" = 0 ] || fail "run as root, inside a throw-away container"
@@ -83,10 +83,8 @@ if [ "$SCENARIO" = gnome ]; then
         echo "No GTK4 editor in network-manager-gpclient-gnome on $CODENAME: GTK4 not tested"
     fi
 else
-    # -plasma-6 first: on 26.04 -plasma-5 is an empty transitional package
-    PLASMA="$(dpkg-query -W -f='${Package} ${db:Status-Abbrev}\n' 'network-manager-gpclient-plasma-[56]' \
-        | awk '$2 == "ii" {print $1}' | sort -r | head -n 1)"
-    [ -n "$PLASMA" ] || fail "no -plasma-5 / -plasma-6 package is installed"
+    PLASMA=network-manager-gpclient-plasma
+    dpkg-query -W -f='${db:Status-Abbrev}' "$PLASMA" | grep -q '^ii' || fail "$PLASMA is not installed"
     PLUGIN="$(file_of "$PLASMA" 'plasmanetworkmanagement_gpclientui\.so$')"
     [ -f "$PLUGIN" ] || fail "$PLASMA installs no plasmanetworkmanagement_gpclientui.so"
     case "$PLUGIN" in

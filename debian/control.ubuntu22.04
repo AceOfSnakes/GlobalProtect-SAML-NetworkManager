@@ -36,7 +36,7 @@ Depends: ${shlibs:Depends},
          python3-pip,
          openconnect
 Conflicts: globalprotect-openconnect
-Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-5
+Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
 Description: NetworkManager VPN plugin for GlobalProtect (core service)
  This package provides the core NetworkManager VPN service for GlobalProtect
  (Palo Alto Networks) VPN connections with SAML/SSO authentication support.
@@ -49,7 +49,7 @@ Description: NetworkManager VPN plugin for GlobalProtect (core service)
  .
  To use this plugin, you need to install either:
   - network-manager-gpclient-gnome for GNOME/GTK desktops
-  - network-manager-gpclient-plasma-5 for KDE Plasma desktop
+  - network-manager-gpclient-plasma for KDE Plasma desktop
 
 Package: network-manager-gpclient-gnome
 Architecture: any
@@ -70,14 +70,14 @@ Description: NetworkManager GlobalProtect VPN plugin - GNOME GUI
  .
  This package is for GNOME, MATE, Cinnamon, XFCE and other GTK-based desktops.
 
-Package: network-manager-gpclient-plasma-5
+Package: network-manager-gpclient-plasma
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          plasma-nm
-Replaces: network-manager-gpclient-plasma (<< 1.5.0~)
-Breaks: network-manager-gpclient-plasma (<< 1.5.0~)
+Replaces: network-manager-gpclient-plasma-5 (<< 1.5.1~)
+Breaks: network-manager-gpclient-plasma-5 (<< 1.5.1~)
 Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
  This package provides GUI configuration editor for GlobalProtect VPN
  connections in KDE Plasma desktop environment.
@@ -86,13 +86,3 @@ Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
   - KDE Plasma NetworkManager applet
  .
  This package is for KDE Plasma desktop.
-
-Package: network-manager-gpclient-plasma
-Architecture: any
-Section: oldlibs
-Priority: optional
-Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-5 (= ${binary:Version})
-Description: transitional package for network-manager-gpclient-plasma-5
- This is a transitional package for the former KDE Plasma GUI package. It
- can be safely removed once network-manager-gpclient-plasma-5 is installed.

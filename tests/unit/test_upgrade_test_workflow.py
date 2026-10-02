@@ -28,7 +28,7 @@ UPLOAD_STEP = "Upload GUI screenshots"
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SCRIPT = os.path.join(ROOT, ".github", "scripts", "upgrade-test.sh")
 GUI_SCRIPT = os.path.join(ROOT, ".github", "scripts", "gui-smoke.sh")
-SCENARIOS = ["gnome", "plasma", "plasma-new"]
+SCENARIOS = ["gnome", "plasma"]
 
 FAKE_DOCKER = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/docker_calls"
@@ -96,7 +96,8 @@ class TestStepInTheWorkflow:
     def test_all_scenarios_are_listed(self):
         script = workflow_steps.step_script(WORKFLOW, STEP)
 
-        assert "for scenario in gnome plasma plasma-new; do" in script
+        assert "for scenario in gnome plasma; do" in script
+        assert "plasma-new" not in script
 
     def test_mounts_and_image(self):
         script = workflow_steps.step_script(WORKFLOW, STEP)
@@ -166,11 +167,11 @@ class TestRunningTheStep:
         assert f"::error::Upgrade test failed for: {failing}" in result.stdout
 
     def test_all_failures_are_listed(self, tmp_path):
-        result, calls = run_step(tmp_path, fail="gnome plasma-new")
+        result, calls = run_step(tmp_path, fail="gnome plasma")
 
         assert result.returncode == 1
-        assert len(calls) == 3
-        assert "::error::Upgrade test failed for: gnome plasma-new" in result.stdout
+        assert len(calls) == 2
+        assert "::error::Upgrade test failed for: gnome plasma" in result.stdout
 
     def test_output_of_each_scenario_is_in_its_own_group(self, tmp_path):
         result, _ = run_step(tmp_path, fail="plasma")
@@ -203,11 +204,24 @@ class TestScript:
         assert text.count(call) == 1
         assert text.index('echo "SKIP: ') < text.index(call)
         assert text.index("check_upgrade.py") < text.index(call)
-        assert text.index("check_plugin \"$PLASMA\"") < text.index(call)
+        assert text.index("check_plugin network-manager-gpclient-plasma") < text.index(call)
         assert text.index('echo "PASS: ') < text.index(call)
         # nothing but the end of the script follows the call
         assert text.rstrip().endswith("fi")
         assert text[text.index(call):].count("\n") <= 2
+
+    def test_one_plasma_package_and_no_transitional_one(self):
+        text = self.read()
+
+        assert "OLD_PACKAGE=network-manager-gpclient-plasma ;;" in text
+        assert "plasma-5" not in text and "plasma-6" not in text and "transitional" not in text
+
+    def test_the_qt_directory_is_checked_for_plasma_only(self):
+        text = self.read()
+
+        assert text.count("--plasma-files") == 1
+        assert 'if [ "$SCENARIO" = plasma ]; then\n    dpkg -L network-manager-gpclient-plasma' in text
+        assert 'if [ "$SCENARIO" = plasma ]; then\n    check_plugin network-manager-gpclient-plasma' in text
 
     def test_gui_smoke_test_runs_only_with_an_output_directory(self):
         text = self.read()
@@ -215,7 +229,7 @@ class TestScript:
         assert 'GUI_OUT="${3:-}"' in text
         assert 'if [ -n "$GUI_OUT" ]; then\n    bash "$HERE/gui-smoke.sh"' in text
 
-    @pytest.mark.parametrize("scenario", ["", "kde", "GNOME", "plasma-6"])
+    @pytest.mark.parametrize("scenario", ["", "kde", "GNOME", "plasma-6", "plasma-5", "plasma-new"])
     def test_unknown_scenario_is_refused(self, scenario, tmp_path):
         result = subprocess.run(["bash", SCRIPT, scenario, str(tmp_path)], capture_output=True, text=True, timeout=30)
 
@@ -228,6 +242,63 @@ class TestScript:
 
         assert result.returncode == 1
         assert "run as root" in result.stderr
+
+
+class TestReleasedSuite:
+    """check_released_suite: skip when the released repository has no suite for the release"""
+
+    FAKE_CURL = r"""#!/bin/bash
+echo "$*" >> "$FAKE_DIR/curl_calls"
+[ "$FAKE_EXIT" = 0 ] || exit "$FAKE_EXIT"
+printf '%s' "$FAKE_CODE"
+"""
+
+    def run_function(self, tmp_path, code, curl_exit=0):
+        with open(SCRIPT, encoding="utf-8") as handle:
+            text = handle.read()
+        start = text.index("check_released_suite() {")
+        function = text[start:text.index("\n}\n", start) + 3]
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        curl = bin_dir / "curl"
+        curl.write_text(self.FAKE_CURL)
+        curl.chmod(0o755)
+        script = ('fail() { echo "FAIL: $*" >&2; exit 1; }\nREPO_URL=https://example.org/repo\nCODENAME=oracular\n'
+                  + function + 'check_released_suite\necho CONTINUE\n')
+        return subprocess.run(
+            ["bash", "-c", script],
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path), "FAKE_CODE": code,
+                 "FAKE_EXIT": str(curl_exit)},
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_a_suite_that_exists_continues(self, tmp_path):
+        result = self.run_function(tmp_path, "200")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "CONTINUE\n"
+        assert "https://example.org/repo/dists/oracular/Release" in (tmp_path / "curl_calls").read_text()
+
+    def test_a_missing_suite_is_skipped_with_exit_zero(self, tmp_path):
+        result = self.run_function(tmp_path, "404")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "SKIP: the released repository has no oracular suite\n"
+
+    @pytest.mark.parametrize("code, curl_exit", [("500", 0), ("503", 0), ("403", 0), ("301", 0), ("000", 6), ("", 28), ("000", 0)])
+    def test_any_other_answer_or_a_network_error_fails(self, tmp_path, code, curl_exit):
+        result = self.run_function(tmp_path, code, curl_exit)
+
+        assert result.returncode == 1
+        assert "FAIL: cannot read" in result.stderr
+        assert "SKIP" not in result.stdout and "CONTINUE" not in result.stdout
+
+    def test_the_check_comes_before_the_released_repository_is_added(self):
+        with open(SCRIPT, encoding="utf-8") as handle:
+            text = handle.read()
+
+        call = text.index("\ncheck_released_suite\n")
+        assert text.index("CODENAME=\"$(lsb_release") < call < text.index("gpclient.list")
 
 
 class TestGuiSmokeScript:
@@ -245,7 +316,7 @@ class TestGuiSmokeScript:
         for needed in ("xvfb", "xauth", "imagemagick", "gir1.2-gtk-3.0", "gir1.2-nm-1.0", "gir1.2-gtk-4.0", "python3-pyqt5", "python3-pyqt6"):
             assert needed in text
 
-    @pytest.mark.parametrize("scenario", ["", "kde", "GNOME", "plasma-6"])
+    @pytest.mark.parametrize("scenario", ["", "kde", "GNOME", "plasma-6", "plasma-5", "plasma-new"])
     def test_unknown_scenario_is_refused(self, scenario, tmp_path):
         result = subprocess.run(["bash", GUI_SCRIPT, scenario, str(tmp_path)], capture_output=True, text=True, timeout=30)
 
@@ -257,6 +328,13 @@ class TestGuiSmokeScript:
 
         assert result.returncode == 1
         assert "usage: gui-smoke.sh" in result.stderr
+
+    def test_the_plasma_probe_takes_the_one_plasma_package(self):
+        with open(GUI_SCRIPT, encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert "PLASMA=network-manager-gpclient-plasma\n" in text
+        assert "plasma-5" not in text and "plasma-6" not in text and "plasma-new" not in text
 
     @pytest.mark.skipif(os.geteuid() == 0, reason="the refusal is for non-root users")
     def test_refuses_to_run_as_non_root(self, tmp_path):

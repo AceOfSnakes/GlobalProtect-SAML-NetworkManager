@@ -34,9 +34,9 @@ RUN_URL = f"https://github.com/{REPO}/actions/runs/123456"
 DEBS = [
     "network-manager-gpclient_1.4.2-1~noble1_amd64.deb",
     "network-manager-gpclient-gnome_1.4.2-1~noble1_amd64.deb",
-    "network-manager-gpclient-plasma-5_1.4.2-1~noble1_amd64.deb",
+    "network-manager-gpclient-plasma_1.4.2-1~noble1_amd64.deb",
     "network-manager-gpclient_1.4.2-1~resolute1_arm64.deb",
-    "network-manager-gpclient-plasma-6_1.4.2-1~resolute1_arm64.deb",
+    "network-manager-gpclient-plasma_1.4.2-1~resolute1_arm64.deb",
 ]
 PR_DEBS = [name.replace("1_", "1+pr24.57_") for name in DEBS]
 COMMAND = (
@@ -111,7 +111,7 @@ class TestPublished:
         result = published(debs=PR_DEBS)
 
         assert result["conclusion"] == "success"
-        assert "- `network-manager-gpclient-plasma-6_1.4.2-1.resolute1+pr24.57_arm64.deb`" in result["output"]["summary"]
+        assert "- `network-manager-gpclient-plasma_1.4.2-1.resolute1+pr24.57_arm64.deb`" in result["output"]["summary"]
 
     def test_the_summary_says_the_pr_version_is_above_the_release(self):
         summary = published()["output"]["summary"]
@@ -119,10 +119,16 @@ class TestPublished:
         assert "+pr24.<run>" in summary
         assert "installs it over the release" in summary
 
-    def test_the_summary_does_not_promise_a_fixed_plasma(self):
+    def test_the_summary_names_one_plasma_package(self):
         summary = published()["output"]["summary"]
 
-        assert "as the installed `plasma-nm` says" in summary
+        assert "# or -plasma, as installed" in summary
+        assert "-plasma-5" not in summary and "-plasma-6" not in summary
+        assert "plasma-nm" not in summary
+
+    @pytest.mark.parametrize("package", ["network-manager-gpclient-plasma-5", "network-manager-gpclient-plasma-6"])
+    def test_a_package_of_the_former_split_is_not_listed_by_name(self, package):
+        assert check.PACKAGE_RE.match(package + "_1.4.2-1~noble1_amd64.deb") is None
 
     def test_the_default_repository_adds_no_repo_option(self):
         result = published()
@@ -271,7 +277,7 @@ class TestRefused:
     @pytest.mark.parametrize(
         "name",
         ["network-manager-gpclient_1.4.2-1~noble1_amd64.deb", "network-manager-gpclient_1.4.2-1~noble1+pr24.57_arm64.deb",
-         "network-manager-gpclient-plasma-6_1.4.2-1~resolute1+pr1.1234567_amd64.deb", "pkg_1.0_all.deb"],
+         "network-manager-gpclient-plasma_1.4.2-1~resolute1+pr1.1234567_amd64.deb", "pkg_1.0_all.deb"],
     )
     def test_release_and_pr_build_names_are_plain_names(self, name):
         assert check.DEB_RE.fullmatch(name)

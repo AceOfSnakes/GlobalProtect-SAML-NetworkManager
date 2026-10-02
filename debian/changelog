@@ -33,19 +33,12 @@ network-manager-gpclient (1.5.0-1) unstable; urgency=medium
   * vpn.data dns still overrides the pushed servers; dns-domains are added to
     the pushed search domains
   * Packages for arm64 (closes #21) next to amd64, for every Ubuntu release
-  * Packages for Ubuntu 24.10. The Plasma editor package is split into
-    network-manager-gpclient-plasma-5 (Ubuntu 22.04, 24.04) and
-    network-manager-gpclient-plasma-6 (Ubuntu 24.10, 26.04)
-  * network-manager-gpclient-plasma is now a transitional package that pulls
-    in the matching new one and can be removed afterwards. The new packages
-    replace and break the old one below 1.5.0~, so the upgrade neither stops
-    on the files they share nor keeps the core package at 1.4.1. apt upgrade
-    and apt full-upgrade install the new package; apt-get upgrade and
-    unattended-upgrades never install new packages, so they keep the old
-    packages back until then
-  * Ubuntu 26.04 has a transitional network-manager-gpclient-plasma-5 that
-    pulls in -plasma-6, so a system upgraded from 24.04 does not keep the old
-    package, which pins the core package to the version of 24.04
+  * Packages for Ubuntu 24.10
+  * The Plasma editor stays one package, network-manager-gpclient-plasma,
+    built for the Plasma of each release: Qt5 on Ubuntu 22.04 and 24.04, Qt6
+    on Ubuntu 24.10 and 26.04. The test packages of pull requests named
+    network-manager-gpclient-plasma-5 (22.04, 24.04) and
+    network-manager-gpclient-plasma-6 (24.10, 26.04) are replaced by it
   * Dependencies list the t64 library names next to the older ones, so the
     packages install on releases with and without the 64-bit time_t rename
   * The release notes start with a table of downloads by Ubuntu release and

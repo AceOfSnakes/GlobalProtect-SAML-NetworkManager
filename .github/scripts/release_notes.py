@@ -32,18 +32,9 @@ NAME_RE = re.compile(
 )
 CORE = "network-manager-gpclient"
 # Short names in the order of a cell; any other package follows alphabetically
-ORDER = ["gpclient", "gnome", "plasma-5", "plasma-6"]
+ORDER = ["gpclient", "gnome", "plasma"]
 UBUNTU = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
 EMPTY = "—"
-# Empty transitional packages (Section: oldlibs in debian/control.ubuntu<version>)
-# are not downloads: nobody installs them by hand. Package -> the codenames that
-# build it as a transitional package, None for all. -plasma-5 is a real package
-# on the other releases. tests/unit/test_debian_control.py checks this against
-# the control files.
-TRANSITIONAL = {
-    "network-manager-gpclient-plasma": None,
-    "network-manager-gpclient-plasma-5": {"resolute"},
-}
 
 
 class NotesError(Exception):
@@ -64,12 +55,6 @@ def parse(name):
     if not match:
         raise NotesError("unexpected name of a .deb asset: %r" % (name,))
     return match.group("codename"), match.group("arch"), short_name(match.group("package"))
-
-
-def is_transitional(codename, package):
-    """True when `package` (full name) is an empty transitional package on `codename`"""
-    codenames = TRANSITIONAL.get(package, set())
-    return codenames is None or codename in codenames
 
 
 def check_url(repo, name, url):
@@ -121,15 +106,11 @@ def render(repo, tag, assets):
     for name, url in debs:
         codename, arch, short = parse(name)
         check_url(repo, name, url)
-        if is_transitional(codename, CORE if short == "gpclient" else CORE + "-" + short):
-            continue
         if (codename, arch, short) in seen:
             raise NotesError("two assets for the same package, release and architecture: %r and %r"
                              % (seen[codename, arch, short], name))
         seen[codename, arch, short] = name
         cells.setdefault((codename, arch), []).append((short, url))
-    if not cells:
-        raise NotesError("only transitional packages: refusing to write a release without downloads")
     arches = sorted({arch for _codename, arch in cells}, key=lambda a: (a != "amd64", a))
     codenames = sorted({codename for codename, _arch in cells}, key=release_key)
 
@@ -141,8 +122,8 @@ def render(repo, tag, assets):
         "",
         "The recommended way to install is the apt repository: see "
         "[docs/APT_REPO.md](%s/docs/APT_REPO.md). With single files, take "
-        "`network-manager-gpclient` and one desktop package (`-gnome`, `-plasma-5` or "
-        "`-plasma-6`) from the same row and architecture and install them together, "
+        "`network-manager-gpclient` and one desktop package (`-gnome` or "
+        "`-plasma`) from the same row and architecture and install them together, "
         "e.g. `sudo apt install ./network-manager-gpclient_*.deb "
         "./network-manager-gpclient-gnome_*.deb`. On Ubuntu 22.04 `python3-sdbus` is "
         "not in apt: see the [README](%s/README.md) first." % (blob, blob),

@@ -54,8 +54,9 @@ CI proves that users of the last release upgrade cleanly to the packages of a
 build. For every Ubuntu version and architecture the step "Upgrade test from the
 last release" of `.github/workflows/build-release.yml` starts a fresh
 `ubuntu:<version>` container, installs the newest release from the public apt
-repository (scenarios `gnome`, `plasma` for the old package name, which is now a
-transitional package, and `plasma-new` for `-plasma-5`/`-plasma-6`), then runs
+repository (scenarios `gnome` and `plasma`; `plasma` also checks that the editor
+plugin is in the Qt directory of the release: `qt5` on 22.04 and 24.04, `qt6` on
+24.10 and 26.04), then runs
 `apt upgrade` to the new `.deb` files and checks that nothing is kept back,
 removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
 `.github/scripts/check_upgrade.py`). A scenario is skipped when the release has
@@ -66,7 +67,7 @@ against built packages (it needs network access and changes only the container):
 mkdir -p gui-smoke
 docker run --rm -v "$PWD/output/ubuntu24.04-amd64:/debs:ro" -v "$PWD/.github/scripts:/scripts:ro" \
   -v "$PWD/gui-smoke:/out" \
-  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs /out   # or: plasma, plasma-new
+  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs /out   # or: plasma
 ```
 
 ### GUI smoke test
@@ -84,9 +85,9 @@ connection editor starts:
   username, the authentication mode and the "Address is a gateway" check button.
   It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
   for GTK4 in a second process.
-- **Plasma** (`plasma`, `plasma-new`): a load check only. `ldd` finds every library
+- **Plasma** (`plasma`): a load check only. `ldd` finds every library
   of `plasmanetworkmanagement_gpclientui.so`, its metadata names our service,
-  and `QPluginLoader` (PyQt5 for `-plasma-5`, PyQt6 for `-plasma-6`) loads it
+  and `QPluginLoader` (PyQt5 for a `qt5` plugin, PyQt6 for a `qt6` one) loads it
   with `QT_QPA_PLATFORM=offscreen`. Without PyQt only the JSON file next to the
   plugin is checked, and the log says so. There is **no screenshot**: showing the
   Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.

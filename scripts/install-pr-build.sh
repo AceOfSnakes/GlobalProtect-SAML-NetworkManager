@@ -33,9 +33,7 @@ usage: install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/RE
   <PR number>          the pull request whose test packages to install
   --desktop gnome|plasma
                        which editor plugin to install (default: plasma when
-                       XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome). For
-                       plasma, -plasma-5 or -plasma-6 follows the installed
-                       plasma-nm (6 or newer: plasma-6)
+                       XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome)
   --repo OWNER/REPO    the GitHub repository that published the packages
                        (default: WMP/GlobalProtect-SAML-NetworkManager)
   --yes                do not ask apt for confirmation (apt install -y)
@@ -133,18 +131,6 @@ if [ -z "$desktop" ]; then
     esac
 fi
 
-# The installed plasma-nm says which Plasma the editor plugin has to fit: 6 or
-# newer needs -plasma-6, older needs -plasma-5. Empty when plasma-nm is not
-# installed (or its version cannot be read): the release then decides.
-plasma_major=""
-if [ "$desktop" = plasma ]; then
-    plasma_nm="$(dpkg-query -W -f='${Version}' plasma-nm 2>/dev/null || true)"
-    plasma_nm="${plasma_nm#*:}" # the epoch: 4:5.27.11-0ubuntu1
-    if [[ $plasma_nm =~ ^([0-9]+)\. ]]; then
-        plasma_major="${BASH_REMATCH[1]}"
-    fi
-fi
-
 # --- The release -------------------------------------------------------------
 
 tmp="$(mktemp -d)"
@@ -171,12 +157,12 @@ esac
 # none). GitHub stores the "~" of a release asset as "." (1.4.2-1.noble1), so
 # both are accepted. The names come from the release listing and are matched
 # strictly before they are used anywhere.
-selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" "$plasma_major" <<'PY'
+selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" <<'PY'
 import json
 import re
 import sys
 
-path, codename, arch, desktop, pr, plasma_major = sys.argv[1:7]
+path, codename, arch, desktop, pr = sys.argv[1:6]
 try:
     with open(path, encoding="utf-8") as handle:
         assets = json.load(handle).get("assets", [])
@@ -186,16 +172,7 @@ if not isinstance(assets, list):
     sys.exit("the release answer has no asset list")
 
 
-# Empty transitional packages (Section: oldlibs in debian/control.ubuntu<version>)
-# are never installed. Ubuntu 26.04 has no Plasma 5: its -plasma-5 only pulls in
-# -plasma-6. network-manager-gpclient-plasma is not matched by find() at all: the
-# package name has to be followed by "_".
-TRANSITIONAL = {("resolute", "network-manager-gpclient-plasma-5")}
-
-
 def find(package):
-    if (codename, package) in TRANSITIONAL:
-        return None
     pattern = re.compile(
         re.escape(package) + r"_[0-9][A-Za-z0-9.+-]*[~.]" + re.escape(codename)
         + r"[0-9]+(?:[+.]pr" + re.escape(pr) + r"\.[0-9]+)?_" + re.escape(arch) + r"\.deb"
@@ -214,25 +191,14 @@ def find(package):
 wanted = ["network-manager-gpclient"]
 if desktop == "gnome":
     wanted.append("network-manager-gpclient-gnome")
-elif plasma_major:
-    # The installed plasma-nm decides: 6 and newer is Plasma 6, older Plasma 5
-    wanted.append("network-manager-gpclient-plasma-%d" % (6 if int(plasma_major) >= 6 else 5))
 else:
-    # plasma-nm is not installed: Plasma 6 where the release has it (24.10,
-    # 26.04), Plasma 5 otherwise
-    wanted.append(
-        "network-manager-gpclient-plasma-6" if find("network-manager-gpclient-plasma-6")
-        else "network-manager-gpclient-plasma-5"
-    )
+    wanted.append("network-manager-gpclient-plasma")
 
 for package in wanted:
     asset = find(package)
     if asset is None:
-        why = ""
-        if package.startswith("network-manager-gpclient-plasma-") and plasma_major:
-            why = " (plasma-nm %s is installed, which needs it)" % plasma_major
-        sys.exit("the release has no %s package for %s/%s%s (the build of this PR may have failed or is not finished)"
-                 % (package, codename, arch, why))
+        sys.exit("the release has no %s package for %s/%s (the build of this PR may have failed or is not finished)"
+                 % (package, codename, arch))
     print("%s\t%s\t%s" % (package, asset[0], asset[1]))
 PY
 )" || die "cannot pick the packages for Ubuntu $codename/$arch from release $tag (see the message above)"

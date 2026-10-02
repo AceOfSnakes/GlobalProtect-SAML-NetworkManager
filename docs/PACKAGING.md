@@ -60,13 +60,14 @@ Dependencies:
 - `network-manager-gpclient (= ${binary:Version})`
 - `network-manager-gnome`
 
-### 3. network-manager-gpclient-plasma-5 / network-manager-gpclient-plasma-6
+### 3. network-manager-gpclient-plasma
 
 **For KDE Plasma desktop.**
 
-Contents:
+Contents (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 24.10 and 26.04):
 - `/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so`
-- `/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop`
+  (`qt6/` on 24.10 and 26.04)
+- `/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop` (Qt5 only)
 
 Supports:
 - KDE Plasma NetworkManager applet
@@ -105,7 +106,7 @@ Download packages from [GitHub Releases](https://github.com/WMP/GlobalProtect-SA
 Install two packages:
 1. **network-manager-gpclient** - core package (required)
 2. **network-manager-gpclient-gnome** - for GNOME/GTK desktops, or
-   **network-manager-gpclient-plasma-5** (Plasma 5) or **network-manager-gpclient-plasma-6** (Plasma 6) - for KDE Plasma
+   **network-manager-gpclient-plasma** - for KDE Plasma
 
 ```bash
 sudo dpkg -i <downloaded-packages>.deb
@@ -118,13 +119,15 @@ sudo apt-get install -f  # install dependencies
 |----------------|------|------|---------|
 | 22.04 LTS      | ✅   | ❌   | ✅ (Qt5) |
 | 24.04 LTS      | ✅   | ✅   | ✅ (Qt5) |
+| 24.10          | ✅   | ✅   | ✅ (Qt6) |
 | 26.04 LTS      | ✅   | ✅   | ✅ (Qt6) |
 
 Notes:
 - Packages are built for `amd64` and `arm64`; `<multiarch>` in the paths above is
   `x86_64-linux-gnu` or `aarch64-linux-gnu` respectively.
 - GTK4 editor requires `libnma-gtk4` which is not available on Ubuntu 22.04.
-- The Plasma plugin is built against Qt5/KF5 on 22.04/24.04 and Qt6/KF6 on 26.04;
+- The Plasma plugin is built against Qt5/KF5 on 22.04/24.04 and Qt6/KF6 on 24.10/26.04, the one the
+  `Build-Depends` of `debian/control.ubuntu<version>` list (`debian/rules` reads it);
   install paths differ (`/usr/lib/<multiarch>/qt5/plugins/...` vs `qt6/`).
 
 ## Why Separate Packages?
@@ -143,5 +146,5 @@ dpkg -l | grep network-manager-gpclient
 # List package contents
 dpkg -L network-manager-gpclient
 dpkg -L network-manager-gpclient-gnome
-dpkg -L network-manager-gpclient-plasma-5   # or network-manager-gpclient-plasma-6
+dpkg -L network-manager-gpclient-plasma
 ```

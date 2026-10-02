@@ -1,17 +1,18 @@
 """
-Packaging transition of the Plasma editor package. v1.4.1 shipped
-network-manager-gpclient-plasma; it was split into -plasma-5 and -plasma-6.
-Without Replaces/Breaks dpkg refuses the new package (same files as the old
-one), and the old package, which pins the core package to its own version,
-keeps apt on 1.4.1. So every debian/control.ubuntu<version> must replace and
-break the old package below 1.5.0~ and ship an empty transitional package of
-the old name that pulls in the new one, at the same version.
+The Plasma editor package. v1.4.1 shipped one package for it,
+network-manager-gpclient-plasma, built with the Qt of the Plasma of the Ubuntu
+release; 1.5.0 keeps that: one package of that name on every release, Qt5 on
+22.04 and 24.04, Qt6 on 24.10 and 26.04. No -plasma-5 / -plasma-6 packages and
+no transitional packages are built.
 
-Ubuntu 26.04 has no Plasma 5. A system upgraded from 24.04 would keep the
--plasma-5 of 24.04, which pins the core package to the version of 24.04, so
-control.ubuntu26.04 also ships a transitional -plasma-5 that pulls in -plasma-6.
-The transitional packages are not downloads: .github/scripts/release_notes.py
-lists them (TRANSITIONAL) and this file checks that list against the control files.
+Test packages of pull requests (versions like 1.5.0-1~noble1+pr31.62) did have
+network-manager-gpclient-plasma-5 (Qt5 releases) and -plasma-6 (Qt6 releases)
+with the same files as the new package, so every control file replaces and breaks
+the one with the same Qt below 1.5.1~, and no other.
+
+debian/rules builds the plugin against the Qt that debian/control lists in
+Build-Depends (qtbase5-dev or qt6-base-dev, exactly one), and the Dockerfile of
+the release installs the same Qt and KDE Frameworks packages.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -19,49 +20,47 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 import glob
 import os
 import re
-import sys
+import subprocess
 
 import pytest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, os.path.join(ROOT, ".github", "scripts"))
-import release_notes  # noqa: E402
-
 DEBIAN = os.path.join(ROOT, "debian")
 CONTROLS = sorted(glob.glob(os.path.join(DEBIAN, "control*")))
-UBUNTU_CONTROLS = [p for p in CONTROLS if re.fullmatch(r"control\.ubuntu\d\d\.\d\d", os.path.basename(p))]
 
 CORE = "network-manager-gpclient"
-OLD = "network-manager-gpclient-plasma"
-PLASMA_5 = OLD + "-5"
-PLASMA_6 = OLD + "-6"
-RELATION = OLD + " (<< 1.5.0~)"
+PLASMA = CORE + "-plasma"
+FORMER = {"qt5": PLASMA + "-5", "qt6": PLASMA + "-6"}
+BOUND = "1.5.1~"
 VERSIONED = " (= ${binary:Version})"
-P5 = PLASMA_5 + VERSIONED
-P6 = PLASMA_6 + VERSIONED
-# What the transitional package has to pull in, per control file; debian/control
-# is a copy of the one of Ubuntu 24.04
-EXPECTED_DEPENDS = {
-    "control": P5,
-    "control.ubuntu22.04": P5,
-    "control.ubuntu24.04": P5,
-    "control.ubuntu24.10": P6 + " | " + P5,
-    "control.ubuntu26.04": P6,
+# The Qt of every control file; debian/control is a copy of the one of Ubuntu 24.04
+QT = {
+    "control": "qt5",
+    "control.ubuntu22.04": "qt5",
+    "control.ubuntu24.04": "qt5",
+    "control.ubuntu24.10": "qt6",
+    "control.ubuntu26.04": "qt6",
 }
-# Ubuntu 26.04 has no Plasma 5: its -plasma-5 is an empty package that pulls in -plasma-6
-EXPECTED_PLASMA_5_TRANSITIONAL = {"control.ubuntu26.04": P6}
-# What the core package recommends (24.10 ships Plasma 6: it comes first)
-EXPECTED_RECOMMENDS = {
-    "control": CORE + "-gnome | " + PLASMA_5,
-    "control.ubuntu22.04": CORE + "-gnome | " + PLASMA_5,
-    "control.ubuntu24.04": CORE + "-gnome | " + PLASMA_5,
-    "control.ubuntu24.10": CORE + "-gnome | " + PLASMA_6 + " | " + PLASMA_5,
-    "control.ubuntu26.04": CORE + "-gnome | " + PLASMA_6,
+DOCKERFILES = {
+    "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
+    "control.ubuntu24.04": "Dockerfile.ubuntu24.04",
+    "control.ubuntu24.10": "Dockerfile.ubuntu24.10",
+    "control.ubuntu26.04": "Dockerfile.ubuntu26.04",
 }
+# What the Plasma plugin needs to build, by Qt (the plugin's CMakeLists.txt)
+BUILD_DEPENDS = {
+    "qt5": {"qtbase5-dev", "libkf5networkmanagerqt-dev", "libkf5i18n-dev", "libkf5service-dev",
+            "libkf5widgetsaddons-dev"},
+    "qt6": {"qt6-base-dev", "qt6-base-dev-tools", "libkf6networkmanagerqt-dev", "libkf6i18n-dev",
+            "libkf6service-dev", "libkf6widgetsaddons-dev", "libkf6coreaddons-dev"},
+}
+# Versions that exist as test builds of pull requests (and the last release)
+EXISTING_VERSIONS = ["1.4.1-1~noble1", "1.4.2-1~noble1+pr24.57", "1.5.0-1~noble1+pr31.62", "1.5.0-1~resolute1+pr31.62"]
 
 
 def parse_control(text):
-    """The binary stanzas of a control file as {package: {lowercase field: value}}"""
+    """The stanzas of a control file as {package: {lowercase field: value}}; the source stanza is
+    under the key '' (it has no Package field)"""
     packages = {}
     # A blank line may hold spaces or tabs and end in CRLF
     for stanza in re.split(r"\n[ \t]*\r?\n", text):
@@ -77,6 +76,8 @@ def parse_control(text):
                 fields[last] = value.strip()
         if "package" in fields:
             packages[fields["package"]] = fields
+        elif "source" in fields:
+            packages[""] = fields
     return packages
 
 
@@ -85,50 +86,68 @@ def relations(value):
     return [" ".join(item.split()) for item in value.replace("\n", " ").split(",") if item.strip()]
 
 
-def alternatives(item):
-    """['a (= 1)', 'b (= 1)'] of 'a (= 1) | b (= 1)'"""
-    return [" ".join(alternative.split()) for alternative in item.split("|")]
+def relation(qt):
+    return "%s (<< %s)" % (FORMER[qt], BOUND)
 
 
-def check_control(text):
-    """Problems with the transition from network-manager-gpclient-plasma (empty list when fine)"""
+def upstream(version):
+    """(1, 5, 0) of 1.5.0-1~noble1+pr31.62"""
+    return tuple(int(part) for part in re.match(r"[0-9]+(?:\.[0-9]+)*", version).group(0).split("."))
+
+
+def covers(bound, version):
+    """True when `version` is below `bound`, a version that ends in '~' (1.5.1~ is below every 1.5.1-*)"""
+    assert bound.endswith("~"), bound
+    return upstream(version) < upstream(bound[:-1])
+
+
+def check_control(text, qt):
+    """Problems with the Plasma package of a control file that builds with `qt` (empty list when fine)"""
     packages = parse_control(text)
     problems = []
-    transitional = sorted(name for name, fields in packages.items()
-                          if name.startswith(OLD) and fields.get("section") == "oldlibs")
-    editors = sorted(name for name in packages if name.startswith(OLD + "-") and name not in transitional)
-    if not editors:
-        problems.append("no network-manager-gpclient-plasma-<N> package")
-    for name in editors:
-        for field in ("replaces", "breaks"):
-            if RELATION not in relations(packages[name].get(field, "")):
-                problems.append("%s lacks %s: %s" % (name, field.capitalize(), RELATION))
+    source = packages.get("", {})
 
-    old = packages.get(OLD)
-    if old is None:
-        problems.append("no transitional package %s" % OLD)
+    for name, fields in packages.items():
+        if name.startswith(PLASMA) and name != PLASMA:
+            problems.append("unexpected package %s: the Plasma package is %s only" % (name, PLASMA))
+        if fields.get("section") == "oldlibs" or "transitional" in fields.get("description", "").lower():
+            problems.append("%s is a transitional package" % (name or "source"))
+
+    for name in (CORE, CORE + "-gnome"):
+        if name not in packages:
+            problems.append("no package %s" % name)
+
+    build = {item.split("(")[0].split("|")[0].strip() for item in relations(source.get("build-depends", ""))}
+    wanted = BUILD_DEPENDS[qt]
+    other = BUILD_DEPENDS["qt6" if qt == "qt5" else "qt5"]
+    for name in sorted(wanted - build):
+        problems.append("Build-Depends lacks %s" % name)
+    for name in sorted(other & build):
+        problems.append("Build-Depends has %s, but the plugin is built with %s" % (name, qt))
+
+    plasma = packages.get(PLASMA)
+    if plasma is None:
+        problems.append("no package %s" % PLASMA)
         return problems
-    for name in transitional:
-        fields = packages[name]
-        for field, wanted in (("architecture", "any"), ("section", "oldlibs"), ("priority", "optional")):
-            if fields.get(field) != wanted:
-                problems.append("%s has %s %r, not %r" % (name, field.capitalize(), fields.get(field), wanted))
-        description = fields.get("description", "").lower()
-        if "transitional package" not in description or "safely removed" not in description:
-            problems.append("%s: the description does not say it is a transitional package that can be safely removed"
-                            % name)
-        # Without the version a newer plasma package would not follow the core package
-        pulled = [alternative
-                  for item in relations(fields.get("depends", ""))
-                  for alternative in alternatives(item)
-                  if alternative.split("(")[0].strip() in editors]
-        if not pulled:
-            problems.append("%s depends on none of the plasma packages of this file (%s)" % (name, ", ".join(editors)))
-        for alternative in pulled:
-            if not alternative.endswith(VERSIONED):
-                problems.append("%s: %r lacks %s" % (name, alternative, VERSIONED.strip()))
-    if OLD not in transitional:
-        problems.append("%s is not a transitional package (Section: oldlibs)" % OLD)
+    if plasma.get("architecture") != "any":
+        problems.append("%s has Architecture %r, not 'any'" % (PLASMA, plasma.get("architecture")))
+    depends = relations(plasma.get("depends", ""))
+    for needed in (CORE + VERSIONED, "plasma-nm"):
+        if needed not in depends:
+            problems.append("%s does not depend on %s" % (PLASMA, needed))
+    for field in ("replaces", "breaks"):
+        values = relations(plasma.get(field, ""))
+        if relation(qt) not in values:
+            problems.append("%s lacks %s: %s" % (PLASMA, field.capitalize(), relation(qt)))
+        for value in values:
+            if value != relation(qt):
+                problems.append("%s has %s: %s" % (PLASMA, field.capitalize(), value))
+    if "conflicts" in plasma:
+        problems.append("%s conflicts with %s" % (PLASMA, plasma["conflicts"]))
+
+    core = packages.get(CORE, {})
+    if core.get("recommends") != "%s-gnome | %s" % (CORE, PLASMA):
+        problems.append("%s recommends %r, not '%s-gnome | %s'" % (CORE, core.get("recommends"), CORE, PLASMA))
     return problems
 
 
@@ -137,92 +156,49 @@ def read(name):
         return handle.read()
 
 
-def depends_problems(text, wanted):
-    """What is wrong with the Depends of the transitional package OLD in a control file"""
-    depends = relations(parse_control(text)[OLD]["depends"])
-    return [] if depends == ["${misc:Depends}", wanted] else ["%s depends on %r, not on %r" % (OLD, depends, wanted)]
-
-
-def mutate_old_depends(text, mutate):
-    """The control file with `mutate` applied to the Depends field of the package OLD"""
-    start = text.index("\nPackage: %s\n" % OLD)
-    first = text.index("Depends:", start)
-    last = text.index("\nDescription:", first)
-    return text[:first] + mutate(text[first:last]) + text[last:]
-
-
-def stanza_depends(path, package):
-    with open(path, encoding="utf-8") as handle:
-        return relations(parse_control(handle.read())[package]["depends"])
-
-
-GOOD = """\
+def good(qt):
+    """A correct control file"""
+    qt_dev = "qtbase5-dev" if qt == "qt5" else "qt6-base-dev"
+    deps = sorted(BUILD_DEPENDS[qt] - {qt_dev})
+    build = ",\n               ".join(["debhelper-compat (= 13)", qt_dev] + deps)
+    return """\
 Source: network-manager-gpclient
 Section: net
+Build-Depends: %s,
+               curl
+Standards-Version: 4.6.2
 
 Package: network-manager-gpclient
 Architecture: any
 Depends: ${shlibs:Depends}
+Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
 Description: core
 
-Package: network-manager-gpclient-plasma-5
+Package: network-manager-gpclient-gnome
 Architecture: any
 Depends: ${shlibs:Depends},
-         network-manager-gpclient (= ${binary:Version}),
-         plasma-nm
-Replaces: network-manager-gpclient-plasma (<< 1.5.0~)
-Breaks: network-manager-gpclient-plasma (<< 1.5.0~)
-Description: Plasma GUI
- text
+         network-manager-gpclient (= ${binary:Version})
+Description: GNOME GUI
 
 Package: network-manager-gpclient-plasma
 Architecture: any
-Section: oldlibs
-Priority: optional
-Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-5 (= ${binary:Version})
-Description: transitional package for network-manager-gpclient-plasma-5
- This is a transitional package. It can be safely removed.
-"""
-
-# A release without Plasma 5: -plasma-5 is a transitional package as well
-GOOD_NO_PLASMA_5 = """\
-Source: network-manager-gpclient
-Section: net
-
-Package: network-manager-gpclient-plasma-6
-Architecture: any
 Depends: ${shlibs:Depends},
+         ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          plasma-nm
-Replaces: network-manager-gpclient-plasma (<< 1.5.0~)
-Breaks: network-manager-gpclient-plasma (<< 1.5.0~)
+Replaces: %s (<< 1.5.1~)
+Breaks: %s (<< 1.5.1~)
 Description: Plasma GUI
  text
+""" % (build, FORMER[qt], FORMER[qt])
 
-Package: network-manager-gpclient-plasma
-Architecture: any
-Section: oldlibs
-Priority: optional
-Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-6 (= ${binary:Version})
-Description: transitional package for network-manager-gpclient-plasma-6
- This is a transitional package. It can be safely removed.
 
-Package: network-manager-gpclient-plasma-5
-Architecture: any
-Section: oldlibs
-Priority: optional
-Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-6 (= ${binary:Version})
-Description: transitional package for network-manager-gpclient-plasma-6
- This is a transitional package. It can be safely removed.
-"""
+GOOD = {"qt5": good("qt5"), "qt6": good("qt6")}
 
 
 class TestParseControl:
     def test_stanzas_are_split_at_a_blank_line(self):
-        assert sorted(parse_control(GOOD)) == [CORE, OLD, PLASMA_5]
+        assert sorted(parse_control(GOOD["qt5"])) == ["", CORE, CORE + "-gnome", PLASMA]
 
     @pytest.mark.parametrize("blank", ["\n \n", "\n\t\n", "\n  \t \n", "\n\r\n", "\n \r\n", "\n\n"])
     def test_a_blank_line_with_spaces_or_a_carriage_return_still_ends_a_stanza(self, blank):
@@ -233,7 +209,7 @@ class TestParseControl:
         assert packages["b"]["depends"] == "y"
 
     def test_a_crlf_file_is_parsed_like_an_lf_file(self):
-        assert parse_control(GOOD.replace("\n", "\r\n")) == parse_control(GOOD)
+        assert parse_control(GOOD["qt5"].replace("\n", "\r\n")) == parse_control(GOOD["qt5"])
 
     @pytest.mark.parametrize("line", [" .", " text", "\t."])
     def test_a_line_that_is_not_blank_does_not_end_a_stanza(self, line):
@@ -242,214 +218,289 @@ class TestParseControl:
         assert packages["a"]["depends"] == "x"
 
     def test_the_fields_of_one_stanza_do_not_leak_into_the_next(self):
-        packages = parse_control(GOOD)
-        assert "replaces" not in packages[OLD]
-        assert "section" not in packages[PLASMA_5]
-
-    def test_the_transitional_package_is_found_after_a_whitespace_only_line(self):
-        assert check_control(GOOD.replace("\n\nPackage: " + OLD + "\n", "\n \nPackage: " + OLD + "\n")) == []
+        packages = parse_control(GOOD["qt5"])
+        assert "replaces" not in packages[CORE]
+        assert "recommends" not in packages[PLASMA]
 
     def test_without_a_blank_line_two_stanzas_are_one(self):
-        merged = GOOD.replace("\n\nPackage: " + OLD + "\n", "\nPackage: " + OLD + "\n")
-        assert PLASMA_5 not in parse_control(merged)  # the later Package field wins
-        assert check_control(merged) != []
+        merged = GOOD["qt5"].replace("\n\nPackage: " + PLASMA + "\n", "\nPackage: " + PLASMA + "\n")
+        assert CORE + "-gnome" not in parse_control(merged)
+        assert check_control(merged, "qt5") != []
 
 
 class TestCheckControl:
-    def test_a_correct_control_file_has_no_problems(self):
-        assert check_control(GOOD) == []
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    def test_a_correct_control_file_has_no_problems(self, qt):
+        assert check_control(GOOD[qt], qt) == []
 
-    def test_a_file_whose_plasma_5_is_transitional_has_no_problems(self):
-        assert check_control(GOOD_NO_PLASMA_5) == []
+    @pytest.mark.parametrize("name, qt", [("control.ubuntu24.04", "qt5"), ("control.ubuntu26.04", "qt6")])
+    def test_the_fixtures_have_the_stanzas_and_relations_of_the_real_files(self, name, qt):
+        real = parse_control(read(name))
+        fixture = parse_control(GOOD[qt])
+        assert sorted(real) == sorted(fixture)
+        for field in ("replaces", "breaks", "depends"):
+            assert relations(real[PLASMA][field]) == relations(fixture[PLASMA][field]) or field == "depends"
+        assert real[CORE]["recommends"] == fixture[CORE]["recommends"]
 
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
     @pytest.mark.parametrize("name, old, new", [
-        ("no Replaces", "Replaces: network-manager-gpclient-plasma (<< 1.5.0~)\n", ""),
-        ("no Breaks", "Breaks: network-manager-gpclient-plasma (<< 1.5.0~)\n", ""),
-        ("Replaces on another version", "Replaces: network-manager-gpclient-plasma (<< 1.5.0~)",
-         "Replaces: network-manager-gpclient-plasma (<< 1.4.0)"),
-        ("Breaks on another package", "Breaks: network-manager-gpclient-plasma (<< 1.5.0~)",
-         "Breaks: network-manager-gpclient (<< 1.5.0~)"),
-        ("not oldlibs", "Section: oldlibs", "Section: net"),
-        ("not optional", "Priority: optional\n", ""),
+        ("no Replaces", "Replaces: {f} (<< 1.5.1~)\n", ""),
+        ("no Breaks", "Breaks: {f} (<< 1.5.1~)\n", ""),
+        ("Replaces on a lower bound", "Replaces: {f} (<< 1.5.1~)", "Replaces: {f} (<< 1.5.0~)"),
+        ("Breaks on a lower bound", "Breaks: {f} (<< 1.5.1~)", "Breaks: {f} (<< 1.5.0)"),
+        ("Breaks on the core package", "Breaks: {f} (<< 1.5.1~)", "Breaks: network-manager-gpclient (<< 1.5.1~)"),
+        ("Replaces on the old name of 1.4.1", "Replaces: {f} (<< 1.5.1~)",
+         "Replaces: network-manager-gpclient-plasma (<< 1.5.1~)"),
+        ("Conflicts", "Description: Plasma GUI", "Conflicts: network-manager-gpclient-plasma-6\nDescription: Plasma GUI"),
         ("Architecture all", "Package: network-manager-gpclient-plasma\nArchitecture: any",
          "Package: network-manager-gpclient-plasma\nArchitecture: all"),
-        ("depends on a package that is not in the file",
-         "         network-manager-gpclient-plasma-5 (= ${binary:Version})\nDescription: transitional",
-         "         network-manager-gpclient-plasma-6 (= ${binary:Version})\nDescription: transitional"),
-        ("depends without the version", "network-manager-gpclient-plasma-5 (= ${binary:Version})\nDescription: transitional",
-         "network-manager-gpclient-plasma-5\nDescription: transitional"),
-        ("depends on another version relation", "plasma-5 (= ${binary:Version})\nDescription: transitional",
-         "plasma-5 (>= ${binary:Version})\nDescription: transitional"),
-        ("does not say it can be removed", "It can be safely removed.", "Keep it."),
-        ("no transitional package", GOOD[GOOD.index("Package: network-manager-gpclient-plasma\n"):], ""),
+        ("no plasma-nm", "         plasma-nm\n", "         plasma-nm-extra\n"),
+        ("no versioned core package", "network-manager-gpclient (= ${{binary:Version}}),\n         plasma-nm",
+         "network-manager-gpclient,\n         plasma-nm"),
+        ("Recommends without the Plasma package",
+         "Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma\n",
+         "Recommends: network-manager-gpclient-gnome\n"),
+        ("Recommends of a former package",
+         "Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma\n",
+         "Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-5\n"),
     ])
-    def test_a_broken_transition_is_reported(self, name, old, new):
-        assert old in GOOD, name
-        assert check_control(GOOD.replace(old, new)) != [], name
+    def test_a_broken_plasma_package_is_reported(self, name, old, new, qt):
+        text = GOOD[qt]
+        old, new = old.format(f=FORMER[qt]), new.format(f=FORMER[qt])
+        assert old in text, name
+        assert check_control(text.replace(old, new), qt) != [], name
 
-    @pytest.mark.parametrize("name, old, new", [
-        ("-plasma-5 has no Section", "Package: network-manager-gpclient-plasma-5\nArchitecture: any\nSection: oldlibs\n",
-         "Package: network-manager-gpclient-plasma-5\nArchitecture: any\n"),
-        ("-plasma-5 has Architecture all", "Package: network-manager-gpclient-plasma-5\nArchitecture: any\n",
-         "Package: network-manager-gpclient-plasma-5\nArchitecture: all\n"),
-        ("-plasma-5 does not pull in -plasma-6",
-         "Depends: ${misc:Depends},\n         network-manager-gpclient-plasma-6 (= ${binary:Version})\n"
-         "Description: transitional package for network-manager-gpclient-plasma-6\n This is a transitional package. "
-         "It can be safely removed.\n",
-         "Depends: ${misc:Depends},\n         plasma-nm\n"
-         "Description: transitional package for network-manager-gpclient-plasma-6\n This is a transitional package. "
-         "It can be safely removed.\n"),
-        ("-plasma-5 does not say it can be removed", "It can be safely removed.\n", "Keep it.\n"),
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    def test_a_file_without_the_plasma_package_is_reported(self, qt):
+        text = GOOD[qt]
+        assert any("no package" in p for p in check_control(text[:text.index("Package: " + PLASMA + "\n")], qt))
+
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    def test_the_replaced_package_is_the_one_with_the_same_qt(self, qt):
+        wrong = "qt6" if qt == "qt5" else "qt5"
+        text = GOOD[qt].replace(FORMER[qt], FORMER[wrong])
+        problems = check_control(text, qt)
+        assert any("lacks Replaces" in p for p in problems) and any("lacks Breaks" in p for p in problems)
+
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    @pytest.mark.parametrize("extra", ["network-manager-gpclient-plasma-5", "network-manager-gpclient-plasma-6",
+                                       "network-manager-gpclient-plasma-7"])
+    def test_a_second_plasma_package_is_reported(self, qt, extra):
+        text = GOOD[qt] + "\nPackage: %s\nArchitecture: any\nDescription: Plasma GUI\n text\n" % extra
+        assert any("unexpected package " + extra in p for p in check_control(text, qt))
+
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    @pytest.mark.parametrize("stanza", [
+        "Package: network-manager-gpclient-other\nArchitecture: any\nSection: oldlibs\nDescription: other\n text\n",
+        "Package: network-manager-gpclient-other\nArchitecture: any\n"
+        "Description: transitional package for something\n This is a transitional package.\n",
     ])
-    def test_a_broken_transitional_plasma_5_is_reported(self, name, old, new):
-        # the stanza of -plasma-5 is the last one of the fixture
-        marker = "Package: network-manager-gpclient-plasma-5\nArchitecture: any\nSection: oldlibs\n"
-        head, tail = GOOD_NO_PLASMA_5.split(marker)
-        stanza = marker + tail
-        assert old in stanza, name
-        assert check_control(head + stanza.replace(old, new, 1)) != [], name
+    def test_a_transitional_package_is_reported(self, qt, stanza):
+        assert any("transitional" in p for p in check_control(GOOD[qt] + "\n" + stanza, qt))
 
-    def test_a_transitional_plasma_5_without_the_version_is_reported(self):
-        head, tail = GOOD_NO_PLASMA_5.rsplit("network-manager-gpclient-plasma-6 (= ${binary:Version})", 1)
-        assert check_control(head + "network-manager-gpclient-plasma-6" + tail) != []
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    def test_the_build_depends_of_the_other_qt_are_reported(self, qt):
+        other = "qt6" if qt == "qt5" else "qt5"
+        extra = sorted(BUILD_DEPENDS[other])[0]
+        text = GOOD[qt].replace("               curl\n", "               %s,\n               curl\n" % extra)
+        assert any("Build-Depends has " + extra in p for p in check_control(text, qt))
 
-    def test_a_plasma_5_that_replaces_nothing_is_reported_when_it_is_not_transitional(self):
-        text = GOOD_NO_PLASMA_5.replace("Package: network-manager-gpclient-plasma-5\nArchitecture: any\nSection: oldlibs\n"
-                                        "Priority: optional\n", "Package: network-manager-gpclient-plasma-5\n"
-                                        "Architecture: any\n")
-        assert check_control(text) != []
+    @pytest.mark.parametrize("qt, missing", [(q, m) for q in ("qt5", "qt6") for m in sorted(BUILD_DEPENDS[q])])
+    def test_a_missing_build_depends_is_reported(self, qt, missing):
+        text = GOOD[qt].replace("               %s,\n" % missing, "")
+        assert text != GOOD[qt]
+        assert any("Build-Depends lacks " + missing in p for p in check_control(text, qt))
 
-    def test_a_file_without_a_plasma_package_is_reported(self):
-        assert check_control(GOOD.split("Package: network-manager-gpclient-plasma-5")[0]) != []
+    def test_the_other_qt_is_not_accepted_for_the_control_file(self):
+        assert check_control(GOOD["qt5"], "qt6") != []
+        assert check_control(GOOD["qt6"], "qt5") != []
+
+
+class TestUpperBound:
+    @pytest.mark.parametrize("version", EXISTING_VERSIONS)
+    def test_the_bound_covers_every_version_that_exists_as_a_build(self, version):
+        assert covers(BOUND, version)
+
+    @pytest.mark.parametrize("version", ["1.5.1-1~noble1", "1.5.1-1", "1.6.0-1~noble1", "2.0-1"])
+    def test_the_bound_does_not_cover_later_releases(self, version):
+        assert not covers(BOUND, version)
+
+    @pytest.mark.parametrize("bound", ["1.5.0~", "1.4.2~"])
+    def test_a_lower_bound_would_miss_the_test_builds_of_1_5_0(self, bound):
+        assert not covers(bound, "1.5.0-1~noble1+pr31.62")
+
+    def test_every_control_file_uses_this_bound(self):
+        for name in QT:
+            assert "(<< %s)" % BOUND in read(name), name
 
 
 class TestControlFiles:
     def test_every_control_file_is_covered(self):
-        assert sorted(os.path.basename(p) for p in CONTROLS) == sorted(EXPECTED_DEPENDS)
-        assert sorted(os.path.basename(p) for p in CONTROLS) == sorted(EXPECTED_RECOMMENDS)
+        assert sorted(os.path.basename(p) for p in CONTROLS) == sorted(QT)
 
-    @pytest.mark.parametrize("path", CONTROLS, ids=os.path.basename)
-    def test_the_transition_is_declared(self, path):
-        with open(path, encoding="utf-8") as handle:
-            assert check_control(handle.read()) == []
+    @pytest.mark.parametrize("name, qt", sorted(QT.items()))
+    def test_the_plasma_package_is_declared(self, name, qt):
+        assert check_control(read(name), qt) == []
 
-    @pytest.mark.parametrize("name, wanted", sorted(EXPECTED_DEPENDS.items()))
-    def test_the_transitional_package_pulls_in_the_plasma_package_of_the_release(self, name, wanted):
-        assert stanza_depends(os.path.join(DEBIAN, name), OLD) == ["${misc:Depends}", wanted]
+    @pytest.mark.parametrize("name, qt", sorted(QT.items()))
+    def test_the_files_are_not_accepted_for_the_other_qt(self, name, qt):
+        assert check_control(read(name), "qt6" if qt == "qt5" else "qt5") != []
 
-    @pytest.mark.parametrize("name", sorted(EXPECTED_DEPENDS))
-    def test_the_expected_depends_are_accepted_by_the_check(self, name):
-        assert depends_problems(read(name), EXPECTED_DEPENDS[name]) == []
+    def test_debian_control_is_the_copy_for_ubuntu_24_04(self):
+        assert read("control") == read("control.ubuntu24.04")
 
-    @pytest.mark.parametrize("name", sorted(EXPECTED_DEPENDS))
-    @pytest.mark.parametrize("what, mutate", [
-        ("the other plasma package", lambda d: d.replace("plasma-6", "@").replace("plasma-5", "plasma-6").replace("@", "plasma-5")),
-        ("a package that does not exist", lambda d: d.replace("plasma-6", "plasma-7").replace("plasma-5", "plasma-7")),
-        ("no version", lambda d: d.replace(VERSIONED, "")),
-        ("another relation", lambda d: d.replace("(= ", "(>= ")),
-        ("a fixed version", lambda d: d.replace("${binary:Version}", "1.5.0-1")),
-        ("nothing", lambda d: "Depends: ${misc:Depends}"),
-    ])
-    def test_a_transitional_package_that_pulls_in_the_wrong_thing_is_not_accepted(self, name, what, mutate):
-        text = read(name)
-        mutated = mutate_old_depends(text, mutate)
-        assert mutated != text, "the mutation %r changes nothing in %s" % (what, name)
-        assert depends_problems(mutated, EXPECTED_DEPENDS[name]) != []
+    @pytest.mark.parametrize("name, qt", [("control.ubuntu22.04", "qt5"), ("control.ubuntu24.04", "qt5"),
+                                          ("control.ubuntu24.10", "qt6"), ("control.ubuntu26.04", "qt6")])
+    def test_qt5_on_22_04_and_24_04_and_qt6_on_24_10_and_26_04(self, name, qt):
+        package = parse_control(read(name))[PLASMA]
+        assert relations(package["replaces"]) == [relation(qt)]
+        assert relations(package["breaks"]) == [relation(qt)]
+        build = parse_control(read(name))[""]["build-depends"]
+        assert ("qtbase5-dev" in build) == (qt == "qt5")
+        assert ("qt6-base-dev" in build) == (qt == "qt6")
 
-    @pytest.mark.parametrize("what", ["the first alternative only", "the second alternative only", "swapped"])
-    def test_ubuntu_24_10_needs_both_alternatives_in_the_order_plasma_6_first(self, what):
-        text = read("control.ubuntu24.10")
-        both = P6 + "\n         | " + P5
-        assert both in text
-        replacement = {"the first alternative only": P6, "the second alternative only": P5,
-                       "swapped": P5 + "\n         | " + P6}[what]
-        assert depends_problems(text.replace(both, replacement), EXPECTED_DEPENDS["control.ubuntu24.10"]) != []
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_packages_are_the_core_gnome_and_plasma_ones(self, name):
+        packages = parse_control(read(name))
+        assert sorted(p for p in packages if p) == [CORE, CORE + "-gnome", PLASMA]
 
-    @pytest.mark.parametrize("name, wanted", sorted(EXPECTED_RECOMMENDS.items()))
-    def test_the_core_package_recommends_the_desktop_packages_of_the_release(self, name, wanted):
-        with open(os.path.join(DEBIAN, name), encoding="utf-8") as handle:
-            assert parse_control(handle.read())[CORE]["recommends"] == wanted
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_core_package_recommends_gnome_or_plasma(self, name):
+        assert parse_control(read(name))[CORE]["recommends"] == "%s-gnome | %s" % (CORE, PLASMA)
 
-    def test_ubuntu_24_10_recommends_plasma_6_before_plasma_5(self):
-        with open(os.path.join(DEBIAN, "control.ubuntu24.10"), encoding="utf-8") as handle:
-            recommends = parse_control(handle.read())[CORE]["recommends"]
-        assert recommends.index(PLASMA_6) < recommends.index(PLASMA_5)
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_the_core_package_description_names_the_plasma_package(self, name):
+        description = parse_control(read(name))[CORE]["description"]
+        assert "- %s for KDE Plasma" % PLASMA in description
+        assert "plasma-5" not in description and "plasma-6" not in description
 
-    @pytest.mark.parametrize("name, wanted", sorted(EXPECTED_PLASMA_5_TRANSITIONAL.items()))
-    def test_a_release_without_plasma_5_has_a_transitional_plasma_5_for_plasma_6(self, name, wanted):
-        with open(os.path.join(DEBIAN, name), encoding="utf-8") as handle:
-            package = parse_control(handle.read())[PLASMA_5]
-        assert package["section"] == "oldlibs"
-        assert package["architecture"] == "any"
-        assert package["priority"] == "optional"
-        assert relations(package["depends"]) == ["${misc:Depends}", wanted]
-        assert "transitional package" in package["description"]
+    @pytest.mark.parametrize("former", sorted(FORMER.values()))
+    def test_the_former_packages_have_no_install_file(self, former):
+        assert not os.path.exists(os.path.join(DEBIAN, former + ".install"))
 
-    @pytest.mark.parametrize("name", [n for n in sorted(EXPECTED_DEPENDS) if n not in EXPECTED_PLASMA_5_TRANSITIONAL])
-    def test_a_release_with_plasma_5_has_the_real_package(self, name):
-        with open(os.path.join(DEBIAN, name), encoding="utf-8") as handle:
-            package = parse_control(handle.read())[PLASMA_5]
-        assert package.get("section") != "oldlibs"
-        assert "plasma-nm" in package["depends"]
-        assert RELATION in relations(package["replaces"])
+    def test_the_plasma_package_has_an_install_file(self):
+        assert os.path.exists(os.path.join(DEBIAN, PLASMA + ".install"))
 
-    @pytest.mark.parametrize("name", ["control.ubuntu22.04", "control.ubuntu24.04", "control.ubuntu24.10", "control.ubuntu26.04"])
-    def test_the_transitional_package_does_not_pull_in_the_wrong_plasma_package(self, name):
-        wrong = {"control.ubuntu22.04": P6, "control.ubuntu24.04": P6, "control.ubuntu24.10": P5,
-                 "control.ubuntu26.04": P5}[name]
-        assert stanza_depends(os.path.join(DEBIAN, name), OLD) != ["${misc:Depends}", wrong]
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_no_package_conflicts_or_provides(self, name):
+        assert not [l for l in read(name).splitlines() if l.startswith(("Provides:", "Conflicts:"))][1:]
 
 
-def transitional_drift(text, codename, table):
-    """The differences between the packages `text` (a control file) builds as transitional ones for
-    `codename` and what `table` (release_notes.TRANSITIONAL) says"""
-    built = {name for name, fields in parse_control(text).items() if fields.get("section") == "oldlibs"}
-    listed = {name for name, codenames in table.items() if codenames is None or codename in codenames}
-    return sorted(built ^ listed)
+def build_depends_of(text):
+    return {item.split("(")[0].split("|")[0].strip() for item in relations(parse_control(text)[""]["build-depends"])}
 
 
-class TestReleaseNotesKnowTheTransitionalPackages:
-    CODENAME = {version: codename for codename, version in release_notes.UBUNTU.items()}
+def dockerfile_packages(text):
+    """The packages of the apt-get install line of a Dockerfile"""
+    install = text[text.index("apt-get install -y"):]
+    install = install[:install.index("&&", 1) if "&&" in install[1:] else len(install)]
+    return {w for w in re.findall(r"^\s+([a-z0-9][a-z0-9+.-]*)\s*\\?$", install, re.M)}
 
+
+class TestDockerfiles:
     @staticmethod
-    def codename(path):
-        return TestReleaseNotesKnowTheTransitionalPackages.CODENAME[os.path.basename(path)[len("control.ubuntu"):]]
+    def qt_packages(names):
+        return {n for n in names if re.match(r"(qt|libkf)", n)}
 
-    def test_every_ubuntu_release_has_a_control_file(self):
-        assert sorted(self.codename(p) for p in UBUNTU_CONTROLS) == sorted(release_notes.UBUNTU)
+    @pytest.mark.parametrize("control, dockerfile", sorted(DOCKERFILES.items()))
+    def test_the_dockerfile_installs_the_qt_packages_the_control_file_needs(self, control, dockerfile):
+        with open(os.path.join(ROOT, dockerfile), encoding="utf-8") as handle:
+            docker = self.qt_packages(dockerfile_packages(handle.read()))
+        build = self.qt_packages(build_depends_of(read(control)))
+        assert build >= BUILD_DEPENDS[QT[control]]
+        assert docker >= BUILD_DEPENDS[QT[control]]
+        assert docker == build
 
-    @pytest.mark.parametrize("path", UBUNTU_CONTROLS, ids=os.path.basename)
-    def test_the_list_matches_the_control_file(self, path):
-        with open(path, encoding="utf-8") as handle:
-            assert transitional_drift(handle.read(), self.codename(path), release_notes.TRANSITIONAL) == []
+    @pytest.mark.parametrize("control, dockerfile", sorted(DOCKERFILES.items()))
+    def test_the_dockerfile_installs_no_packages_of_the_other_qt(self, control, dockerfile):
+        other = BUILD_DEPENDS["qt6" if QT[control] == "qt5" else "qt5"]
+        with open(os.path.join(ROOT, dockerfile), encoding="utf-8") as handle:
+            assert not dockerfile_packages(handle.read()) & other
 
-    @pytest.mark.parametrize("path", UBUNTU_CONTROLS, ids=os.path.basename)
-    def test_is_transitional_agrees_with_the_control_file(self, path):
-        codename = self.codename(path)
-        with open(path, encoding="utf-8") as handle:
-            packages = parse_control(handle.read())
-        for name, fields in packages.items():
-            if name.startswith(CORE):
-                assert release_notes.is_transitional(codename, name) == (fields.get("section") == "oldlibs"), name
+    def test_the_dockerfile_parser_finds_the_packages(self):
+        text = "RUN apt-get update && apt-get install -y \\\n    build-essential \\\n    qt6-base-dev \\\n    curl \\\n    && rm -rf x\n"
+        assert dockerfile_packages(text) == {"build-essential", "qt6-base-dev", "curl"}
 
-    @pytest.mark.parametrize("path", UBUNTU_CONTROLS, ids=os.path.basename)
-    def test_a_list_without_the_old_plasma_package_is_found(self, path):
-        table = {k: v for k, v in release_notes.TRANSITIONAL.items() if k != OLD}
-        assert transitional_drift(read(os.path.basename(path)), self.codename(path), table) == [OLD]
 
-    def test_a_list_without_plasma_5_of_resolute_is_found(self):
-        table = {OLD: None}
-        assert transitional_drift(read("control.ubuntu26.04"), "resolute", table) == [PLASMA_5]
+RULES = read("rules")
 
-    def test_a_list_that_has_plasma_5_of_a_release_where_it_is_a_real_package_is_found(self):
-        table = {OLD: None, PLASMA_5: {"noble", "resolute"}}
-        assert transitional_drift(read("control.ubuntu24.04"), "noble", table) == [PLASMA_5]
-        assert transitional_drift(read("control.ubuntu26.04"), "resolute", table) == []
 
-    def test_an_empty_list_is_found_everywhere(self):
-        assert transitional_drift(read("control.ubuntu26.04"), "resolute", {}) == [OLD, PLASMA_5]
-        assert transitional_drift(read("control.ubuntu22.04"), "jammy", {}) == [OLD]
+def make_variable(tmp_path, control_text):
+    """PLASMA_QT_MAJOR of debian/rules for a debian/control with this content"""
+    lines = RULES.splitlines()
+    first = next(i for i, l in enumerate(lines) if l.startswith("HAS_QT5"))
+    last = next(i for i, l in enumerate(lines) if l.startswith("PLASMA_QT_MAJOR"))
+    (tmp_path / "debian").mkdir(exist_ok=True)
+    (tmp_path / "debian" / "control").write_text(control_text, encoding="utf-8")
+    (tmp_path / "mini.mk").write_text("\n".join(lines[first:last + 1]) + "\nprint:\n\t@echo '[$(PLASMA_QT_MAJOR)]'\n",
+                                      encoding="utf-8")
+    result = subprocess.run(["make", "-s", "-f", "mini.mk", "print"], cwd=tmp_path, capture_output=True, text=True,
+                            timeout=30)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()[1:-1]
 
-    def test_a_real_package_listed_for_its_release_is_found(self):
-        table = {OLD: None, PLASMA_5: {"resolute"}, PLASMA_6: {"resolute"}}
-        assert transitional_drift(read("control.ubuntu26.04"), "resolute", table) == [PLASMA_6]
+
+class TestRules:
+    @pytest.mark.parametrize("name, qt", sorted(QT.items()))
+    def test_the_qt_of_the_plugin_is_the_one_of_the_control_file(self, tmp_path, name, qt):
+        assert make_variable(tmp_path, read(name)) == qt[-1]
+
+    @pytest.mark.parametrize("qt", ["qt5", "qt6"])
+    def test_a_control_file_with_both_qt_or_none_gives_no_qt(self, tmp_path, qt):
+        other = "qtbase5-dev" if qt == "qt6" else "qt6-base-dev"
+        both = GOOD[qt].replace("               curl\n", "               %s,\n               curl\n" % other)
+        assert make_variable(tmp_path, both) == ""
+        neither = re.sub(r"^ +(qtbase5-dev|qt6-base-dev),\n", "", GOOD[qt], flags=re.M)
+        assert make_variable(tmp_path, neither) == ""
+
+    def test_a_package_name_that_only_contains_the_qt_package_is_not_taken_for_it(self, tmp_path):
+        text = GOOD["qt6"].replace("qt6-base-dev,", "qt6-base-dev-tools-x,", 1)
+        assert make_variable(tmp_path, text) == ""
+
+    def test_a_missing_qt_stops_the_build(self):
+        assert 'test -n "$(PLASMA_QT_MAJOR)"' in RULES
+
+    def test_the_plugin_is_built_for_that_qt(self):
+        assert "-DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR)" in RULES
+        assert "pkg-config --exists Qt" not in RULES
+
+    def test_the_plugin_goes_into_the_one_plasma_package_in_the_qt_directory(self):
+        install = [l for l in RULES.splitlines() if "plasmanetworkmanagement_gpclientui" in l]
+        assert install
+        for line in install:
+            if "$(CURDIR)" in line:
+                assert "debian/network-manager-gpclient-plasma/usr/" in line, line
+        assert "/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/" in RULES
+
+    def test_the_multiarch_directory_is_never_hard_coded(self):
+        assert "x86_64-linux-gnu" not in RULES.replace("x86_64-linux-gnu, aarch64", "")
+        assert "$(DEB_HOST_MULTIARCH)" in RULES
+
+    def test_only_qt5_installs_the_kservices_file(self):
+        assert '[ "$(PLASMA_QT_MAJOR)" = 5 ]' in RULES
+        assert RULES.count("kservices5") == 2  # the comment and the install line
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_every_package_directory_of_the_rules_is_a_package_of_the_control_file(self, name):
+        packages = set(parse_control(read(name)))
+        for directory in set(re.findall(r"debian/(network-manager-gpclient[a-z-]*)/", RULES)):
+            assert directory in packages, directory
+
+    def test_no_build_directory_per_qt(self):
+        assert "build-5" not in RULES and "build-6" not in RULES
+
+
+class TestChangelog:
+    def top(self):
+        text = read("changelog")
+        return text[:text.index("\n -- ")]
+
+    def test_the_plasma_package_and_its_qt_are_described(self):
+        top = self.top()
+        assert "network-manager-gpclient-plasma," in top
+        assert "Qt5 on Ubuntu 22.04 and 24.04" in top and "Qt6" in top
+
+    def test_no_transitional_package_is_announced(self):
+        top = self.top()
+        assert "transitional" not in top
+        assert "Ubuntu 26.04 has a" not in top

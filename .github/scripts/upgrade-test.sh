@@ -10,9 +10,9 @@
 #
 # Scenarios:
 #   gnome       install network-manager-gpclient-gnome from the release
-#   plasma      install network-manager-gpclient-plasma (the old name; since 1.5.0
-#               a transitional package) from the release
-#   plasma-new  install the release's own -plasma-5 / -plasma-6, if it has one
+#   plasma      install network-manager-gpclient-plasma from the release; the
+#               editor plugin must be in the Qt directory of the Ubuntu release
+#               (qt5 on 22.04 and 24.04, qt6 on 24.10 and 26.04) afterwards
 #
 # With a gui-out-dir, a GUI smoke test of the installed editor plugin follows
 # the successful upgrade (gui-smoke.sh; screenshots go to that directory).
@@ -39,8 +39,8 @@ fail() {
 }
 
 case "$SCENARIO" in
-    gnome | plasma | plasma-new) ;;
-    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma, plasma-new)" ;;
+    gnome | plasma) ;;
+    *) fail "unknown scenario '$SCENARIO' (use: gnome, plasma)" ;;
 esac
 [ "$(id -u)" = 0 ] || fail "run as root, inside a throw-away container"
 [ -d "$DEBS_DIR" ] || fail "no such directory: $DEBS_DIR"
@@ -74,7 +74,26 @@ apt-get install -y -qq --no-install-recommends ca-certificates curl lsb-release 
 CODENAME="$(lsb_release -cs)"
 ARCH="$(dpkg --print-architecture)"
 
+# The released repository may have no suite for this Ubuntu release at all (1.4.1
+# had no 24.10 builds): skip then. Only a 404 means that; any other answer or a
+# network error fails the test, so a broken network is never taken for "nothing
+# to upgrade from".
+check_released_suite() {
+    local code
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 20 --max-time 120 \
+        "$REPO_URL/dists/$CODENAME/Release")" || code="000"
+    case "$code" in
+        200) ;;
+        404)
+            echo "SKIP: the released repository has no $CODENAME suite"
+            exit 0
+            ;;
+        *) fail "cannot read $REPO_URL/dists/$CODENAME/Release (HTTP $code)" ;;
+    esac
+}
+
 # The released repository, exactly as README.md "Installation" adds it
+check_released_suite
 curl -fsSL "$REPO_URL/gpclient-archive-keyring.gpg" > "$KEYRING"
 echo "deb [arch=$ARCH signed-by=$KEYRING] $REPO_URL $CODENAME main" > /etc/apt/sources.list.d/gpclient.list
 apt-get update -qq
@@ -91,15 +110,6 @@ candidate() {
 case "$SCENARIO" in
     gnome) OLD_PACKAGE=network-manager-gpclient-gnome ;;
     plasma) OLD_PACKAGE=network-manager-gpclient-plasma ;;
-    plasma-new)
-        OLD_PACKAGE=""
-        for name in network-manager-gpclient-plasma-5 network-manager-gpclient-plasma-6; do
-            if [ -n "$(candidate "$name")" ]; then
-                OLD_PACKAGE="$name"
-            fi
-        done
-        [ -n "$OLD_PACKAGE" ] || OLD_PACKAGE=network-manager-gpclient-plasma-5
-        ;;
 esac
 if [ -z "$(candidate "$OLD_PACKAGE")" ]; then
     echo "SKIP: no released $OLD_PACKAGE for $CODENAME/$ARCH"
@@ -159,25 +169,19 @@ check_plugin() {
     echo "OK: $plugin is installed and owned by $package"
 }
 
-# --expected-version etc. are checked by the Python helper
+# --expected-version etc. are checked by the Python helper; for Plasma it also
+# checks the Qt directory of the editor plugin against the release
+PLASMA_FILES=()
+if [ "$SCENARIO" = plasma ]; then
+    dpkg -L network-manager-gpclient-plasma > "$WORK/plasma-files.txt" \
+        || fail "network-manager-gpclient-plasma is not installed after the upgrade"
+    PLASMA_FILES=(--plasma-files "$WORK/plasma-files.txt")
+fi
 python3 "$HERE/check_upgrade.py" --before "$WORK/before.txt" --after "$WORK/after.txt" \
-    --expected-version "$EXPECTED" --scenario "$SCENARIO" --codename "$CODENAME"
+    --expected-version "$EXPECTED" --scenario "$SCENARIO" --codename "$CODENAME" "${PLASMA_FILES[@]}"
 
-if [ "$SCENARIO" != gnome ]; then
-    # -plasma-6 first: on 26.04 -plasma-5 is an empty transitional package
-    PLASMA="$(awk '$1 ~ /^network-manager-gpclient-plasma-[56]$/ && $3 == "ii" {print $1}' "$WORK/after.txt" \
-        | sort -r | head -n 1)"
-    [ -n "$PLASMA" ] || fail "no -plasma-5 / -plasma-6 package is installed"
-    check_plugin "$PLASMA"
-    # The transitional package can be removed without taking the real one along
-    if grep -q '^network-manager-gpclient-plasma .* ii' "$WORK/after.txt"; then
-        echo "::group::Remove the transitional network-manager-gpclient-plasma"
-        apt-get remove -y network-manager-gpclient-plasma
-        echo "::endgroup::"
-        dpkg-query -W -f='${db:Status-Abbrev}' "$PLASMA" | grep -q '^ii' \
-            || fail "removing network-manager-gpclient-plasma removed $PLASMA"
-        check_plugin "$PLASMA"
-    fi
+if [ "$SCENARIO" = plasma ]; then
+    check_plugin network-manager-gpclient-plasma
 fi
 echo "PASS: $SCENARIO upgrade on $CODENAME/$ARCH to $EXPECTED"
 if [ -n "$GUI_OUT" ]; then

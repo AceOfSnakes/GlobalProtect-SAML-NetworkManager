@@ -165,7 +165,7 @@ jobs:
         run: |
           failed=""
           mkdir -p "$PWD/gui-smoke"
-          for scenario in gnome plasma plasma-new; do
+          for scenario in gnome plasma; do
             echo "::group::Upgrade test: $scenario"
             if ! docker run --rm \
                 -v "$PWD/output/ubuntu${UBUNTU}-${ARCH}:/debs:ro" \

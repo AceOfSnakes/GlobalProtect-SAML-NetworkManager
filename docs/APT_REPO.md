@@ -17,8 +17,7 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpcli
 
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
-sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04, 24.04)
-sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
+sudo apt install network-manager-gpclient-plasma   # KDE Plasma
 ```
 
 Same thing in deb822 format, if you prefer `/etc/apt/sources.list.d/*.sources`:

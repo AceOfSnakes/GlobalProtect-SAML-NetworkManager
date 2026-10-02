@@ -33,12 +33,10 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpcli
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
 # or
-sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04, 24.04)
-# or
-sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
+sudo apt install network-manager-gpclient-plasma   # KDE Plasma
 ```
 
-Upgrading from 1.4.1 or older: `network-manager-gpclient-plasma` is now an empty transitional package that pulls in `-plasma-5` or `-plasma-6`; `apt upgrade` or `apt full-upgrade` installs it, while `apt-get upgrade` and unattended-upgrades keep the packages back until then. You can remove it afterwards.
+`network-manager-gpclient-plasma` is built for the Plasma of the release (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 24.10 and 26.04). On Ubuntu 24.04 with Plasma 6 from Kubuntu Backports it does not fit: the KF6 libraries needed to build a Qt6 plugin are not in the 24.04 archive.
 
 Supported: Ubuntu 22.04, 24.04, 24.10 and 26.04, `amd64` and `arm64`. Details, deb822 format and
 removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
@@ -55,8 +53,7 @@ Download the packages for your Ubuntu version from
 [GitHub Releases](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/releases)
 (newer releases list their files in a table by Ubuntu version and architecture; older ones do not).
 You need **network-manager-gpclient** plus either
-**network-manager-gpclient-gnome** or **network-manager-gpclient-plasma-5** /
-**network-manager-gpclient-plasma-6**, and
+**network-manager-gpclient-gnome** or **network-manager-gpclient-plasma**, and
 the GUI package requires exactly the same version of the core package - so
 install them in one go and let apt sort out the dependencies:
 
@@ -149,8 +146,7 @@ The password for `auth-mode=credentials` is a secret, not data:
 |---------|-------------|
 | `network-manager-gpclient` | Core VPN service (required) |
 | `network-manager-gpclient-gnome` | GNOME/GTK integration |
-| `network-manager-gpclient-plasma-5` | KDE Plasma 5 integration (Ubuntu 22.04, 24.04) |
-| `network-manager-gpclient-plasma-6` | KDE Plasma 6 integration (Ubuntu 24.10, 26.04) |
+| `network-manager-gpclient-plasma` | KDE Plasma integration, built for the Plasma of the release (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 24.10 and 26.04) |
 
 ## Architecture
 

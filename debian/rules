@@ -5,6 +5,13 @@ export DH_VERBOSE = 1
 # Defines DEB_HOST_MULTIARCH (x86_64-linux-gnu, aarch64-linux-gnu, ...) of the target
 include /usr/share/dpkg/architecture.mk
 
+# The Qt of the Plasma plugin is the one debian/control (a copy of
+# debian/control.ubuntu<version>) lists in Build-Depends: qtbase5-dev for Qt5,
+# qt6-base-dev for Qt6. Empty when it lists both or none; the build stops then.
+HAS_QT5 := $(shell grep -qE '^[[:space:]]+qtbase5-dev,' debian/control && echo yes)
+HAS_QT6 := $(shell grep -qE '^[[:space:]]+qt6-base-dev,' debian/control && echo yes)
+PLASMA_QT_MAJOR := $(if $(HAS_QT5),$(if $(HAS_QT6),,5),$(if $(HAS_QT6),6,))
+
 %:
 	dh $@
 
@@ -19,17 +26,11 @@ override_dh_auto_build:
 	# Build GNOME plugins only (Rust binaries are built separately below)
 	$(MAKE) gnome-plugins
 
-	# Build Plasma 6 plugin 
-	@if pkg-config --exists Qt6Core; then \
-	mkdir -p plugins/plasma/build-6; \
-	cd plugins/plasma/build-6&& cmake .. -DQT_MAJOR_VERSION=6 && $(MAKE); \
-	fi
-
-	# Build Plasma 5 plugin 
-	@if pkg-config --exists Qt5Core; then \
-	mkdir -p plugins/plasma/build-5; \
-	cd plugins/plasma/build-5&& cmake .. -DQT_MAJOR_VERSION=5 && $(MAKE); \
-	fi
+	# Build the Plasma plugin against the Qt that debian/control builds with
+	@test -n "$(PLASMA_QT_MAJOR)" || { \
+		echo "debian/control must have exactly one of qtbase5-dev and qt6-base-dev in Build-Depends"; exit 1; }
+	mkdir -p plugins/plasma/build
+	cd plugins/plasma/build && cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
 
 	# Build Rust binaries (gpclient, gpauth, and gpservice)
 	# Cargo will reuse compiled dependencies from target cache volume
@@ -63,25 +64,16 @@ override_dh_auto_install:
 	# Install Plasma plugin
 	# Plugin install path depends on the Qt major version we built against:
 	#   Qt5 (Ubuntu 22.04/24.04): /usr/lib/<multiarch>/qt5/plugins/...
-	#   Qt6 (Ubuntu 26.04+):     /usr/lib/<multiarch>/qt6/plugins/...
+	#   Qt6 (Ubuntu 24.10/26.04): /usr/lib/<multiarch>/qt6/plugins/...
+	install -D -m 644 plugins/plasma/build/plasmanetworkmanagement_gpclientui.so \
+		$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
+	install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
+		$(CURDIR)/debian/network-manager-gpclient-plasma/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
 	# KF5 used a .desktop service file (/usr/share/kservices5); KF6 dropped that
 	# mechanism and reads only the embedded JSON metadata, so we skip the file there.
-	@if pkg-config --exists Qt6Core; then \
-		PLASMA_QT_DIR=qt6; \
-		install -D -m 644 plugins/plasma/build-6/plasmanetworkmanagement_gpclientui.so \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
-		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-6/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
-	fi
-
-	@if pkg-config --exists Qt5Core; then \
-		PLASMA_QT_DIR=qt5; \
-		install -D -m 644 plugins/plasma/build-5/plasmanetworkmanagement_gpclientui.so \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; \
-		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/lib/$(DEB_HOST_MULTIARCH)/$$PLASMA_QT_DIR/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json; \
+	@if [ "$(PLASMA_QT_MAJOR)" = 5 ]; then \
 		install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.desktop \
-			$(CURDIR)/debian/network-manager-gpclient-plasma-5/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
+			$(CURDIR)/debian/network-manager-gpclient-plasma/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop; \
 	fi
 
 	# Install core service files (base package)
@@ -130,7 +122,7 @@ override_dh_auto_install:
 
 override_dh_auto_clean:
 	$(MAKE) clean || true
-	rm -rf plugins/plasma/build plugins/plasma/build-5 plugins/plasma/build-6 debs
+	rm -rf plugins/plasma/build debs
 
 override_dh_gencontrol:
 	@echo ======================================================= override_dh_gencontrol:

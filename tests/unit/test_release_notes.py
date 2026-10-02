@@ -35,8 +35,7 @@ CODENAMES = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute"
 PACKAGES = [
     "network-manager-gpclient",
     "network-manager-gpclient-gnome",
-    "network-manager-gpclient-plasma-5",
-    "network-manager-gpclient-plasma-6",
+    "network-manager-gpclient-plasma",
 ]
 BASE = "https://github.com/%s/releases/download/%s" % (REPO, TAG)
 START, END = release_notes.START, release_notes.END
@@ -103,9 +102,7 @@ def test_full_matrix_rows_columns_and_links(tmp_path):
     assert rows[1] == "|---|---|---|"
     expected = []
     for codename, number in CODENAMES.items():  # known releases in version order
-        # the full matrix has the transitional -plasma-5 of resolute too: not a download
-        shown = [p for p in PACKAGES if (codename, p) != ("resolute", "network-manager-gpclient-plasma-5")]
-        cells = ["<br>".join(link(p, codename, a) for p in shown) for a in ("amd64", "arm64")]
+        cells = ["<br>".join(link(p, codename, a) for p in PACKAGES) for a in ("amd64", "arm64")]
         expected.append("| Ubuntu %s (%s) | %s | %s |" % (number, codename, cells[0], cells[1]))
     assert rows[2:] == expected
 
@@ -119,20 +116,26 @@ def test_links_are_the_urls_of_the_assets(tmp_path):
 
 
 @pytest.mark.parametrize("name", [
-    "network-manager-gpclient-plasma-5_1.4.1-1.noble1_amd64.deb",
+    "network-manager-gpclient-plasma_1.4.1-1.noble1_amd64.deb",
     "network-manager-gpclient_1.4.1-1~noble1_arm64.deb",
 ])
 def test_both_spellings_of_the_asset_name_are_parsed(name):
     codename, arch, short = release_notes.parse(name)
     assert codename == "noble"
     assert arch in ("amd64", "arm64")
-    assert short in ("plasma-5", "gpclient")
+    assert short in ("plasma", "gpclient")
 
 
 def test_text_of_the_notes_points_to_apt_and_the_install_command(tmp_path):
     out = run(tmp_path, full_matrix()).stdout
     assert "https://github.com/%s/blob/%s/docs/APT_REPO.md" % (REPO, TAG) in out
     assert "sudo apt install ./network-manager-gpclient_*.deb ./network-manager-gpclient-gnome_*.deb" in out
+
+
+def test_text_of_the_notes_names_the_desktop_packages(tmp_path):
+    out = run(tmp_path, full_matrix()).stdout
+    assert "one desktop package (`-gnome` or `-plasma`)" in out
+    assert "-plasma-5" not in out and "-plasma-6" not in out
 
 
 def test_text_of_the_notes_sends_ubuntu_22_04_to_the_readme_for_sdbus(tmp_path):
@@ -143,58 +146,15 @@ def test_text_of_the_notes_sends_ubuntu_22_04_to_the_readme_for_sdbus(tmp_path):
 
 
 def test_packages_in_a_cell_follow_the_fixed_order(tmp_path):
-    names = ["zzz-extra", PACKAGES[3], PACKAGES[1], "aaa-extra", PACKAGES[0], PACKAGES[2]]
+    names = ["zzz-extra", PACKAGES[2], PACKAGES[1], "aaa-extra", PACKAGES[0]]
     row = table_rows(run(tmp_path, debs(*names)).stdout)[2]
-    assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "gnome", "plasma-5", "plasma-6", "aaa-extra", "zzz-extra"]
+    assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "gnome", "plasma", "aaa-extra", "zzz-extra"]
 
 
-OLD_PLASMA = "network-manager-gpclient-plasma"
-PLASMA_5 = "network-manager-gpclient-plasma-5"
-
-
-def test_transitional_packages_are_not_in_the_table(tmp_path):
-    assets = (debs(PACKAGES[0], PLASMA_5, OLD_PLASMA, codename="resolute")
-              + debs(PACKAGES[0], PLASMA_5, OLD_PLASMA, PACKAGES[3], codename="oracular")
-              + debs(PACKAGES[0], OLD_PLASMA, codename="noble"))
-    out = run(tmp_path, assets).stdout
-    noble, oracular, resolute = table_rows(out)[2:]
-    assert resolute.startswith("| Ubuntu 26.04 (resolute) |")
-    assert re.findall(r"\[([^\]]+)\]", resolute) == ["gpclient"]
-    assert re.findall(r"\[([^\]]+)\]", oracular) == ["gpclient", "plasma-5", "plasma-6"]
-    assert re.findall(r"\[([^\]]+)\]", noble) == ["gpclient"]
-
-
-def test_the_rows_are_in_version_order_with_transitional_packages_skipped(tmp_path):
-    assets = debs(PACKAGES[0], OLD_PLASMA, codename="resolute") + debs(PACKAGES[0], codename="noble")
-    rows = table_rows(run(tmp_path, assets).stdout)[2:]
-    assert [r.split(" |")[0] for r in rows] == ["| Ubuntu 24.04 (noble)", "| Ubuntu 26.04 (resolute)"]
-
-
-@pytest.mark.parametrize("codename", ["jammy", "noble", "oracular"])
-def test_plasma_5_is_a_download_where_it_is_a_real_package(tmp_path, codename):
-    out = run(tmp_path, debs(PACKAGES[0], PLASMA_5, codename=codename)).stdout
-    assert link(PLASMA_5, codename, "amd64") in out
-
-
-@pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
-def test_the_old_plasma_package_is_never_a_download(tmp_path, codename):
-    out = run(tmp_path, debs(PACKAGES[0], OLD_PLASMA, codename=codename)).stdout
-    assert "[plasma]" not in out and OLD_PLASMA + "_" not in out
-
-
-def test_the_transitional_plasma_5_of_resolute_is_not_a_download(tmp_path):
-    out = run(tmp_path, debs(PACKAGES[0], PLASMA_5, codename="resolute")).stdout
-    assert "[plasma-5]" not in out and PLASMA_5 + "_" not in out
-
-
-def test_a_release_of_transitional_packages_only_is_an_error(tmp_path):
-    refused(run(tmp_path, debs(OLD_PLASMA, codename="noble") + debs(PLASMA_5, codename="resolute")),
-            "transitional")
-
-
-def test_transitional_packages_are_still_checked_for_a_bad_url(tmp_path):
-    name = asset_name(OLD_PLASMA, "noble", "amd64")
-    refused(run(tmp_path, debs(PACKAGES[0]) + [asset(name, "https://example.org/x")]), name)
+def test_the_packages_of_the_former_split_are_not_in_the_fixed_order(tmp_path):
+    names = ["network-manager-gpclient-plasma-6", PACKAGES[2], "network-manager-gpclient-plasma-5", PACKAGES[0]]
+    row = table_rows(run(tmp_path, debs(*names)).stdout)[2]
+    assert re.findall(r"\[([^\]]+)\]", row) == ["gpclient", "plasma", "plasma-5", "plasma-6"]
 
 
 def test_only_amd64_gives_a_single_column(tmp_path):
@@ -273,14 +233,14 @@ def test_asset_without_an_upload_leaves_no_link_at_all(tmp_path, state):
     assets = debs(*PACKAGES)
     assets[1] = asset(asset_name(PACKAGES[1], "noble", "amd64"), state=state)
     out = run(tmp_path, assets).stdout
-    assert "[gnome]" not in out and "[gpclient]" in out and "[plasma-6]" in out
+    assert "[gnome]" not in out and "[gpclient]" in out and "[plasma]" in out
 
 
 def test_asset_with_a_missing_state_is_not_linked(tmp_path):
     assets = debs(*PACKAGES)
     del assets[1]["state"]
     out = run(tmp_path, assets).stdout
-    assert "[gnome]" not in out and "[plasma-5]" in out
+    assert "[gnome]" not in out and "[plasma]" in out
 
 
 def test_uploaded_asset_is_linked(tmp_path):
