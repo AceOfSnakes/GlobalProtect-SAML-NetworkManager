@@ -119,8 +119,8 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `gateway` | (required) | Portal address, or gateway address with `as-gateway=true` |
 | `as-gateway` | `false` | The address is a gateway - skip the portal workflow |
 | `preferred-gateway` | (empty) | Gateway to use; empty means the portal's first proposal. Falls back to the first proposal when the value is not offered |
-| `gateway-list` | (written by the service) | The portal's gateway list, `;`-separated. Read by the editors to fill the drop-down. The whole list after reading it page by page, or a list that fits one page; otherwise the stored entries plus the ones seen last time |
-| `gateway-list-count` | (written by the service) | gpclient's `Found N gateways in portal config` count when the list was last read completely. It marks `gateway-list` as complete; the list is read again when the portal reports another number |
+| `gateway-list` | (written by the service) | The portal's gateway list, `;`-separated. Read by the editors to fill the drop-down. The whole list after reading it page by page, or a list that fits one page (both need gpclient's `Found N` line); otherwise the stored entries plus the ones seen last time |
+| `gateway-list-count` | (written by the service) | gpclient's `Found N gateways in portal config` count when the list was last read completely. It marks `gateway-list` as complete; the list is read again when the portal reports another number, and never without that line |
 | `auth-mode` | `saml` | `saml` = browser login, `credentials` = username/password collected upfront |
 | `username` | (empty) | Username for portals that ask on the terminal |
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or a path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |

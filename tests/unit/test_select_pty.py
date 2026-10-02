@@ -79,6 +79,8 @@ import os, sys, tty
 
 PAGE = 7
 OPTIONS = ["gw-%02d (gw%d.example.com)" % (i, i) for i in range(20)]
+if os.environ.get("FAKE_DUPLICATE"):
+    OPTIONS[10] = OPTIONS[5]  # two identical entries: 19 different ones
 QUESTION = "? Which gateway do you want to connect to?"
 HELP = "[↑↓ to move, enter to select, type to filter]"
 
@@ -146,7 +148,8 @@ def redraw(rows, parked_col):
 
 # FAKE_FOUND: the count in gpapi's "Found N gateways in portal config" line
 # ("" prints none); FAKE_STALL_AFTER / FAKE_STALL_PAGE_AFTER: stop reacting to
-# Down / PageDown after that many; FAKE_NO_HOME: Home is never redrawn
+# Down / PageDown after that many; FAKE_NO_HOME: Home is never redrawn;
+# FAKE_DUPLICATE: entry 10 is the same as entry 5
 FOUND = os.environ.get("FAKE_FOUND", "20")
 STALL_AFTER = int(os.environ.get("FAKE_STALL_AFTER", "-1"))
 STALL_PAGE_AFTER = int(os.environ.get("FAKE_STALL_PAGE_AFTER", "-1"))
@@ -444,7 +447,11 @@ class TestIncrementalRedrawOverPty:
     def test_unknown_preference_walks_the_list_and_takes_the_first(
         self, service_module, tmp_path, caplog, preferred
     ):
-        plugin = self._run(service_module, tmp_path, preferred)
+        # The profile holds the whole list: no reading, so the walk laps it
+        plugin = self._run(
+            service_module, tmp_path, preferred,
+            stored_list=";".join(ALL_GATEWAYS), stored_count=20,
+        )
 
         # The walk saw the whole list and nothing matches: the first proposal,
         # not whatever happened to be highlighted at some point
@@ -554,10 +561,11 @@ class TestPagedCollectionOverPty:
             ("gw-12", ALL_GATEWAYS[12], 12),
             ("gw12.example.com", ALL_GATEWAYS[12], 12),
             ("gw-19", ALL_GATEWAYS[19], 19),
-            # Substring only: a lap without an exact match, then on by name
-            ("w15.ex", ALL_GATEWAYS[15], 20 + 15),
-            # Not offered: a whole lap, then the first proposal
-            ("gw-tokyo", ALL_GATEWAYS[0], 20),
+            # Substring only: the first entry that contains it, as without paging
+            ("w15.ex", ALL_GATEWAYS[15], 15),
+            ("gw-1", ALL_GATEWAYS[10], 10),
+            # Not offered: the first proposal, no lap
+            ("gw-tokyo", ALL_GATEWAYS[0], 0),
         ],
     )
     def test_selection_is_the_same_as_without_reading_the_pages(
@@ -571,21 +579,35 @@ class TestPagedCollectionOverPty:
         assert "stopped redrawing" not in caplog.text
         assert plugin._lap_entries == ALL_GATEWAYS
 
-    def test_unknown_count_ends_when_page_down_no_longer_redraws(
-        self, service_module, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            {},
+            {"stored_list": ";".join(ALL_GATEWAYS), "stored_count": 20},
+        ],
+    )
+    def test_unknown_count_reads_no_pages_and_only_merges(
+        self, service_module, tmp_path, monkeypatch, stored
     ):
         plugin = self._run(
-            service_module, tmp_path, "gw-02", monkeypatch, env={"FAKE_FOUND": ""}
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_FOUND": ""}, **stored,
         )
 
         assert plugin._gateway_count is None
         assert self._connected_to(plugin) == ALL_GATEWAYS[2]
-        # The fourth PageDown finds the cursor on the last entry already
-        assert self._keys(plugin) == {"down": 2, "pagedown": 4, "home": 1}
-        assert plugin._lap_entries == ALL_GATEWAYS
-        assert self._persisted(plugin)[-1] == ("gateway-list-count", "20")
+        # Not a single PageDown: a stalled gpclient looks like the end
+        assert self._keys(plugin) == {"down": 2, "pagedown": 0, "home": 0}
+        assert plugin._lap_entries == []
+        # What was seen (the first page) is merged into what is stored
+        writes = self._persisted(plugin)
+        assert all(key != "gateway-list-count" for key, _ in writes)
+        if stored:
+            assert writes == []
+        else:
+            assert writes == [("gateway-list", ";".join(ALL_GATEWAYS[:7]))]
 
-    @pytest.mark.parametrize("found", ["25", "21"])
+    @pytest.mark.parametrize("found", ["25", "100"])
     def test_count_above_the_list_is_not_complete(
         self, service_module, tmp_path, monkeypatch, caplog, found
     ):
@@ -617,6 +639,8 @@ class TestPagedCollectionOverPty:
         # The cursor is back at the top, not wherever the paging stopped
         assert self._connected_to(plugin) == ALL_GATEWAYS[2]
         assert self._keys(plugin) == {"down": 2, "pagedown": after, "home": 1}
+        # Fewer redraws than ceil((20 - 1) / 7) = 3: not the end of the list
+        assert after < 3
         assert plugin._lap_entries == []
         writes = self._persisted(plugin)
         assert [key for key, _ in writes] == ["gateway-list"]
@@ -644,6 +668,7 @@ class TestPagedCollectionOverPty:
             ("gw-02", ALL_GATEWAYS[2]),  # walks on, wrapping around the end
             ("gw-19", ALL_GATEWAYS[19]),  # the cursor is on it already
             ("gw-12", ALL_GATEWAYS[12]),
+            ("gw-1", ALL_GATEWAYS[10]),  # substring only: as with Home
             ("", ALL_GATEWAYS[0]),  # the first proposal, by name
             ("gw-tokyo", ALL_GATEWAYS[0]),
         ],
@@ -679,16 +704,37 @@ class TestPagedCollectionOverPty:
         assert plugin._lap_entries == []
         assert self._persisted(plugin) == []
 
-    def test_complete_profile_list_needs_no_found_line(
+    def test_entry_shown_twice_is_complete_at_the_end_and_not_read_again(
         self, service_module, tmp_path, monkeypatch
     ):
+        # Two identical entries: 19 different ones, gpclient found 20
         plugin = self._run(
             service_module, tmp_path, "gw-02", monkeypatch,
-            env={"FAKE_FOUND": ""},
-            stored_list=";".join(ALL_GATEWAYS), stored_count=20,
+            env={"FAKE_DUPLICATE": "1"},
         )
 
-        assert self._keys(plugin) == {"down": 2, "pagedown": 0, "home": 0}
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        # 0 -> 7 -> 14 -> 19, and the fourth key finds the cursor at the end
+        assert self._keys(plugin) == {"down": 2, "pagedown": 4, "home": 1}
+        different = list(dict.fromkeys(plugin._lap_entries))
+        assert len(different) == 19
+        writes = self._persisted(plugin)
+        assert writes == [
+            ("gateway-list", ";".join(different)),
+            ("gateway-list-count", "20"),
+        ]
+
+        # The next connection finds the profile complete and reads nothing
+        again = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_DUPLICATE": "1"},
+            stored_list=dict(writes)["gateway-list"],
+            stored_count=int(dict(writes)["gateway-list-count"]),
+        )
+
+        assert self._connected_to(again) == ALL_GATEWAYS[2]
+        assert self._keys(again) == {"down": 2, "pagedown": 0, "home": 0}
+        assert self._persisted(again) == []
 
     @pytest.mark.parametrize(
         "stored_list, stored_count",
@@ -755,12 +801,10 @@ class TestOnlyAvailableGatewayOverPty:
     def _persisted(plugin):
         return TestPagedCollectionOverPty._persisted(plugin)
 
-    @pytest.mark.parametrize("found", [None, "1"])
     def test_the_only_gateway_replaces_the_stored_list(
-        self, service_module, tmp_path, monkeypatch, found
+        self, service_module, tmp_path, monkeypatch
     ):
-        env = {} if found is None else {"FAKE_FOUND": found}
-        plugin = self._run(service_module, tmp_path, monkeypatch, **env)
+        plugin = self._run(service_module, tmp_path, monkeypatch, FAKE_FOUND="1")
 
         assert plugin._lap_entries == ["gw-a (a.example.com)"]
         assert self._persisted(plugin) == [
@@ -773,6 +817,10 @@ class TestOnlyAvailableGatewayOverPty:
         [
             {"FAKE_FOUND": "5"},  # gpclient found more: not the whole list
             {"FAKE_KIND": "selected"},  # picked from a list, not the only one
+            {"FAKE_KIND": "selected", "FAKE_FOUND": "1"},
+            # No count: gpclient fell back to the portal address, which says
+            # nothing about the portal's gateways
+            {},
         ],
     )
     def test_otherwise_the_stored_list_is_only_added_to(
