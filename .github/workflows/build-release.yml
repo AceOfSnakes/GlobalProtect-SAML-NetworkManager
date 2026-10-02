@@ -183,6 +183,35 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
+  # Separate from "release" and not a dependency of publish-apt: a failure here
+  # (the notes are only a convenience) never blocks the apt repository.
+  release-notes:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Add downloads table to the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Merged between markers: a rerun replaces only the table and keeps the
+          # generated notes and the edits made before this job runs.
+          gh release view "$TAG" --repo "$REPO" --json assets,body > release.json
+          python3 .github/scripts/release_notes.py --repo "$REPO" --tag "$TAG" --release-json release.json > new-body.md
+          gh release edit "$TAG" --repo "$REPO" --notes-file new-body.md
+
   publish-apt:
     needs: release
     if: startsWith(github.ref, 'refs/tags/')
