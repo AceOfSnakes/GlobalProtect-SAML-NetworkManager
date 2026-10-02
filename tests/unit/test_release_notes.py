@@ -47,8 +47,8 @@ def asset_name(package, codename, arch, version=VERSION):
     return "%s_%s.%s1_%s.deb" % (package, version, codename, arch)
 
 
-def asset(name, url=None):
-    return {"name": name, "url": url or "%s/%s" % (BASE, name), "size": 1, "state": "uploaded"}
+def asset(name, url=None, state="uploaded"):
+    return {"name": name, "url": url or "%s/%s" % (BASE, name), "size": 1, "state": state}
 
 
 def full_matrix():
@@ -133,9 +133,11 @@ def test_text_of_the_notes_points_to_apt_and_the_install_command(tmp_path):
     assert "sudo apt install ./network-manager-gpclient_*.deb ./network-manager-gpclient-gnome_*.deb" in out
 
 
-def test_text_of_the_notes_tells_ubuntu_22_04_to_install_sdbus_with_pip(tmp_path):
+def test_text_of_the_notes_sends_ubuntu_22_04_to_the_readme_for_sdbus(tmp_path):
     out = run(tmp_path, full_matrix()).stdout
-    assert "Ubuntu 22.04 `python3-sdbus` is not in apt: run `pip3 install sdbus` first" in out
+    readme = "https://github.com/%s/blob/%s/README.md" % (REPO, TAG)
+    assert "Ubuntu 22.04 `python3-sdbus` is not in apt: see the [README](%s) first." % readme in out
+    assert "pip3" not in out
 
 
 def test_packages_in_a_cell_follow_the_fixed_order(tmp_path):
@@ -203,6 +205,76 @@ def test_no_deb_assets_is_an_error(tmp_path, assets):
     refused(run(tmp_path, assets), "no .deb")
 
 
+# Only an asset that has finished uploading has a link that works
+
+@pytest.mark.parametrize("state", ["starter", "open", "", None, "Uploaded", "uploaded ", 1])
+def test_asset_that_is_not_uploaded_is_not_linked(tmp_path, state):
+    name = asset_name(PACKAGES[1], "noble", "amd64")
+    result = run(tmp_path, [a for a in full_matrix() if a["name"] != name] + [asset(name, state=state)])
+    expected = [a for a in full_matrix() if a["name"] != name]
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == run(tmp_path, expected).stdout
+    assert name not in result.stdout
+
+
+@pytest.mark.parametrize("state", ["starter", "open", None])
+def test_asset_without_an_upload_leaves_no_link_at_all(tmp_path, state):
+    assets = debs(*PACKAGES)
+    assets[1] = asset(asset_name(PACKAGES[1], "noble", "amd64"), state=state)
+    out = run(tmp_path, assets).stdout
+    assert "[gnome]" not in out and "[gpclient]" in out and "[plasma-6]" in out
+
+
+def test_asset_with_a_missing_state_is_not_linked(tmp_path):
+    assets = debs(*PACKAGES)
+    del assets[1]["state"]
+    out = run(tmp_path, assets).stdout
+    assert "[gnome]" not in out and "[plasma-5]" in out
+
+
+def test_uploaded_asset_is_linked(tmp_path):
+    assert "[gnome](" in run(tmp_path, debs(*PACKAGES)).stdout
+
+
+@pytest.mark.parametrize("state", ["starter", "open", None])
+def test_only_assets_not_uploaded_is_the_no_deb_error(tmp_path, state):
+    refused(run(tmp_path, [asset(asset_name(PACKAGES[0], "noble", "amd64"), state=state)]), "no .deb")
+
+
+def test_a_url_of_an_asset_that_is_not_uploaded_is_not_checked(tmp_path):
+    name = asset_name(PACKAGES[1], "noble", "amd64")
+    result = run(tmp_path, full_matrix() + [asset(name, "http://evil", state="starter")])
+    assert result.returncode == 0, result.stderr
+
+
+# Two files for one package, release and architecture would make the table ambiguous
+
+@pytest.mark.parametrize("first, second", [
+    ("network-manager-gpclient_1.4.2-1.noble1_amd64.deb", "network-manager-gpclient_1.4.2-2.noble1_amd64.deb"),
+    ("network-manager-gpclient_1.4.2-1.noble1_amd64.deb", "network-manager-gpclient_1.4.2-1~noble1_amd64.deb"),
+    ("network-manager-gpclient_1.4.2-1.noble1_amd64.deb", "network-manager-gpclient_1.4.2-1.noble1_amd64.deb"),
+])
+def test_two_assets_for_the_same_package_release_and_arch_are_an_error(tmp_path, first, second):
+    refused(run(tmp_path, [asset(first), asset(second)]), "same package", first, second)
+
+
+@pytest.mark.parametrize("other", [
+    "network-manager-gpclient_1.4.2-2.noble1_arm64.deb",             # other architecture
+    "network-manager-gpclient_1.4.2-2.jammy1_amd64.deb",             # other release
+    "network-manager-gpclient-gnome_1.4.2-2.noble1_amd64.deb",       # other package
+])
+def test_same_version_numbers_of_different_cells_are_fine(tmp_path, other):
+    result = run(tmp_path, [asset("network-manager-gpclient_1.4.2-1.noble1_amd64.deb"), asset(other)])
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_duplicate_that_is_not_uploaded_is_not_a_duplicate(tmp_path):
+    old = asset("network-manager-gpclient_1.4.2-1.noble1_amd64.deb", state="starter")
+    result = run(tmp_path, [old, asset("network-manager-gpclient_1.4.2-2.noble1_amd64.deb")])
+    assert result.returncode == 0, result.stderr
+    assert "1.4.2-2" in result.stdout and "1.4.2-1" not in result.stdout
+
+
 # The url of an asset ends up in markdown: it must be its download link and nothing else
 
 def bad_url_cases():
@@ -236,11 +308,11 @@ def bad_url_cases():
 @pytest.mark.parametrize("url", bad_url_cases())
 def test_bad_url_is_an_error(tmp_path, url):
     name = asset_name(PACKAGES[0], "noble", "amd64")
-    refused(run(tmp_path, full_matrix()[1:] + [{"name": name, "url": url}]), "url")
+    refused(run(tmp_path, full_matrix()[1:] + [{"name": name, "url": url, "state": "uploaded"}]), "url")
 
 
 def test_a_url_with_a_missing_key_is_an_error(tmp_path):
-    refused(run(tmp_path, [{"name": asset_name(PACKAGES[0], "noble", "amd64")}]), "url")
+    refused(run(tmp_path, [{"name": asset_name(PACKAGES[0], "noble", "amd64"), "state": "uploaded"}]), "url")
 
 
 def test_asset_without_a_name_is_an_error(tmp_path):
@@ -268,12 +340,12 @@ def test_any_tag_is_accepted(tmp_path, tag):
     result = run(tmp_path, full_matrix(), tag=tag)
     assert result.returncode == 0, result.stderr
     assert "/blob/%s/docs/APT_REPO.md" % tag.replace("+", "%2B") in result.stdout
+    assert "/blob/%s/README.md" % tag.replace("+", "%2B") in result.stdout
 
 
 @pytest.mark.parametrize("tag, encoded", [
     ("v1\n# injected", "v1%0A%23%20injected"),
-    ("v1)[x](http://evil", "v1%29%5Bx%5D%28http%3A%2F%2Fevil"),
-    ("v1/../x", "v1%2F..%2Fx"),
+    ("v1)[x](http://evil", "v1%29%5Bx%5D%28http%3A//evil"),
     ("v1 <b>`id`", "v1%20%3Cb%3E%60id%60"),
     ("v1\r", "v1%0D"),
 ])
@@ -281,8 +353,17 @@ def test_tag_with_special_characters_is_percent_encoded_in_the_link(tmp_path, ta
     result = run(tmp_path, full_matrix(), tag=tag)
     assert result.returncode == 0, result.stderr
     assert "https://github.com/%s/blob/%s/docs/APT_REPO.md" % (REPO, encoded) in result.stdout
+    assert "https://github.com/%s/blob/%s/README.md" % (REPO, encoded) in result.stdout
     assert tag not in result.stdout
     assert result.stdout.count(START) == 1 and result.stdout.count("\n## ") == 1
+
+
+def test_a_slash_in_the_tag_stays_a_slash_in_the_links(tmp_path):
+    result = run(tmp_path, full_matrix(), tag="v2.0/beta")
+    assert result.returncode == 0, result.stderr
+    assert "(https://github.com/%s/blob/v2.0/beta/docs/APT_REPO.md)" % REPO in result.stdout
+    assert "(https://github.com/%s/blob/v2.0/beta/README.md)" % REPO in result.stdout
+    assert "%2F" not in result.stdout
 
 
 def test_empty_tag_is_an_error(tmp_path):
@@ -305,8 +386,7 @@ def test_parse_raises_notes_error_and_nothing_else(name):
 
 # Merging the table into the body of the release
 
-TABLE = release_notes.render(REPO, TAG, full_matrix())
-BLOCK = TABLE[:TABLE.index(END) + len(END)]
+BLOCK = release_notes.render(REPO, TAG, full_matrix())
 GENERATED = "## What's Changed\r\n* A fix by @someone in #1\n\n\n**Full Changelog**: https://x/compare/v1...v2  \n"
 
 

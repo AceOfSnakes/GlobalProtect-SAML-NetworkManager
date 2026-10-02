@@ -6,11 +6,11 @@
 Used by .github/workflows/build-release.yml. The release has one .deb per package,
 Ubuntu release and architecture, so the notes start with a table: a row per
 Ubuntu release, a column per architecture, the packages of that pair in the
-cell. The links are those of the assets the release has. The table is wrapped
-in markers and merged into the body of the release (GitHub's generated notes):
-it replaces the block between the markers, or, with no block yet, goes to the
-top. The rest of the body is kept byte for byte, so a rerun changes nothing.
-Standard library only.
+cell. The links are those of the assets the release has and has finished
+uploading. The table is wrapped in markers and merged into the body of the
+release (GitHub's generated notes): it replaces the block between the markers,
+or, with no block yet, goes to the top. The rest of the body is kept byte for
+byte, so a rerun changes nothing. Standard library only.
 """
 
 import argparse
@@ -85,7 +85,7 @@ def cell_key(item):
 
 
 def render(repo, tag, assets):
-    """The markdown for the assets (dicts with name and url) of the release"""
+    """The marked block of markdown for the assets (dicts with name, url and state) of the release"""
     if not REPO_RE.fullmatch(repo):
         raise NotesError("repo must look like OWNER/REPO: %r" % (repo,))
     if not tag:
@@ -95,32 +95,38 @@ def render(repo, tag, assets):
         name = asset.get("name") if isinstance(asset, dict) else None
         if not isinstance(name, str):
             raise NotesError("an asset without a name: %r" % (asset,))
-        if name.endswith(".deb"):
+        # only an asset that is "uploaded" has a download link that works
+        if name.endswith(".deb") and asset.get("state") == "uploaded":
             debs.append((name, asset.get("url")))
     if not debs:
         raise NotesError("no .deb assets: refusing to write a release without downloads")
 
     cells = {}
-    for name, url in sorted(debs, key=lambda deb: deb[0]):
+    seen = {}
+    for name, url in debs:
         codename, arch, short = parse(name)
         check_url(repo, name, url)
+        if (codename, arch, short) in seen:
+            raise NotesError("two assets for the same package, release and architecture: %r and %r"
+                             % (seen[codename, arch, short], name))
+        seen[codename, arch, short] = name
         cells.setdefault((codename, arch), []).append((short, url))
     arches = sorted({arch for _codename, arch in cells}, key=lambda a: (a != "amd64", a))
     codenames = sorted({codename for codename, _arch in cells}, key=release_key)
 
     base = "https://github.com/%s" % repo
-    docs = "%s/blob/%s/docs/APT_REPO.md" % (base, urllib.parse.quote(tag, safe=""))
+    blob = "%s/blob/%s" % (base, urllib.parse.quote(tag, safe="/"))
     lines = [
         START,
         "## Downloads",
         "",
         "The recommended way to install is the apt repository: see "
-        "[docs/APT_REPO.md](%s). With single files, take "
+        "[docs/APT_REPO.md](%s/docs/APT_REPO.md). With single files, take "
         "`network-manager-gpclient` and one desktop package (`-gnome`, `-plasma-5` or "
         "`-plasma-6`) from the same row and architecture and install them together, "
         "e.g. `sudo apt install ./network-manager-gpclient_*.deb "
         "./network-manager-gpclient-gnome_*.deb`. On Ubuntu 22.04 `python3-sdbus` is "
-        "not in apt: run `pip3 install sdbus` first." % docs,
+        "not in apt: see the [README](%s/README.md) first." % (blob, blob),
         "",
         "| Ubuntu | " + " | ".join(arches) + " |",
         "|---|" + "---|" * len(arches),
@@ -135,7 +141,7 @@ def render(repo, tag, assets):
             row.append("<br>".join(links) or EMPTY)
         lines.append("| %s | %s |" % (row_label(codename), " | ".join(row)))
     lines.append(END)
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines)
 
 
 def find_block(text, what):
@@ -153,12 +159,8 @@ def find_block(text, what):
     return starts[0], ends[0] + len(END)
 
 
-def merge(old, table):
-    """The body `old` with the marked block of `table` in it"""
-    span = find_block(table, "the table")
-    if span is None:
-        raise NotesError("the table has no downloads markers")
-    block = table[span[0]:span[1]]
+def merge(old, block):
+    """The body `old` with the marked `block` in it"""
     found = find_block(old, "the release body")
     if found is None:
         return block + "\n\n" + old
@@ -187,7 +189,7 @@ def main(argv=None):
         if not isinstance(body, str):
             raise NotesError("the release JSON has a body that is not text")
         text = merge(body, render(args.repo, args.tag, release["assets"]))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         print("error: cannot read the input: %s" % exc, file=sys.stderr)
         return 1
     except NotesError as exc:
