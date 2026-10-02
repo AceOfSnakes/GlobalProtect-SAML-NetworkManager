@@ -242,6 +242,10 @@ SELECT_FRAME_MAX_LINES = 24
 # list with Down alone always terminates and reaches every entry - including
 # ones outside the visible page.
 KEY_DOWN = b"\x1b[B"
+# PageDown moves the cursor down by a page without wrapping and stops at the
+# last entry (no redraw when it is already there); Home goes to the first entry
+KEY_PAGE_DOWN = b"\x1b[6~"
+KEY_HOME = b"\x1b[H"
 KEY_ENTER = b"\r"
 SELECT_MAX_STEPS = 200
 SELECT_REDRAW_TIMEOUT = 1.5
@@ -1990,6 +1994,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     chosen = GATEWAY_CHOSEN_RE.search(line)
                     if chosen:
                         self._record_gateways([chosen.group("gateway")])
+                        if (
+                            "the only available" in line
+                            and self._gateway_count in (None, 1)
+                        ):
+                            # The portal offers just this one gateway: the
+                            # whole list, so it replaces the stored one
+                            entry = self._gateway_entry(chosen.group("gateway"))
+                            self._lap_entries = [entry] if entry else []
 
                     if "--as-gateway" in line:
                         logger.warning(
@@ -2066,8 +2078,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answered_at_line = -1  # line count when we last answered a prompt
         self._answered_select = None  # message of the Select we answered
         # "Found N gateways in portal config" of this attempt, and the entries
-        # of the whole list when this attempt saw all of it (a full lap, or a
-        # list that is not paged); empty otherwise
+        # of the whole list when this attempt saw all of it (read page by
+        # page, or a list that is not paged); empty otherwise
         self._gateway_count: Optional[int] = None
         self._lap_entries: List[str] = []
 
@@ -2364,8 +2376,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     def _stored_list_is_complete(self, options: List[str]) -> bool:
         """Does the profile already hold the whole list this portal offers?
 
-        Only a full lap through a paged list tells, and it costs a Down key per
-        gateway, so it is taken once: the stored list counts as complete when
+        Only reading a paged list to its end tells, and that takes a few
+        PageDown presses, so it is done once: the stored list counts as complete when
         gateway-list-count matches the portal's current count (any stored count
         will do when gpclient did not log one) and every gateway on the visible
         page is in it.
@@ -2418,6 +2430,18 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 + (" (list continues past the visible page)" if frame["more"] else "")
             )
 
+            # The whole list, when this attempt gets to see all of it
+            self._lap_entries = []
+            shown = frame  # the frame the selection starts from
+            if frame["more"]:
+                if not self._stored_list_is_complete(options):
+                    shown = await self._collect_gateway_pages(frame)
+            else:
+                # Not paged: what is shown is the whole list - unless the
+                # portal reports more gateways than that
+                if self._gateway_count in (None, len(options)):
+                    self._record_lap(options)
+
             preferred = self.preferred_gateway
             walking = False  # looking through a paged list for `preferred`
             if not preferred:
@@ -2457,32 +2481,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         "(the connection setting is left unchanged)"
                     )
 
-            start_option = options[frame["cursor"]]
-            current_frame = frame
+            start_option = shown["options"][shown["cursor"]]
+            current_frame = shown
             steps = 0  # Down presses so far
             step_limit = SELECT_MAX_STEPS
-            count = self._gateway_count  # gpclient's "Found N", if logged
-            # Entries of the whole list; empty until this attempt has seen all
-            # of it (an earlier attempt's entries do not count)
-            self._lap_entries = []
-            lap_raw: List[str] = []  # the entry under the cursor, in lap order
-            after_lap = False  # the target is known: only a step budget applies
-            if not frame["more"]:
-                # Not paged: what is shown is the whole list
-                self._record_lap(options)
-            # A paged list whose full content the profile does not hold yet
-            # (issue #25): one lap back to the starting entry first, without
-            # selecting, so the whole list gets recorded. The gateway is then
-            # chosen from what the lap saw, and the walk goes on from the
-            # starting entry, where the lap ended.
-            collecting = frame["more"] and not self._stored_list_is_complete(options)
-            if collecting:
-                if count is not None:
-                    step_limit = max(SELECT_MAX_STEPS, 2 * count + 1)
-                logger.info(
-                    "The profile does not hold the whole gateway list - "
-                    "walking it once"
-                )
             substring_hit = None  # first entry that merely contains the name
             homing = False  # walking on to `substring_hit` by its name
 
@@ -2490,83 +2492,12 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 self._record_gateways(current_frame["options"])
                 current = current_frame["options"][current_frame["cursor"]]
 
-                if collecting:
-                    self._record_lap(current_frame["options"])
-                    # Back at the starting entry. When the count is known, the
-                    # lap is done only after that many steps: an entry that
-                    # shows twice must not end it early, and a list shown with
-                    # fewer entries than the count goes round again
-                    lap_done = (
-                        steps > 0
-                        and current == start_option
-                        and (count is None or steps >= count)
-                    )
-                    if lap_done:
-                        collecting = False
-                        after_lap = True
-                        logger.info(
-                            "Walked the whole gateway list: "
-                            f"{len(self._lap_entries)} entries"
-                        )
-                        # Decide from the whole list, no second lap needed
-                        if preferred:
-                            target = pick_gateway(lap_raw, preferred)
-                            if target is None:
-                                target = options[0]
-                                logger.warning(
-                                    f"Preferred gateway {preferred!r} is not "
-                                    "offered by the portal - falling back to "
-                                    f"the first proposal {target!r} (the "
-                                    "connection setting is left unchanged)"
-                                )
-                            else:
-                                logger.info(
-                                    f"Preferred gateway {preferred!r} matches "
-                                    f"{target!r}"
-                                )
-                            wanted = target
-                            matches = lambda option: option == target  # noqa: E731
-                            walking = False
-                        steps = 0
-                        step_limit = SELECT_MAX_STEPS
-                        if count is not None:
-                            step_limit = max(SELECT_MAX_STEPS, count + 1)
-                    elif steps >= step_limit:
-                        # A list too long for one lap: the profile keeps a
-                        # partial list (not marked complete) and the selection
-                        # goes on from here, as a fresh walk with a step budget
-                        # of its own
-                        logger.warning(
-                            f"Gave up walking the whole gateway list after "
-                            f"{steps} steps - selecting from here"
-                        )
-                        collecting = False
-                        self._lap_entries = []
-                        steps = 0
-                        step_limit = SELECT_MAX_STEPS
-                        start_option = current
-                    else:
-                        # Nothing is selected on the lap, just down it goes
-                        lap_raw.append(current)
-                        next_frame = await self._press_list_down(current_frame)
-                        if next_frame is None:
-                            logger.warning(
-                                "gpclient stopped redrawing the gateway list - "
-                                f"selecting the highlighted entry {current!r}"
-                            )
-                            self._lap_entries = []
-                            self._write_keys(KEY_ENTER, f"select {current!r}")
-                            return
-                        current_frame = next_frame
-                        steps += 1
-                        continue
-
                 if walking and substring_hit is None and gateway_matches(
                     preferred, current
                 ):
                     substring_hit = current
 
-                lapped = steps > 0 and current == start_option and not after_lap
+                lapped = steps > 0 and current == start_option
                 if (
                     walking
                     and substring_hit is not None
@@ -2592,12 +2523,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     )
                     step_limit = steps + SELECT_MAX_STEPS
                 elif lapped and not homing:
+                    first_proposal = options[0]
                     logger.warning(
                         f"Walked the whole list without finding {wanted!r} - "
-                        f"selecting the first proposal {current!r}"
+                        f"selecting the first proposal {first_proposal!r}"
                     )
-                    self._write_keys(KEY_ENTER, "select the first proposal")
-                    return
+                    # The walk began on the first proposal, unless gpclient did
+                    # not redraw after Home: then go on to it by its name
+                    homing = True
+                    matches = lambda option: option == first_proposal  # noqa: E731
+                    step_limit = steps + SELECT_MAX_STEPS
 
                 if matches(current):
                     logger.info(f"Selecting gateway: {current!r}")
@@ -2626,14 +2561,75 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-    async def _press_list_down(
-        self, previous: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Move the list cursor one entry down, return the redrawn frame.
+    async def _collect_gateway_pages(self, frame: Dict[str, Any]) -> Dict[str, Any]:
+        """Read a paged gateway list page by page, return the frame to select from.
 
-        `previous` is the frame the walk is on. Down wraps around in inquire, so
-        this reaches every entry, including ones outside the visible page. None
-        means gpclient did not redraw.
+        PageDown moves the cursor down by a page without wrapping and stops at
+        the last entry, so a few key presses show the whole list (issue #25).
+        When the list was seen completely it goes to `_lap_entries`, which
+        replaces the cached list. Home then puts the cursor back on the first
+        proposal, so the selection goes on as if nothing had happened. If Home
+        gets no redraw, the last frame is returned and the selection walks from
+        there (by name, around the list).
+        """
+        count = self._gateway_count  # gpclient's "Found N", if logged
+        logger.info("Reading the whole gateway list page by page")
+        self._lap_entries = []
+        self._record_lap(frame["options"])
+        last = frame
+        reached_end = False
+        presses = 0
+        while presses < SELECT_MAX_STEPS:
+            if count is not None and len(self._lap_entries) >= count:
+                reached_end = True
+                break
+            next_frame = await self._press_list_key(
+                last, KEY_PAGE_DOWN, "page down the gateway list"
+            )
+            presses += 1
+            if next_frame is None:
+                # No redraw: the end of the list - or gpclient stalled, which
+                # only the count can tell apart
+                reached_end = count is None
+                break
+            last = next_frame
+            self._record_gateways(last["options"])
+            self._record_lap(last["options"])
+
+        complete = reached_end and (
+            count is None or len(self._lap_entries) <= count
+        )
+        if complete:
+            logger.info(
+                f"Read the whole gateway list: {len(self._lap_entries)} entries"
+            )
+        else:
+            logger.warning(
+                f"Could not read the whole gateway list ({len(self._lap_entries)} "
+                "entries seen) - keeping what the profile has"
+            )
+            self._lap_entries = []
+
+        if last is frame:
+            return frame
+        home = await self._press_list_key(last, KEY_HOME, "go to the first gateway")
+        if home is None:
+            logger.warning(
+                "gpclient did not redraw the list after Home - selecting from "
+                f"the highlighted entry {last['options'][last['cursor']]!r}"
+            )
+            return last
+        return home
+
+    async def _press_list_key(
+        self, previous: Dict[str, Any], key: bytes, what: str
+    ) -> Optional[Dict[str, Any]]:
+        """Press a list key, return the redrawn frame.
+
+        `previous` is the frame the cursor is on. Down wraps around in inquire,
+        so it reaches every entry, including ones outside the visible page;
+        PageDown and Home do not wrap. None means the highlighted entry did not
+        change: gpclient did not redraw, or the cursor is where the key leads.
 
         inquire redraws only the rows that changed (issue #25), so the frame is
         read from the screen model, and only once the same frame shows on two
@@ -2643,7 +2639,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         previous_option = previous["options"][previous["cursor"]]
 
-        self._write_keys(KEY_DOWN, "move down the gateway list")
+        self._write_keys(key, what)
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + SELECT_REDRAW_TIMEOUT
@@ -2661,6 +2657,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     return frame
             last_seen = seen
         return None
+
+    async def _press_list_down(
+        self, previous: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Move the list cursor one entry down, return the redrawn frame"""
+        return await self._press_list_key(
+            previous, KEY_DOWN, "move down the gateway list"
+        )
 
     async def _nmcli_modify(self, *arguments: str) -> bool:
         """Run `nmcli connection modify <uuid> ...` (best effort).
@@ -2749,9 +2753,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         count = None
         if self._lap_entries:
-            # The whole list was seen (a full lap, or a list that is not
-            # paged): it replaces what was stored, so gateways the portal
-            # dropped disappear
+            # The whole list was seen (read page by page, or not paged): it
+            # replaces what was stored, so gateways the portal dropped
+            # disappear
             entries = self._lap_entries
             count = self._gateway_count or len(entries)
         else:
@@ -2777,6 +2781,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if count is not None and count != self._stored_gateway_count:
             if await self._write_vpn_data("gateway-list-count", str(count)):
                 self._stored_gateway_count = count
+            else:
+                logger.warning(
+                    "Could not store the gateway count - the next connection "
+                    "reads the gateway list again"
+                )
             changed = True
         if not changed:
             logger.debug("Gateway list unchanged, leaving the profile alone")

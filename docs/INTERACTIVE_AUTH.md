@@ -114,17 +114,20 @@ After a successful connection the portal's gateway list is cached in the profile
 offer it as a drop-down for **Preferred gateway**. The first entry of that
 drop-down, *First proposed by portal (automatic)*, stores nothing.
 
-When the portal's list is longer than one page, the service walks it once (a
-Down key per gateway, selecting nothing on the way) so the cache holds every
-gateway, not only the first page. The list from such a walk, or a list that
-fits one page, replaces the cached one (gateways the portal dropped
-disappear), and `gateway-list-count` is set to gpclient's
-`Found N gateways in portal config` count, which marks the cached list as
-complete. As long as that count matches the portal's and the visible page is in
-the cache, the walk is not repeated. A connection that sees only part of the
-list puts the entries it saw first and keeps the stored ones it did not see; it
-never shrinks the cache. The gateway is chosen from the whole list after the
-walk, so there is no second walk.
+When the portal's list is longer than one page and the cache does not hold it
+completely yet, the service reads it page by page before it selects: it presses
+PageDown (which moves down by a page and stops at the last entry) until the
+whole list was seen, then Home, which puts the cursor back on the first
+proposal. Nothing is selected on the way, and the selection afterwards is the
+same as without the reading. The list from such a reading, or a list that fits
+one page, replaces the cached one (gateways the portal dropped disappear), and
+`gateway-list-count` is set to gpclient's `Found N gateways in portal config`
+count, which marks the cached list as complete. As long as that count matches
+the portal's and the visible page is in the cache, the list is not read again.
+A portal that offers a single gateway replaces the cache with that gateway. A
+connection that sees only part of the list (for example when gpclient stops
+redrawing) puts the entries it saw first and keeps the stored ones it did not
+see; it never shrinks the cache.
 
 ```bash
 # Pick a specific gateway from the command line

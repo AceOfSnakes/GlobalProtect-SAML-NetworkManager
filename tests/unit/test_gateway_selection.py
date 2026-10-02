@@ -278,8 +278,8 @@ class TestPickGatewayUsesGatewayMatches:
 class TestAnswerGatewayList:
     def _run(self, plugin, frame, stored_complete=True):
         # By default the profile already holds the whole list, so a paged list
-        # is walked only to find the gateway (the collection lap has its own
-        # tests, in TestCollectionLap)
+        # is walked only to find the gateway (reading the pages has its own
+        # tests, in TestCollectGatewayPages)
         if stored_complete:
             plugin._stored_gateway_list = ";".join(frame["options"])
             plugin._stored_gateway_count = len(frame["options"])
@@ -850,55 +850,93 @@ class TestStoredListComplete:
         assert plugin._stored_list_is_complete(["gw-a, x (a.example.com)"])
 
 
-class TestCollectionLap:
-    GATEWAYS = [f"gw-{n:02d} (gw{n:02d}.example.com)" for n in range(15)]
+class TestCollectGatewayPages:
+    """A paged list the profile does not hold completely is read with PageDown
+    and the cursor goes back with Home (issue #25)."""
 
-    def _plugin(self, service_module, preferred, gateways=None, found=-1, **stored):
-        # found: gpclient's "Found N" (-1: the list length, None: not logged)
+    GATEWAYS = [f"gw-{n:02d} (gw{n:02d}.example.com)" for n in range(20)]
+    PAGE = 7
+
+    def _plugin(
+        self, service_module, preferred, gateways=None, found=-1,
+        stall_page_after=None, no_home=False, **stored
+    ):
+        """A plugin on a fake inquire list: Down wraps, PageDown clamps and
+        gives no redraw at the last entry, Home goes to the first entry.
+
+        found: gpclient's "Found N" (-1: the list length, None: not logged)
+        """
         options = self.GATEWAYS if gateways is None else gateways
         plugin = make_plugin(service_module, preferred=preferred)
         plugin._stored_gateway_list = stored.get("list", "")
         plugin._stored_gateway_count = stored.get("count")
         plugin._gateway_count = len(options) if found == -1 else found
-        state = {"cursor": 0, "downs": 0, "selected": []}
+        state = {
+            "cursor": 0, "start": 0, "selected": [],
+            "down": 0, "pagedown": 0, "home": 0,
+        }
+        keys = service_module
 
-        def page():
-            first = max(0, min(state["cursor"] - 6, len(options) - 7))
-            return options[first : first + 7], state["cursor"] - first
+        def move_to(new):
+            if new == state["cursor"]:
+                return None  # no redraw
+            state["cursor"] = new
+            if new == 0:
+                state["start"] = 0
+            elif new >= state["start"] + self.PAGE:
+                state["start"] = new - self.PAGE + 1
+            elif new < state["start"]:
+                state["start"] = new
+            return self._frame(options, state)
 
-        async def fake_down(previous):
-            state["cursor"] = (state["cursor"] + 1) % len(options)
-            state["downs"] += 1
-            if state.get("stall") == state["downs"]:
-                return None
-            visible, cursor = page()
-            return frame_with_cursor(visible, cursor, more=True)
+        async def press(previous, key, what):
+            if key == keys.KEY_DOWN:
+                state["down"] += 1
+                return move_to((state["cursor"] + 1) % len(options))
+            if key == keys.KEY_PAGE_DOWN:
+                state["pagedown"] += 1
+                if state["pagedown"] > (
+                    1 << 30 if stall_page_after is None else stall_page_after
+                ):
+                    return None
+                return move_to(min(state["cursor"] + self.PAGE, len(options) - 1))
+            assert key == keys.KEY_HOME
+            state["home"] += 1
+            return None if no_home else move_to(0)
 
-        plugin._press_list_down = fake_down
+        plugin._press_list_key = press
         plugin._write_keys = lambda data, description: state["selected"].append(
             options[state["cursor"]]
         )
         return plugin, state
 
+    def _frame(self, options, state):
+        first = state["start"]
+        return frame_with_cursor(
+            options[first : first + self.PAGE], state["cursor"] - first, more=True
+        )
+
     def _run(self, plugin, gateways=None):
-        first = (self.GATEWAYS if gateways is None else gateways)[:7]
+        first = (self.GATEWAYS if gateways is None else gateways)[: self.PAGE]
         asyncio.run(plugin._handle_select_prompt(frame_with_cursor(first, 0, more=True)))
 
     @pytest.mark.parametrize(
         "preferred, expected",
         [
             ("gw-03", 3),
+            ("gw-00", 0),  # the reported case: on the first page
             ("gw-14", 14),  # beyond the first page
+            ("gw-19", 19),  # the last entry
             ("gw-0", 0),  # substring only, at the start
             ("gw-1", 10),  # substring only, beyond the first page
             ("gw-tokyo", 0),  # not offered: the first proposal
             ("", 0),
         ],
     )
-    def test_lap_does_not_change_the_selection(
+    def test_reading_the_pages_does_not_change_the_selection(
         self, service_module, preferred, expected
     ):
-        lapped, lapped_state = self._plugin(service_module, preferred)
+        paged, paged_state = self._plugin(service_module, preferred)
         known, known_state = self._plugin(
             service_module,
             preferred,
@@ -906,129 +944,132 @@ class TestCollectionLap:
             count=len(self.GATEWAYS),
         )
 
-        self._run(lapped)
+        self._run(paged)
         self._run(known)
 
-        assert lapped_state["selected"] == known_state["selected"]
-        assert lapped_state["selected"] == [self.GATEWAYS[expected]]
-        assert lapped._gateway_list == self.GATEWAYS
-        assert lapped._lap_entries == self.GATEWAYS
+        assert paged_state["selected"] == known_state["selected"]
+        assert paged_state["selected"] == [self.GATEWAYS[expected]]
+        # The same Downs as without reading: PageDown and Home come on top
+        assert paged_state["down"] == known_state["down"]
+        assert (paged_state["pagedown"], paged_state["home"]) == (3, 1)
+        assert (known_state["pagedown"], known_state["home"]) == (0, 0)
+        assert paged._gateway_list == self.GATEWAYS
+        assert paged._lap_entries == self.GATEWAYS
         assert known._lap_entries == []
-        # One lap and the way from the start to the gateway: no second lap
-        assert lapped_state["downs"] == len(self.GATEWAYS) + expected
 
-    def test_nothing_is_selected_on_the_lap(self, service_module):
+    def test_nothing_is_selected_while_paging(self, service_module):
         plugin, state = self._plugin(service_module, "gw-00")
-        selected_at = []
+        cursors = []
         original = plugin._write_keys
         plugin._write_keys = lambda data, description: (
-            selected_at.append(state["downs"]),
+            cursors.append(state["cursor"]),
             original(data, description),
         )
 
         self._run(plugin)
 
-        # gw-00 is under the cursor from the start, but Enter waits for the lap
-        assert selected_at == [len(self.GATEWAYS)]
+        # Enter goes out once, with the cursor back on the first proposal
+        assert cursors == [0]
+        assert state["selected"] == [self.GATEWAYS[0]]
 
-    @pytest.mark.parametrize("stall", [1, 5, 14])
-    def test_stalled_lap_selects_the_highlighted_and_is_not_complete(
-        self, service_module, stall
-    ):
-        plugin, state = self._plugin(service_module, "gw-03")
-        state["stall"] = stall
-
-        self._run(plugin)
-
-        # No redraw: Enter goes to what was highlighted before the last Down
-        assert state["selected"] == [self.GATEWAYS[stall]]
-        assert state["downs"] == stall
-        assert plugin._lap_entries == []
-
-    def test_lap_is_complete_even_when_the_stored_list_is_stale(self, service_module):
-        # An earlier attempt's entries (the --fix-openssl retry keeps the
-        # gateway list) are not part of what the lap saw
-        plugin, state = self._plugin(service_module, "gw-03")
-        plugin._gateway_list = ["gw-stale (old.example.com)"]
-        plugin._lap_entries = ["gw-stale (old.example.com)"]
-
-        self._run(plugin)
-
-        assert plugin._lap_entries == self.GATEWAYS
-
-    def test_entry_shown_twice_does_not_end_the_lap_early(self, service_module):
-        # Entry 0 again at index 10 of 20, N = 20
-        gateways = [f"gw-{n:02d} (gw{n:02d}.example.com)" for n in range(20)]
-        gateways[10] = gateways[0]
-        plugin, state = self._plugin(service_module, "gw-15", gateways=gateways)
-
-        self._run(plugin, gateways)
-
-        assert plugin._lap_entries == [g for g in dict.fromkeys(gateways)]
-        assert len(plugin._lap_entries) == 19
-        assert state["selected"] == [gateways[15]]
-        assert state["downs"] == 20 + 15
-
-    @pytest.mark.parametrize("found", [25, 30])
-    def test_count_above_the_list_still_ends_the_lap(self, service_module, found):
-        # gpclient says 25 or 30 but only 15 are shown: the lap goes round
-        # until it has taken at least that many steps, back on the start
-        plugin, state = self._plugin(service_module, "gw-03", found=found)
-
-        self._run(plugin)
-
-        laps = -(-found // len(self.GATEWAYS))
-        assert plugin._lap_entries == self.GATEWAYS
-        assert state["selected"] == [self.GATEWAYS[3]]
-        assert state["downs"] == laps * len(self.GATEWAYS) + 3
-
-    def test_unknown_count_ends_the_lap_at_the_first_return(self, service_module):
+    def test_unknown_count_ends_when_page_down_gets_no_redraw(self, service_module):
         plugin, state = self._plugin(service_module, "gw-03", found=None)
 
         self._run(plugin)
 
         assert plugin._lap_entries == self.GATEWAYS
-        assert state["downs"] == len(self.GATEWAYS) + 3
+        # 0 -> 7 -> 14 -> 19, and the fourth key finds the cursor at the end
+        assert state["pagedown"] == 4
+        assert state["selected"] == [self.GATEWAYS[3]]
 
-    def test_known_long_list_is_walked_past_the_default_limit(self, service_module):
+    @pytest.mark.parametrize("found", [21, 25, 100])
+    def test_count_above_the_list_is_not_complete(self, service_module, found):
+        plugin, state = self._plugin(service_module, "gw-03", found=found)
+
+        self._run(plugin)
+
+        # Without the count reached, "no redraw" may be a stalled gpclient
+        assert plugin._lap_entries == []
+        assert plugin._gateway_list == self.GATEWAYS
+        assert state["selected"] == [self.GATEWAYS[3]]
+        assert state["home"] == 1
+
+    @pytest.mark.parametrize("found", [1, 5, 19])
+    def test_count_below_the_list_is_not_complete(self, service_module, found):
+        plugin, state = self._plugin(service_module, "gw-03", found=found)
+
+        self._run(plugin)
+
+        # More entries than gpclient counted: the count is wrong, or the list
+        # is not what it said, so the list is not taken as the whole one
+        assert plugin._lap_entries == []
+        assert state["selected"] == [self.GATEWAYS[3]]
+
+    @pytest.mark.parametrize("stall", [0, 1, 2])
+    @pytest.mark.parametrize("preferred, expected", [("gw-03", 3), ("", 0)])
+    def test_stalled_paging_is_not_complete_and_still_selects_right(
+        self, service_module, stall, preferred, expected
+    ):
+        plugin, state = self._plugin(
+            service_module, preferred, stall_page_after=stall
+        )
+
+        self._run(plugin)
+
+        assert plugin._lap_entries == []
+        assert state["selected"] == [self.GATEWAYS[expected]]
+        assert state["pagedown"] == stall + 1
+        # Home only when the cursor moved
+        assert state["home"] == (1 if stall else 0)
+
+    @pytest.mark.parametrize(
+        "preferred, expected",
+        [("gw-03", 3), ("gw-19", 19), ("gw-12", 12), ("", 0), ("gw-tokyo", 0)],
+    )
+    def test_home_without_a_redraw_selects_from_where_the_cursor_is(
+        self, service_module, caplog, preferred, expected
+    ):
+        plugin, state = self._plugin(service_module, preferred, no_home=True)
+
+        self._run(plugin)
+
+        # The cursor is on the last entry; the walk goes on by name, around
+        assert state["selected"] == [self.GATEWAYS[expected]]
+        assert state["home"] == 1
+        assert "did not redraw the list after Home" in caplog.text
+        assert plugin._lap_entries == self.GATEWAYS
+
+    def test_home_with_a_redraw_logs_no_warning(self, service_module, caplog):
+        plugin, _ = self._plugin(service_module, "gw-03")
+
+        self._run(plugin)
+
+        assert "did not redraw" not in caplog.text
+
+    def test_page_budget_is_the_step_limit(self, service_module, monkeypatch):
         gateways = [f"gw-{n:03d} (gw{n:03d}.example.com)" for n in range(250)]
-        plugin, state = self._plugin(service_module, "gw-240", gateways=gateways)
+        monkeypatch.setattr(service_module, "SELECT_MAX_STEPS", 5)
+        plugin, state = self._plugin(service_module, "", gateways=gateways, found=None)
+
+        self._run(plugin, gateways)
+
+        assert state["pagedown"] == 5
+        assert plugin._lap_entries == []
+        # Back on the first proposal all the same
+        assert state["selected"] == [gateways[0]]
+
+    def test_long_list_within_the_budget_is_read(self, service_module):
+        gateways = [f"gw-{n:03d} (gw{n:03d}.example.com)" for n in range(250)]
+        plugin, state = self._plugin(service_module, "", gateways=gateways)
 
         self._run(plugin, gateways)
 
         assert plugin._lap_entries == gateways
-        assert state["selected"] == [gateways[240]]
-        assert state["downs"] == 250 + 240
+        # The cursor goes 7, 14 ... 245 (35 keys), then to the end (249)
+        assert state["pagedown"] == 36
+        assert state["selected"] == [gateways[0]]
 
-    def test_unknown_count_long_list_abandons_the_lap(self, service_module):
-        gateways = [f"gw-{n:03d} (gw{n:03d}.example.com)" for n in range(250)]
-        plugin, state = self._plugin(
-            service_module, "gw-005", gateways=gateways, found=None
-        )
-
-        self._run(plugin, gateways)
-
-        # The lap is cut off at the step limit and the walk goes on from there
-        assert plugin._lap_entries == []
-        assert state["selected"] == [gateways[5]]
-        assert plugin._gateway_list == gateways
-
-    def test_not_paged_list_is_the_whole_list(self, service_module):
-        plugin = make_plugin(service_module, preferred="")
-        plugin._write_keys = lambda data, description: None
-        plugin._stored_gateway_list = "gw-old (old.example.com)"
-        plugin._stored_gateway_count = 1
-        plugin._gateway_count = 3
-
-        asyncio.run(
-            plugin._handle_select_prompt(
-                frame_with_cursor(self.GATEWAYS[:3], 0, more=False)
-            )
-        )
-
-        assert plugin._lap_entries == self.GATEWAYS[:3]
-
-    def test_paged_list_without_a_lap_is_not_the_whole_list(self, service_module):
+    def test_complete_stored_list_is_not_paged(self, service_module):
         plugin, state = self._plugin(
             service_module,
             "gw-03",
@@ -1038,7 +1079,104 @@ class TestCollectionLap:
 
         self._run(plugin)
 
+        assert (state["pagedown"], state["home"]) == (0, 0)
+
+    def test_stale_entries_of_an_earlier_attempt_stay_out(self, service_module):
+        plugin, state = self._plugin(service_module, "gw-03")
+        plugin._gateway_list = ["gw-stale (old.example.com)"]
+        plugin._lap_entries = ["gw-stale (old.example.com)"]
+
+        self._run(plugin)
+
+        assert plugin._lap_entries == self.GATEWAYS
+
+    def test_entry_shown_twice_is_one_entry(self, service_module):
+        # Entry 5 again at index 10; without gpclient's count the end is where
+        # PageDown stops
+        gateways = list(self.GATEWAYS)
+        gateways[10] = gateways[5]
+        plugin, state = self._plugin(
+            service_module, "gw-15", gateways=gateways, found=None
+        )
+
+        self._run(plugin, gateways)
+
+        assert plugin._lap_entries == list(dict.fromkeys(gateways))
+        assert len(plugin._lap_entries) == 19
+        assert state["selected"] == [gateways[15]]
+
+    def test_entry_shown_twice_with_a_count_is_not_claimed_complete(
+        self, service_module
+    ):
+        # 19 different entries can never add up to the count of 20, and a
+        # redraw that stops cannot be told from the end: the list is not
+        # claimed complete (the next connect reads it again)
+        gateways = list(self.GATEWAYS)
+        gateways[10] = gateways[5]
+        plugin, state = self._plugin(service_module, "gw-15", gateways=gateways)
+
+        self._run(plugin, gateways)
+
         assert plugin._lap_entries == []
+        assert state["selected"] == [gateways[15]]
+
+    @pytest.mark.parametrize("found", [None, 3])
+    def test_not_paged_list_is_the_whole_list(self, service_module, found):
+        plugin = make_plugin(service_module, preferred="")
+        plugin._write_keys = lambda data, description: None
+        plugin._stored_gateway_list = "gw-old (old.example.com)"
+        plugin._stored_gateway_count = 1
+        plugin._gateway_count = found
+
+        asyncio.run(
+            plugin._handle_select_prompt(
+                frame_with_cursor(self.GATEWAYS[:3], 0, more=False)
+            )
+        )
+
+        assert plugin._lap_entries == self.GATEWAYS[:3]
+
+    @pytest.mark.parametrize("found", [4, 25, 2, 1])
+    def test_not_paged_list_with_another_count_is_not_trusted(
+        self, service_module, found
+    ):
+        plugin = make_plugin(service_module, preferred="")
+        plugin._write_keys = lambda data, description: None
+        plugin._gateway_count = found
+
+        asyncio.run(
+            plugin._handle_select_prompt(
+                frame_with_cursor(self.GATEWAYS[:3], 0, more=False)
+            )
+        )
+
+        assert plugin._lap_entries == []
+        assert plugin._gateway_list == self.GATEWAYS[:3]
+
+    def test_not_paged_list_with_an_entry_twice_is_the_whole_list(
+        self, service_module
+    ):
+        options = [self.GATEWAYS[0], self.GATEWAYS[1], self.GATEWAYS[0]]
+        plugin = make_plugin(service_module, preferred="")
+        plugin._write_keys = lambda data, description: None
+        plugin._gateway_count = 3
+
+        asyncio.run(
+            plugin._handle_select_prompt(frame_with_cursor(options, 0, more=False))
+        )
+
+        assert plugin._lap_entries == self.GATEWAYS[:2]
+
+    def test_not_paged_list_is_not_paged_through(self, service_module):
+        plugin, state = self._plugin(service_module, "gw-01")
+
+        asyncio.run(
+            plugin._handle_select_prompt(
+                frame_with_cursor(self.GATEWAYS[:3], 0, more=False)
+            )
+        )
+
+        assert (state["pagedown"], state["home"]) == (0, 0)
 
 
 class TestPersistGatewayList:
@@ -1175,6 +1313,32 @@ class TestPersistGatewayList:
 
         assert writes == [("gateway-list", "gw-a")]
         assert plugin._stored_gateway_count is None
+
+
+    def test_failed_count_write_warns_that_the_list_is_read_again(
+        self, service_module, caplog
+    ):
+        plugin, writes = self._plugin(service_module, ["gw-a"], lap=["gw-a"], found=1)
+
+        async def fail_count(key, value):
+            writes.append((key, value))
+            return key != "gateway-list-count"
+
+        plugin._write_vpn_data = fail_count
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == [("gateway-list", "gw-a"), ("gateway-list-count", "1")]
+        assert plugin._stored_gateway_count is None
+        assert "next connection reads the gateway list again" in caplog.text
+
+    def test_written_count_does_not_warn(self, service_module, caplog):
+        plugin, writes = self._plugin(service_module, ["gw-a"], lap=["gw-a"], found=1)
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert plugin._stored_gateway_count == 1
+        assert "reads the gateway list again" not in caplog.text
 
 
 class TestResolveBrowser:

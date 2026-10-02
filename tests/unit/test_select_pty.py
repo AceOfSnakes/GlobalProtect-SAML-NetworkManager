@@ -71,6 +71,9 @@ while True:
 # "erase to end of line"), rows that vanished are erased, and the cursor is
 # parked on the prompt row. After a Down key the help row is NOT sent again, so
 # the new frame cannot be read from the stream of lines (issue #25).
+# Keys as in inquire 0.9.4: Down wraps, PageDown moves by a page without
+# wrapping and stops at the last entry, Home goes to the first entry; a key that
+# does not change the cursor causes no redraw at all.
 FAKE_INCREMENTAL_GPCLIENT = r"""
 import os, sys, tty
 
@@ -142,10 +145,28 @@ def redraw(rows, parked_col):
 
 
 # FAKE_FOUND: the count in gpapi's "Found N gateways in portal config" line
-# ("" prints none); FAKE_STALL_AFTER: stop reacting to Down after that many
+# ("" prints none); FAKE_STALL_AFTER / FAKE_STALL_PAGE_AFTER: stop reacting to
+# Down / PageDown after that many; FAKE_NO_HOME: Home is never redrawn
 FOUND = os.environ.get("FAKE_FOUND", "20")
 STALL_AFTER = int(os.environ.get("FAKE_STALL_AFTER", "-1"))
-downs = 0
+STALL_PAGE_AFTER = int(os.environ.get("FAKE_STALL_PAGE_AFTER", "-1"))
+NO_HOME = bool(os.environ.get("FAKE_NO_HOME"))
+downs = pages = homes = 0
+
+
+def move_to(new):
+    global start, cursor
+    if new == cursor:
+        return
+    cursor = new
+    if cursor == 0:
+        start = 0
+    elif cursor >= start + PAGE:
+        start = cursor - PAGE + 1
+    elif cursor < start:
+        start = cursor
+    redraw(frame_rows(start, cursor), len(QUESTION) + 1)
+
 
 tty.setraw(0)
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
@@ -172,18 +193,27 @@ while True:
             if downs == STALL_AFTER:
                 continue
             downs += 1
-            cursor = (cursor + 1) % len(OPTIONS)
-            if cursor == 0:
-                start = 0
-            elif cursor >= start + PAGE:
-                start = cursor - PAGE + 1
-            redraw(frame_rows(start, cursor), len(QUESTION) + 1)
+            move_to((cursor + 1) % len(OPTIONS))
+        elif pending.startswith(b"\x1b[6~"):
+            pending = pending[4:]
+            if pages == STALL_PAGE_AFTER:
+                continue
+            pages += 1
+            move_to(min(cursor + PAGE, len(OPTIONS) - 1))
+        elif pending.startswith(b"\x1b[H"):
+            pending = pending[3:]
+            homes += 1
+            if not NO_HOME:
+                move_to(0)
         elif pending[:1] in (b"\r", b"\n"):
             pending = pending[1:]
             final = QUESTION + " " + OPTIONS[cursor]
             redraw([final], len(final))
             sys.stdout.write("\r\n")
-            sys.stdout.write("fake gpclient: %d Down keys received\r\n" % downs)
+            sys.stdout.write(
+                "fake gpclient: keys received down=%d pagedown=%d home=%d\r\n"
+                % (downs, pages, homes)
+            )
             sys.stdout.write(
                 "[INFO  gpclient::connect] Connecting to the selected gateway: %s\r\n"
                 % OPTIONS[cursor]
@@ -416,11 +446,11 @@ class TestIncrementalRedrawOverPty:
     ):
         plugin = self._run(service_module, tmp_path, preferred)
 
-        # The lap saw the whole list and nothing matches: the first proposal,
+        # The walk saw the whole list and nothing matches: the first proposal,
         # not whatever happened to be highlighted at some point
         assert self._connected_to(plugin) == "gw-00 (gw0.example.com)"
         assert "stopped redrawing" not in caplog.text
-        assert "is not offered by the portal" in caplog.text
+        assert "Walked the whole list" in caplog.text
         assert len(plugin._gateway_list) == 20
 
     def test_no_preference_takes_the_first_proposal(
@@ -433,18 +463,22 @@ class TestIncrementalRedrawOverPty:
         assert plugin._gateway_list == ALL_GATEWAYS
 
 
-class TestCollectionLapOverPty:
+class TestPagedCollectionOverPty:
     """Issue #25 (second report): gpclient found 60 gateways, the profile got 8.
     A preferred gateway on the first page needs no walk, so only that page was
-    cached. A paged list the profile does not hold completely is walked once."""
+    cached. A paged list the profile does not hold completely is read page by
+    page (PageDown), then Home puts the cursor back on the first proposal."""
 
-    FIRST = ALL_GATEWAYS[0]
+    @pytest.fixture(autouse=True)
+    def _quick_redraw_timeout(self, service_module, monkeypatch):
+        # A key that causes no redraw (end of the list) costs this much
+        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.3)
 
     @staticmethod
     def _run(service_module, tmp_path, preferred, monkeypatch, env=None, **stored):
         for name, value in (env or {}).items():
             monkeypatch.setenv(name, value)
-        fake = tmp_path / "fake-gpclient-lap.py"
+        fake = tmp_path / "fake-gpclient-paged.py"
         fake.write_text(FAKE_INCREMENTAL_GPCLIENT)
         return asyncio.run(_run_against_fake(service_module, fake, preferred, **stored))
 
@@ -453,14 +487,15 @@ class TestCollectionLapOverPty:
         return TestIncrementalRedrawOverPty._connected_to(plugin)
 
     @staticmethod
-    def _downs(plugin):
+    def _keys(plugin):
+        """The keys the fake received: {"down": n, "pagedown": n, "home": n}"""
         found = [
-            int(line.split(": ", 1)[1].split()[0])
+            dict(pair.split("=") for pair in line.split("received ", 1)[1].split())
             for line in plugin._recent_lines
-            if "Down keys received" in line
+            if "keys received" in line
         ]
         assert len(found) == 1
-        return found[0]
+        return {key: int(value) for key, value in found[0].items()}
 
     @staticmethod
     def _persisted(plugin):
@@ -475,42 +510,68 @@ class TestCollectionLapOverPty:
         asyncio.run(plugin._persist_gateway_list())
         return writes
 
-    @pytest.mark.parametrize(
-        "preferred, expected, selection_downs",
-        [
-            # The reported case: the gateway is on the first page
-            ("gw-02", ALL_GATEWAYS[2], 2),
-            ("gw-00", ALL_GATEWAYS[0], 0),
-            # No preference: the first proposal, the cursor is back on it
-            ("", ALL_GATEWAYS[0], 0),
-            # The same selection as without the lap
-            ("gw-12", ALL_GATEWAYS[12], 12),
-            ("gw12.example.com", ALL_GATEWAYS[12], 12),
-            ("gw-19", ALL_GATEWAYS[19], 19),
-            # Substring only, beyond the first page
-            ("w15.ex", ALL_GATEWAYS[15], 15),
-            # Not offered: the first proposal, no second lap
-            ("gw-tokyo", ALL_GATEWAYS[0], 0),
-        ],
-    )
-    def test_empty_profile_walks_the_whole_list_and_selects_as_before(
-        self, service_module, tmp_path, monkeypatch, caplog,
-        preferred, expected, selection_downs,
+    def test_preferred_on_the_first_page_with_an_empty_profile(
+        self, service_module, tmp_path, monkeypatch, caplog
     ):
-        plugin = self._run(service_module, tmp_path, preferred, monkeypatch)
+        # The reported case: the gateway is on the first page, the profile
+        # holds nothing, and all 20 gateways must end up in the profile
+        caplog.set_level("INFO")
+        plugin = self._run(service_module, tmp_path, "gw-00", monkeypatch)
 
-        assert self._connected_to(plugin) == expected
-        assert "stopped redrawing" not in caplog.text
-        # One lap (20 Down keys) plus the way to the gateway, no second lap
-        assert self._downs(plugin) == 20 + selection_downs
+        assert self._connected_to(plugin) == ALL_GATEWAYS[0]
+        # 0 -> 7 -> 14 -> 19 (clamped): every entry seen, then back to the top
+        assert self._keys(plugin) == {"down": 0, "pagedown": 3, "home": 1}
         assert plugin._gateway_list == ALL_GATEWAYS
-        assert plugin._gateway_count == 20
+        assert plugin._lap_entries == ALL_GATEWAYS
+        assert "Reading the whole gateway list page by page" in caplog.text
+        assert "20 entries" in caplog.text
         assert self._persisted(plugin) == [
             ("gateway-list", ";".join(ALL_GATEWAYS)),
             ("gateway-list-count", "20"),
         ]
 
-    def test_without_a_found_line_the_lap_length_is_the_count(
+    def test_preferred_near_the_top_needs_only_the_downs_to_it(
+        self, service_module, tmp_path, monkeypatch
+    ):
+        plugin = self._run(service_module, tmp_path, "gw-02", monkeypatch)
+
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert self._keys(plugin) == {"down": 2, "pagedown": 3, "home": 1}
+        assert plugin._lap_entries == ALL_GATEWAYS
+
+    def test_no_preference_takes_the_first_proposal_and_caches_all(
+        self, service_module, tmp_path, monkeypatch
+    ):
+        plugin = self._run(service_module, tmp_path, "", monkeypatch)
+
+        assert self._connected_to(plugin) == ALL_GATEWAYS[0]
+        assert self._keys(plugin) == {"down": 0, "pagedown": 3, "home": 1}
+        assert plugin._lap_entries == ALL_GATEWAYS
+
+    @pytest.mark.parametrize(
+        "preferred, expected, downs",
+        [
+            ("gw-12", ALL_GATEWAYS[12], 12),
+            ("gw12.example.com", ALL_GATEWAYS[12], 12),
+            ("gw-19", ALL_GATEWAYS[19], 19),
+            # Substring only: a lap without an exact match, then on by name
+            ("w15.ex", ALL_GATEWAYS[15], 20 + 15),
+            # Not offered: a whole lap, then the first proposal
+            ("gw-tokyo", ALL_GATEWAYS[0], 20),
+        ],
+    )
+    def test_selection_is_the_same_as_without_reading_the_pages(
+        self, service_module, tmp_path, monkeypatch, caplog,
+        preferred, expected, downs,
+    ):
+        plugin = self._run(service_module, tmp_path, preferred, monkeypatch)
+
+        assert self._connected_to(plugin) == expected
+        assert self._keys(plugin) == {"down": downs, "pagedown": 3, "home": 1}
+        assert "stopped redrawing" not in caplog.text
+        assert plugin._lap_entries == ALL_GATEWAYS
+
+    def test_unknown_count_ends_when_page_down_no_longer_redraws(
         self, service_module, tmp_path, monkeypatch
     ):
         plugin = self._run(
@@ -519,13 +580,93 @@ class TestCollectionLapOverPty:
 
         assert plugin._gateway_count is None
         assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        # The fourth PageDown finds the cursor on the last entry already
+        assert self._keys(plugin) == {"down": 2, "pagedown": 4, "home": 1}
+        assert plugin._lap_entries == ALL_GATEWAYS
         assert self._persisted(plugin)[-1] == ("gateway-list-count", "20")
+
+    @pytest.mark.parametrize("found", ["25", "21"])
+    def test_count_above_the_list_is_not_complete(
+        self, service_module, tmp_path, monkeypatch, caplog, found
+    ):
+        stored = ["gw-old (old.example.com)"]
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_FOUND": found}, stored_list=";".join(stored),
+        )
+
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert "Could not read the whole gateway list" in caplog.text
+        assert plugin._lap_entries == []
+        # Merged, no count claimed; the next connect reads the pages again
+        assert self._persisted(plugin) == [
+            ("gateway-list", ";".join(ALL_GATEWAYS + stored))
+        ]
+
+    @pytest.mark.parametrize("after", [1, 2])
+    def test_stalled_paging_is_not_complete_but_selects_the_preferred(
+        self, service_module, tmp_path, monkeypatch, caplog, after
+    ):
+        stored = ALL_GATEWAYS[:3] + ["gw-old (old.example.com)"]
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_STALL_PAGE_AFTER": str(after)},
+            stored_list=";".join(stored), stored_count=4,
+        )
+
+        # The cursor is back at the top, not wherever the paging stopped
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert self._keys(plugin) == {"down": 2, "pagedown": after, "home": 1}
+        assert plugin._lap_entries == []
+        writes = self._persisted(plugin)
+        assert [key for key, _ in writes] == ["gateway-list"]
+        # Seen first, the stored entries not seen after them, nothing lost
+        assert writes[0][1].endswith("gw-old (old.example.com)")
+        assert writes[0][1].startswith(";".join(ALL_GATEWAYS[:3]))
+
+    def test_stalled_first_page_down_selects_from_the_first_page(
+        self, service_module, tmp_path, monkeypatch
+    ):
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_STALL_PAGE_AFTER": "0"},
+        )
+
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        # The cursor never moved (the fake counts only keys it acted on), so
+        # there is nothing to put back
+        assert self._keys(plugin) == {"down": 2, "pagedown": 0, "home": 0}
+        assert plugin._lap_entries == []
+
+    @pytest.mark.parametrize(
+        "preferred, expected",
+        [
+            ("gw-02", ALL_GATEWAYS[2]),  # walks on, wrapping around the end
+            ("gw-19", ALL_GATEWAYS[19]),  # the cursor is on it already
+            ("gw-12", ALL_GATEWAYS[12]),
+            ("", ALL_GATEWAYS[0]),  # the first proposal, by name
+            ("gw-tokyo", ALL_GATEWAYS[0]),
+        ],
+    )
+    def test_home_not_redrawn_selects_from_where_the_cursor_is(
+        self, service_module, tmp_path, monkeypatch, caplog, preferred, expected
+    ):
+        plugin = self._run(
+            service_module, tmp_path, preferred, monkeypatch,
+            env={"FAKE_NO_HOME": "1"},
+        )
+
+        assert self._connected_to(plugin) == expected
+        assert self._keys(plugin)["home"] == 1
+        assert "did not redraw the list after Home" in caplog.text
+        # The pages were read all the same
+        assert plugin._lap_entries == ALL_GATEWAYS
 
     @pytest.mark.parametrize(
         "preferred, expected, downs",
         [("gw-02", ALL_GATEWAYS[2], 2), ("", ALL_GATEWAYS[0], 0)],
     )
-    def test_complete_profile_list_is_not_walked_again(
+    def test_complete_profile_list_is_not_read_again(
         self, service_module, tmp_path, monkeypatch, preferred, expected, downs
     ):
         plugin = self._run(
@@ -534,9 +675,8 @@ class TestCollectionLapOverPty:
         )
 
         assert self._connected_to(plugin) == expected
-        # Only the Down keys the selection itself needs
-        assert self._downs(plugin) == downs
-        # Nothing new to say to the profile
+        assert self._keys(plugin) == {"down": downs, "pagedown": 0, "home": 0}
+        assert plugin._lap_entries == []
         assert self._persisted(plugin) == []
 
     def test_complete_profile_list_needs_no_found_line(
@@ -548,7 +688,7 @@ class TestCollectionLapOverPty:
             stored_list=";".join(ALL_GATEWAYS), stored_count=20,
         )
 
-        assert self._downs(plugin) == 2
+        assert self._keys(plugin) == {"down": 2, "pagedown": 0, "home": 0}
 
     @pytest.mark.parametrize(
         "stored_list, stored_count",
@@ -559,12 +699,12 @@ class TestCollectionLapOverPty:
             # A gateway of the visible page is not in the list
             (";".join(ALL_GATEWAYS[1:]), 20),
             (";".join(ALL_GATEWAYS[:6]), 20),
-            # Never walked (a list from before the count was stored)
+            # Never read (a list from before the count was stored)
             (";".join(ALL_GATEWAYS), None),
             ("", 20),
         ],
     )
-    def test_incomplete_profile_list_is_walked(
+    def test_incomplete_profile_list_is_read(
         self, service_module, tmp_path, monkeypatch, stored_list, stored_count
     ):
         plugin = self._run(
@@ -573,58 +713,77 @@ class TestCollectionLapOverPty:
         )
 
         assert self._connected_to(plugin) == ALL_GATEWAYS[2]
-        assert self._downs(plugin) == 22
-        assert plugin._gateway_list == ALL_GATEWAYS
+        assert self._keys(plugin) == {"down": 2, "pagedown": 3, "home": 1}
+        assert plugin._lap_entries == ALL_GATEWAYS
 
-    def test_stalled_redraw_selects_the_highlighted_entry_and_stores_no_count(
-        self, service_module, tmp_path, monkeypatch, caplog
-    ):
-        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.3)
-        stored = ALL_GATEWAYS[:3] + ["gw-old (old.example.com)"]
-        plugin = self._run(
-            service_module, tmp_path, "gw-02", monkeypatch,
-            env={"FAKE_STALL_AFTER": "10"},
-            stored_list=";".join(stored), stored_count=4,
+
+FAKE_ONLY_GATEWAY_GPCLIENT = r"""
+import os, sys, tty
+
+tty.setraw(0)
+if os.environ.get("FAKE_FOUND"):
+    sys.stdout.write(
+        "[INFO  gpapi::portal::config] Found %s gateways in portal config\r\n"
+        % os.environ["FAKE_FOUND"]
+    )
+sys.stdout.write(
+    "[INFO  gpclient::connect] Connecting to the %s gateway: gw-a (a.example.com)\r\n"
+    % os.environ.get("FAKE_KIND", "only available")
+)
+sys.stdout.flush()
+"""
+
+
+class TestOnlyAvailableGatewayOverPty:
+    """"Connecting to the only available gateway" means the portal offers just
+    that one, so it replaces the stored list - unless gpclient found more."""
+
+    STORED = ";".join(ALL_GATEWAYS[:3])
+
+    def _run(self, service_module, tmp_path, monkeypatch, **env):
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        fake = tmp_path / "fake-gpclient-only.py"
+        fake.write_text(FAKE_ONLY_GATEWAY_GPCLIENT)
+        return asyncio.run(
+            _run_against_fake(
+                service_module, fake, "", stored_list=self.STORED, stored_count=3
+            )
         )
 
-        # Today's behaviour: the entry on screen when gpclient went quiet
-        assert self._connected_to(plugin) == ALL_GATEWAYS[10]
-        assert "stopped redrawing" in caplog.text
-        assert plugin._lap_entries == []
-        # The part seen comes first, nothing stored is lost, no count is claimed
+    @staticmethod
+    def _persisted(plugin):
+        return TestPagedCollectionOverPty._persisted(plugin)
+
+    @pytest.mark.parametrize("found", [None, "1"])
+    def test_the_only_gateway_replaces_the_stored_list(
+        self, service_module, tmp_path, monkeypatch, found
+    ):
+        env = {} if found is None else {"FAKE_FOUND": found}
+        plugin = self._run(service_module, tmp_path, monkeypatch, **env)
+
+        assert plugin._lap_entries == ["gw-a (a.example.com)"]
         assert self._persisted(plugin) == [
-            ("gateway-list", ";".join(ALL_GATEWAYS[:11] + stored[3:])),
+            ("gateway-list", "gw-a (a.example.com)"),
+            ("gateway-list-count", "1"),
         ]
 
-    def test_lap_beyond_the_step_limit_is_abandoned(
-        self, service_module, tmp_path, monkeypatch, caplog
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {"FAKE_FOUND": "5"},  # gpclient found more: not the whole list
+            {"FAKE_KIND": "selected"},  # picked from a list, not the only one
+        ],
+    )
+    def test_otherwise_the_stored_list_is_only_added_to(
+        self, service_module, tmp_path, monkeypatch, env
     ):
-        # A list longer than the step limit: the lap stops at gw-15, and the
-        # walk to the preferred gateway goes on from there instead of
-        # selecting the entry the lap stopped on. Without gpclient's count the
-        # step limit is all there is to go by.
-        monkeypatch.setattr(service_module, "SELECT_MAX_STEPS", 15)
-        plugin = self._run(
-            service_module, tmp_path, "gw-02", monkeypatch, env={"FAKE_FOUND": ""}
-        )
+        plugin = self._run(service_module, tmp_path, monkeypatch, **env)
 
-        assert "Gave up walking the whole gateway list after 15 steps" in caplog.text
-        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
-        assert self._downs(plugin) == 22
         assert plugin._lap_entries == []
-        assert [key for key, _ in self._persisted(plugin)] == ["gateway-list"]
-
-    def test_known_count_lets_the_lap_run_past_the_step_limit(
-        self, service_module, tmp_path, monkeypatch, caplog
-    ):
-        # The same limit, but gpclient said 20: the lap gets 2 * 20 + 1 steps
-        monkeypatch.setattr(service_module, "SELECT_MAX_STEPS", 15)
-        plugin = self._run(service_module, tmp_path, "gw-02", monkeypatch)
-
-        assert "Gave up walking" not in caplog.text
-        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
-        assert self._downs(plugin) == 22
-        assert plugin._lap_entries == ALL_GATEWAYS
+        assert self._persisted(plugin) == [
+            ("gateway-list", "gw-a (a.example.com);" + self.STORED)
+        ]
 
 
 class TestStoredCredentialsOverPty:
@@ -762,6 +921,58 @@ class TestPressListDown:
 
         assert sent == [service_module.KEY_DOWN]
         assert frame["cursor"] == 1
+
+    @pytest.mark.parametrize("key_name", ["KEY_PAGE_DOWN", "KEY_HOME"])
+    def test_any_list_key_is_sent_and_the_redraw_is_awaited(
+        self, service_module, key_name
+    ):
+        plugin = service_module.GpclientVPNPlugin()
+        sent = []
+        plugin._write_keys = lambda data, description: sent.append(data)
+        plugin._screen.feed(
+            "? Which gateway do you want to connect to?\r\n"
+            "> gw-a (a.example.com)\r\n"
+            "  gw-b (b.example.com)\r\n"
+            "[to move, to select]\r\n"
+        )
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+        key = getattr(service_module, key_name)
+
+        async def scenario():
+            async def redraw_later():
+                await asyncio.sleep(0.1)
+                plugin._screen.feed("\x1b[3A\r  gw-a (a.example.com)\x1b[K\r\n")
+                plugin._screen.feed("> gw-b (b.example.com)\x1b[K\r\n\r\n")
+
+            asyncio.create_task(redraw_later())
+            return await plugin._press_list_key(previous, key, "test")
+
+        frame = asyncio.run(scenario())
+
+        assert sent == [key]
+        assert frame["cursor"] == 1
+
+    def test_the_keys_are_what_crossterm_parses(self, service_module):
+        assert service_module.KEY_PAGE_DOWN == b"\x1b[6~"
+        assert service_module.KEY_HOME == b"\x1b[H"
+
+    @pytest.mark.parametrize("key_name", ["KEY_PAGE_DOWN", "KEY_HOME"])
+    def test_key_without_a_redraw_gives_up(
+        self, service_module, monkeypatch, key_name
+    ):
+        # inquire does not redraw when the cursor stays where it is
+        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.2)
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._write_keys = lambda data, description: None
+        plugin._screen.feed(
+            "? Which gateway do you want to connect to?\r\n"
+            "> gw-a (a.example.com)\r\n"
+            "[to move, to select]\r\n"
+        )
+        previous = service_module.detect_select_prompt(plugin._screen.lines())
+
+        key = getattr(service_module, key_name)
+        assert asyncio.run(plugin._press_list_key(previous, key, "test")) is None
 
     def test_frame_in_the_middle_of_a_redraw_is_not_accepted(
         self, service_module, monkeypatch
