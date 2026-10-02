@@ -101,7 +101,9 @@ def main(argv=None):
 
     import gi
 
+    # Gdk too: left unpinned, gi may load Gdk 4 next to Gtk 3 and fail
     gi.require_version("Gtk", f"{major}.0")
+    gi.require_version("Gdk", f"{major}.0")
     gi.require_version("NM", "1.0")
     from gi.repository import Gdk, GLib, Gtk, NM
 

@@ -28,17 +28,31 @@ def fail(message):
 
 
 def load_with_qt(path, major):
-    """(metadata dict, None) from QPluginLoader, or (None, reason) when PyQt is missing"""
+    """Load the plugin with QPluginLoader: (metadata dict or None, None), or
+    (None, reason) when PyQt is missing. PyQt5 has no QPluginLoader.metaData()
+    (it does not wrap QJsonObject): the metadata is None then, the plugin is
+    still loaded."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         core = importlib.import_module(f"PyQt{major}.QtCore")
     except ImportError as error:
         return None, str(error)
     loader = core.QPluginLoader(path)
-    meta = loader.metaData()
+    meta = loader.metaData() if hasattr(loader, "metaData") else None
     if not loader.load():
         fail(f"QPluginLoader cannot load {path}: {loader.errorString()}")
+    print(f"OK: QPluginLoader loads {path}")
     return meta, None
+
+
+def read_json_metadata(plugin):
+    """The JSON file installed next to the plugin, as a dict"""
+    json_file = os.path.splitext(plugin)[0] + ".json"
+    try:
+        with open(json_file, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError) as error:
+        fail(f"{json_file}: {error}")
 
 
 def main(argv=None):
@@ -65,14 +79,10 @@ def main(argv=None):
     if major is None:
         fail(f"cannot tell Qt 5 from Qt 6 by the path {args.plugin}")
     meta, reason = load_with_qt(args.plugin, major)
-    if meta is None:
+    if reason is not None:
         print(f"WARN: PyQt{major} is not available ({reason}): checking the JSON file only, not loading the plugin")
-        json_file = os.path.splitext(args.plugin)[0] + ".json"
-        try:
-            with open(json_file, encoding="utf-8") as handle:
-                meta = json.load(handle)
-        except (OSError, ValueError) as error:
-            fail(f"{json_file}: {error}")
+    if meta is None:
+        meta = read_json_metadata(args.plugin)
     problems = lib.check_plasma_metadata(meta, service)
     if problems:
         fail("; ".join(problems))

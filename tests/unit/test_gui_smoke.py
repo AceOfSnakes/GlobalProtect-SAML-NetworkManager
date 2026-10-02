@@ -389,3 +389,86 @@ class TestProbes:
         code, err = self.run(gui_smoke_plasma, ["--plugin", str(tmp_path / "p.so"), "--name-file", str(bad)], capsys)
 
         assert code == 1 and "no service" in err
+
+
+class TestQtLoad:
+    """load_with_qt with a fake PyQt: PyQt5 has no QPluginLoader.metaData()
+    (CI on Ubuntu 22.04), PyQt6 has; the plugin is loaded either way."""
+
+    def fake_pyqt(self, monkeypatch, major, with_metadata, loads=True):
+        class Loader:
+            def __init__(self, path):
+                self.path = path
+
+            def load(self):
+                return loads
+
+            def errorString(self):
+                return "cannot open shared object"
+
+        if with_metadata:
+            Loader.metaData = lambda self: {"MetaData": {"from": "qt"}}
+        core = type(sys)("PyQt%d.QtCore" % major)
+        core.QPluginLoader = Loader
+        monkeypatch.setitem(sys.modules, "PyQt%d" % major, type(sys)("PyQt%d" % major))
+        monkeypatch.setitem(sys.modules, "PyQt%d.QtCore" % major, core)
+
+    def test_metadata_comes_from_qt_when_it_has_it(self, monkeypatch, capsys):
+        self.fake_pyqt(monkeypatch, 6, with_metadata=True)
+
+        assert gui_smoke_plasma.load_with_qt("/p.so", 6) == ({"MetaData": {"from": "qt"}}, None)
+        assert "OK: QPluginLoader loads /p.so" in capsys.readouterr().out
+
+    def test_pyqt5_without_metadata_still_loads_the_plugin(self, monkeypatch, capsys):
+        self.fake_pyqt(monkeypatch, 5, with_metadata=False)
+
+        assert gui_smoke_plasma.load_with_qt("/p.so", 5) == (None, None)
+        assert "OK: QPluginLoader loads /p.so" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("with_metadata", [True, False])
+    def test_a_plugin_that_does_not_load_fails(self, monkeypatch, capsys, with_metadata):
+        self.fake_pyqt(monkeypatch, 5, with_metadata, loads=False)
+
+        with pytest.raises(SystemExit) as stop:
+            gui_smoke_plasma.load_with_qt("/p.so", 5)
+
+        assert stop.value.code == 1
+        assert "cannot open shared object" in capsys.readouterr().err
+
+    def test_missing_pyqt_is_reported_not_failed(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "PyQt5.QtCore", None)
+
+        meta, reason = gui_smoke_plasma.load_with_qt("/p.so", 5)
+
+        assert meta is None and reason
+
+    def test_metadata_falls_back_to_the_json_file(self, tmp_path):
+        (tmp_path / "p.json").write_text('{"KPlugin": {"Id": "x"}}')
+
+        assert gui_smoke_plasma.read_json_metadata(str(tmp_path / "p.so")) == {"KPlugin": {"Id": "x"}}
+
+    def test_a_missing_json_file_fails(self, tmp_path, capsys):
+        with pytest.raises(SystemExit):
+            gui_smoke_plasma.read_json_metadata(str(tmp_path / "p.so"))
+
+        assert "p.json" in capsys.readouterr().err
+
+
+class TestGtkVersionPins:
+    """Gdk must be pinned with Gtk: unpinned, gi loaded Gdk 4 next to Gtk 3
+    (CI on Ubuntu 22.04: "Requiring namespace 'Gdk' version '3.0', but '4.0'
+    is already loaded")."""
+
+    def pins(self):
+        with open(os.path.join(SCRIPTS, "gui_smoke_gtk.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        imported = source.index("from gi.repository import")
+        return source[:imported]
+
+    @pytest.mark.parametrize("namespace", ["Gtk", "Gdk", "NM"])
+    def test_every_imported_namespace_is_pinned_before_the_import(self, namespace):
+        assert 'gi.require_version("%s", ' % namespace in self.pins()
+
+    @pytest.mark.parametrize("namespace", ["Gtk", "Gdk"])
+    def test_gtk_and_gdk_follow_the_requested_major(self, namespace):
+        assert 'gi.require_version("%s", f"{major}.0")' % namespace in self.pins()
