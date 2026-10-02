@@ -120,6 +120,7 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `as-gateway` | `false` | The address is a gateway - skip the portal workflow |
 | `preferred-gateway` | (empty) | Gateway to use; empty means the portal's first proposal. Falls back to the first proposal when the value is not offered |
 | `gateway-list` | (written by the service) | Gateways seen during the last successful connection, `;`-separated. Read by the editors to fill the drop-down |
+| `gateway-list-count` | (written by the service) | Number of gateways in `gateway-list` after the service last walked the whole list; the walk is repeated when the portal reports another number |
 | `auth-mode` | `saml` | `saml` = browser login, `credentials` = username/password collected upfront |
 | `username` | (empty) | Username for portals that ask on the terminal |
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or a path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |

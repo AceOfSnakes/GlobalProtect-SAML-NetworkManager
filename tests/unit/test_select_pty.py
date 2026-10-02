@@ -141,8 +141,19 @@ def redraw(rows, parked_col):
     cursor_col = parked_col
 
 
+# FAKE_FOUND: the count in gpapi's "Found N gateways in portal config" line
+# ("" prints none); FAKE_STALL_AFTER: stop reacting to Down after that many
+FOUND = os.environ.get("FAKE_FOUND", "20")
+STALL_AFTER = int(os.environ.get("FAKE_STALL_AFTER", "-1"))
+downs = 0
+
 tty.setraw(0)
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
+if FOUND:
+    sys.stdout.write(
+        "[2026-07-20T12:44:26Z INFO  gpapi::portal::config] "
+        "Found %s gateways in portal config\r\n" % FOUND
+    )
 sys.stdout.flush()
 
 start = 0
@@ -158,6 +169,9 @@ while True:
     while pending:
         if pending.startswith(b"\x1b[B"):
             pending = pending[3:]
+            if downs == STALL_AFTER:
+                continue
+            downs += 1
             cursor = (cursor + 1) % len(OPTIONS)
             if cursor == 0:
                 start = 0
@@ -169,6 +183,7 @@ while True:
             final = QUESTION + " " + OPTIONS[cursor]
             redraw([final], len(final))
             sys.stdout.write("\r\n")
+            sys.stdout.write("fake gpclient: %d Down keys received\r\n" % downs)
             sys.stdout.write(
                 "[INFO  gpclient::connect] Connecting to the selected gateway: %s\r\n"
                 % OPTIONS[cursor]
@@ -275,9 +290,16 @@ sys.exit(0)
 '''
 
 
-async def _run_against_fake(service_module, fake_path, preferred):
+ALL_GATEWAYS = [f"gw-{i:02d} (gw{i}.example.com)" for i in range(20)]
+
+
+async def _run_against_fake(
+    service_module, fake_path, preferred, stored_list="", stored_count=None
+):
     plugin = service_module.GpclientVPNPlugin()
     plugin.preferred_gateway = preferred
+    plugin._stored_gateway_list = stored_list
+    plugin._stored_gateway_count = stored_count
 
     master, slave = pty.openpty()
     process = await asyncio.create_subprocess_exec(
@@ -355,10 +377,10 @@ class TestIncrementalRedrawOverPty:
     list longer than one page must read the frames from the screen."""
 
     @staticmethod
-    def _run(service_module, tmp_path, preferred):
+    def _run(service_module, tmp_path, preferred, **stored):
         fake = tmp_path / "fake-gpclient-incremental.py"
         fake.write_text(FAKE_INCREMENTAL_GPCLIENT)
-        return asyncio.run(_run_against_fake(service_module, fake, preferred))
+        return asyncio.run(_run_against_fake(service_module, fake, preferred, **stored))
 
     @staticmethod
     def _connected_to(plugin):
@@ -385,9 +407,8 @@ class TestIncrementalRedrawOverPty:
 
         assert self._connected_to(plugin) == expected
         assert "stopped redrawing" not in caplog.text
-        # Every gateway on the way is cached, not just the first page
-        walked = [f"gw-{i:02d} (gw{i}.example.com)" for i in range(20)]
-        assert plugin._gateway_list == walked[: walked.index(expected) + 1]
+        # The whole list is cached, not just the part walked to the gateway
+        assert plugin._gateway_list == ALL_GATEWAYS
 
     @pytest.mark.parametrize("preferred", ["gw-tokyo", "gw13.example.org"])
     def test_unknown_preference_walks_the_list_and_takes_the_first(
@@ -409,9 +430,183 @@ class TestIncrementalRedrawOverPty:
 
         assert self._connected_to(plugin) == "gw-00 (gw0.example.com)"
         assert "stopped redrawing" not in caplog.text
-        assert plugin._gateway_list == ["gw-00 (gw0.example.com)"] + [
-            f"gw-{i:02d} (gw{i}.example.com)" for i in range(1, 7)
+        assert plugin._gateway_list == ALL_GATEWAYS
+
+
+class TestCollectionLapOverPty:
+    """Issue #25 (second report): gpclient found 60 gateways, the profile got 8.
+    A preferred gateway on the first page needs no walk, so only that page was
+    cached. A paged list the profile does not hold completely is walked once."""
+
+    FIRST = ALL_GATEWAYS[0]
+
+    @staticmethod
+    def _run(service_module, tmp_path, preferred, monkeypatch, env=None, **stored):
+        for name, value in (env or {}).items():
+            monkeypatch.setenv(name, value)
+        fake = tmp_path / "fake-gpclient-lap.py"
+        fake.write_text(FAKE_INCREMENTAL_GPCLIENT)
+        return asyncio.run(_run_against_fake(service_module, fake, preferred, **stored))
+
+    @staticmethod
+    def _connected_to(plugin):
+        return TestIncrementalRedrawOverPty._connected_to(plugin)
+
+    @staticmethod
+    def _downs(plugin):
+        found = [
+            int(line.split(": ", 1)[1].split()[0])
+            for line in plugin._recent_lines
+            if "Down keys received" in line
         ]
+        assert len(found) == 1
+        return found[0]
+
+    @staticmethod
+    def _persisted(plugin):
+        """What _persist_gateway_list writes to the profile: [(key, value)]"""
+        writes = []
+
+        async def record(key, value):
+            writes.append((key, value))
+            return True
+
+        plugin._write_vpn_data = record
+        asyncio.run(plugin._persist_gateway_list())
+        return writes
+
+    @pytest.mark.parametrize(
+        "preferred, expected, selection_downs",
+        [
+            # The reported case: the gateway is on the first page
+            ("gw-02", ALL_GATEWAYS[2], 2),
+            ("gw-00", ALL_GATEWAYS[0], 0),
+            # No preference: the first proposal, the cursor is back on it
+            ("", ALL_GATEWAYS[0], 0),
+            # The same selection as without the lap
+            ("gw-12", ALL_GATEWAYS[12], 12),
+            ("gw12.example.com", ALL_GATEWAYS[12], 12),
+            ("gw-19", ALL_GATEWAYS[19], 19),
+            ("gw-tokyo", ALL_GATEWAYS[0], 20),
+        ],
+    )
+    def test_empty_profile_walks_the_whole_list_and_selects_as_before(
+        self, service_module, tmp_path, monkeypatch, caplog,
+        preferred, expected, selection_downs,
+    ):
+        plugin = self._run(service_module, tmp_path, preferred, monkeypatch)
+
+        assert self._connected_to(plugin) == expected
+        assert "stopped redrawing" not in caplog.text
+        # One lap (20 Down keys) plus the way to the gateway
+        assert self._downs(plugin) == 20 + selection_downs
+        assert plugin._gateway_list == ALL_GATEWAYS
+        assert plugin._gateway_count == 20
+        assert self._persisted(plugin) == [
+            ("gateway-list", ";".join(ALL_GATEWAYS)),
+            ("gateway-list-count", "20"),
+        ]
+
+    def test_without_a_found_line_the_lap_length_is_the_count(
+        self, service_module, tmp_path, monkeypatch
+    ):
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch, env={"FAKE_FOUND": ""}
+        )
+
+        assert plugin._gateway_count is None
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert self._persisted(plugin)[-1] == ("gateway-list-count", "20")
+
+    @pytest.mark.parametrize(
+        "preferred, expected, downs",
+        [("gw-02", ALL_GATEWAYS[2], 2), ("", ALL_GATEWAYS[0], 0)],
+    )
+    def test_complete_profile_list_is_not_walked_again(
+        self, service_module, tmp_path, monkeypatch, preferred, expected, downs
+    ):
+        plugin = self._run(
+            service_module, tmp_path, preferred, monkeypatch,
+            stored_list=";".join(ALL_GATEWAYS), stored_count=20,
+        )
+
+        assert self._connected_to(plugin) == expected
+        # Only the Down keys the selection itself needs
+        assert self._downs(plugin) == downs
+        # Nothing new to say to the profile
+        assert self._persisted(plugin) == []
+
+    def test_complete_profile_list_needs_no_found_line(
+        self, service_module, tmp_path, monkeypatch
+    ):
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_FOUND": ""},
+            stored_list=";".join(ALL_GATEWAYS), stored_count=20,
+        )
+
+        assert self._downs(plugin) == 2
+
+    @pytest.mark.parametrize(
+        "stored_list, stored_count",
+        [
+            # The portal has another number of gateways now
+            (";".join(ALL_GATEWAYS), 19),
+            (";".join(ALL_GATEWAYS), 21),
+            # A gateway of the visible page is not in the list
+            (";".join(ALL_GATEWAYS[1:]), 20),
+            (";".join(ALL_GATEWAYS[:6]), 20),
+            # Never walked (a list from before the count was stored)
+            (";".join(ALL_GATEWAYS), None),
+            ("", 20),
+        ],
+    )
+    def test_incomplete_profile_list_is_walked(
+        self, service_module, tmp_path, monkeypatch, stored_list, stored_count
+    ):
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            stored_list=stored_list, stored_count=stored_count,
+        )
+
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert self._downs(plugin) == 22
+        assert plugin._gateway_list == ALL_GATEWAYS
+
+    def test_stalled_redraw_selects_the_highlighted_entry_and_stores_no_count(
+        self, service_module, tmp_path, monkeypatch, caplog
+    ):
+        monkeypatch.setattr(service_module, "SELECT_REDRAW_TIMEOUT", 0.3)
+        stored = ALL_GATEWAYS[:3] + ["gw-old (old.example.com)"]
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch,
+            env={"FAKE_STALL_AFTER": "10"},
+            stored_list=";".join(stored), stored_count=4,
+        )
+
+        # Today's behaviour: the entry on screen when gpclient went quiet
+        assert self._connected_to(plugin) == ALL_GATEWAYS[10]
+        assert "stopped redrawing" in caplog.text
+        assert plugin._gateway_lap_size == 0
+        # The part seen is added, nothing stored is lost, no count is claimed
+        assert self._persisted(plugin) == [
+            ("gateway-list", ";".join(stored + ALL_GATEWAYS[3:11])),
+        ]
+
+    def test_lap_beyond_the_step_limit_is_abandoned(
+        self, service_module, tmp_path, monkeypatch, caplog
+    ):
+        # A list longer than the step limit: the lap stops at gw-15, and the
+        # walk to the preferred gateway goes on from there instead of
+        # selecting the entry the lap stopped on
+        monkeypatch.setattr(service_module, "SELECT_MAX_STEPS", 15)
+        plugin = self._run(service_module, tmp_path, "gw-02", monkeypatch)
+
+        assert "Gave up walking the whole gateway list after 15 steps" in caplog.text
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert self._downs(plugin) == 22
+        assert plugin._gateway_lap_size == 0
+        assert [key for key, _ in self._persisted(plugin)] == ["gateway-list"]
 
 
 class TestStoredCredentialsOverPty:

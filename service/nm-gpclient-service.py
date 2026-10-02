@@ -256,6 +256,30 @@ GATEWAY_CHOSEN_RE = re.compile(
     r"Connecting to (?:the only available|the selected) gateway: (?P<gateway>.+?)\s*$"
 )
 
+# gpclient logs how many gateways the portal config holds (gpapi), before it
+# shows the list; a paged list is only complete in the profile once that many
+# were seen. The bound keeps a garbled number from meaning anything.
+GATEWAY_COUNT_RE = re.compile(r"\bFound ([0-9]+) gateways in portal config")
+GATEWAY_COUNT_MAX = 10000
+
+
+def parse_gateway_count(line: str) -> Optional[int]:
+    """The N of gpclient's "Found N gateways in portal config", else None"""
+    match = GATEWAY_COUNT_RE.search(line)
+    if not match or len(match.group(1)) > 5:
+        return None
+    count = int(match.group(1))
+    return count if 1 <= count <= GATEWAY_COUNT_MAX else None
+
+
+def parse_stored_gateway_count(value: str) -> Optional[int]:
+    """vpn.data gateway-list-count as a number; None if absent or garbled"""
+    value = value.strip()
+    if not (value.isascii() and value.isdigit()) or len(value) > 5:
+        return None
+    return int(value) if 1 <= int(value) <= GATEWAY_COUNT_MAX else None
+
+
 # --- Interactive prompt detection -------------------------------------------
 #
 # For portals that do NOT use SAML (Prelogin::Standard in gpclient, e.g. RSA
@@ -1070,6 +1094,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._connection_uuid = ""
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
+        self._stored_gateway_count: Optional[int] = None  # gateway-list-count
 
         # Routing configuration
         self.never_default = False
@@ -1315,6 +1340,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.as_gateway = data_dict.get("as-gateway", "false").lower() == "true"
             self.preferred_gateway = data_dict.get("preferred-gateway", "").strip()
             self._stored_gateway_list = data_dict.get("gateway-list", "").strip()
+            self._stored_gateway_count = parse_stored_gateway_count(
+                data_dict.get("gateway-list-count", "")
+            )
             logger.info(f"Treat server as gateway: {self.as_gateway}")
             logger.info(
                 "Preferred gateway: "
@@ -1464,6 +1492,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._connection_uuid = ""
         self._gateway_list = []
         self._stored_gateway_list = ""
+        self._stored_gateway_count = None
         self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
@@ -1952,6 +1981,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     last_logged_line = line
                     logger.info(f"gpclient output: {line}")
 
+                    found = parse_gateway_count(line)
+                    if found is not None:
+                        self._gateway_count = found
+
                     chosen = GATEWAY_CHOSEN_RE.search(line)
                     if chosen:
                         self._record_gateways([chosen.group("gateway")])
@@ -2030,6 +2063,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._line_counter = 0  # monotonic count of complete lines seen
         self._answered_at_line = -1  # line count when we last answered a prompt
         self._answered_select = None  # message of the Select we answered
+        # "Found N gateways in portal config" of this attempt, and how many
+        # entries one full lap through the list recorded (0: no full lap)
+        self._gateway_count: Optional[int] = None
+        self._gateway_lap_size = 0
 
     def _decode_output(self, chunk: bytes) -> str:
         """Decode a PTY read; a character split across reads stays whole.
@@ -2313,13 +2350,41 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         self._write_answer(answer)
 
+    @staticmethod
+    def _gateway_entry(option: str) -> str:
+        """A gateway as it is cached in the profile ("" if nothing is left)"""
+        # ';' separates cached entries and nmcli splits +vpn.data values on
+        # commas, so neither may survive inside an entry
+        entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
+        return " ".join(entry.split())
+
+    def _stored_list_is_complete(self, options: List[str]) -> bool:
+        """Does the profile already hold the whole list this portal offers?
+
+        Only a full lap through a paged list tells, and it costs a Down key per
+        gateway, so it is taken once: the stored list counts as complete when
+        gateway-list-count matches the portal's current count (any stored count
+        will do when gpclient did not log one) and every gateway on the visible
+        page is in it.
+        """
+        if self._stored_gateway_count is None:
+            return False
+        if (
+            self._gateway_count is not None
+            and self._gateway_count != self._stored_gateway_count
+        ):
+            return False
+        stored = set(self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR))
+        return all(
+            self._gateway_entry(option) in stored
+            for option in options
+            if self._gateway_entry(option)
+        )
+
     def _record_gateways(self, options: List[str]) -> None:
         """Remember gateways seen during this attempt, for the profile cache"""
         for option in options:
-            # ';' separates cached entries and nmcli splits +vpn.data values on
-            # commas, so neither may survive inside an entry
-            entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
-            entry = " ".join(entry.split())
+            entry = self._gateway_entry(option)
             if entry and entry not in self._gateway_list:
                 self._gateway_list.append(entry)
 
@@ -2386,12 +2451,62 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             current_frame = frame
             steps = 0  # Down presses so far
             step_limit = SELECT_MAX_STEPS
+            # A paged list whose full content the profile does not hold yet
+            # (issue #25): one lap back to the starting entry first, without
+            # selecting, so the whole list gets recorded. Afterwards the
+            # cursor is where it started and the selection below goes on
+            # exactly as it would have without the lap.
+            collecting = frame["more"] and not self._stored_list_is_complete(options)
+            if collecting:
+                logger.info(
+                    "The profile does not hold the whole gateway list - "
+                    "walking it once"
+                )
             substring_hit = None  # first entry that merely contains the name
             homing = False  # walking on to `substring_hit` by its name
 
             while True:
                 self._record_gateways(current_frame["options"])
                 current = current_frame["options"][current_frame["cursor"]]
+
+                if collecting and steps > 0 and current == start_option:
+                    # One lap done: this is the whole list. The selection
+                    # starts afresh, with a step budget of its own
+                    collecting = False
+                    self._gateway_lap_size = len(self._gateway_list)
+                    logger.info(
+                        f"Walked the whole gateway list: {self._gateway_lap_size} "
+                        "entries"
+                    )
+                    steps = 0
+                    step_limit = SELECT_MAX_STEPS
+
+                if collecting and steps >= step_limit:
+                    # A list too long for one lap: the profile keeps a partial
+                    # list (not marked complete) and the selection goes on
+                    # from here, as a fresh walk with a step budget of its own
+                    logger.warning(
+                        f"Gave up walking the whole gateway list after {steps} "
+                        "steps - selecting from here"
+                    )
+                    collecting = False
+                    steps = 0
+                    step_limit = SELECT_MAX_STEPS
+                    start_option = current
+
+                if collecting:
+                    # Nothing is selected on the lap, just down it goes
+                    next_frame = await self._press_list_down(current_frame)
+                    if next_frame is None:
+                        logger.warning(
+                            "gpclient stopped redrawing the gateway list - "
+                            f"selecting the highlighted entry {current!r}"
+                        )
+                        self._write_keys(KEY_ENTER, f"select {current!r}")
+                        return
+                    current_frame = next_frame
+                    steps += 1
+                    continue
 
                 if walking and substring_hit is None and gateway_matches(
                     preferred, current
@@ -2579,14 +2694,33 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if not self._gateway_list:
             return
 
-        value = GATEWAY_LIST_SEPARATOR.join(self._gateway_list)
-        if value == self._stored_gateway_list:
-            logger.debug("Gateway list unchanged, leaving the profile alone")
-            return
+        count = None
+        if self._gateway_lap_size:
+            # A full lap saw the whole list: it replaces what was stored, so
+            # gateways the portal dropped disappear
+            entries = self._gateway_list
+            count = self._gateway_count or self._gateway_lap_size
+        else:
+            # Only part of the list was seen (the user's gateway was on the
+            # first page): never shrink what is stored, add what is new
+            entries = [e for e in self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR) if e]
+            entries += [e for e in self._gateway_list if e not in entries]
 
-        logger.info(f"Caching gateway list in the connection profile: {value}")
-        if await self._write_vpn_data("gateway-list", value):
+        value = GATEWAY_LIST_SEPARATOR.join(entries)
+        changed = False
+        if value != self._stored_gateway_list:
+            logger.info(f"Caching gateway list in the connection profile: {value}")
+            if not await self._write_vpn_data("gateway-list", value):
+                return
             self._stored_gateway_list = value
+            changed = True
+        # The count marks the list as complete, so it follows the list
+        if count is not None and count != self._stored_gateway_count:
+            if await self._write_vpn_data("gateway-list-count", str(count)):
+                self._stored_gateway_count = count
+            changed = True
+        if not changed:
+            logger.debug("Gateway list unchanged, leaving the profile alone")
 
     async def _persist_fix_openssl(self) -> None:
         """Remember that this portal needs the legacy TLS workaround.

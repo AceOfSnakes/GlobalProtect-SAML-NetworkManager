@@ -114,6 +114,14 @@ After a successful connection the discovered list is cached in the profile
 offer it as a drop-down for **Preferred gateway**. The first entry of that
 drop-down, *First proposed by portal (automatic)*, stores nothing.
 
+When the portal's list is longer than one page, the service walks it once (a
+Down key per gateway, selecting nothing on the way) so the cache holds every
+gateway, not only the first page, and stores the number in
+`gateway-list-count`. As long as that count matches gpclient's
+`Found N gateways in portal config` and the visible page is in the cache, the
+walk is not repeated. A connection that sees only part of the list adds new
+gateways to the cache but never removes any.
+
 ```bash
 # Pick a specific gateway from the command line
 nmcli connection modify "My VPN" +vpn.data preferred-gateway="gw-frankfurt"

@@ -276,7 +276,13 @@ class TestPickGatewayUsesGatewayMatches:
 
 
 class TestAnswerGatewayList:
-    def _run(self, plugin, frame):
+    def _run(self, plugin, frame, stored_complete=True):
+        # By default the profile already holds the whole list, so a paged list
+        # is walked only to find the gateway (the collection lap has its own
+        # tests, in TestCollectionLap)
+        if stored_complete:
+            plugin._stored_gateway_list = ";".join(frame["options"])
+            plugin._stored_gateway_count = len(frame["options"])
         asyncio.run(plugin._handle_select_prompt(frame))
 
     def test_no_preference_selects_the_first_proposal(self, service_module):
@@ -751,6 +757,282 @@ class TestGatewayListCache:
             asyncio.run(plugin._persist_gateway_list())
         finally:
             asyncio.create_subprocess_exec = original
+
+
+class TestGatewayCountLine:
+    @pytest.mark.parametrize(
+        "line, count",
+        [
+            ("Found 60 gateways in portal config", 60),
+            (
+                "[2026-07-20T12:44:26Z INFO  gpapi::portal::config] "
+                "Found 8 gateways in portal config",
+                8,
+            ),
+            ("gpclient output: Found 10000 gateways in portal config", 10000),
+            ("Found 1 gateways in portal config", 1),
+        ],
+    )
+    def test_count_line_is_recognised(self, service_module, line, count):
+        assert service_module.parse_gateway_count(line) == count
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "",
+            "Found gateways in portal config",
+            "Found -3 gateways in portal config",
+            "Found 6x gateways in portal config",
+            "Found 6.5 gateways in portal config",
+            "Found 0 gateways in portal config",
+            "Found 10001 gateways in portal config",
+            "Found 99999999999999999999 gateways in portal config",
+            "Found 60 gateways in portal",
+            "Found 60 gateways in the portal config",
+            "Found 60 gateway profiles",
+            "Found 60 gateways",
+            "Found \u0666\u0660 gateways in portal config",  # non-ASCII digits
+        ],
+    )
+    def test_other_lines_are_not(self, service_module, line):
+        assert service_module.parse_gateway_count(line) is None
+
+    @pytest.mark.parametrize("value, count", [("20", 20), (" 7 ", 7)])
+    def test_stored_count_is_read(self, service_module, value, count):
+        assert service_module.parse_stored_gateway_count(value) == count
+
+    @pytest.mark.parametrize(
+        "value", ["", "x", "-1", "0", "2.5", "10001", "1" * 30, "\u0662\u0660"]
+    )
+    def test_garbled_stored_count_is_ignored(self, service_module, value):
+        assert service_module.parse_stored_gateway_count(value) is None
+
+
+class TestStoredListComplete:
+    OPTIONS = ["gw-a (a.example.com)", "gw-b (b.example.com)"]
+
+    def _plugin(self, service_module, stored, count, found):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._stored_gateway_list = ";".join(stored)
+        plugin._stored_gateway_count = count
+        plugin._gateway_count = found
+        return plugin
+
+    @pytest.mark.parametrize(
+        "stored, count, found",
+        [
+            (OPTIONS + ["gw-c (c.example.com)"], 3, 3),
+            (OPTIONS, 2, None),  # no Found line: any stored count will do
+        ],
+    )
+    def test_complete(self, service_module, stored, count, found):
+        plugin = self._plugin(service_module, stored, count, found)
+        assert plugin._stored_list_is_complete(self.OPTIONS)
+
+    @pytest.mark.parametrize(
+        "stored, count, found",
+        [
+            (OPTIONS + ["gw-c (c.example.com)"], 3, 4),  # count differs
+            (OPTIONS + ["gw-c (c.example.com)"], 3, 2),
+            (OPTIONS, None, 2),  # never walked
+            (OPTIONS, None, None),
+            (OPTIONS[:1], 2, 2),  # a visible entry is missing
+            ([], 2, 2),
+        ],
+    )
+    def test_not_complete(self, service_module, stored, count, found):
+        plugin = self._plugin(service_module, stored, count, found)
+        assert not plugin._stored_list_is_complete(self.OPTIONS)
+
+    def test_entries_are_compared_as_cached(self, service_module):
+        # The cache holds them with the separators stripped
+        plugin = self._plugin(service_module, ["gw-a x (a.example.com)"], 1, 1)
+        assert plugin._stored_list_is_complete(["gw-a, x (a.example.com)"])
+
+
+class TestCollectionLap:
+    GATEWAYS = [f"gw-{n:02d} (gw{n:02d}.example.com)" for n in range(15)]
+
+    def _plugin(self, service_module, preferred, **stored):
+        plugin = make_plugin(service_module, preferred=preferred)
+        plugin._stored_gateway_list = stored.get("list", "")
+        plugin._stored_gateway_count = stored.get("count")
+        plugin._gateway_count = len(self.GATEWAYS)
+        state = {"cursor": 0, "downs": 0, "selected": []}
+        options = self.GATEWAYS
+
+        def page():
+            first = max(0, min(state["cursor"] - 6, len(options) - 7))
+            return options[first : first + 7], state["cursor"] - first
+
+        async def fake_down(previous):
+            state["cursor"] = (state["cursor"] + 1) % len(options)
+            state["downs"] += 1
+            if state.get("stall") == state["downs"]:
+                return None
+            visible, cursor = page()
+            return frame_with_cursor(visible, cursor, more=True)
+
+        plugin._press_list_down = fake_down
+        plugin._write_keys = lambda data, description: state["selected"].append(
+            options[state["cursor"]]
+        )
+        return plugin, state
+
+    def _run(self, plugin):
+        first = self.GATEWAYS[:7]
+        asyncio.run(plugin._handle_select_prompt(frame_with_cursor(first, 0, more=True)))
+
+    @pytest.mark.parametrize(
+        "preferred, expected",
+        [
+            ("gw-03", 3),
+            ("gw-14", 14),
+            ("gw-0", 0),  # substring only, at the start
+            ("gw-tokyo", 0),
+            ("", 0),
+        ],
+    )
+    def test_lap_does_not_change_the_selection(
+        self, service_module, preferred, expected
+    ):
+        lapped, lapped_state = self._plugin(service_module, preferred)
+        known, known_state = self._plugin(
+            service_module,
+            preferred,
+            list=";".join(self.GATEWAYS),
+            count=len(self.GATEWAYS),
+        )
+
+        self._run(lapped)
+        self._run(known)
+
+        assert lapped_state["selected"] == known_state["selected"]
+        assert lapped_state["selected"] == [self.GATEWAYS[expected]]
+        assert lapped._gateway_list == self.GATEWAYS
+        assert lapped._gateway_lap_size == len(self.GATEWAYS)
+        # The known list is not walked: only the way to the gateway
+        assert lapped_state["downs"] == known_state["downs"] + len(self.GATEWAYS)
+        assert known._gateway_lap_size == 0
+
+    def test_nothing_is_selected_on_the_lap(self, service_module):
+        plugin, state = self._plugin(service_module, "gw-00")
+        selected_at = []
+        original = plugin._write_keys
+        plugin._write_keys = lambda data, description: (
+            selected_at.append(state["downs"]),
+            original(data, description),
+        )
+
+        self._run(plugin)
+
+        # gw-00 is under the cursor from the start, but Enter waits for the lap
+        assert selected_at == [len(self.GATEWAYS)]
+
+    @pytest.mark.parametrize("stall", [1, 5, 14])
+    def test_stalled_lap_selects_the_highlighted_and_is_not_complete(
+        self, service_module, stall
+    ):
+        plugin, state = self._plugin(service_module, "gw-03")
+        state["stall"] = stall
+
+        self._run(plugin)
+
+        # No redraw: Enter goes to what was highlighted before the last Down
+        assert state["selected"] == [self.GATEWAYS[stall]]
+        assert state["downs"] == stall
+        assert plugin._gateway_lap_size == 0
+
+
+class TestPersistGatewayList:
+    def _plugin(self, service_module, seen, stored=(), count=None, lap=0, found=None):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin._connection_uuid = "1234"
+        plugin._gateway_list = list(seen)
+        plugin._stored_gateway_list = ";".join(stored)
+        plugin._stored_gateway_count = count
+        plugin._gateway_lap_size = lap
+        plugin._gateway_count = found
+        writes = []
+
+        async def record(key, value):
+            writes.append((key, value))
+            return True
+
+        plugin._write_vpn_data = record
+        return plugin, writes
+
+    def test_partial_list_does_not_replace_a_longer_one(self, service_module):
+        stored = ["gw-a", "gw-b", "gw-c", "gw-d"]
+        plugin, writes = self._plugin(service_module, ["gw-a", "gw-b"], stored, 4)
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == []
+
+    def test_partial_list_adds_what_is_new_after_the_stored_entries(
+        self, service_module
+    ):
+        plugin, writes = self._plugin(
+            service_module, ["gw-b", "gw-x", "gw-a"], ["gw-a", "gw-b", "gw-c"], 3
+        )
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        # No count: a partial list does not make the stored one complete
+        assert writes == [("gateway-list", "gw-a;gw-b;gw-c;gw-x")]
+
+    def test_partial_list_into_an_empty_profile_stores_no_count(self, service_module):
+        plugin, writes = self._plugin(service_module, ["gw-a", "gw-b"])
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == [("gateway-list", "gw-a;gw-b")]
+
+    def test_full_lap_replaces_the_list_and_stores_the_count(self, service_module):
+        plugin, writes = self._plugin(
+            service_module,
+            ["gw-a", "gw-c"],
+            ["gw-a", "gw-b", "gw-c"],
+            count=3,
+            lap=2,
+            found=2,
+        )
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        # gw-b is gone from the portal, so it is gone from the profile
+        assert writes == [("gateway-list", "gw-a;gw-c"), ("gateway-list-count", "2")]
+
+    def test_count_without_a_found_line_is_the_lap_length(self, service_module):
+        plugin, writes = self._plugin(service_module, ["gw-a", "gw-b"], lap=2)
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes[-1] == ("gateway-list-count", "2")
+
+    def test_unchanged_after_a_full_lap_writes_nothing(self, service_module):
+        plugin, writes = self._plugin(
+            service_module, ["gw-a", "gw-b"], ["gw-a", "gw-b"], 2, lap=2, found=2
+        )
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == []
+
+    def test_count_is_not_written_when_the_list_write_fails(self, service_module):
+        plugin, writes = self._plugin(service_module, ["gw-a"], lap=1, found=1)
+
+        async def fail(key, value):
+            writes.append((key, value))
+            return False
+
+        plugin._write_vpn_data = fail
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == [("gateway-list", "gw-a")]
+        assert plugin._stored_gateway_count is None
 
 
 class TestResolveBrowser:
