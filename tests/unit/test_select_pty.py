@@ -416,11 +416,11 @@ class TestIncrementalRedrawOverPty:
     ):
         plugin = self._run(service_module, tmp_path, preferred)
 
-        # The walk wrapped around to where it started: the first proposal,
+        # The lap saw the whole list and nothing matches: the first proposal,
         # not whatever happened to be highlighted at some point
         assert self._connected_to(plugin) == "gw-00 (gw0.example.com)"
         assert "stopped redrawing" not in caplog.text
-        assert "Walked the whole list" in caplog.text
+        assert "is not offered by the portal" in caplog.text
         assert len(plugin._gateway_list) == 20
 
     def test_no_preference_takes_the_first_proposal(
@@ -487,7 +487,10 @@ class TestCollectionLapOverPty:
             ("gw-12", ALL_GATEWAYS[12], 12),
             ("gw12.example.com", ALL_GATEWAYS[12], 12),
             ("gw-19", ALL_GATEWAYS[19], 19),
-            ("gw-tokyo", ALL_GATEWAYS[0], 20),
+            # Substring only, beyond the first page
+            ("w15.ex", ALL_GATEWAYS[15], 15),
+            # Not offered: the first proposal, no second lap
+            ("gw-tokyo", ALL_GATEWAYS[0], 0),
         ],
     )
     def test_empty_profile_walks_the_whole_list_and_selects_as_before(
@@ -498,7 +501,7 @@ class TestCollectionLapOverPty:
 
         assert self._connected_to(plugin) == expected
         assert "stopped redrawing" not in caplog.text
-        # One lap (20 Down keys) plus the way to the gateway
+        # One lap (20 Down keys) plus the way to the gateway, no second lap
         assert self._downs(plugin) == 20 + selection_downs
         assert plugin._gateway_list == ALL_GATEWAYS
         assert plugin._gateway_count == 20
@@ -587,10 +590,10 @@ class TestCollectionLapOverPty:
         # Today's behaviour: the entry on screen when gpclient went quiet
         assert self._connected_to(plugin) == ALL_GATEWAYS[10]
         assert "stopped redrawing" in caplog.text
-        assert plugin._gateway_lap_size == 0
-        # The part seen is added, nothing stored is lost, no count is claimed
+        assert plugin._lap_entries == []
+        # The part seen comes first, nothing stored is lost, no count is claimed
         assert self._persisted(plugin) == [
-            ("gateway-list", ";".join(stored + ALL_GATEWAYS[3:11])),
+            ("gateway-list", ";".join(ALL_GATEWAYS[:11] + stored[3:])),
         ]
 
     def test_lap_beyond_the_step_limit_is_abandoned(
@@ -598,15 +601,30 @@ class TestCollectionLapOverPty:
     ):
         # A list longer than the step limit: the lap stops at gw-15, and the
         # walk to the preferred gateway goes on from there instead of
-        # selecting the entry the lap stopped on
+        # selecting the entry the lap stopped on. Without gpclient's count the
+        # step limit is all there is to go by.
         monkeypatch.setattr(service_module, "SELECT_MAX_STEPS", 15)
-        plugin = self._run(service_module, tmp_path, "gw-02", monkeypatch)
+        plugin = self._run(
+            service_module, tmp_path, "gw-02", monkeypatch, env={"FAKE_FOUND": ""}
+        )
 
         assert "Gave up walking the whole gateway list after 15 steps" in caplog.text
         assert self._connected_to(plugin) == ALL_GATEWAYS[2]
         assert self._downs(plugin) == 22
-        assert plugin._gateway_lap_size == 0
+        assert plugin._lap_entries == []
         assert [key for key, _ in self._persisted(plugin)] == ["gateway-list"]
+
+    def test_known_count_lets_the_lap_run_past_the_step_limit(
+        self, service_module, tmp_path, monkeypatch, caplog
+    ):
+        # The same limit, but gpclient said 20: the lap gets 2 * 20 + 1 steps
+        monkeypatch.setattr(service_module, "SELECT_MAX_STEPS", 15)
+        plugin = self._run(service_module, tmp_path, "gw-02", monkeypatch)
+
+        assert "Gave up walking" not in caplog.text
+        assert self._connected_to(plugin) == ALL_GATEWAYS[2]
+        assert self._downs(plugin) == 22
+        assert plugin._lap_entries == ALL_GATEWAYS
 
 
 class TestStoredCredentialsOverPty:

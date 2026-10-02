@@ -853,13 +853,14 @@ class TestStoredListComplete:
 class TestCollectionLap:
     GATEWAYS = [f"gw-{n:02d} (gw{n:02d}.example.com)" for n in range(15)]
 
-    def _plugin(self, service_module, preferred, **stored):
+    def _plugin(self, service_module, preferred, gateways=None, found=-1, **stored):
+        # found: gpclient's "Found N" (-1: the list length, None: not logged)
+        options = self.GATEWAYS if gateways is None else gateways
         plugin = make_plugin(service_module, preferred=preferred)
         plugin._stored_gateway_list = stored.get("list", "")
         plugin._stored_gateway_count = stored.get("count")
-        plugin._gateway_count = len(self.GATEWAYS)
+        plugin._gateway_count = len(options) if found == -1 else found
         state = {"cursor": 0, "downs": 0, "selected": []}
-        options = self.GATEWAYS
 
         def page():
             first = max(0, min(state["cursor"] - 6, len(options) - 7))
@@ -879,17 +880,18 @@ class TestCollectionLap:
         )
         return plugin, state
 
-    def _run(self, plugin):
-        first = self.GATEWAYS[:7]
+    def _run(self, plugin, gateways=None):
+        first = (self.GATEWAYS if gateways is None else gateways)[:7]
         asyncio.run(plugin._handle_select_prompt(frame_with_cursor(first, 0, more=True)))
 
     @pytest.mark.parametrize(
         "preferred, expected",
         [
             ("gw-03", 3),
-            ("gw-14", 14),
+            ("gw-14", 14),  # beyond the first page
             ("gw-0", 0),  # substring only, at the start
-            ("gw-tokyo", 0),
+            ("gw-1", 10),  # substring only, beyond the first page
+            ("gw-tokyo", 0),  # not offered: the first proposal
             ("", 0),
         ],
     )
@@ -910,10 +912,10 @@ class TestCollectionLap:
         assert lapped_state["selected"] == known_state["selected"]
         assert lapped_state["selected"] == [self.GATEWAYS[expected]]
         assert lapped._gateway_list == self.GATEWAYS
-        assert lapped._gateway_lap_size == len(self.GATEWAYS)
-        # The known list is not walked: only the way to the gateway
-        assert lapped_state["downs"] == known_state["downs"] + len(self.GATEWAYS)
-        assert known._gateway_lap_size == 0
+        assert lapped._lap_entries == self.GATEWAYS
+        assert known._lap_entries == []
+        # One lap and the way from the start to the gateway: no second lap
+        assert lapped_state["downs"] == len(self.GATEWAYS) + expected
 
     def test_nothing_is_selected_on_the_lap(self, service_module):
         plugin, state = self._plugin(service_module, "gw-00")
@@ -941,17 +943,112 @@ class TestCollectionLap:
         # No redraw: Enter goes to what was highlighted before the last Down
         assert state["selected"] == [self.GATEWAYS[stall]]
         assert state["downs"] == stall
-        assert plugin._gateway_lap_size == 0
+        assert plugin._lap_entries == []
+
+    def test_lap_is_complete_even_when_the_stored_list_is_stale(self, service_module):
+        # An earlier attempt's entries (the --fix-openssl retry keeps the
+        # gateway list) are not part of what the lap saw
+        plugin, state = self._plugin(service_module, "gw-03")
+        plugin._gateway_list = ["gw-stale (old.example.com)"]
+        plugin._lap_entries = ["gw-stale (old.example.com)"]
+
+        self._run(plugin)
+
+        assert plugin._lap_entries == self.GATEWAYS
+
+    def test_entry_shown_twice_does_not_end_the_lap_early(self, service_module):
+        # Entry 0 again at index 10 of 20, N = 20
+        gateways = [f"gw-{n:02d} (gw{n:02d}.example.com)" for n in range(20)]
+        gateways[10] = gateways[0]
+        plugin, state = self._plugin(service_module, "gw-15", gateways=gateways)
+
+        self._run(plugin, gateways)
+
+        assert plugin._lap_entries == [g for g in dict.fromkeys(gateways)]
+        assert len(plugin._lap_entries) == 19
+        assert state["selected"] == [gateways[15]]
+        assert state["downs"] == 20 + 15
+
+    @pytest.mark.parametrize("found", [25, 30])
+    def test_count_above_the_list_still_ends_the_lap(self, service_module, found):
+        # gpclient says 25 or 30 but only 15 are shown: the lap goes round
+        # until it has taken at least that many steps, back on the start
+        plugin, state = self._plugin(service_module, "gw-03", found=found)
+
+        self._run(plugin)
+
+        laps = -(-found // len(self.GATEWAYS))
+        assert plugin._lap_entries == self.GATEWAYS
+        assert state["selected"] == [self.GATEWAYS[3]]
+        assert state["downs"] == laps * len(self.GATEWAYS) + 3
+
+    def test_unknown_count_ends_the_lap_at_the_first_return(self, service_module):
+        plugin, state = self._plugin(service_module, "gw-03", found=None)
+
+        self._run(plugin)
+
+        assert plugin._lap_entries == self.GATEWAYS
+        assert state["downs"] == len(self.GATEWAYS) + 3
+
+    def test_known_long_list_is_walked_past_the_default_limit(self, service_module):
+        gateways = [f"gw-{n:03d} (gw{n:03d}.example.com)" for n in range(250)]
+        plugin, state = self._plugin(service_module, "gw-240", gateways=gateways)
+
+        self._run(plugin, gateways)
+
+        assert plugin._lap_entries == gateways
+        assert state["selected"] == [gateways[240]]
+        assert state["downs"] == 250 + 240
+
+    def test_unknown_count_long_list_abandons_the_lap(self, service_module):
+        gateways = [f"gw-{n:03d} (gw{n:03d}.example.com)" for n in range(250)]
+        plugin, state = self._plugin(
+            service_module, "gw-005", gateways=gateways, found=None
+        )
+
+        self._run(plugin, gateways)
+
+        # The lap is cut off at the step limit and the walk goes on from there
+        assert plugin._lap_entries == []
+        assert state["selected"] == [gateways[5]]
+        assert plugin._gateway_list == gateways
+
+    def test_not_paged_list_is_the_whole_list(self, service_module):
+        plugin = make_plugin(service_module, preferred="")
+        plugin._write_keys = lambda data, description: None
+        plugin._stored_gateway_list = "gw-old (old.example.com)"
+        plugin._stored_gateway_count = 1
+        plugin._gateway_count = 3
+
+        asyncio.run(
+            plugin._handle_select_prompt(
+                frame_with_cursor(self.GATEWAYS[:3], 0, more=False)
+            )
+        )
+
+        assert plugin._lap_entries == self.GATEWAYS[:3]
+
+    def test_paged_list_without_a_lap_is_not_the_whole_list(self, service_module):
+        plugin, state = self._plugin(
+            service_module,
+            "gw-03",
+            list=";".join(self.GATEWAYS),
+            count=len(self.GATEWAYS),
+        )
+
+        self._run(plugin)
+
+        assert plugin._lap_entries == []
 
 
 class TestPersistGatewayList:
-    def _plugin(self, service_module, seen, stored=(), count=None, lap=0, found=None):
+    def _plugin(self, service_module, seen, stored=(), count=None, lap=(), found=None):
         plugin = service_module.GpclientVPNPlugin()
         plugin._connection_uuid = "1234"
         plugin._gateway_list = list(seen)
         plugin._stored_gateway_list = ";".join(stored)
         plugin._stored_gateway_count = count
-        plugin._gateway_lap_size = lap
+        plugin._lap_entries = list(lap)
         plugin._gateway_count = found
         writes = []
 
@@ -979,8 +1076,46 @@ class TestPersistGatewayList:
 
         asyncio.run(plugin._persist_gateway_list())
 
-        # No count: a partial list does not make the stored one complete
-        assert writes == [("gateway-list", "gw-a;gw-b;gw-c;gw-x")]
+        # Seen entries first, then the stored ones not seen; no count: a
+        # partial list does not make the stored one complete
+        assert writes == [("gateway-list", "gw-b;gw-x;gw-a;gw-c")]
+
+    def test_entries_of_an_earlier_attempt_stay_out_of_a_full_lap(self, service_module):
+        # _gateway_list survives a retry; only what the lap saw is the list
+        plugin, writes = self._plugin(
+            service_module,
+            ["gw-stale", "gw-a", "gw-b"],
+            ["gw-a", "gw-b", "gw-stale"],
+            count=3,
+            lap=["gw-a", "gw-b"],
+            found=2,
+        )
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == [("gateway-list", "gw-a;gw-b"), ("gateway-list-count", "2")]
+
+    def test_not_paged_list_replaces_the_stored_one(self, service_module):
+        plugin, writes = self._plugin(
+            service_module,
+            ["gw-a", "gw-c"],
+            ["gw-a", "gw-b", "gw-c"],
+            count=3,
+            lap=["gw-a", "gw-c"],
+        )
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == [("gateway-list", "gw-a;gw-c"), ("gateway-list-count", "2")]
+
+    def test_partial_list_keeps_the_seen_order_first(self, service_module):
+        plugin, writes = self._plugin(
+            service_module, ["gw-c", "gw-a"], ["gw-a", "gw-b", "gw-c", "gw-d"], 4
+        )
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        assert writes == [("gateway-list", "gw-c;gw-a;gw-b;gw-d")]
 
     def test_partial_list_into_an_empty_profile_stores_no_count(self, service_module):
         plugin, writes = self._plugin(service_module, ["gw-a", "gw-b"])
@@ -995,7 +1130,7 @@ class TestPersistGatewayList:
             ["gw-a", "gw-c"],
             ["gw-a", "gw-b", "gw-c"],
             count=3,
-            lap=2,
+            lap=["gw-a", "gw-c"],
             found=2,
         )
 
@@ -1005,7 +1140,9 @@ class TestPersistGatewayList:
         assert writes == [("gateway-list", "gw-a;gw-c"), ("gateway-list-count", "2")]
 
     def test_count_without_a_found_line_is_the_lap_length(self, service_module):
-        plugin, writes = self._plugin(service_module, ["gw-a", "gw-b"], lap=2)
+        plugin, writes = self._plugin(
+            service_module, ["gw-a", "gw-b"], lap=["gw-a", "gw-b"]
+        )
 
         asyncio.run(plugin._persist_gateway_list())
 
@@ -1013,7 +1150,12 @@ class TestPersistGatewayList:
 
     def test_unchanged_after_a_full_lap_writes_nothing(self, service_module):
         plugin, writes = self._plugin(
-            service_module, ["gw-a", "gw-b"], ["gw-a", "gw-b"], 2, lap=2, found=2
+            service_module,
+            ["gw-a", "gw-b"],
+            ["gw-a", "gw-b"],
+            2,
+            lap=["gw-a", "gw-b"],
+            found=2,
         )
 
         asyncio.run(plugin._persist_gateway_list())
@@ -1021,7 +1163,7 @@ class TestPersistGatewayList:
         assert writes == []
 
     def test_count_is_not_written_when_the_list_write_fails(self, service_module):
-        plugin, writes = self._plugin(service_module, ["gw-a"], lap=1, found=1)
+        plugin, writes = self._plugin(service_module, ["gw-a"], lap=["gw-a"], found=1)
 
         async def fail(key, value):
             writes.append((key, value))

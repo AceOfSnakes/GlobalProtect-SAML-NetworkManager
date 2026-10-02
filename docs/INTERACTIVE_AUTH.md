@@ -109,18 +109,22 @@ The service answers this **without asking the user**:
    and a warning is logged. The setting is left untouched - the portal may just
    have changed temporarily.
 
-After a successful connection the discovered list is cached in the profile
+After a successful connection the portal's gateway list is cached in the profile
 (`vpn.data gateway-list`, entries separated by `;`), and the connection editors
 offer it as a drop-down for **Preferred gateway**. The first entry of that
 drop-down, *First proposed by portal (automatic)*, stores nothing.
 
 When the portal's list is longer than one page, the service walks it once (a
 Down key per gateway, selecting nothing on the way) so the cache holds every
-gateway, not only the first page, and stores the number in
-`gateway-list-count`. As long as that count matches gpclient's
-`Found N gateways in portal config` and the visible page is in the cache, the
-walk is not repeated. A connection that sees only part of the list adds new
-gateways to the cache but never removes any.
+gateway, not only the first page. The list from such a walk, or a list that
+fits one page, replaces the cached one (gateways the portal dropped
+disappear), and `gateway-list-count` is set to gpclient's
+`Found N gateways in portal config` count, which marks the cached list as
+complete. As long as that count matches the portal's and the visible page is in
+the cache, the walk is not repeated. A connection that sees only part of the
+list puts the entries it saw first and keeps the stored ones it did not see; it
+never shrinks the cache. The gateway is chosen from the whole list after the
+walk, so there is no second walk.
 
 ```bash
 # Pick a specific gateway from the command line
