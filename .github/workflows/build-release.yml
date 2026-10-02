@@ -163,6 +163,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -179,7 +181,7 @@ jobs:
           echo "Release files:"
           ls -la release-files/
 
-      - name: Write release notes
+      - name: Write downloads table
         env:
           REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
@@ -191,9 +193,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-files/*.deb
-          body_path: release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      - name: Add downloads table to the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Merged into the body, not set as body_path: a rerun keeps the generated
+          # notes and manual edits and replaces only the marked table.
+          gh release view "$TAG" --repo "$REPO" --json body --template '{{.body}}' > old-body.md
+          python3 .github/scripts/release_notes.py --merge old-body.md --table release-notes.md > new-body.md
+          gh release edit "$TAG" --repo "$REPO" --notes-file new-body.md
 
   publish-apt:
     needs: release

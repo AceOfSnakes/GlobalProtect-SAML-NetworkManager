@@ -51,7 +51,7 @@ pip3 install sdbus
 
 Download the packages for your Ubuntu version from
 [GitHub Releases](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/releases)
-(each release lists its files in a table by Ubuntu version and architecture).
+(newer releases list their files in a table by Ubuntu version and architecture; older ones do not).
 You need **network-manager-gpclient** plus either
 **network-manager-gpclient-gnome** or **network-manager-gpclient-plasma-5** /
 **network-manager-gpclient-plasma-6**, and
