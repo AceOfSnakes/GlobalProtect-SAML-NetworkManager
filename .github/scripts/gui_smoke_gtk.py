@@ -70,6 +70,15 @@ def to_node(widget, Gtk, major):
     return node
 
 
+def without_tooltips(widget, Gtk, major):
+    """Switch off the tooltips of `widget` and everything in it: Xvfb's pointer
+    sits in the middle of the screen, over the editor, and a tooltip would
+    cover fields in the screenshot"""
+    widget.set_has_tooltip(False)
+    for child in children(widget, Gtk, major):
+        without_tooltips(child, Gtk, major)
+
+
 def pump(GLib, seconds=0.0, until=None):
     """Run the main loop for `seconds`, or until `until()` is true (at most TIMEOUT)"""
     context = GLib.MainContext.default()
@@ -122,6 +131,7 @@ def main(argv=None):
     if widget is None:
         fail("the editor has no widget")
 
+    without_tooltips(widget, Gtk, major)
     window = Gtk.Window()
     window.set_default_size(760, 460)
     if major == 3:

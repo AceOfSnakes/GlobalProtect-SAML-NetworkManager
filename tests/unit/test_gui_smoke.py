@@ -472,3 +472,53 @@ class TestGtkVersionPins:
     @pytest.mark.parametrize("namespace", ["Gtk", "Gdk"])
     def test_gtk_and_gdk_follow_the_requested_major(self, namespace):
         assert 'gi.require_version("%s", f"{major}.0")' % namespace in self.pins()
+
+
+class TestTooltips:
+    """The probe switches tooltips off in the whole editor before the screenshot:
+    Xvfb's pointer sits over the editor and a tooltip covered the DNS and HIP
+    fields in the first CI screenshots."""
+
+    class Widget:
+        def __init__(self, *kids):
+            self.kids = list(kids)
+            self.tooltip = True
+
+        def set_has_tooltip(self, value):
+            self.tooltip = value
+
+        def get_children(self):
+            return self.kids
+
+    class Gtk:
+        class Container:
+            pass
+
+    def tree(self):
+        Widget = type("W", (self.Widget, self.Gtk.Container), {})
+        leaf = Widget()
+        deep = Widget()
+        return Widget(leaf, Widget(deep)), [leaf, deep]
+
+    def test_every_widget_loses_its_tooltip(self):
+        root, leaves = self.tree()
+
+        gui_smoke_gtk.without_tooltips(root, self.Gtk, 3)
+
+        assert root.tooltip is False
+        assert all(leaf.tooltip is False for leaf in leaves)
+
+    def test_a_widget_outside_the_editor_keeps_its_tooltip(self):
+        root, _ = self.tree()
+        outside = self.Widget()
+
+        gui_smoke_gtk.without_tooltips(root, self.Gtk, 3)
+
+        assert outside.tooltip is True
+
+    def test_tooltips_go_before_the_window_is_shown(self):
+        with open(os.path.join(SCRIPTS, "gui_smoke_gtk.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        main = source[source.index("def main("):]
+
+        assert main.index("without_tooltips(widget") < main.index("window = Gtk.Window()")
