@@ -38,8 +38,14 @@ network-manager-gpclient (1.5.0-1) unstable; urgency=medium
     network-manager-gpclient-plasma-6 (Ubuntu 24.10, 26.04)
   * network-manager-gpclient-plasma is now a transitional package that pulls
     in the matching new one and can be removed afterwards. The new packages
-    replace and break the old one below 1.5.0~, so an upgrade neither stops
-    on the files they share nor keeps the core package at 1.4.1
+    replace and break the old one below 1.5.0~, so the upgrade neither stops
+    on the files they share nor keeps the core package at 1.4.1. apt upgrade
+    and apt full-upgrade install the new package; apt-get upgrade and
+    unattended-upgrades never install new packages, so they keep the old
+    packages back until then
+  * Ubuntu 26.04 has a transitional network-manager-gpclient-plasma-5 that
+    pulls in -plasma-6, so a system upgraded from 24.04 does not keep the old
+    package, which pins the core package to the version of 24.04
   * Dependencies list the t64 library names next to the older ones, so the
     packages install on releases with and without the 64-bit time_t rename
   * The release notes start with a table of downloads by Ubuntu release and

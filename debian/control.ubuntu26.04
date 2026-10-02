@@ -94,7 +94,18 @@ Architecture: any
 Section: oldlibs
 Priority: optional
 Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-6
+         network-manager-gpclient-plasma-6 (= ${binary:Version})
 Description: transitional package for network-manager-gpclient-plasma-6
  This is a transitional package for the former KDE Plasma GUI package. It
  can be safely removed once network-manager-gpclient-plasma-6 is installed.
+
+Package: network-manager-gpclient-plasma-5
+Architecture: any
+Section: oldlibs
+Priority: optional
+Depends: ${misc:Depends},
+         network-manager-gpclient-plasma-6 (= ${binary:Version})
+Description: transitional package for network-manager-gpclient-plasma-6
+ This is a transitional package for the Plasma 5 GUI package of Ubuntu 24.04,
+ which has no Plasma 5 plugin on this release. It can be safely removed once
+ network-manager-gpclient-plasma-6 is installed.

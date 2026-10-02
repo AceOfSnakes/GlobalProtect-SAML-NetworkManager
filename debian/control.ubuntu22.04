@@ -92,7 +92,7 @@ Architecture: any
 Section: oldlibs
 Priority: optional
 Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-5
+         network-manager-gpclient-plasma-5 (= ${binary:Version})
 Description: transitional package for network-manager-gpclient-plasma-5
  This is a transitional package for the former KDE Plasma GUI package. It
  can be safely removed once network-manager-gpclient-plasma-5 is installed.

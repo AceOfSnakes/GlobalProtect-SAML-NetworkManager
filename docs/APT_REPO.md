@@ -43,7 +43,8 @@ your system.
 Removal:
 
 ```bash
-sudo apt remove network-manager-gpclient network-manager-gpclient-gnome network-manager-gpclient-plasma-5 network-manager-gpclient-plasma-6
+# the desktop packages depend on the core package and are removed with it
+sudo apt remove network-manager-gpclient
 sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update
 ```

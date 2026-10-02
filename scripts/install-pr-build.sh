@@ -186,7 +186,16 @@ if not isinstance(assets, list):
     sys.exit("the release answer has no asset list")
 
 
+# Empty transitional packages (Section: oldlibs in debian/control.ubuntu<version>)
+# are never installed. Ubuntu 26.04 has no Plasma 5: its -plasma-5 only pulls in
+# -plasma-6. network-manager-gpclient-plasma is not matched by find() at all: the
+# package name has to be followed by "_".
+TRANSITIONAL = {("resolute", "network-manager-gpclient-plasma-5")}
+
+
 def find(package):
+    if (codename, package) in TRANSITIONAL:
+        return None
     pattern = re.compile(
         re.escape(package) + r"_[0-9][A-Za-z0-9.+-]*[~.]" + re.escape(codename)
         + r"[0-9]+(?:[+.]pr" + re.escape(pr) + r"\.[0-9]+)?_" + re.escape(arch) + r"\.deb"

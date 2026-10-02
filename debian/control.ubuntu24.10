@@ -43,7 +43,7 @@ Depends: ${shlibs:Depends},
          python3-sdbus,
          openconnect
 Conflicts: globalprotect-openconnect
-Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-5 | network-manager-gpclient-plasma-6
+Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-6 | network-manager-gpclient-plasma-5
 Description: NetworkManager VPN plugin for GlobalProtect (core service)
  This package provides the core NetworkManager VPN service for GlobalProtect
  (Palo Alto Networks) VPN connections with SAML/SSO authentication support.
@@ -115,7 +115,8 @@ Architecture: any
 Section: oldlibs
 Priority: optional
 Depends: ${misc:Depends},
-         network-manager-gpclient-plasma-6 | network-manager-gpclient-plasma-5
+         network-manager-gpclient-plasma-6 (= ${binary:Version})
+         | network-manager-gpclient-plasma-5 (= ${binary:Version})
 Description: transitional package for network-manager-gpclient-plasma-6
  This is a transitional package for the former KDE Plasma GUI package. It
  can be safely removed once network-manager-gpclient-plasma-6 is installed.

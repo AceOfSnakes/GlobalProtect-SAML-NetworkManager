@@ -35,6 +35,15 @@ CORE = "network-manager-gpclient"
 ORDER = ["gpclient", "gnome", "plasma-5", "plasma-6"]
 UBUNTU = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
 EMPTY = "—"
+# Empty transitional packages (Section: oldlibs in debian/control.ubuntu<version>)
+# are not downloads: nobody installs them by hand. Package -> the codenames that
+# build it as a transitional package, None for all. -plasma-5 is a real package
+# on the other releases. tests/unit/test_debian_control.py checks this against
+# the control files.
+TRANSITIONAL = {
+    "network-manager-gpclient-plasma": None,
+    "network-manager-gpclient-plasma-5": {"resolute"},
+}
 
 
 class NotesError(Exception):
@@ -55,6 +64,12 @@ def parse(name):
     if not match:
         raise NotesError("unexpected name of a .deb asset: %r" % (name,))
     return match.group("codename"), match.group("arch"), short_name(match.group("package"))
+
+
+def is_transitional(codename, package):
+    """True when `package` (full name) is an empty transitional package on `codename`"""
+    codenames = TRANSITIONAL.get(package, set())
+    return codenames is None or codename in codenames
 
 
 def check_url(repo, name, url):
@@ -106,11 +121,15 @@ def render(repo, tag, assets):
     for name, url in debs:
         codename, arch, short = parse(name)
         check_url(repo, name, url)
+        if is_transitional(codename, CORE if short == "gpclient" else CORE + "-" + short):
+            continue
         if (codename, arch, short) in seen:
             raise NotesError("two assets for the same package, release and architecture: %r and %r"
                              % (seen[codename, arch, short], name))
         seen[codename, arch, short] = name
         cells.setdefault((codename, arch), []).append((short, url))
+    if not cells:
+        raise NotesError("only transitional packages: refusing to write a release without downloads")
     arches = sorted({arch for _codename, arch in cells}, key=lambda a: (a != "amd64", a))
     codenames = sorted({codename for codename, _arch in cells}, key=release_key)
 

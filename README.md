@@ -38,7 +38,7 @@ sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04,
 sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
 ```
 
-Upgrading from 1.4.1 or older: `network-manager-gpclient-plasma` is now an empty transitional package that pulls in `-plasma-5` or `-plasma-6`; `apt upgrade` installs it, and you can remove it afterwards.
+Upgrading from 1.4.1 or older: `network-manager-gpclient-plasma` is now an empty transitional package that pulls in `-plasma-5` or `-plasma-6`; `apt upgrade` or `apt full-upgrade` installs it, while `apt-get upgrade` and unattended-upgrades keep the packages back until then. You can remove it afterwards.
 
 Supported: Ubuntu 22.04, 24.04, 24.10 and 26.04, `amd64` and `arm64`. Details, deb822 format and
 removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
