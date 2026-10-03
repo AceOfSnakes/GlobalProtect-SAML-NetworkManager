@@ -83,33 +83,85 @@ jobs:
             pr_suffix="+pr${PR_NUMBER}.${RUN_NUMBER}"
           fi
 
-          # Build Docker image
-          docker build -t gpclient-builder:ubuntu${{ matrix.ubuntu }} \
-            -f Dockerfile.ubuntu${{ matrix.ubuntu }} .
+          ubuntu="${{ matrix.ubuntu }}"
+          arch="${{ matrix.arch }}"
+          out="output/ubuntu${ubuntu}-${arch}"
 
           # Create output directory with write permissions for all users
-          mkdir -p output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}
-          chmod 777 output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}
+          mkdir -p "$out"
+          chmod 777 "$out"
 
-          # Run build (fail on error)
-          # WORKDIR is /build/source, so ".." = /build where dpkg-buildpackage writes .deb files
-          docker run --rm -e PR_SUFFIX="$pr_suffix" \
-            -v ${{ github.workspace }}/output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}:/output \
-            gpclient-builder:ubuntu${{ matrix.ubuntu }} \
-            bash -c "
-              set -e
-              cp debian/control.ubuntu${{ matrix.ubuntu }} debian/control
-              # Tag the version with the release codename (1.4.0-1~noble1) so the
-              # same version never means different binaries and apt sees a reason
-              # to reinstall after a distribution upgrade. The apt repository
-              # derives the suite from this suffix (.github/scripts/build-apt-repo.sh).
-              # Pull requests add +pr<PR>.<run> (PR_SUFFIX, empty otherwise).
-              . /etc/os-release
-              sed -i \"1s/(\\([^)]*\\))/(\\1~\${VERSION_CODENAME}1\${PR_SUFFIX})/\" debian/changelog
-              echo \"Building version \$(dpkg-parsechangelog -S Version) for \$VERSION_CODENAME\"
-              dpkg-buildpackage -us -uc -b
-              cp /build/*.deb /build/*.ddeb /output/ 2>/dev/null || cp /build/*.deb /output/
-            "
+          # build_packages <image name> <Dockerfile> <control file>: build the
+          # image, then the packages in it. A fresh container per build: only
+          # its own .deb files are in /build and get copied to the output
+          # directory (fail on error).
+          build_packages() {
+            local name="$1" dockerfile="$2" control="$3"
+            echo "Building $name from $dockerfile and $control"
+            docker build -t "gpclient-builder:$name" -f "$dockerfile" .
+
+            # WORKDIR is /build/source, so ".." = /build where dpkg-buildpackage writes .deb files
+            docker run --rm -e PR_SUFFIX="$pr_suffix" -e CONTROL="$control" \
+              -v "${{ github.workspace }}/$out:/output" \
+              "gpclient-builder:$name" \
+              bash -c '
+                set -e
+                cp "$CONTROL" debian/control
+                # Tag the version with the release codename (1.4.0-1~noble1) so the
+                # same version never means different binaries and apt sees a reason
+                # to reinstall after a distribution upgrade. The apt repository
+                # derives the suite from this suffix (.github/scripts/build-apt-repo.sh).
+                # Pull requests add +pr<PR>.<run> (PR_SUFFIX, empty otherwise).
+                . /etc/os-release
+                sed -i "1s/(\([^)]*\))/(\1~${VERSION_CODENAME}1${PR_SUFFIX})/" debian/changelog
+                echo "Building version $(dpkg-parsechangelog -S Version) for $VERSION_CODENAME"
+                dpkg-buildpackage -us -uc -b
+                cp /build/*.deb /build/*.ddeb /output/ 2>/dev/null || cp /build/*.deb /output/
+              '
+          }
+
+          # variant_arches <control file>: the architectures its binary packages
+          # are built for (their Architecture fields), one word per line. A
+          # variant is Dockerfile.ubuntu<version>-<variant> together with
+          # debian/control.ubuntu<version>-<variant>: it builds more packages of
+          # the same release into the same directory, after the main build.
+          # "any" is every architecture; KDE neon (Ubuntu 24.04 with Plasma 6)
+          # says "amd64" there, because plasma-nm, which the plugin is linked
+          # against, is not in its arm64 repository.
+          variant_arches() {
+            awk '
+              /^[ \t]*$/ { binary = 0 }
+              tolower($1) == "package:" { binary = 1 }
+              binary && tolower($1) == "architecture:" { for (i = 2; i <= NF; i++) print $i }
+            ' "$1"
+          }
+
+          build_packages "ubuntu$ubuntu" "Dockerfile.ubuntu$ubuntu" "debian/control.ubuntu$ubuntu"
+
+          mapfile -t variants < <(for file in Dockerfile.ubuntu${ubuntu}-* debian/control.ubuntu${ubuntu}-*; do
+            [ -e "$file" ] && echo "${file##*ubuntu${ubuntu}-}"
+          done | sort -u)
+          for variant in "${variants[@]}"; do
+            if ! [[ "$variant" =~ ^[a-z0-9]+$ ]]; then
+              echo "::error::unexpected name of a build variant: '$variant'"
+              exit 1
+            fi
+            dockerfile="Dockerfile.ubuntu${ubuntu}-${variant}"
+            control="debian/control.ubuntu${ubuntu}-${variant}"
+            if ! [ -f "$dockerfile" ] || ! [ -f "$control" ]; then
+              echo "::warning::variant $variant of Ubuntu $ubuntu needs both $dockerfile and $control: not built"
+              continue
+            fi
+            arches=$(variant_arches "$control" | sort -u | tr '\n' ' ')
+            if [ -z "${arches// /}" ]; then
+              echo "::error::variant $variant has no Architecture field in its binary packages in $control"
+              exit 1
+            fi
+            case " $arches " in
+              *" any "* | *" $arch "*) build_packages "ubuntu${ubuntu}-${variant}" "$dockerfile" "$control" ;;
+              *) echo "Variant $variant is built for ${arches% } only, not for $arch" ;;
+            esac
+          done
 
       - name: Verify .deb files exist
         env:
@@ -152,6 +204,50 @@ jobs:
         with:
           name: debs-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
           path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
+
+      - name: Upgrade test from the last release
+        # Not for tags (the only push trigger): a network flake in a check must
+        # not block a release. Installs the newest release from the public apt
+        # repository in a fresh ubuntu container and upgrades it to the
+        # packages built above (see
+        # .github/scripts/upgrade-test.sh). Every scenario runs; the step fails
+        # at the end if any of them failed. The neon scenario (KDE neon, the
+        # Ubuntu 24.04 variant with Plasma 6) skips itself where no such
+        # package was built. The containers write the GUI smoke test
+        # screenshots to gui-smoke/, uploaded by the next step.
+        if: github.event_name != 'push'
+        env:
+          UBUNTU: ${{ matrix.ubuntu }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          failed=""
+          mkdir -p "$PWD/gui-smoke"
+          for scenario in gnome plasma neon; do
+            echo "::group::Upgrade test: $scenario"
+            if ! docker run --rm \
+                -v "$PWD/output/ubuntu${UBUNTU}-${ARCH}:/debs:ro" \
+                -v "$PWD/.github/scripts:/scripts:ro" \
+                -v "$PWD/gui-smoke:/out" \
+                "ubuntu:${UBUNTU}" bash /scripts/upgrade-test.sh "$scenario" /debs /out; then
+              failed="$failed $scenario"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::Upgrade test failed for:$failed"
+            exit 1
+          fi
+
+      - name: Upload GUI screenshots
+        # Screenshots of the connection editor from the upgrade test (see
+        # .github/scripts/gui-smoke.sh); also kept when that test failed. Not
+        # for tags, like the test.
+        if: always() && github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-smoke-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
+          path: gui-smoke/*.png
+          if-no-files-found: ignore
 
   release:
     needs: build

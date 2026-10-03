@@ -48,7 +48,10 @@ dpkg-buildpackage -us -uc -b          # packages, after: cp debian/control.ubunt
 
 CI builds every Ubuntu version for `amd64` (`ubuntu-latest`) and `arm64`
 (`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu<version>`) on every pull
-request, except for changes to docs only (`**.md`, `docs/**`). To build a branch
+request, except for changes to docs only (`**.md`, `docs/**`). A release can also
+have variants (`Dockerfile.ubuntu<version>-<variant>` with
+`debian/control.ubuntu<version>-<variant>`): `24.04-neon` builds
+`network-manager-gpclient-plasma-6` for KDE neon, `amd64` only. To build a branch
 that has no PR, run the workflow by hand:
 
 ```bash

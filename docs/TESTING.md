@@ -48,6 +48,71 @@ nmcli connection show "Test VPN" | grep vpn
 nmcli connection delete "Test VPN"
 ```
 
+## Upgrade test
+
+CI proves that users of the last release upgrade cleanly to the packages of a
+build. For every Ubuntu version and architecture the step "Upgrade test from the
+last release" of `.github/workflows/build-release.yml` starts a fresh
+`ubuntu:<version>` container, installs the newest release from the public apt
+repository (scenarios `gnome` and `plasma`; `plasma` also checks that the editor
+plugin is in the Qt directory of the release: `qt5` on 22.04 and 24.04, `qt6` on
+24.10 and 26.04; the scenario `neon` does the same for
+`network-manager-gpclient-plasma-6` on KDE neon, see below), then runs
+`apt upgrade` to the new `.deb` files (in the `neon` scenario only the installed
+`network-manager-gpclient*` packages are upgraded, not the base system of the neon
+repository) and checks that nothing is kept back,
+removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
+`.github/scripts/check_upgrade.py`). Before the upgrade it checks that the build
+is newer than the release (`dpkg --compare-versions`). When the release has no
+such package for that Ubuntu version or architecture (no suite for 24.10, no
+arm64 builds), there is nothing to upgrade from: the script says so, installs the
+package from the new `.deb` files instead and checks the result the same way
+(`check_upgrade.py --fresh`). The step does not run for tags, so a network
+failure cannot block a release. To run it by hand
+against built packages (it needs network access and changes only the container):
+
+```bash
+mkdir -p gui-smoke
+docker run --rm -v "$PWD/output/ubuntu24.04-amd64:/debs:ro" -v "$PWD/.github/scripts:/scripts:ro" \
+  -v "$PWD/gui-smoke:/out" \
+  ubuntu:24.04 bash /scripts/upgrade-test.sh gnome /debs /out   # or: plasma, neon
+```
+
+### GUI smoke test
+
+After a successful upgrade, `upgrade-test.sh` calls `.github/scripts/gui-smoke.sh`
+(only when a third argument names an output directory). It runs in the same container and checks that the installed
+connection editor starts:
+
+- **GNOME** (`gnome`): under Xvfb, `gui_smoke_gtk.py` finds the editor the way
+  NetworkManager does (the `.name` file of `network-manager-gpclient`, loaded
+  with `NM.VpnPluginInfo`), opens it for a test connection and shows it in a
+  window. It then saves a screenshot and checks that the widget has a size and
+  shows the gateway, the preferred gateway and the two gateways of the list, the
+  username, the authentication mode and the "Address is a gateway" check button.
+  It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
+  for GTK4 in a second process.
+- **KDE neon** (`neon`): installs `network-manager-gpclient-plasma-6` in an
+  `ubuntu:24.04` container to which `.github/scripts/neon-repo.sh` has added the KDE
+  neon repository (the script the build image uses too; it checks the key's
+  fingerprint), expects the plugin in the `qt6` directory and runs the Plasma load
+  check below with PyQt6. The scenario runs only on Ubuntu 24.04 where this build has
+  the package for the architecture (`amd64`); elsewhere it prints `SKIP` and
+  succeeds.
+- **Plasma** (`plasma`, and `neon`): a load check only. `ldd` finds every library
+  of `plasmanetworkmanagement_gpclientui.so`, its metadata names our service,
+  and `QPluginLoader` (PyQt5 for a `qt5` plugin, PyQt6 for a `qt6` one) loads it
+  with `QT_QPA_PLATFORM=offscreen`; a PyQt package that cannot be installed fails
+  the test. PyQt5 cannot read the metadata of a loaded plugin, so the JSON file
+  next to the plugin is checked then. There is **no screenshot**: showing the
+  Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.
+
+The screenshots (`gnome-gtk3-<codename>-<arch>.png`, `gnome-gtk4-...png`) are in
+the artifact `gui-smoke-ubuntu-<ubuntu>-<arch>` of the workflow run (step "Upload
+GUI screenshots", also after a failed run). The pure logic of the probes is in
+`.github/scripts/gui_smoke_lib.py`, tested by `tests/unit/test_gui_smoke.py`; the
+GTK and Qt parts themselves run only in CI.
+
 ## Troubleshooting
 
 ### Common errors

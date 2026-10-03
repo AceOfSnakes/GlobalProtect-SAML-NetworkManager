@@ -19,11 +19,6 @@ Build-Depends: debhelper-compat (= 13),
                libkf6service-dev,
                libkf6widgetsaddons-dev,
                libkf6coreaddons-dev,
-               qtbase5-dev,
-               libkf5networkmanagerqt-dev,
-               libkf5i18n-dev,
-               libkf5service-dev,
-               libkf5widgetsaddons-dev,
                plasma-nm,
                curl,
                libssl-dev,
@@ -43,7 +38,7 @@ Depends: ${shlibs:Depends},
          python3-sdbus,
          openconnect
 Conflicts: globalprotect-openconnect
-Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma-5 | network-manager-gpclient-plasma-6
+Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
 Description: NetworkManager VPN plugin for GlobalProtect (core service)
  This package provides the core NetworkManager VPN service for GlobalProtect
  (Palo Alto Networks) VPN connections with SAML/SSO authentication support.
@@ -54,10 +49,11 @@ Description: NetworkManager VPN plugin for GlobalProtect (core service)
   - Helper scripts (edge-wrapper)
   - gpclient and gpauth binaries (from GlobalProtect-openconnect)
  .
- To use this plugin, you need to install either:
+ The core package alone is enough to use GlobalProtect VPN from the command
+ line (nmcli): it ships the NetworkManager plugin libnm-vpn-plugin-gpclient.so.
+ The GUI packages add the connection editors:
   - network-manager-gpclient-gnome for GNOME/GTK desktops
-  - network-manager-gpclient-plasma-5 for KDE Plasma desktop
-  - network-manager-gpclient-plasma-6 for KDE Plasma 6 desktop
+  - network-manager-gpclient-plasma for KDE Plasma desktop
 
 Package: network-manager-gpclient-gnome
 Architecture: any
@@ -76,27 +72,16 @@ Description: NetworkManager GlobalProtect VPN plugin - GNOME GUI
  .
  This package is for GNOME, MATE, Cinnamon, XFCE and other GTK-based desktops.
 
-Package: network-manager-gpclient-plasma-5
+Package: network-manager-gpclient-plasma
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
-         plasma-nm
-Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
- This package provides GUI configuration editor for GlobalProtect VPN
- connections in KDE Plasma desktop environment.
- .
- It includes plugin for:
-  - KDE Plasma NetworkManager applet
- .
- This package is for KDE Plasma desktop
-
-Package: network-manager-gpclient-plasma-6
-Architecture: any
-Depends: ${shlibs:Depends},
-         ${misc:Depends},
-         network-manager-gpclient (= ${binary:Version}),
-         plasma-nm
+         plasma-nm (>= 4:6)
+Replaces: network-manager-gpclient-plasma-5 (<< 1.5.1~),
+         network-manager-gpclient-plasma-6 (<< 1.5.1~)
+Breaks: network-manager-gpclient-plasma-5 (<< 1.5.1~),
+        network-manager-gpclient-plasma-6 (<< 1.5.1~)
 Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma GUI
  This package provides GUI configuration editor for GlobalProtect VPN
  connections in KDE Plasma desktop environment (Plasma 6 / Qt6 / KF6).

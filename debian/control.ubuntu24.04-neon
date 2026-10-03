@@ -1,0 +1,37 @@
+Source: network-manager-gpclient
+Section: net
+Priority: optional
+Maintainer: WMP <example@example.org>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               extra-cmake-modules,
+               qt6-base-dev,
+               qt6-base-dev-tools,
+               libkf6networkmanagerqt-dev,
+               libkf6i18n-dev,
+               libkf6service-dev,
+               libkf6widgetsaddons-dev,
+               libkf6coreaddons-dev,
+               plasma-nm
+Standards-Version: 4.6.2
+Homepage: https://github.com/WMP/GlobalProtect-SAML-NetworkManager
+Rules-Requires-Root: no
+
+Package: network-manager-gpclient-plasma-6
+Architecture: amd64
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         network-manager-gpclient (= ${binary:Version}),
+         plasma-nm (>= 4:6)
+Conflicts: network-manager-gpclient-plasma
+Description: NetworkManager GlobalProtect VPN plugin - KDE Plasma 6 GUI for KDE neon
+ This package provides GUI configuration editor for GlobalProtect VPN
+ connections in KDE Plasma 6 (Qt6 / KF6) on Ubuntu 24.04, which has Plasma 5
+ only: KDE neon, or any Ubuntu 24.04 with the Plasma 6 packages of the
+ KDE neon repository (https://archive.neon.kde.org/user).
+ .
+ It includes plugin for:
+  - KDE Plasma NetworkManager applet
+ .
+ It is built against the KF6 packages of KDE neon. On other Ubuntu 24.04
+ systems install network-manager-gpclient-plasma (Plasma 5) instead.
