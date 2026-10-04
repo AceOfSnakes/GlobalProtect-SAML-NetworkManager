@@ -27,12 +27,12 @@ API_URL = f"https://api.github.com/repos/{REPO}/releases/tags/pr-24"
 VERSION = "1.4.2-1"
 
 CODENAMES = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
-# What debian/control.ubuntu<version> builds
+# What debian/control.ubuntu<version> builds; Ubuntu 24.04 has one more build, for KDE neon (amd64 only)
 PACKAGES = {
-    "jammy": ["", "-gnome", "-plasma-5"],
-    "noble": ["", "-gnome", "-plasma-5"],
-    "oracular": ["", "-gnome", "-plasma-5", "-plasma-6"],
-    "resolute": ["", "-gnome", "-plasma-6"],
+    "jammy": ["", "-gnome", "-plasma"],
+    "noble": ["", "-gnome", "-plasma"],
+    "oracular": ["", "-gnome", "-plasma"],
+    "resolute": ["", "-gnome", "-plasma"],
 }
 CORE = "network-manager-gpclient"
 
@@ -54,10 +54,12 @@ def all_assets(tilde=False, build=""):
         for codename, suffixes in PACKAGES.items()
         for suffix in suffixes
         for arch in ("amd64", "arm64")
-    ]
+    ] + [deb("-plasma-6", "noble", "amd64", tilde, build)]
 
 
 OS_RELEASE = 'NAME="Ubuntu"\nID=ubuntu\nID_LIKE=debian\nVERSION_ID="{version}"\nVERSION_CODENAME={codename}\n'
+# KDE neon User Edition: Ubuntu 24.04 with Plasma 6
+NEON_OS_RELEASE = 'NAME="KDE neon"\nID=neon\nID_LIKE="ubuntu debian"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n'
 
 FAKE_CURL = r"""#!/bin/bash
 out=""; fmt=""; url=""
@@ -102,7 +104,7 @@ echo "$FAKE_ARCH"
 """
 
 # dpkg-query -W -f='${Version}' plasma-nm: the version in the file "plasma_nm", or
-# "no packages found" when there is none
+# "no packages found" when there is none. The script does not ask: the tests check that
 FAKE_DPKG_QUERY = r"""#!/bin/bash
 [ "$1" = "-W" ] && [ "$2" = '-f=${Version}' ] && [ "$3" = "plasma-nm" ] && [ $# -eq 3 ] || exit 2
 echo "$*" >> "$FAKE_DIR/dpkg_query_calls"
@@ -251,14 +253,14 @@ class TestInstall:
         [
             ("noble", "amd64", "ubuntu:GNOME", ["", "-gnome"]),
             ("noble", "arm64", "GNOME", ["", "-gnome"]),
-            ("resolute", "arm64", "KDE", ["", "-plasma-6"]),
+            ("resolute", "arm64", "KDE", ["", "-plasma"]),
             ("resolute", "amd64", "ubuntu:GNOME", ["", "-gnome"]),
-            ("jammy", "amd64", "KDE", ["", "-plasma-5"]),
-            ("noble", "amd64", "KDE", ["", "-plasma-5"]),
-            ("oracular", "amd64", "KDE", ["", "-plasma-6"]),
+            ("jammy", "amd64", "KDE", ["", "-plasma"]),
+            ("noble", "amd64", "KDE", ["", "-plasma"]),
+            ("oracular", "amd64", "KDE", ["", "-plasma"]),
             ("oracular", "arm64", "x-cinnamon", ["", "-gnome"]),
             ("noble", "amd64", "", ["", "-gnome"]),
-            ("noble", "amd64", "plasma:kde", ["", "-plasma-5"]),
+            ("noble", "amd64", "plasma:kde", ["", "-plasma"]),
         ],
     )
     def test_core_and_the_desktop_package_for_this_machine_are_installed(
@@ -299,7 +301,7 @@ class TestInstall:
         result = box.run("24", *option, desktop="ubuntu:GNOME")
 
         assert result.returncode == 0, result.stderr
-        assert box.installed() == [deb("", "noble", "amd64"), deb("-plasma-5", "noble", "amd64")]
+        assert box.installed() == [deb("", "noble", "amd64"), deb("-plasma", "noble", "amd64")]
 
     def test_desktop_gnome_beats_a_kde_environment(self, box):
         result = box.run("--desktop", "gnome", "24", desktop="KDE")
@@ -390,8 +392,8 @@ class TestInstall:
         result = box.run("24", "--desktop", "plasma")
 
         assert result.returncode == 0, result.stderr
-        assert "sudo apt install --reinstall --allow-downgrades network-manager-gpclient network-manager-gpclient-plasma-5" in result.stdout
-        assert "sudo apt remove network-manager-gpclient network-manager-gpclient-plasma-5" in result.stdout
+        assert "sudo apt install --reinstall --allow-downgrades network-manager-gpclient network-manager-gpclient-plasma" in result.stdout
+        assert "sudo apt remove network-manager-gpclient network-manager-gpclient-plasma" in result.stdout
         assert "docs/APT_REPO.md" in result.stdout
 
     def test_what_will_be_installed_is_printed_before_apt_runs(self, box):
@@ -460,11 +462,11 @@ class TestRejected:
 
         assert_rejected(box, result, "unknown option", network=False)
 
-    @pytest.mark.parametrize("value", ["foo", "GNOME", "kde", "plasma-6", "plasma;x"])
-    def test_desktop_must_be_gnome_or_plasma(self, box, value):
+    @pytest.mark.parametrize("value", ["foo", "GNOME", "kde", "plasma-5", "plasma-6;x", "Plasma-6", "plasma-7", "plasma;x"])
+    def test_desktop_must_be_gnome_plasma_or_plasma_6(self, box, value):
         result = box.run("24", "--desktop", value)
 
-        assert_rejected(box, result, "--desktop must be gnome or plasma", network=False)
+        assert_rejected(box, result, "--desktop must be gnome, plasma or plasma-6", network=False)
 
     def test_desktop_without_a_value(self, box):
         result = box.run("24", "--desktop")
@@ -478,6 +480,8 @@ class TestRejected:
             ('ID=linuxmint\nID_LIKE="ubuntu debian"\nVERSION_ID="21"\nVERSION_CODENAME=vanessa\n', "not Ubuntu"),
             ("", "not Ubuntu"),
             ("ID=fedora\nVERSION_ID=40\n", "not Ubuntu"),
+            ('ID=neonlike\nID_LIKE="ubuntu debian"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n', "not Ubuntu or KDE neon"),
+            ('ID="neon;x"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n', "not Ubuntu or KDE neon"),
         ],
     )
     def test_other_distributions(self, box, content, message):
@@ -579,7 +583,7 @@ class TestRejected:
 
         result = box.run("24", "--desktop", "plasma")
 
-        assert_rejected(box, result, f"no {CORE}-plasma-5 package for noble/amd64")
+        assert_rejected(box, result, f"no {CORE}-plasma package for noble/amd64")
 
     @pytest.mark.parametrize(
         "name",
@@ -666,87 +670,176 @@ class TestRejected:
         assert_rejected(box, result, f"cannot download {deb('-gnome', 'noble', 'amd64')}")
 
 
-class TestPlasmaChoice:
-    """-plasma-5 or -plasma-6 follows the installed plasma-nm, not the release"""
+class TestPlasmaPackage:
+    """One package, -plasma, for every release, except on Ubuntu 24.04 with Plasma 6: -plasma-6, which
+    is built for amd64 only. It is chosen on KDE neon, and on Ubuntu 24.04 by --desktop plasma-6 only:
+    Ubuntu 24.04 with plasma-nm 6 or newer from elsewhere stops the script"""
 
-    @pytest.mark.parametrize(
-        "plasma_nm, expected",
-        [
-            ("4:5.27.11-0ubuntu1", "-plasma-5"),
-            ("5.27.5", "-plasma-5"),
-            ("4:5.99.0-1", "-plasma-5"),
-            ("4:6.0.0-0ubuntu1", "-plasma-6"),
-            ("4:6.1.5-0ubuntu1", "-plasma-6"),
-            ("6.2.0", "-plasma-6"),
-            ("4:10.0.1-1", "-plasma-6"),
-        ],
-    )
-    @pytest.mark.parametrize("how", [{"desktop": "KDE"}, {"desktop": "ubuntu:GNOME", "option": "plasma"}])
-    def test_the_installed_plasma_nm_decides_when_the_release_has_both(self, box, plasma_nm, expected, how):
-        box.set_os("oracular")
-        box.set_plasma_nm(plasma_nm)
-        args = ["24"] + (["--desktop", how["option"]] if "option" in how else [])
+    PLASMA6 = "-plasma-6"
 
-        result = box.run(*args, desktop=how["desktop"])
-
-        assert result.returncode == 0, result.stderr
-        assert box.installed() == [deb("", "oracular", "amd64"), deb(expected, "oracular", "amd64")]
-        assert box.read("dpkg_query_calls") == "-W -f=${Version} plasma-nm\n"
-
-    @pytest.mark.parametrize("how", [{"desktop": "KDE"}, {"desktop": "ubuntu:GNOME", "option": "plasma"}])
-    def test_without_plasma_nm_the_release_decides_plasma_6_where_it_has_it(self, box, how):
-        box.set_os("oracular")
-        args = ["24"] + (["--desktop", how["option"]] if "option" in how else [])
-
-        result = box.run(*args, desktop=how["desktop"])
-
-        assert result.returncode == 0, result.stderr
-        assert box.installed() == [deb("", "oracular", "amd64"), deb("-plasma-6", "oracular", "amd64")]
-
-    @pytest.mark.parametrize("codename, expected", [("noble", "-plasma-5"), ("jammy", "-plasma-5"), ("resolute", "-plasma-6")])
-    def test_without_plasma_nm_a_release_with_one_plasma_package_gets_that_one(self, box, codename, expected):
-        box.set_os(codename)
-
-        result = box.run("24", desktop="KDE")
-
-        assert result.returncode == 0, result.stderr
-        assert box.installed()[1] == deb(expected, codename, "amd64")
-
-    @pytest.mark.parametrize("plasma_nm", ["", "abc", "x5.27", "5", ".5.27", "４:6.1"])
-    def test_an_unreadable_plasma_nm_version_is_as_not_installed(self, box, plasma_nm):
-        box.set_os("oracular")
-        box.set_plasma_nm(plasma_nm)
-
-        result = box.run("24", desktop="KDE")
-
-        assert result.returncode == 0, result.stderr
-        assert box.installed()[1] == deb("-plasma-6", "oracular", "amd64")
-
-    @pytest.mark.parametrize(
-        "codename, plasma_nm, missing",
-        [("noble", "4:6.1.5-0ubuntu1", "-plasma-6"), ("jammy", "6.0.0", "-plasma-6"),
-         ("resolute", "4:5.27.11-0ubuntu1", "-plasma-5")],
-    )
-    def test_the_package_for_the_installed_plasma_is_not_in_the_release(self, box, codename, plasma_nm, missing):
+    def plasma(self, box, *args, codename="noble", plasma_nm=None, desktop="KDE", **env):
         box.set_os(codename)
         box.set_plasma_nm(plasma_nm)
+        return box.run("24", *args, desktop=desktop, **env)
+
+    @pytest.mark.parametrize("plasma_nm", [None, "", "4:5.27.11-0ubuntu1", "5.27.5", "abc", "6", "4:x6.1.5"])
+    @pytest.mark.parametrize("codename", sorted(CODENAMES))
+    @pytest.mark.parametrize("how", [{"desktop": "KDE"}, {"desktop": "ubuntu:GNOME", "option": "plasma"}])
+    def test_plasma_is_the_same_package_whatever_plasma_nm_is_installed_unless_it_is_6(self, box, codename, plasma_nm, how):
+        args = ["--desktop", how["option"]] if "option" in how else []
+
+        result = self.plasma(box, *args, codename=codename, plasma_nm=plasma_nm, desktop=how["desktop"])
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed() == [deb("", codename, "amd64"), deb("-plasma", codename, "amd64")]
+
+    PLASMA_NM_6 = ["4:6.0.0-0ubuntu1", "4:6.1.5-0ubuntu1", "6.3.4", "4:6.7.5-0zneon+24.04+noble+release+build62", "4:10.0.0-1"]
+
+    @pytest.mark.parametrize("plasma_nm", PLASMA_NM_6)
+    @pytest.mark.parametrize("how", [{"desktop": "KDE"}, {"desktop": "ubuntu:GNOME", "option": "plasma"}])
+    def test_ubuntu_24_04_with_plasma_nm_6_installed_is_not_given_a_package_silently(self, box, plasma_nm, how):
+        args = ["--desktop", how["option"]] if "option" in how else []
+
+        result = self.plasma(box, *args, plasma_nm=plasma_nm, desktop=how["desktop"])
+
+        assert_rejected(box, result, "only KDE neon is supported for Plasma 6 on Ubuntu 24.04", network=False)
+        assert "--desktop plasma-6" in result.stderr
+        assert box.read("dpkg_query_calls") is not None
+
+    @pytest.mark.parametrize("plasma_nm", PLASMA_NM_6)
+    def test_plasma_6_on_ubuntu_24_04_with_plasma_nm_6_is_installed_when_it_is_asked_for(self, box, plasma_nm):
+        result = self.plasma(box, "--desktop", "plasma-6", plasma_nm=plasma_nm, desktop="ubuntu:GNOME")
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed() == [deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")]
+
+    @pytest.mark.parametrize("plasma_nm", [None, "4:5.27.11-0ubuntu1"])
+    @pytest.mark.parametrize("desktop", ["KDE", "ubuntu:GNOME"])
+    def test_plasma_6_is_installed_on_ubuntu_24_04_whatever_plasma_nm_and_desktop_say(self, box, plasma_nm, desktop):
+        result = self.plasma(box, "--desktop", "plasma-6", plasma_nm=plasma_nm, desktop=desktop)
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed() == [deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")]
+        assert box.read("dpkg_query_calls") is None
+
+    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    def test_plasma_6_is_refused_on_the_other_releases(self, box, codename):
+        box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
+
+        result = self.plasma(box, "--desktop", "plasma-6", codename=codename)
+
+        assert_rejected(box, result, "--desktop plasma-6 is for Ubuntu 24.04 (noble) only", network=False)
+
+    def test_plasma_6_has_no_package_on_arm64(self, box):
+        result = self.plasma(box, "--desktop", "plasma-6", arch="arm64")
+
+        assert_rejected(box, result, f"no {CORE}-plasma-6 package for noble/arm64 (it is built for amd64 only)")
+
+    @pytest.mark.parametrize("plasma_nm", ["4:5.27.11-0ubuntu1", "4:6.1.5-0ubuntu1", None])
+    @pytest.mark.parametrize("desktop", ["KDE", "KDE:neon", "ubuntu:GNOME"])
+    @pytest.mark.parametrize("option", [[], ["--desktop", "plasma"], ["--desktop", "plasma-6"]])
+    def test_kde_neon_gets_the_plasma_6_package_whatever_plasma_nm_says(self, box, plasma_nm, desktop, option):
+        box.set_os("noble", NEON_OS_RELEASE)
+        box.set_plasma_nm(plasma_nm)
+
+        result = box.run("24", *option, desktop=desktop)
+
+        assert result.returncode == 0, result.stderr
+        if desktop == "ubuntu:GNOME" and not option:
+            assert box.installed() == [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
+        else:
+            assert box.installed() == [deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")]
+        assert box.read("dpkg_query_calls") is None
+
+    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("plasma_nm", ["4:6.1.5-0ubuntu1", "4:6.7.5-0zneon+24.04+noble+release+build62"])
+    def test_other_releases_never_get_the_plasma_6_package(self, box, codename, plasma_nm):
+        box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
+
+        result = self.plasma(box, codename=codename, plasma_nm=plasma_nm)
+
+        assert box.installed() == [deb("", codename, "amd64"), deb("-plasma", codename, "amd64")]
+
+    def test_gnome_on_ubuntu_24_04_does_not_look_at_plasma_nm_and_installs_no_plasma_package(self, box):
+        result = self.plasma(box, plasma_nm="4:6.1.5-0ubuntu1", desktop="ubuntu:GNOME")
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed() == [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
+        assert box.read("dpkg_query_calls") is None
+
+    def test_kde_neon_with_gnome_chosen_gets_the_gnome_package(self, box):
+        box.set_os("noble", NEON_OS_RELEASE)
+
+        result = box.run("24", "--desktop", "gnome", desktop="KDE")
+
+        assert box.installed() == [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
+
+    def test_the_plasma_6_package_is_not_taken_for_plasma_5_systems(self, box):
+        # the release has only the package for KDE neon: Ubuntu 24.04 with Plasma 5 needs -plasma
+        box.set_assets([deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")])
+
+        result = self.plasma(box, plasma_nm="4:5.27.11-0ubuntu1")
+
+        assert_rejected(box, result, f"no {CORE}-plasma package for noble/amd64")
+
+    def test_the_plasma_5_package_is_not_taken_for_kde_neon(self, box):
+        box.set_os("noble", NEON_OS_RELEASE)
+        box.set_assets([deb("", "noble", "amd64"), deb("-plasma", "noble", "amd64")])
 
         result = box.run("24", desktop="KDE")
 
-        assert_rejected(box, result, f"no {CORE}{missing} package for {codename}/amd64")
-        assert "plasma-nm" in result.stderr
-        # The other Plasma's package is not installed instead
-        assert box.installed() is None
+        assert_rejected(box, result, f"no {CORE}-plasma-6 package for noble/amd64")
+
+    def test_kde_neon_on_arm64_has_no_package_and_is_told_why(self, box):
+        box.set_os("noble", NEON_OS_RELEASE)
+
+        result = box.run("24", arch="arm64", desktop="KDE")
+
+        assert_rejected(box, result, f"no {CORE}-plasma-6 package for noble/arm64 (it is built for amd64 only)")
+
+    def test_the_other_missing_packages_are_not_explained_with_amd64_only(self, box):
+        box.set_assets([deb("", "noble", "arm64"), deb("-gnome", "noble", "amd64")])
+
+        result = box.run("24", arch="arm64")
+
+        assert_rejected(box, result, f"no {CORE}-gnome package for noble/arm64")
+        assert "amd64 only" not in result.stderr
+
+    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    def test_kde_neon_on_another_base_is_refused(self, box, codename):
+        box.set_os(codename, NEON_OS_RELEASE.replace("noble", codename).replace("24.04", CODENAMES[codename]))
+
+        result = box.run("24", desktop="KDE")
+
+        assert_rejected(box, result, "KDE neon is supported on its Ubuntu 24.04 (noble) base only", network=False)
+
+    def test_the_way_back_names_the_plasma_6_package(self, box):
+        box.set_os("noble", NEON_OS_RELEASE)
+
+        result = box.run("24", desktop="KDE")
+
+        assert f"sudo apt remove {CORE} {CORE}-plasma-6" in result.stdout
+
+    @pytest.mark.parametrize("codename", sorted(CODENAMES))
+    @pytest.mark.parametrize("old", ["-plasma-5", "-plasma-6"])
+    def test_a_package_of_the_former_split_is_not_taken_for_plasma(self, box, codename, old):
+        box.set_assets([deb("", codename, "amd64"), deb(old, codename, "amd64")])
+
+        result = self.plasma(box, codename=codename, plasma_nm="4:5.27.11-0ubuntu1")
+
+        assert_rejected(box, result, f"no {CORE}-plasma package for {codename}/amd64")
 
     def test_gnome_does_not_look_at_plasma_nm(self, box):
-        box.set_os("oracular")
-        box.set_plasma_nm("4:5.27.11-0ubuntu1")
-
-        result = box.run("24", desktop="ubuntu:GNOME")
+        result = self.plasma(box, codename="oracular", plasma_nm="4:5.27.11-0ubuntu1", desktop="ubuntu:GNOME")
 
         assert result.returncode == 0, result.stderr
         assert box.installed() == [deb("", "oracular", "amd64"), deb("-gnome", "oracular", "amd64")]
         assert box.read("dpkg_query_calls") is None
+
+    def test_plasma_nm_is_asked_for_on_ubuntu_24_04_only(self, box):
+        for codename in ("jammy", "oracular", "resolute"):
+            self.plasma(box, codename=codename, plasma_nm="4:6.1.5-0ubuntu1")
+            assert box.read("dpkg_query_calls") is None, codename
 
 
 class TestRepository:

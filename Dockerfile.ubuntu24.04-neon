@@ -1,0 +1,50 @@
+FROM ubuntu:24.04
+
+LABEL maintainer="WMP"
+LABEL description="Build environment for network-manager-gpclient-plasma-6 .deb package (KDE neon: Ubuntu 24.04 with Plasma 6)"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# The KDE neon repository (Plasma 6 / KF6 for Ubuntu 24.04). The script checks the
+# fingerprint of its signing key; the upgrade test sets the repository up with the
+# same script. Neon's packages replace Ubuntu's Qt and other libraries on this
+# image: that is expected, the package is built for such systems.
+COPY .github/scripts/neon-repo.sh /usr/local/sbin/neon-repo.sh
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
+    bash /usr/local/sbin/neon-repo.sh && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install build dependencies (only the Plasma 6/KF6 plugin: no GNOME, no Rust)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    debhelper \
+    fakeroot \
+    cmake \
+    extra-cmake-modules \
+    qt6-base-dev \
+    qt6-base-dev-tools \
+    libkf6networkmanagerqt-dev \
+    libkf6i18n-dev \
+    libkf6service-dev \
+    libkf6widgetsaddons-dev \
+    libkf6coreaddons-dev \
+    plasma-nm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create build user (to avoid building as root)
+# Use /build/source as WORKDIR so that ".." points to /build (writable by builder)
+RUN useradd -m -s /bin/bash builder && \
+    mkdir -p /build/source && \
+    chown -R builder:builder /build
+
+# Set working directory (use /build/source so ".." = /build is writable)
+WORKDIR /build/source
+
+# Switch to builder user for build
+USER builder
+
+# Copy source code (this layer invalidates when source changes)
+COPY --chown=builder:builder . /build/source/
+
+# Default command (can be overridden)
+CMD ["bash"]

@@ -109,10 +109,31 @@ The service answers this **without asking the user**:
    and a warning is logged. The setting is left untouched - the portal may just
    have changed temporarily.
 
-After a successful connection the discovered list is cached in the profile
+After a successful connection the portal's gateway list is cached in the profile
 (`vpn.data gateway-list`, entries separated by `;`), and the connection editors
 offer it as a drop-down for **Preferred gateway**. The first entry of that
 drop-down, *First proposed by portal (automatic)*, stores nothing.
+
+When the portal's list is longer than one page and the cache does not hold it
+completely yet, the service reads it page by page before it selects: it presses
+PageDown (which moves down by a page and stops at the last entry) until the
+whole list was seen or the cursor reached the end, then Home, which puts the
+cursor back on the first proposal. Only gpclient's `Found N gateways in portal
+config` line tells the end of the list from a gpclient that stopped redrawing,
+so without that line the list is not read at all. Nothing is selected on the
+way. After a complete reading the gateway is chosen from the whole list (same
+matching as before: whole entry, then name or host, then substring; the first
+proposal if the configured gateway is not offered) and reached with Down keys
+by its exact name. The list from such a reading, or a list that fits one page
+and has N entries, replaces the cached one (gateways the portal dropped
+disappear), and `gateway-list-count` is set to N, which marks the cached list
+as complete (also when some entries are identical, so there are fewer than N
+different ones). As long as that count equals the portal's and the visible page
+is in the cache, the list is not read again. A portal config with a single
+gateway (`Found 1`, then `Connecting to the only available gateway`) replaces
+the cache with that gateway. A connection that sees only part of the list (for
+example when gpclient stops redrawing, or logs no count) puts the entries it
+saw first and keeps the stored ones it did not see; it never shrinks the cache.
 
 ```bash
 # Pick a specific gateway from the command line

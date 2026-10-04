@@ -23,6 +23,7 @@ debian/.debhelper/
 debian/network-manager-gpclient/
 debian/network-manager-gpclient-gnome/
 debian/network-manager-gpclient-plasma/
+debian/network-manager-gpclient-plasma-6/
 debian/files
 debian/*.substvars
 debian/*.debhelper

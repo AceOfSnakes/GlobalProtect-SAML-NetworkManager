@@ -20,7 +20,8 @@ Download packages from [GitHub Releases](https://github.com/WMP/GlobalProtect-SA
 Install two packages:
 1. **network-manager-gpclient** - core package (required)
 2. **network-manager-gpclient-gnome** - for GNOME/GTK desktops, or
-   **network-manager-gpclient-plasma-5** (Plasma 5) or **network-manager-gpclient-plasma-6** (Plasma 6) - for KDE Plasma
+   **network-manager-gpclient-plasma** - for KDE Plasma, or
+   **network-manager-gpclient-plasma-6** - for KDE neon (Ubuntu 24.04 with Plasma 6)
 
 ```bash
 sudo dpkg -i <downloaded-packages>.deb

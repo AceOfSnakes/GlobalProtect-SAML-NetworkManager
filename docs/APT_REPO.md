@@ -17,9 +17,14 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpcli
 
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
-sudo apt install network-manager-gpclient-plasma-5 # KDE Plasma 5 (Ubuntu 22.04, 24.04)
-sudo apt install network-manager-gpclient-plasma-6 # KDE Plasma 6 (Ubuntu 24.10, 26.04)
+sudo apt install network-manager-gpclient-plasma   # KDE Plasma
+sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with Plasma 6), amd64 only
 ```
+
+On KDE neon use `network-manager-gpclient-plasma-6`: it is in the `noble` suite
+next to the others, built against the neon repository, and conflicts with
+`network-manager-gpclient-plasma` (Plasma 5): only one Plasma generation can use the
+plugin.
 
 Same thing in deb822 format, if you prefer `/etc/apt/sources.list.d/*.sources`:
 
@@ -43,7 +48,8 @@ your system.
 Removal:
 
 ```bash
-sudo apt remove network-manager-gpclient network-manager-gpclient-gnome network-manager-gpclient-plasma-5 network-manager-gpclient-plasma-6
+# the desktop packages depend on the core package and are removed with it
+sudo apt remove network-manager-gpclient
 sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update
 ```

@@ -2,12 +2,17 @@
 # Install the test packages of a pull request on this machine.
 #
 #   bash <(curl -fsSL https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/install-pr-build.sh) <PR number>
-#   install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/REPO] [--yes]
+#   install-pr-build.sh <PR number> [--desktop gnome|plasma|plasma-6] [--repo OWNER/REPO] [--yes]
 #
 # CI publishes every open pull request as the prerelease "pr-<N>" (see
 # .github/workflows/pr-test-packages.yml) and removes it when the PR closes. This
 # picks the .deb files for your Ubuntu release, architecture and desktop from that
 # release and hands them to apt. apt asks for confirmation unless --yes is given.
+#
+# On Ubuntu 24.04 the Plasma editor is network-manager-gpclient-plasma-6 (built
+# against the KDE neon repository) on KDE neon, and network-manager-gpclient-plasma
+# (Plasma 5) on Ubuntu. Ubuntu 24.04 with plasma-nm 6 or newer from elsewhere is not
+# supported: the script stops, and --desktop plasma-6 installs -plasma-6 anyway.
 #
 # The packages of a pull request carry a version above the release's one
 # (1.4.2-1~noble1+pr24.57 sorts after 1.4.2-1~noble1), so apt installs them over
@@ -28,14 +33,16 @@ die() { echo "install-pr-build: $*" >&2; exit 1; }
 
 usage() {
     cat >&2 <<'EOF'
-usage: install-pr-build.sh <PR number> [--desktop gnome|plasma] [--repo OWNER/REPO] [--yes]
+usage: install-pr-build.sh <PR number> [--desktop gnome|plasma|plasma-6] [--repo OWNER/REPO] [--yes]
 
   <PR number>          the pull request whose test packages to install
-  --desktop gnome|plasma
+  --desktop gnome|plasma|plasma-6
                        which editor plugin to install (default: plasma when
                        XDG_CURRENT_DESKTOP mentions KDE, otherwise gnome). For
-                       plasma, -plasma-5 or -plasma-6 follows the installed
-                       plasma-nm (6 or newer: plasma-6)
+                       plasma on Ubuntu 24.04, KDE neon means -plasma-6 and Ubuntu
+                       means -plasma, but not with plasma-nm 6 or newer installed
+                       (stops). plasma-6 (Ubuntu 24.04 only) installs -plasma-6
+                       whatever the system is
   --repo OWNER/REPO    the GitHub repository that published the packages
                        (default: WMP/GlobalProtect-SAML-NetworkManager)
   --yes                do not ask apt for confirmation (apt install -y)
@@ -55,7 +62,7 @@ while [ $# -gt 0 ]; do
         -h|--help) usage; exit 0 ;;
         --yes) assume_yes=1 ;;
         --desktop)
-            [ $# -ge 2 ] || { usage; die "--desktop needs a value: gnome or plasma"; }
+            [ $# -ge 2 ] || { usage; die "--desktop needs a value: gnome, plasma or plasma-6"; }
             desktop="$2"; shift ;;
         --desktop=*) desktop="${1#--desktop=}" ;;
         --repo)
@@ -78,8 +85,8 @@ done
     || die "'$pr' is not a pull request number (1 to 7 digits, no leading zero)"
 
 case "$desktop" in
-    ""|gnome|plasma) ;;
-    *) die "--desktop must be gnome or plasma, not '$desktop'" ;;
+    ""|gnome|plasma|plasma-6) ;;
+    *) die "--desktop must be gnome, plasma or plasma-6, not '$desktop'" ;;
 esac
 
 # OWNER/REPO ends up in URLs: GitHub's own character sets, and no "." or ".." as
@@ -101,8 +108,12 @@ os_value() {
 }
 
 [ -r "$OS_RELEASE" ] || die "cannot read $OS_RELEASE: this script supports Ubuntu only"
-[ "$(os_value ID)" = "ubuntu" ] \
-    || die "this is '$(os_value ID)', not Ubuntu: the test packages are built for Ubuntu 22.04, 24.04, 24.10 and 26.04 only"
+os_id="$(os_value ID)"
+# KDE neon is Ubuntu 24.04 with Plasma 6
+case "$os_id" in
+    ubuntu|neon) ;;
+    *) die "this is '$os_id', not Ubuntu or KDE neon: the test packages are built for Ubuntu 22.04, 24.04, 24.10 and 26.04 (and KDE neon, which is Ubuntu 24.04 with Plasma 6) only" ;;
+esac
 
 version_id="$(os_value VERSION_ID)"
 codename="$(os_value VERSION_CODENAME)"
@@ -120,11 +131,17 @@ case "$codename" in
     *) die "Ubuntu ${version_id:-?} (${codename:-unknown}) is not supported: the test packages are built for jammy (22.04), noble (24.04), oracular (24.10) and resolute (26.04)" ;;
 esac
 
+[ "$os_id" != "neon" ] || [ "$codename" = "noble" ] \
+    || die "KDE neon is supported on its Ubuntu 24.04 (noble) base only, not on ${codename:-unknown}"
+
 arch="$(dpkg --print-architecture)"
 case "$arch" in
     amd64|arm64) ;;
     *) die "architecture '$arch' is not supported: the test packages are built for amd64 and arm64" ;;
 esac
+
+[ "$desktop" != "plasma-6" ] || [ "$codename" = "noble" ] \
+    || die "--desktop plasma-6 is for Ubuntu 24.04 (noble) only, not ${codename:-unknown}: the other releases have one Plasma package, network-manager-gpclient-plasma"
 
 if [ -z "$desktop" ]; then
     case "${XDG_CURRENT_DESKTOP:-}" in
@@ -133,15 +150,24 @@ if [ -z "$desktop" ]; then
     esac
 fi
 
-# The installed plasma-nm says which Plasma the editor plugin has to fit: 6 or
-# newer needs -plasma-6, older needs -plasma-5. Empty when plasma-nm is not
-# installed (or its version cannot be read): the release then decides.
-plasma_major=""
-if [ "$desktop" = plasma ]; then
-    plasma_nm="$(dpkg-query -W -f='${Version}' plasma-nm 2>/dev/null || true)"
-    plasma_nm="${plasma_nm#*:}" # the epoch: 4:5.27.11-0ubuntu1
-    if [[ $plasma_nm =~ ^([0-9]+)\. ]]; then
-        plasma_major="${BASH_REMATCH[1]}"
+# The Plasma package. Ubuntu 24.04 has Plasma 5, and KDE neon, its Plasma 6
+# variant, has network-manager-gpclient-plasma-6 (built against the KDE neon
+# repository). Ubuntu 24.04 with plasma-nm 6 or newer from elsewhere is not
+# supported: the script does not pick a package for it, --desktop plasma-6 does.
+# Every other release has one Plasma package, network-manager-gpclient-plasma.
+plasma_package="network-manager-gpclient-plasma"
+if [ "$desktop" = plasma-6 ]; then
+    plasma_package="network-manager-gpclient-plasma-6"
+    desktop=plasma
+elif [ "$desktop" = plasma ] && [ "$codename" = noble ]; then
+    if [ "$os_id" = neon ]; then
+        plasma_package="network-manager-gpclient-plasma-6"
+    else
+        plasma_nm="$(dpkg-query -W -f='${Version}' plasma-nm 2>/dev/null || true)"
+        plasma_nm="${plasma_nm#*:}" # the epoch: 4:6.1.5-0ubuntu1
+        if [[ $plasma_nm =~ ^([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -ge 6 ]; then
+            die "this is Ubuntu 24.04 with plasma-nm $plasma_nm (Plasma 6): only KDE neon is supported for Plasma 6 on Ubuntu 24.04. Use --desktop plasma-6 to install network-manager-gpclient-plasma-6 anyway (not tested), or --desktop gnome"
+        fi
     fi
 fi
 
@@ -171,12 +197,12 @@ esac
 # none). GitHub stores the "~" of a release asset as "." (1.4.2-1.noble1), so
 # both are accepted. The names come from the release listing and are matched
 # strictly before they are used anywhere.
-selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" "$plasma_major" <<'PY'
+selection="$(python3 - "$tmp/release.json" "$codename" "$arch" "$desktop" "$pr" "$plasma_package" <<'PY'
 import json
 import re
 import sys
 
-path, codename, arch, desktop, pr, plasma_major = sys.argv[1:7]
+path, codename, arch, desktop, pr, plasma_package = sys.argv[1:7]
 try:
     with open(path, encoding="utf-8") as handle:
         assets = json.load(handle).get("assets", [])
@@ -205,23 +231,13 @@ def find(package):
 wanted = ["network-manager-gpclient"]
 if desktop == "gnome":
     wanted.append("network-manager-gpclient-gnome")
-elif plasma_major:
-    # The installed plasma-nm decides: 6 and newer is Plasma 6, older Plasma 5
-    wanted.append("network-manager-gpclient-plasma-%d" % (6 if int(plasma_major) >= 6 else 5))
 else:
-    # plasma-nm is not installed: Plasma 6 where the release has it (24.10,
-    # 26.04), Plasma 5 otherwise
-    wanted.append(
-        "network-manager-gpclient-plasma-6" if find("network-manager-gpclient-plasma-6")
-        else "network-manager-gpclient-plasma-5"
-    )
+    wanted.append(plasma_package)
 
 for package in wanted:
     asset = find(package)
     if asset is None:
-        why = ""
-        if package.startswith("network-manager-gpclient-plasma-") and plasma_major:
-            why = " (plasma-nm %s is installed, which needs it)" % plasma_major
+        why = " (it is built for amd64 only)" if package.endswith("-plasma-6") and arch != "amd64" else ""
         sys.exit("the release has no %s package for %s/%s%s (the build of this PR may have failed or is not finished)"
                  % (package, codename, arch, why))
     print("%s\t%s\t%s" % (package, asset[0], asset[1]))

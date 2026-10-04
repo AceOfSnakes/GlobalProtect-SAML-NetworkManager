@@ -36,7 +36,7 @@ REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
 REF_RE = re.compile(r"^[\w./-]+$")
 PR_RE = re.compile(r"^[1-9][0-9]{0,6}$")
 REASON_RE = re.compile(r"^[A-Za-z0-9 ,.;:()'#/_-]{1,200}$")
-PACKAGE_RE = re.compile(r"^(network-manager-gpclient(?:-gnome|-plasma-[56])?)_")
+PACKAGE_RE = re.compile(r"^(network-manager-gpclient(?:-gnome|-plasma(?:-6)?)?)_")
 
 
 class CheckError(Exception):
@@ -79,9 +79,9 @@ def published_summary(repo, pr, sha, script_ref, debs):
         "",
         "- the Ubuntu release (22.04, 24.04, 24.10 or 26.04) from `/etc/os-release`,",
         "- the architecture (amd64 or arm64) from `dpkg`,",
-        "- the desktop: Plasma when `XDG_CURRENT_DESKTOP` mentions KDE (Plasma 6 where "
-        "Plasma 6 or 5 as the installed `plasma-nm` says, without it as the release has "
-        "it), otherwise GNOME. Force one with `--desktop gnome` or `--desktop plasma`.",
+        "- the desktop: Plasma when `XDG_CURRENT_DESKTOP` mentions KDE, otherwise GNOME. "
+        "Force one with `--desktop gnome` or `--desktop plasma`. On KDE neon (Ubuntu 24.04 "
+        "with Plasma 6) the Plasma package is `network-manager-gpclient-plasma-6`.",
         "",
         "It prints what it is going to install and lets apt ask for confirmation "
         "(`--yes` skips the question). On Ubuntu 22.04 `python3-sdbus` is not in apt: "
@@ -95,7 +95,7 @@ def published_summary(repo, pr, sha, script_ref, debs):
         "",
         "```bash",
         "sudo apt update && sudo apt install --reinstall --allow-downgrades "
-        "network-manager-gpclient network-manager-gpclient-gnome   # or -plasma-5 / -plasma-6, as installed",
+        "network-manager-gpclient network-manager-gpclient-gnome   # or -plasma (-plasma-6 on KDE neon), as installed",
         "```",
         "",
         "Without it: `sudo apt remove network-manager-gpclient network-manager-gpclient-gnome` "
