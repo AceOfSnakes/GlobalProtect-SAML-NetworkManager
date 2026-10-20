@@ -895,6 +895,18 @@ def learned_dns_from_state(
     return _dedupe(servers), _dedupe(domains), _dedupe(servers6)
 
 
+def vpn_gateway_from_state(
+    state: Dict[str, str], iface: str
+) -> Optional[ipaddress.IPv4Address]:
+    """The VPN server's IPv4 address the hook recorded for `iface`, or None
+    when the state is for another tunnel or VPNGATEWAY is no IPv4 address."""
+    tundev = state.get("TUNDEV", "")
+    if tundev and tundev != iface:
+        return None
+    address = parse_ip_address(state.get("VPNGATEWAY", ""))
+    return address if isinstance(address, ipaddress.IPv4Address) else None
+
+
 def parse_dns_servers(text: str) -> List[str]:
     """The profile's `dns` entries: separated by commas, semicolons or blanks"""
     return [entry for entry in re.split(r"[;,\s]+", text) if entry]
@@ -1167,6 +1179,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # Rounds tunnel detection has waited for the vpnc hook's DNS state
         # file (issue #15)
         self._dns_state_rounds = 0
+        self._vpn_gateway: Optional[ipaddress.IPv4Address] = None
 
         # Interactive authentication state (issue #6: RSA token / standard
         # login portals where gpclient prompts on its terminal)
@@ -3127,7 +3140,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """DNS the gateway pushed for `iface`, as recorded by the vpnc hook.
 
         None when the file is not there (yet) or describes another tunnel.
+        Also sets self._vpn_gateway (the state's VPNGATEWAY, or None).
         """
+        self._vpn_gateway = None
         try:
             with open(DNS_STATE_FILE, "r", encoding="utf-8", errors="replace") as f:
                 text = f.read()
@@ -3139,6 +3154,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         state = parse_dns_state(text)
         learned = learned_dns_from_state(state, iface)
+        self._vpn_gateway = vpn_gateway_from_state(state, iface)
         if learned is None:
             logger.debug(
                 f"DNS state file is for {state.get('TUNDEV')!r}, not {iface} - ignoring"
@@ -3375,31 +3391,38 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                     # Get gateway - for point-to-point VPN without explicit gateway,
                     # use the tunnel IP address itself (NetworkManager requirement)
+                    # NetworkManager reads "gateway" as the VPN server's
+                    # address and routes it via the physical interface, so
+                    # prefer the one the vpnc hook recorded (VPNGATEWAY)
                     gateway = None
-                    try:
-                        result = await asyncio.create_subprocess_exec(
-                            "ip",
-                            "route",
-                            "show",
-                            "dev",
-                            iface,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        stdout_route, _ = await result.communicate()
+                    if self._vpn_gateway is not None:
+                        gateway = str(self._vpn_gateway)
+                        logger.debug(f"Gateway from vpnc hook state: {gateway}")
+                    if not gateway:
+                        try:
+                            result = await asyncio.create_subprocess_exec(
+                                "ip",
+                                "route",
+                                "show",
+                                "dev",
+                                iface,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                            )
+                            stdout_route, _ = await result.communicate()
 
-                        # Look for gateway (via X.X.X.X)
-                        for line in stdout_route.decode().split("\n"):
-                            if line.strip() and "via" in line:
-                                parts = line.strip().split()
-                                via_idx = parts.index("via")
-                                if via_idx + 1 < len(parts):
-                                    gateway = parts[via_idx + 1]
-                                    break
+                            # Look for gateway (via X.X.X.X)
+                            for line in stdout_route.decode().split("\n"):
+                                if line.strip() and "via" in line:
+                                    parts = line.strip().split()
+                                    via_idx = parts.index("via")
+                                    if via_idx + 1 < len(parts):
+                                        gateway = parts[via_idx + 1]
+                                        break
 
-                        logger.debug(f"Gateway from routes: {gateway}")
-                    except Exception as e:
-                        logger.debug(f"Failed to get gateway from routes: {e}")
+                            logger.debug(f"Gateway from routes: {gateway}")
+                        except Exception as e:
+                            logger.debug(f"Failed to get gateway from routes: {e}")
 
                     # For point-to-point VPN (no explicit gateway), use tunnel IP as gateway
                     # This is required by NetworkManager
