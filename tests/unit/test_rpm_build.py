@@ -452,8 +452,13 @@ def run_function(tmp_path, call, ldd_output=None):
 OPENSSL3 = "\tlibssl.so.3 => /lib64/libssl.so.3 (0x1)\n\tlibcrypto.so.3 => /lib64/libcrypto.so.3 (0x2)\n"
 
 
-def test_check_openssl_accepts_openssl_3(tmp_path):
-    result = run_function(tmp_path, "check_openssl /bin/a /bin/b", OPENSSL3)
+# OpenSSL 4 as on Fedora 45 (CI, arm64): libssl.so.4
+OPENSSL4 = "\tlibssl.so.4 => /lib64/libssl.so.4 (0x1)\n\tlibcrypto.so.4 => /lib64/libcrypto.so.4 (0x2)\n"
+
+
+@pytest.mark.parametrize("ldd_output", [OPENSSL3, OPENSSL4])
+def test_check_openssl_accepts_openssl_3_and_later(tmp_path, ldd_output):
+    result = run_function(tmp_path, "check_openssl /bin/a /bin/b", ldd_output)
     assert result.returncode == 0, result.stderr
 
 
@@ -463,6 +468,8 @@ def test_check_openssl_accepts_openssl_3(tmp_path):
         "\tlibssl.so.60 => /lib64/libssl.so.60 (0x1)\n\tlibcrypto.so.58 => /lib64/libcrypto.so.58 (0x2)\n",
         "\tlibssl.so.59 (LIBRESSL_2.5) => /lib64/libssl.so.59 (0x1)\n",
         "\tlibssl.so.1.1 => /lib64/libssl.so.1.1 (0x1)\n",
+        "\tlibssl.so.10 => /lib64/libssl.so.10 (0x1)\n",
+        "\tlibssl.so.0.9.8 => /lib64/libssl.so.0.9.8 (0x1)\n",
         OPENSSL3 + "\tlibssl.so.60 => /lib64/libssl.so.60 (0x1)\n",
         "\tlibc.so.6 => /lib64/libc.so.6 (0x1)\n",
     ],

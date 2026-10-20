@@ -19,18 +19,19 @@ fail() {
     exit 1
 }
 
-# check_openssl <executable>...: none links another libssl than OpenSSL 3 (on openSUSE
-# pkgconfig(openssl) can resolve to LibreSSL, which gpclient does not work with), and
-# the first one (gpclient) links libssl.so.3.
+# check_openssl <executable>...: none links another libssl than OpenSSL 3 or later
+# (libssl.so.3, libssl.so.4 on Fedora 45; on openSUSE pkgconfig(openssl) can resolve
+# to LibreSSL, libssl.so.5x/6x, which gpclient does not work with), and the first one
+# (gpclient) links such a libssl.
 check_openssl() {
     local exe out first=1
     for exe in "$@"; do
         out=$(ldd "$exe" 2>&1) || fail "ldd $exe: $out"
-        if grep -qi 'libressl' <<<"$out" || grep -Eq 'libssl\.so\.([0-24-9]|[0-9][0-9]+)' <<<"$out"; then
-            fail "$exe does not link OpenSSL 3: $(grep -Ei 'libressl|libssl|libcrypto' <<<"$out" | tr '\n' ' ')"
+        if grep -qi 'libressl' <<<"$out" || grep -Eq 'libssl\.so\.([0-2]|[0-9][0-9]+)([^0-9]|$)' <<<"$out"; then
+            fail "$exe does not link OpenSSL 3 or later: $(grep -Ei 'libressl|libssl|libcrypto' <<<"$out" | tr '\n' ' ')"
         fi
-        if [ "$first" = 1 ] && ! grep -q 'libssl\.so\.3' <<<"$out"; then
-            fail "$exe does not link libssl.so.3"
+        if [ "$first" = 1 ] && ! grep -Eq 'libssl\.so\.[3-9]([^0-9]|$)' <<<"$out"; then
+            fail "$exe does not link libssl.so.3 or later"
         fi
         first=0
     done
