@@ -220,7 +220,7 @@ class TestDetectionLoop:
         assert config["tundev"] == ("s", "tun2")
         assert config["address"] == (
             "u",
-            struct.unpack("!I", socket.inet_aton("10.100.7.42"))[0],
+            struct.unpack("=I", socket.inet_aton("10.100.7.42"))[0],
         )
         assert config["prefix"] == ("u", 24)
         assert (
