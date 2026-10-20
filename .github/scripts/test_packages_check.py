@@ -114,8 +114,9 @@ def published_summary(repo, pr, sha, script_ref, debs, rpms=()):
             "With the apt repository set up as in `docs/APT_REPO.md`:",
             "",
             "```bash",
-            "sudo apt update && sudo apt install --reinstall --allow-downgrades "
-            "network-manager-gpclient network-manager-gpclient-gnome   # or -plasma (-plasma-6 on KDE neon), as installed",
+            "sudo apt update && sudo apt install --allow-downgrades "
+            "network-manager-gpclient/$(lsb_release -cs) network-manager-gpclient-gnome/$(lsb_release -cs)"
+            "   # or -plasma (-plasma-6 on KDE neon), as installed",
             "```",
             "",
             "Without it: `sudo apt remove network-manager-gpclient network-manager-gpclient-gnome` "

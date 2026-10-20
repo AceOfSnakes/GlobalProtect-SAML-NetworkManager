@@ -459,9 +459,30 @@ class TestInstall:
         result = box.run("24", "--desktop", "plasma")
 
         assert result.returncode == 0, result.stderr
-        assert "sudo apt install --reinstall --allow-downgrades network-manager-gpclient network-manager-gpclient-plasma" in result.stdout
+        assert "sudo apt install --allow-downgrades network-manager-gpclient/noble network-manager-gpclient-plasma/noble" in result.stdout
         assert "sudo apt remove network-manager-gpclient network-manager-gpclient-plasma" in result.stdout
         assert "docs/APT_REPO.md" in result.stdout
+
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    def test_the_way_back_selects_the_release_by_suite(self, box, codename):
+        box.set_os(codename)
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert f"sudo apt install --allow-downgrades network-manager-gpclient/{codename} network-manager-gpclient-gnome/{codename}" in result.stdout
+
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    def test_the_way_back_does_not_reinstall_or_use_bare_names(self, box, codename):
+        box.set_os(codename)
+
+        result = box.run("24")
+
+        assert "--reinstall" not in result.stdout
+        (command,) = [line for line in result.stdout.splitlines() if "apt install --allow-downgrades" in line]
+        names = [word for word in command.split() if word.startswith("network-manager-gpclient")]
+        assert names
+        assert all(name.endswith(f"/{codename}") for name in names), command
 
     def test_what_will_be_installed_is_printed_before_apt_runs(self, box):
         result = box.run("24")
@@ -863,6 +884,14 @@ class TestPlasmaPackage:
         else:
             assert box.installed() == [deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")]
         assert box.read("dpkg_query_calls") is None
+
+    def test_the_way_back_on_kde_neon_names_the_noble_suite(self, box):
+        box.set_os("noble", NEON_OS_RELEASE)
+
+        result = box.run("24", desktop="KDE")
+
+        assert result.returncode == 0, result.stderr
+        assert "sudo apt install --allow-downgrades network-manager-gpclient/noble network-manager-gpclient-plasma-6/noble" in result.stdout
 
     @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
     @pytest.mark.parametrize("plasma_nm", ["4:6.1.5-0ubuntu1", "4:6.7.5-0zneon+24.04+noble+release+build62"])

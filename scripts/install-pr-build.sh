@@ -381,13 +381,19 @@ echo
 echo "Running: ${runner[*]:+${runner[*]} }apt ${apt_args[*]} <the packages above>"
 "${runner[@]}" apt "${apt_args[@]}" "${package_files[@]}" || die "apt failed, nothing more was done"
 
+# The test build is newer than the release, so apt's candidate is the installed
+# build, which no repository has: --reinstall cannot download it. Pick the
+# release by the suite of our apt repository (its name is the codename).
+released=()
+for package in "${packages[@]}"; do released+=("$package/$codename"); done
+
 cat <<EOF
 
 Installed.
 
 Back to the released version, with the apt repository set up as described in
 docs/APT_REPO.md:
-    sudo apt update && sudo apt install --reinstall --allow-downgrades ${packages[*]}
+    sudo apt update && sudo apt install --allow-downgrades ${released[*]}
 Without the apt repository: sudo apt remove ${packages[*]}
 and install the released packages again (https://github.com/$REPO/releases).
 EOF
