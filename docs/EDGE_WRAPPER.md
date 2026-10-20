@@ -75,7 +75,8 @@ The wrapper creates temporary directories in a private base directory:
 ├── profile/     # Edge user data (profile-firefox/ for Firefox)
 ├── home/        # Fake HOME
 ├── cache/       # XDG_CACHE_HOME
-└── data/        # XDG_DATA_HOME
+├── data/        # XDG_DATA_HOME
+└── wrapper.log  # log file (mode 600)
 ```
 
 `<base>` is `$XDG_RUNTIME_DIR/edge-wrapper` (`/run/user/$UID/edge-wrapper`) when
@@ -182,10 +183,18 @@ waits for the browser to exit or for the safety timeout (`GP_AUTH_TIMEOUT`,
 
 ## Log Files
 
-Debug logs are written to:
+Debug logs are written to the private base directory (see above):
 ```
-/tmp/edge-wrapper-$UID.log
+<base>/wrapper.log        # /run/user/$UID/edge-wrapper/wrapper.log, or under /tmp/edge-wrapper-$UID
 ```
+The file has mode 600 and is created by the desktop user, never by root. The
+messages from before the base directory exists (user lookup, browser and session
+detection) go to stderr and syslog (`logger -t gpclient-browser-wrapper`). As
+root, the wrapper itself never opens the log file: all its own messages go to
+syslog, and only the part that runs as the desktop user (the browser start and
+stop) writes `wrapper.log`. A log file in
+the shared `/tmp` is not used, because another user could replace it with a
+symlink or read it.
 
 Example log:
 ```
@@ -208,7 +217,7 @@ The last line always starts with `done:` and says why the wrapper finished:
 
 ```bash
 # Check log file
-cat /tmp/edge-wrapper-$(id -u).log
+cat /run/user/$(id -u)/edge-wrapper/wrapper.log   # or <base>/wrapper.log; early errors: journalctl -t gpclient-browser-wrapper
 
 # Test manually (any browser, without a VPN connection involved)
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
@@ -220,7 +229,7 @@ close it.
 
 Check the reason in the log:
 ```bash
-grep "done:" /tmp/edge-wrapper-$(id -u).log
+grep "done:" /run/user/$(id -u)/edge-wrapper/wrapper.log
 ```
 `timeout after 300s` means the login took longer than the safety timeout. Raise
 it for the whole service:
@@ -241,7 +250,7 @@ the VPN is unaffected.
 
 Edge policy may not be applied. Check:
 ```bash
-# <base> is /run/user/$(id -u)/edge-wrapper or /tmp/edge-wrapper-$(id -u); see the log
+# <base> is /run/user/$(id -u)/edge-wrapper or /tmp/edge-wrapper-$(id -u)
 cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 ```
 
@@ -249,7 +258,7 @@ cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 
 Check detected display:
 ```bash
-grep "detected DISPLAY" /tmp/edge-wrapper-$(id -u).log
+grep "detected DISPLAY" /run/user/$(id -u)/edge-wrapper/wrapper.log
 ```
 
 For Wayland, ensure `WAYLAND_DISPLAY` is correct:

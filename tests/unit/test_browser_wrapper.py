@@ -53,7 +53,14 @@ def _fake_browser(tmp_path):
         f'"$(dirname "$XDG_CACHE_HOME")" > {tmp_path}/base_stat 2>/dev/null\n'
         # What sits in the well-known /tmp path (the wrapper removes it later)
         f"ls -A /tmp/edge-wrapper-{FAKE_UID}/ > {tmp_path}/planted_listing 2>/dev/null\n"
-        f"ls /tmp/edge-wrapper-*.log > {tmp_path}/wrapper_logs 2>/dev/null\n",
+        f"ls /tmp/edge-wrapper-*.log > {tmp_path}/wrapper_logs 2>/dev/null\n"
+        # The log file inside the private base directory: mode, owner
+        f'stat -c "%a %u" "$(dirname "$XDG_CACHE_HOME")/wrapper.log" '
+        f"> {tmp_path}/log_stat 2>/dev/null\n"
+        # What the planted old log path holds when the browser runs (the wrapper
+        # removes it later)
+        f"cat /tmp/edge-wrapper-{FAKE_UID}.log > {tmp_path}/old_log_at_browser 2>/dev/null\n"
+        "echo browser-stderr-marker >&2\n",
     )
 
 
@@ -170,8 +177,11 @@ def _assert_browser_started(tmp_path, result):
     assert opened.exists(), "the browser was not started"
     assert opened.read_text() == URL + "\n"
     assert not (tmp_path / "pwned").exists(), "an injected command was run"
-    # Only messages logged before the log file exists go to syslog
-    assert not (tmp_path / "syslog").exists()
+    # Messages logged before the log file exists (and, as root, every message
+    # from the root process) go to syslog. A good run has no error in there.
+    syslog = tmp_path / "syslog"
+    text = syslog.read_text() if syslog.exists() else ""
+    assert "ERROR" not in text
 
 
 def _assert_rejected(tmp_path, result, reason):
@@ -357,9 +367,9 @@ def test_root_normalizes_leading_zeros_in_sudo_uid(tmp_path):
 
     _assert_browser_started(tmp_path, result)
     assert _sudo_args(tmp_path)[:2] == ["-u", f"#{FAKE_UID}"]
-    logs = (tmp_path / "wrapper_logs").read_text().splitlines()
-    assert f"/tmp/edge-wrapper-{FAKE_UID}.log" in logs
-    assert f"/tmp/edge-wrapper-{padded}.log" not in logs
+    # The log file is in the private base directory, never a /tmp/...log file
+    assert (tmp_path / "log_stat").read_text().split() == ["600", str(os.geteuid())]
+    assert (tmp_path / "wrapper_logs").read_text() == ""
     assert _browser_env(tmp_path)["XDG_CACHE_HOME"] == (
         f"/tmp/edge-wrapper-{FAKE_UID}/cache"
     )
@@ -899,3 +909,114 @@ def _runtime_file(tmp_path):
     path = tmp_path / "run-file"
     path.write_text("")
     return path
+
+
+# --- The log file lives in the private base directory ---------------------------
+#
+# /tmp is shared: a log file there could be a symlink planted by another user
+# (root would then write into any file) or a file that others can read.
+
+
+def _run_with_runtime(tmp_path, **extra):
+    runtime = tmp_path / "run"
+    runtime.mkdir(mode=0o700)
+    runtime.chmod(0o700)
+    _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime), **extra)
+    return runtime / "edge-wrapper" / "wrapper.log"
+
+
+def test_log_file_is_in_the_private_base_and_not_readable_by_others(tmp_path):
+    # The wrapper deletes nothing under XDG_RUNTIME_DIR, so the log stays
+    log = _run_with_runtime(tmp_path)
+
+    assert (tmp_path / "log_stat").read_text().split() == ["600", str(os.geteuid())]
+    assert log.stat().st_mode & 0o077 == 0
+    text = log.read_text()
+    # The messages from before the base directory exists are in syslog instead
+    assert "called with args" not in text
+    assert "called with args" in (tmp_path / "syslog").read_text()
+    assert "started browser with PID" in text
+    assert "done:" in text
+    # The browser's stderr goes to the same file
+    assert "browser-stderr-marker" in text
+    assert not glob.glob("/tmp/edge-wrapper-*.log")
+
+
+def _plant_log_symlink(tmp_path, path):
+    victim = tmp_path / "victim"
+    victim.write_text("original")
+    os.symlink(victim, path)
+    return victim
+
+
+def _plant_log_foreign_file(tmp_path, path):
+    with open(path, "w") as handle:
+        handle.write("original")
+    os.chmod(path, 0o666)
+    os.chown(path, OTHER_UID, OTHER_UID)
+    return None
+
+
+LOG_PLANTERS = [
+    pytest.param(_plant_log_symlink, id="symlink-to-victim"),
+    pytest.param(
+        _plant_log_foreign_file,
+        id="other-owner",
+        marks=pytest.mark.skipif(not IS_ROOT, reason="needs root to chown"),
+    ),
+]
+
+
+@pytest.mark.parametrize("plant", LOG_PLANTERS)
+def test_planted_tmp_log_file_is_not_written(tmp_path, plant):
+    old_log = f"/tmp/edge-wrapper-{FAKE_UID}.log"
+    assert not os.path.lexists(old_log)
+    victim = plant(tmp_path, old_log)
+
+    log = _run_with_runtime(tmp_path)
+
+    assert (tmp_path / "old_log_at_browser").read_text() == "original", (
+        "the planted log path was written to"
+    )
+    if victim is not None:
+        assert victim.read_text() == "original"
+    assert "started browser with PID" in log.read_text()
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+@pytest.mark.parametrize("plant", LOG_PLANTERS)
+def test_root_never_opens_the_log_file(tmp_path, plant):
+    """Every time root calls sudo, it has not touched the planted /tmp path and
+    has not created the log file: only the user-side code does that."""
+    old_log = f"/tmp/edge-wrapper-{FAKE_UID}.log"
+    victim = plant(tmp_path, old_log)
+    runtime = tmp_path / "run"
+    runtime.mkdir(mode=0o700)
+    runtime.chmod(0o700)
+    _fake_root_tools(tmp_path)
+    # Replace the fake sudo: before it runs the "user" code, note what root did
+    _script(
+        tmp_path / "sudo",
+        f'printf "%s\\n" "$@" > {tmp_path}/sudo_args\n'
+        f"cat {old_log} >> {tmp_path}/planted_at_sudo\n"
+        f"[ -e {runtime}/edge-wrapper/wrapper.log ] && "
+        f"echo exists >> {tmp_path}/log_at_sudo\n"
+        "shift 2\n"
+        'exec "$@"\n',
+    )
+
+    result = _run_wrapper(
+        _root_env(tmp_path, SUDO_UID=str(FAKE_UID), XDG_RUNTIME_DIR=str(runtime))
+    )
+
+    _assert_browser_started(tmp_path, result)
+    # Two sudo calls: the base directory and the browser
+    assert (tmp_path / "planted_at_sudo").read_text() == "original" * 2
+    assert not (tmp_path / "log_at_sudo").exists(), "root created the log file"
+    assert (tmp_path / "old_log_at_browser").read_text() == "original"
+    if victim is not None:
+        assert victim.read_text() == "original"
+    # Root's own messages went to stderr and syslog instead
+    assert "dropping privileges" in result.stderr
+    assert "dropping privileges" in (tmp_path / "syslog").read_text()
+    assert "called with args" not in (runtime / "edge-wrapper" / "wrapper.log").read_text()

@@ -353,7 +353,8 @@ this matches it and nothing else), and set **Size** to *Apply Initially*.
 
 ```bash
 # The wrapper logs every launch and always says why it finished
-grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u).log
+# (path: <base>/wrapper.log, <base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u) if /run/user/$(id -u) is not usable)
+grep -E "done:|WARNING|ERROR" /run/user/$(id -u)/edge-wrapper/wrapper.log
 
 # Try the browser on its own - the window must open and stay open
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"

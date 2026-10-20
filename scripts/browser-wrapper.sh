@@ -14,9 +14,11 @@
 
 MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 
-# LOG_FILE is set after REAL_UID is known (security: per-user log file). Until
-# then log() must go to stderr, so an inherited LOG_FILE cannot receive messages
-# written as root.
+# LOG_FILE is set only once the private TEMP_BASE is known (security: /tmp is
+# shared, so a log file there can be a planted symlink or a file others can
+# read). Until then log() goes to stderr and syslog, so an inherited LOG_FILE
+# cannot receive messages written as root. As root, LOG_FILE stays empty for the
+# whole run: only the part that runs as the real user writes the log file.
 LOG_FILE=""
 log() {
     if [ -n "$LOG_FILE" ]; then
@@ -116,9 +118,7 @@ if [ -z "$PASSWD_ENTRY" ]; then
     REAL_HOME="${HOME:-}"
 fi
 
-# Per-user log file (security: prevent symlink attack). The name is kept from
-# the old edge-only wrapper so existing troubleshooting docs stay valid.
-LOG_FILE="/tmp/edge-wrapper-$REAL_UID.log"
+# No log file yet: it lives in the private TEMP_BASE, which is known later.
 log "called with args: $*"
 log "EUID=$EUID USER=${USER:-} SUDO_UID=${SUDO_UID:-} SUDO_USER=${SUDO_USER:-} PKEXEC_UID=${PKEXEC_UID:-} DOAS_USER=${DOAS_USER:-} GP_BROWSER=${GP_BROWSER:-unset} GP_AUTH_TIMEOUT=$MAX_WAIT"
 log "resolved real user: $REAL_USER (uid=$REAL_UID) home=$REAL_HOME"
@@ -297,7 +297,7 @@ make_temp_base() {
     local runtime="${XDG_RUNTIME_DIR:-/run/user/$REAL_UID}"
     if [ "$EUID" -eq 0 ]; then
         sudo -u "#$REAL_UID" bash -c "$(declare -f log private_dir_ok prepare_temp_base); \
-LOG_FILE=${LOG_FILE@Q}; prepare_temp_base ${REAL_UID@Q} ${runtime@Q} ${PROFILE_NAME@Q}"
+LOG_FILE=; prepare_temp_base ${REAL_UID@Q} ${runtime@Q} ${PROFILE_NAME@Q}"
     else
         prepare_temp_base "$REAL_UID" "$runtime" "$PROFILE_NAME"
     fi
@@ -307,6 +307,19 @@ TEMP_BASE=$(make_temp_base)
 if [ -z "$TEMP_BASE" ]; then
     log "ERROR: cannot create a private temporary directory for the browser profile"
     exit 1
+fi
+
+# Create the log file with mode 600. Run only as the real user, inside the
+# private TEMP_BASE (nobody else can plant anything there).
+init_log_file() {
+    ( umask 077; : >> "$1" ) 2>/dev/null && chmod 600 -- "$1" 2>/dev/null
+}
+
+# The user-side log file. As root we never open it ourselves (root keeps logging
+# to stderr and syslog): the code that runs after the privilege drop does.
+USER_LOG_FILE="$TEMP_BASE/wrapper.log"
+if [ "$EUID" -ne 0 ]; then
+    init_log_file "$USER_LOG_FILE" && LOG_FILE="$USER_LOG_FILE"
 fi
 ALT_HOME_DIR="$TEMP_BASE/home"
 ALT_PROFILE_DIR="$TEMP_BASE/$PROFILE_NAME"
@@ -441,7 +454,7 @@ log "env: ${ENV_VARS[*]}"
 log "cmd: $BROWSER_BIN ${BROWSER_FLAGS[*]}"
 
 run_browser_with_monitor() {
-    env "${ENV_VARS[@]}" "$BROWSER_BIN" "${BROWSER_FLAGS[@]}" 2>>"$LOG_FILE" &
+    env "${ENV_VARS[@]}" "$BROWSER_BIN" "${BROWSER_FLAGS[@]}" 2>>"${LOG_FILE:-/dev/null}" &
     BROWSER_PID=$!
     log "started browser with PID=$BROWSER_PID"
 
@@ -494,9 +507,10 @@ run_browser_with_monitor() {
 if [ "$EUID" -eq 0 ]; then
     # "#uid" makes sudo take a numeric UID, so the name is never involved
     log "running as root; dropping privileges to $REAL_USER (uid=$REAL_UID) via sudo"
-    exec sudo -u "#$REAL_UID" bash -c "$(declare -f log run_browser_with_monitor); \
+    exec sudo -u "#$REAL_UID" bash -c "$(declare -f log init_log_file run_browser_with_monitor); \
+LOG_FILE=; init_log_file ${USER_LOG_FILE@Q} && LOG_FILE=${USER_LOG_FILE@Q}; \
 ENV_VARS=(${ENV_VARS[*]@Q}); BROWSER_BIN=${BROWSER_BIN@Q}; \
-BROWSER_FLAGS=(${BROWSER_FLAGS[*]@Q}); LOG_FILE=${LOG_FILE@Q}; \
+BROWSER_FLAGS=(${BROWSER_FLAGS[*]@Q}); \
 GPAUTH_PID=${GPAUTH_PID@Q}; MAX_WAIT=${MAX_WAIT@Q}; run_browser_with_monitor"
 else
     log "running as EUID=$EUID (no privilege drop needed)"
