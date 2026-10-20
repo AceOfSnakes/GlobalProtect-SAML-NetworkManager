@@ -27,6 +27,27 @@ static const QString gatewayAutoLabel = QStringLiteral("First proposed by portal
  * connection with browser authentication starts with this value (issue #46). */
 static const int samlTimeoutDefault = 180;
 
+/* Tunnel MTU (vpn.data "mtu"). 0 = automatic: no key is stored. openconnect
+ * raises values below 576 to 576, so the editor never saves less. */
+static const int mtuMin = 576;
+static const int mtuMax = 1500;
+
+/* The stored mtu as a number: 0 (automatic) when missing or invalid */
+static int parseMtu(const QString &text)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty() || trimmed.size() > 4) {
+        return 0;
+    }
+    for (const QChar c : trimmed) {
+        if (c < QLatin1Char('0') || c > QLatin1Char('9')) {
+            return 0;
+        }
+    }
+    const int mtu = trimmed.toInt();
+    return (mtu >= mtuMin && mtu <= mtuMax) ? mtu : 0;
+}
+
 /* Browser values understood by the service (see resolve_browser()) */
 static const QStringList browserValues = {
     QStringLiteral("edge"),
@@ -75,6 +96,7 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
         m_timeoutFollowsAuthMode = false;
         Q_EMIT settingChanged();
     });
+    connect(m_ui->mtuSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &GpclientWidget::settingChanged);
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
@@ -189,6 +211,9 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
             m_ui->fixOpensslComboBox->setCurrentIndex(0);
         }
 
+        // Tunnel MTU: a missing or invalid value shows as automatic (0)
+        m_ui->mtuSpinBox->setValue(parseMtu(data.value(QLatin1String("mtu"))));
+
         // Load HIP (default: enabled)
         const QString hipValue = data.value(QLatin1String("hip"), QLatin1String("true"));
         m_ui->hipCheckBox->setChecked(hipValue.toLower() == QLatin1String("true"));
@@ -268,6 +293,14 @@ QVariantMap GpclientWidget::setting() const
     default:
         data.remove(QLatin1String("fix-openssl"));
         break;
+    }
+
+    // Save the MTU: 0 = automatic (no key), below 576 is saved as 576
+    const int mtu = m_ui->mtuSpinBox->value();
+    if (mtu <= 0) {
+        data.remove(QLatin1String("mtu"));
+    } else {
+        data.insert(QLatin1String("mtu"), QString::number(qBound(mtuMin, mtu, mtuMax)));
     }
 
     // Save HIP

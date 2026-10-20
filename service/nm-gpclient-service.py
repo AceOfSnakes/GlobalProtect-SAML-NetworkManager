@@ -331,6 +331,21 @@ def parse_stored_gateway_count(value: str) -> Optional[int]:
     return _gateway_count_value(value.strip())
 
 
+# MTU of the tunnel (vpn.data mtu). gpclient --mtu reaches openconnect, which
+# raises values below 576 to 576. Valid here: a plain decimal 576..1500.
+MTU_MIN = 576
+MTU_MAX = 1500
+
+
+def parse_mtu(text: str) -> Optional[int]:
+    """vpn.data mtu as a number; None for automatic, empty or invalid text"""
+    value = text.strip()
+    if not (value.isascii() and value.isdigit()) or len(value) > 4:
+        return None
+    mtu = int(value)
+    return mtu if MTU_MIN <= mtu <= MTU_MAX else None
+
+
 # --- Interactive prompt detection -------------------------------------------
 #
 # For portals that do NOT use SAML (Prelogin::Standard in gpclient, e.g. RSA
@@ -1147,6 +1162,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         # Portal / gateway selection (issue #7)
         self.as_gateway = False
+        self.mtu: Optional[int] = None  # pass --mtu to gpclient when set
         self.preferred_gateway = ""
         self._connection_uuid = ""
         self._gateway_list: List[str] = []  # discovered during this attempt
@@ -1393,6 +1409,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.fix_openssl = self.fix_openssl_mode == "true"
             logger.info(f"fix-openssl: {self.fix_openssl_mode}")
 
+            # Tunnel MTU: empty or 0 means automatic. An invalid value is
+            # ignored so a typo cannot break the connection.
+            mtu_text = data_dict.get("mtu", "").strip()
+            self.mtu = parse_mtu(mtu_text)
+            if self.mtu is None and mtu_text not in ("", "0"):
+                logger.warning(
+                    f"Invalid mtu value {mtu_text!r} (use 576-1500), ignoring it"
+                )
+            logger.info(f"MTU: {self.mtu if self.mtu else 'automatic'}")
+
             # Portal / gateway handling (issue #7)
             self.as_gateway = data_dict.get("as-gateway", "false").lower() == "true"
             self.preferred_gateway = data_dict.get("preferred-gateway", "").strip()
@@ -1533,6 +1559,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
         self.as_gateway = False
+        self.mtu = None
         self.preferred_gateway = ""
         self._connection_uuid = ""
         self._gateway_list = []
@@ -1867,6 +1894,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             # so the user is not authenticated twice
             if self.as_gateway:
                 cmd.append("--as-gateway")
+
+            # Tunnel MTU, set when the automatic value is too big for the
+            # network (ESP falls back to HTTPS with "Message too long")
+            if self.mtu:
+                cmd.extend(["--mtu", str(self.mtu)])
 
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:

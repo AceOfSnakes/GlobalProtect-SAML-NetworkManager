@@ -309,6 +309,60 @@ class TestTimeoutCases:
         assert results == before
 
 
+def good_mtu_results():
+    return {case["name"]: (case["shown"], case["saved"]) for case in lib.MTU_CASES}
+
+
+class TestMtuCases:
+    def test_the_expected_results_pass(self):
+        assert lib.check_mtu_results(good_mtu_results()) == []
+
+    def test_the_limits_are_the_ones_of_the_editors(self):
+        assert (lib.MTU_MIN, lib.MTU_MAX) == (576, 1500)
+
+    def test_case_names_are_unique(self):
+        names = [case["name"] for case in lib.MTU_CASES]
+
+        assert len(names) == len(set(names))
+
+    def test_a_value_below_the_minimum_is_saved_as_the_minimum_and_zero_removes_the_key(self):
+        expected = good_mtu_results()
+
+        assert expected["mtu: 400 is saved as 576"] == (400, "576")
+        assert expected["mtu: 0 removes the key"] == (0, None)
+        assert expected["mtu: 1400 is saved"] == (1400, "1400")
+
+    @pytest.mark.parametrize("index", range(len(lib.MTU_CASES)))
+    def test_a_wrong_shown_or_saved_value_is_reported(self, index):
+        case = lib.MTU_CASES[index]
+        for position, wrong in ((0, case["shown"] + 1), (1, "9999")):
+            results = good_mtu_results()
+            results[case["name"]] = tuple(wrong if i == position else v
+                                          for i, v in enumerate(results[case["name"]]))
+
+            problems = lib.check_mtu_results(results)
+
+            assert len(problems) == 1 and case["name"] in problems[0]
+
+    def test_a_case_that_did_not_run_is_reported(self):
+        results = good_mtu_results()
+        case = lib.MTU_CASES[0]
+        del results[case["name"]]
+
+        assert lib.check_mtu_results(results) == [f"MTU case {case['name']!r} did not run"]
+
+    @pytest.mark.parametrize("source, definition", [
+        ("gnome/nm-gpclient-editor.c", "#define MTU_MIN {}\n#define MTU_MAX {}\n"),
+        ("gnome/nm-gpclient-editor-gtk3.c", "#define MTU_MIN {}\n#define MTU_MAX {}\n"),
+        ("plasma/gpclientwidget.cpp", "static const int mtuMin = {};\nstatic const int mtuMax = {};\n"),
+    ])
+    def test_the_limits_are_the_ones_of_the_editor(self, source, definition):
+        with open(os.path.join(ROOT, "plugins", source), encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert definition.format(lib.MTU_MIN, lib.MTU_MAX) in text
+
+
 class TestEditorTextsMatchTheSources:
     """The expected texts are the ones the C sources put in the widgets"""
 

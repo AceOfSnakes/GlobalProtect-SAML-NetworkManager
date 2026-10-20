@@ -46,6 +46,35 @@ TIMEOUT_CASES = [
      "steps": [("auth", 0)], "shown": TIMEOUT, "saved": TIMEOUT},
 ]
 
+# The MTU spin button has this upper limit (the connect timeout spin button
+# has a much higher one); the editors save less than MTU_MIN as MTU_MIN.
+MTU_MAX = 1500
+MTU_MIN = 576
+
+# Save scenarios of the MTU (vpn.data mtu). Each case opens the editor for an
+# existing profile with "vpn_data" (default: only the gateway), optionally sets
+# the spin button ("spin"), then compares the spin button (shown) and the
+# vpn.data mtu that update_connection() writes (saved, None = no key) with the
+# expectation.
+MTU_CASES = [
+    {"name": "mtu: stored value", "vpn_data": {"gateway": GATEWAY, "mtu": "1300"},
+     "spin": None, "shown": 1300, "saved": "1300"},
+    {"name": "mtu: not stored", "vpn_data": {"gateway": GATEWAY},
+     "spin": None, "shown": 0, "saved": None},
+    {"name": "mtu: invalid stored value", "vpn_data": {"gateway": GATEWAY, "mtu": "abc"},
+     "spin": None, "shown": 0, "saved": None},
+    {"name": "mtu: stored value out of range", "vpn_data": {"gateway": GATEWAY, "mtu": "1501"},
+     "spin": None, "shown": 0, "saved": None},
+    {"name": "mtu: stored value below the minimum", "vpn_data": {"gateway": GATEWAY, "mtu": "400"},
+     "spin": None, "shown": 0, "saved": None},
+    {"name": "mtu: 0 removes the key", "vpn_data": {"gateway": GATEWAY, "mtu": "1300"},
+     "spin": 0, "shown": 0, "saved": None},
+    {"name": "mtu: 400 is saved as 576", "vpn_data": {"gateway": GATEWAY},
+     "spin": 400, "shown": 400, "saved": "576"},
+    {"name": "mtu: 1400 is saved", "vpn_data": {"gateway": GATEWAY},
+     "spin": 1400, "shown": 1400, "saved": "1400"},
+]
+
 
 def parse_name_file(text):
     """{"service", "plugin", "name"} of a NetworkManager VPN .name file.
@@ -153,6 +182,23 @@ def check_timeout_results(results):
             problems.append(f"{name}: the connect timeout shown is {shown}, expected {case['shown']}")
         if saved != case["saved"]:
             problems.append(f"{name}: the connect timeout saved is {saved}, expected {case['saved']}")
+    return problems
+
+
+def check_mtu_results(results):
+    """The problems of the MTU scenarios (empty list = fine): `results` maps the
+    name of a MTU_CASES entry to (shown, saved)."""
+    problems = []
+    for case in MTU_CASES:
+        name = case["name"]
+        if name not in results:
+            problems.append(f"MTU case {name!r} did not run")
+            continue
+        shown, saved = results[name]
+        if shown != case["shown"]:
+            problems.append(f"{name}: the MTU shown is {shown}, expected {case['shown']}")
+        if saved != case["saved"]:
+            problems.append(f"{name}: the MTU saved is {saved!r}, expected {case['saved']!r}")
     return problems
 
 

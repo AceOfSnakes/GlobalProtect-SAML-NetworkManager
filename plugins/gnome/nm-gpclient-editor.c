@@ -16,6 +16,7 @@ struct _NMGpclientEditor {
     GtkWidget *username_entry;
     GtkWidget *browser_combo;
     GtkWidget *timeout_spin;
+    GtkWidget *mtu_spin;
     gboolean timeout_follows_auth_mode;
     GtkWidget *dns_entry;
     GtkWidget *hip_check;
@@ -30,6 +31,36 @@ struct _NMGpclientEditor {
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
  * connection with browser authentication starts with this value (issue #46). */
 #define SAML_TIMEOUT_DEFAULT 180
+
+/* Tunnel MTU (vpn.data "mtu"). 0 = automatic: no key is stored. openconnect
+ * raises values below 576 to 576, so the editor never saves less. */
+#define MTU_MIN 576
+#define MTU_MAX 1500
+
+/* The stored mtu as a number: 0 (automatic) when missing or invalid */
+static int
+parse_mtu (const char *text)
+{
+    const char *p;
+    int mtu = 0;
+
+    if (!text)
+        return 0;
+    while (g_ascii_isspace (*text))
+        text++;
+    for (p = text; g_ascii_isdigit (*p); p++) {
+        mtu = mtu * 10 + (*p - '0');
+        if (mtu > MTU_MAX)
+            return 0;
+    }
+    if (p == text)
+        return 0;
+    while (g_ascii_isspace (*p))
+        p++;
+    if (*p != '\0')
+        return 0;
+    return mtu >= MTU_MIN ? mtu : 0;
+}
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const char *browser_values[] = {
@@ -80,6 +111,12 @@ combo_changed_cb (GtkComboBox *combo, gpointer user_data)
 }
 
 static void
+spin_changed_cb (GtkSpinButton *spin, gpointer user_data)
+{
+    g_signal_emit_by_name (user_data, "changed");
+}
+
+static void
 timeout_changed_cb (GtkSpinButton *spin, gpointer user_data)
 {
     NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
@@ -106,7 +143,7 @@ auth_mode_changed_cb (GtkComboBox *combo, gpointer user_data)
 static GtkWidget *
 build_ui (NMGpclientEditor *self)
 {
-    GtkWidget *grid, *label, *timeout_box, *timeout_hint;
+    GtkWidget *grid, *label, *timeout_box, *timeout_hint, *mtu_box, *mtu_hint;
     NMSettingVpn *s_vpn;
     const char *value;
     gboolean is_new;
@@ -313,6 +350,29 @@ build_ui (NMGpclientEditor *self)
     gtk_box_append (GTK_BOX (timeout_box), timeout_hint);
     gtk_grid_attach (GTK_GRID (grid), timeout_box, 1, row++, 1, 1);
 
+    /* Tunnel MTU (vpn.data "mtu") */
+    label = gtk_label_new ("MTU:");
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+
+    mtu_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    self->mtu_spin = gtk_spin_button_new_with_range (0, MTU_MAX, 1);
+    gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->mtu_spin), 0);
+    gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (self->mtu_spin), TRUE);
+    gtk_widget_set_hexpand (self->mtu_spin, TRUE);
+    gtk_widget_set_tooltip_text (self->mtu_spin,
+        "Maximum size of a packet in the tunnel.\n"
+        "0 = Automatic. Lower it, for example to 1300-1400, if the tunnel falls "
+        "back from ESP to HTTPS with \"Message too long\".\n"
+        "Values from 1 to 575 are saved as 576, the lowest value that is used.");
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->mtu_spin),
+                               s_vpn ? parse_mtu (nm_setting_vpn_get_data_item (s_vpn, "mtu")) : 0);
+    g_signal_connect (self->mtu_spin, "value-changed", G_CALLBACK (spin_changed_cb), self);
+    gtk_box_append (GTK_BOX (mtu_box), self->mtu_spin);
+    mtu_hint = gtk_label_new ("bytes (0 = Automatic)");
+    gtk_box_append (GTK_BOX (mtu_box), mtu_hint);
+    gtk_grid_attach (GTK_GRID (grid), mtu_box, 1, row++, 1, 1);
+
     /* Legacy TLS renegotiation workaround */
     label = gtk_label_new ("Legacy TLS renegotiation:");
     gtk_widget_set_halign (label, GTK_ALIGN_START);
@@ -463,6 +523,21 @@ update_connection (NMVpnEditor *editor,
     g_object_set (s_vpn, NM_SETTING_VPN_TIMEOUT,
                   (guint) gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->timeout_spin)),
                   NULL);
+
+    /* Save the MTU: 0 = automatic (no key), below 576 is saved as 576 */
+    gtk_spin_button_update (GTK_SPIN_BUTTON (self->mtu_spin));
+    {
+        int mtu = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->mtu_spin));
+
+        if (mtu <= 0) {
+            nm_setting_vpn_remove_data_item (s_vpn, "mtu");
+        } else {
+            char *mtu_text = g_strdup_printf ("%d", CLAMP (mtu, MTU_MIN, MTU_MAX));
+
+            nm_setting_vpn_add_data_item (s_vpn, "mtu", mtu_text);
+            g_free (mtu_text);
+        }
+    }
 
     /* Save DNS */
     str = gtk_editable_get_text (GTK_EDITABLE (self->dns_entry));

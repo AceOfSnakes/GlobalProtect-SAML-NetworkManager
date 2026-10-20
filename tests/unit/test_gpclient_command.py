@@ -140,3 +140,125 @@ def test_connect_command_never_uses_unsupported_modes(
     assert argv[argv.index("--browser") + 1] == wrapper
     assert "manual" not in argv
     assert "remote" not in argv
+
+
+# --- MTU (vpn.data mtu -> gpclient connect --mtu) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [("576", 576), ("1300", 1300), ("1500", 1500), (" 1400 ", 1400)],
+)
+def test_parse_mtu_accepts_a_decimal_in_range(service_module, text, expected):
+    assert service_module.parse_mtu(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "   ",
+        "0",
+        "575",
+        "1",
+        "1501",
+        "99999999999999999999",
+        "-1400",
+        "+1400",
+        "1400.0",
+        " 14 00",
+        "abc",
+        "1400mtu",
+        "0x578",
+        "١٣٠٠",  # Arabic-Indic digits
+    ],
+)
+def test_parse_mtu_gives_none_for_automatic_or_invalid(service_module, text):
+    assert service_module.parse_mtu(text) is None
+
+
+def test_connect_command_passes_mtu_before_browser(
+    service_module, monkeypatch, tmp_path
+):
+    argv, wrapper = _command(
+        service_module, monkeypatch, tmp_path, mtu=1300, hip_enabled=False
+    )
+
+    assert argv[argv.index("--mtu") + 1] == "1300"
+    assert argv.index("connect") < argv.index("--mtu") < argv.index("--browser")
+
+
+@pytest.mark.parametrize("mtu", [None, 0])
+def test_connect_command_has_no_mtu_when_automatic(
+    service_module, monkeypatch, tmp_path, mtu
+):
+    argv, wrapper = _command(
+        service_module, monkeypatch, tmp_path, mtu=mtu, hip_enabled=False
+    )
+
+    assert "--mtu" not in argv
+
+
+def _do_connect(service_module, monkeypatch, vpn_data):
+    """Run the connect path with `vpn_data`; gpclient is not started"""
+    plugin = service_module.GpclientVPNPlugin()
+
+    async def nothing(*args, **kwargs):
+        return None
+
+    async def started():
+        return True
+
+    async def idle():
+        pass
+
+    plugin._cleanup_stale_gpd0 = nothing
+    plugin._snapshot_tunnel_interfaces = nothing
+    plugin._start_gpclient = started
+    plugin._check_tunnel_loop = idle
+
+    async def run():
+        data = {"gateway": "portal.example.com", **vpn_data}
+        await plugin._do_connect({"vpn": {"data": ("a{ss}", data)}}, False)
+
+    asyncio.run(run())
+    return plugin
+
+
+@pytest.mark.parametrize(
+    "stored, expected", [({"mtu": "1300"}, 1300), ({"mtu": " 576 "}, 576)]
+)
+def test_connect_reads_a_valid_mtu(service_module, monkeypatch, caplog, stored, expected):
+    caplog.set_level("INFO")
+
+    plugin = _do_connect(service_module, monkeypatch, stored)
+
+    assert plugin.mtu == expected
+    assert f"MTU: {expected}" in caplog.text
+    assert "Invalid mtu" not in caplog.text
+
+
+@pytest.mark.parametrize("stored", [{}, {"mtu": ""}, {"mtu": "0"}, {"mtu": " 0 "}])
+def test_connect_mtu_automatic_logs_no_warning(
+    service_module, monkeypatch, caplog, stored
+):
+    caplog.set_level("INFO")
+
+    plugin = _do_connect(service_module, monkeypatch, stored)
+
+    assert plugin.mtu is None
+    assert "MTU: automatic" in caplog.text
+    assert "Invalid mtu" not in caplog.text
+
+
+@pytest.mark.parametrize("bad", ["575", "1501", "abc", "-1400", "+1400", "1400.0", "99999999999"])
+def test_connect_ignores_an_invalid_mtu_with_a_warning(
+    service_module, monkeypatch, caplog, bad
+):
+    caplog.set_level("INFO")
+
+    plugin = _do_connect(service_module, monkeypatch, {"mtu": bad})
+
+    assert plugin.mtu is None
+    assert "Invalid mtu" in caplog.text
+    assert "MTU: automatic" in caplog.text
