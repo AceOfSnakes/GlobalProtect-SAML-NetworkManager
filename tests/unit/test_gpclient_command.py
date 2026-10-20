@@ -153,6 +153,8 @@ def test_connect_command_never_uses_unsupported_modes(
         ("1500", 1500),
         (" \t1400\n", 1400),
         ("01300", 1300),
+        ("\v1300\v", 1300),
+        ("\f1300\r", 1300),
         ("0" * 50 + "1300", 1300),
         ("500", 576),  # raised, like openconnect does
         ("1", 576),
@@ -163,6 +165,8 @@ def test_connect_command_never_uses_unsupported_modes(
         ("0", 0),
         ("00", 0),
         ("0000", 0),
+        ("\v", 0),
+        (" 0 ", 0),
         ("0" * 50, 0),
     ],
 )
@@ -180,6 +184,8 @@ def test_parse_mtu_accepts_the_rule(service_module, text, expected):
         "+1300",
         "1400.0",
         "13 00",
+        "0 0",
+        "0\t0",
         "abc",
         "1400mtu",
         "0x578",
@@ -277,7 +283,7 @@ def test_connect_mtu_automatic_logs_no_warning(
 
 @pytest.mark.parametrize(
     "bad",
-    ["1501", "abc", "-1400", "+1300", "1400.0", "13 00", "99999999999", "\u0661\u0663\u0660\u0660"],
+    ["1501", "abc", "-1400", "+1300", "1400.0", "13 00", "0 0", "99999999999", "\u0661\u0663\u0660\u0660"],
 )
 def test_connect_ignores_an_invalid_mtu_with_a_warning(
     service_module, monkeypatch, caplog, bad

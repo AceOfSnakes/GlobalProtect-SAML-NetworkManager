@@ -24,7 +24,7 @@ struct _NMGpclientEditor {
     GtkSpinButton *timeout_spin;
     GtkSpinButton *mtu_spin;
     char *mtu_stored;  /* raw vpn.data mtu at load, NULL if none */
-    int mtu_shown;     /* what the spin button showed at load */
+    gboolean mtu_touched;  /* the user changed the spin button after load */
     gboolean timeout_follows_auth_mode;
     GtkEntry *dns_entry;
     GtkCheckButton *hip_check;
@@ -83,6 +83,16 @@ timeout_changed_cb (GtkSpinButton *spin, gpointer user_data)
 }
 
 static void
+mtu_changed_cb (GtkSpinButton *spin, gpointer user_data)
+{
+    NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+
+    /* Set after load: the value was set before this handler was connected */
+    self->mtu_touched = TRUE;
+    g_signal_emit_by_name (G_OBJECT (self), "changed");
+}
+
+static void
 auth_mode_changed_cb (GtkComboBox *combo, gpointer user_data)
 {
     NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
@@ -105,6 +115,7 @@ build_ui (NMGpclientEditor *self)
     gboolean is_new;
     guint stored;
     int auth_index;
+    int shown;
     int row = 0;
 
     s_vpn = nm_connection_get_setting_vpn (self->connection);
@@ -334,9 +345,10 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_name (GTK_WIDGET (self->mtu_spin), "mtu_spin");
     g_free (self->mtu_stored);
     self->mtu_stored = g_strdup (s_vpn ? nm_setting_vpn_get_data_item (s_vpn, "mtu") : NULL);
-    self->mtu_shown = nm_gpclient_parse_mtu (self->mtu_stored);
-    gtk_spin_button_set_value (self->mtu_spin, self->mtu_shown);
-    g_signal_connect (G_OBJECT (self->mtu_spin), "value-changed", G_CALLBACK (stuff_changed_cb), self);
+    self->mtu_touched = FALSE;
+    shown = nm_gpclient_mtu_parse (self->mtu_stored);
+    gtk_spin_button_set_value (self->mtu_spin, shown > 0 ? shown : 0);
+    g_signal_connect (G_OBJECT (self->mtu_spin), "value-changed", G_CALLBACK (mtu_changed_cb), self);
     gtk_box_pack_start (GTK_BOX (mtu_box), GTK_WIDGET (self->mtu_spin), TRUE, TRUE, 0);
     mtu_hint = gtk_label_new ("bytes (0 = Automatic)");
     gtk_box_pack_start (GTK_BOX (mtu_box), mtu_hint, FALSE, FALSE, 0);
@@ -508,9 +520,9 @@ update_connection (NMVpnEditor *iface,
 
         gtk_spin_button_update (self->mtu_spin);
         mtu = gtk_spin_button_get_value_as_int (self->mtu_spin);
-        if (mtu <= 0 && self->mtu_shown == 0 && !nm_gpclient_mtu_is_automatic_text (self->mtu_stored)) {
-            /* The stored value could not be shown and the spin button is
-             * untouched: keep the text instead of losing it */
+        if (!self->mtu_touched && nm_gpclient_mtu_parse (self->mtu_stored) < 0) {
+            /* The stored value is invalid, so the spin button shows 0, and the
+             * user did not touch it: keep the text instead of losing it */
             nm_setting_vpn_add_data_item (s_vpn, "mtu", self->mtu_stored);
         } else if (mtu <= 0) {
             nm_setting_vpn_remove_data_item (s_vpn, "mtu");

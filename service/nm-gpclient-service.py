@@ -344,7 +344,8 @@ def parse_mtu(text: str) -> Optional[int]:
     """vpn.data mtu as a number: 0 = automatic (empty text or only zeros),
     MTU_MIN..MTU_MAX otherwise (smaller values are raised to MTU_MIN), None
     when the text is invalid (sign, dot, inner space, non-ASCII digits, more
-    than MTU_MAX). The same rule is in the editors (nm-gpclient-mtu.h)."""
+    than MTU_MAX). The same rule is in the editors (nm_gpclient_mtu_parse in
+    plugins/gnome/nm-gpclient-mtu.h, -1 there is None here)."""
     value = text.strip(MTU_SPACE)
     if not value:
         return 0

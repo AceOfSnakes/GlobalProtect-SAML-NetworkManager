@@ -140,8 +140,8 @@ def run_mtu_case(NM, Gtk, major, plugin, service, case):
              if w.get_name() == lib.MTU_SPIN_NAME]
     if len(spins) != 1:
         fail(f"GTK{major} editor: {len(spins)} MTU spin buttons, expected 1")
-    if case["spin"] is not None:
-        spins[0].set_value(case["spin"])
+    for value in case["spins"]:
+        spins[0].set_value(value)
     shown = spins[0].get_value_as_int()
     editor.update_connection(connection)
     return shown, connection.get_setting_vpn().get_data_item("mtu")

@@ -343,6 +343,8 @@ class TestMtuCases:
         # a value that is shown, or only zeros, is not kept as text
         assert expected["mtu: stored 00 is automatic"] == (0, None)
         assert expected["mtu: 0 removes the key"] == (0, None)
+        # touched: the user set 1300 and then 0
+        assert expected["mtu: stored 1600, 1300 then 0: the key is removed"] == (0, None)
 
     @pytest.mark.parametrize("index", range(len(lib.MTU_CASES)))
     def test_a_wrong_shown_or_saved_value_is_reported(self, index):
@@ -377,11 +379,31 @@ class TestMtuCases:
         assert '#include "nm-gpclient-mtu.h"' in text
         assert f'"{lib.MTU_SPIN_NAME}"' in text
 
-    def test_the_plasma_limits_are_the_ones_of_the_editor(self):
-        with open(os.path.join(ROOT, "plugins", "plasma", "gpclientwidget.cpp"), encoding="utf-8") as handle:
-            text = handle.read()
+    def test_plasma_uses_the_header_and_its_spin_box_has_the_same_maximum(self):
+        plasma = os.path.join(ROOT, "plugins", "plasma")
+        with open(os.path.join(plasma, "gpclientwidget.cpp"), encoding="utf-8") as handle:
+            cpp = handle.read()
+        with open(os.path.join(plasma, "gpclientwidget.ui"), encoding="utf-8") as handle:
+            ui = handle.read()
+        with open(os.path.join(plasma, "CMakeLists.txt"), encoding="utf-8") as handle:
+            cmake = handle.read()
 
-        assert f"static const int mtuMin = {lib.MTU_MIN};\nstatic const int mtuMax = {lib.MTU_MAX};\n" in text
+        assert '#include "nm-gpclient-mtu.h"' in cpp
+        assert "nm_gpclient_mtu_parse(" in cpp
+        assert "${CMAKE_CURRENT_SOURCE_DIR}/../gnome" in cmake
+        # no second copy of the rule in the editor
+        for own in ("parseMtu", "isMtuSpace", "isAutomaticMtuText", "mtuMin", "mtuMax"):
+            assert own not in cpp
+        box = ui[ui.index('name="mtuSpinBox"'):]
+        maximum = box[box.index('<property name="maximum">'):]
+        assert f"<number>{lib.MTU_MAX}</number>" in maximum[:maximum.index("</property>")]
+
+    def test_the_gtk_editors_keep_an_invalid_stored_value_by_a_touched_flag(self):
+        for source in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
+            with open(os.path.join(ROOT, "plugins", "gnome", source), encoding="utf-8") as handle:
+                text = handle.read()
+
+            assert "mtu_touched" in text and "mtu_shown" not in text
 
 
 class TestEditorTextsMatchTheSources:

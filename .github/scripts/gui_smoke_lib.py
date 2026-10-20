@@ -53,14 +53,15 @@ MTU_MAX = 1500
 MTU_MIN = 576
 
 # Save scenarios of the MTU (vpn.data mtu). Each case opens the editor for an
-# existing profile with "vpn_data", optionally sets the spin button ("spin"),
-# then compares the spin button (shown) and the vpn.data mtu that
+# existing profile with "vpn_data", sets the spin button to each value of
+# "spins" in turn (none = untouched), then compares the spin button (shown) and the vpn.data mtu that
 # update_connection() writes (saved, None = no key) with the expectation.
 def _mtu_case(name, stored, spin, shown, saved):
     data = {"gateway": GATEWAY}
     if stored is not None:
         data["mtu"] = stored
-    return {"name": "mtu: " + name, "vpn_data": data, "spin": spin, "shown": shown, "saved": saved}
+    spins = [] if spin is None else spin if isinstance(spin, list) else [spin]
+    return {"name": "mtu: " + name, "vpn_data": data, "spins": spins, "shown": shown, "saved": saved}
 
 
 MTU_CASES = [
@@ -77,6 +78,8 @@ MTU_CASES = [
     _mtu_case("stored abc is kept when untouched", "abc", None, 0, "abc"),
     _mtu_case("stored 1600, 0 set: the key stays", "1600", 0, 0, "1600"),
     _mtu_case("stored 1600 replaced by 1300", "1600", 1300, 1300, "1300"),
+    # touched: the user set a value and then 0, so 0 means automatic now
+    _mtu_case("stored 1600, 1300 then 0: the key is removed", "1600", [1300, 0], 0, None),
     _mtu_case("stored abc replaced by 400", "abc", 400, 400, "576"),
     _mtu_case("0 removes the key", "1300", 0, 0, None),
     _mtu_case("400 is saved as 576", None, 400, 400, "576"),

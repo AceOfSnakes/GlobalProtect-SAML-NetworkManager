@@ -6,6 +6,9 @@
 #include "gpclientwidget.h"
 #include "ui_gpclientwidget.h"
 
+// The MTU rule (plain C, shared with the GTK editors)
+#include "nm-gpclient-mtu.h"
+
 #include <NetworkManagerQt/Utils>
 #include <QCheckBox>
 #include <QComboBox>
@@ -26,67 +29,6 @@ static const QString gatewayAutoLabel = QStringLiteral("First proposed by portal
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
  * connection with browser authentication starts with this value (issue #46). */
 static const int samlTimeoutDefault = 180;
-
-/* Tunnel MTU (vpn.data "mtu"). 0 = automatic: no key is stored. gpclient --mtu
- * reaches openconnect as the requested MTU, which it uses ONLY when the gateway
- * sends no MTU of its own. openconnect raises values below 576 to 576, so the
- * editor does the same. The same rule is in the service (parse_mtu) and in the
- * GTK editors (nm-gpclient-mtu.h). */
-static const int mtuMin = 576;
-static const int mtuMax = 1500;
-
-static bool isMtuSpace(QChar c)
-{
-    // ASCII whitespace only (QString::trimmed() strips Unicode spaces too)
-    return c == QLatin1Char(' ') || (c >= QChar(0x09) && c <= QChar(0x0d));
-}
-
-/* The stored mtu as a number for the spin box: only ASCII whitespace is
- * stripped, the rest must be ASCII digits (leading zeros are fine). Zero,
- * missing or invalid text (sign, dot, inner space, non-ASCII digits, more than
- * mtuMax) gives 0 = automatic; 1..575 gives mtuMin. */
-static int parseMtu(const QString &text)
-{
-    int begin = 0;
-    int end = text.size();
-    while (begin < end && isMtuSpace(text.at(begin))) {
-        ++begin;
-    }
-    while (end > begin && isMtuSpace(text.at(end - 1))) {
-        --end;
-    }
-    if (begin == end) {
-        return 0;
-    }
-    int mtu = 0;
-    for (int i = begin; i < end; ++i) {
-        const QChar c = text.at(i);
-        if (c < QLatin1Char('0') || c > QLatin1Char('9')) {
-            return 0;
-        }
-        mtu = mtu * 10 + (c.unicode() - '0');
-        if (mtu > mtuMax) {
-            return 0;
-        }
-    }
-    if (mtu == 0) {
-        return 0;
-    }
-    return mtu < mtuMin ? mtuMin : mtu;
-}
-
-/* True when the stored text means "automatic": empty, only ASCII whitespace or
- * only zeros. False for a value the spin box cannot show: it is kept on save
- * while the spin box is untouched, so a save does not lose it. */
-static bool isAutomaticMtuText(const QString &text)
-{
-    for (const QChar c : text) {
-        if (c != QLatin1Char('0') && !isMtuSpace(c)) {
-            return false;
-        }
-    }
-    return true;
-}
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const QStringList browserValues = {
@@ -136,7 +78,11 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
         m_timeoutFollowsAuthMode = false;
         Q_EMIT settingChanged();
     });
-    connect(m_ui->mtuSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &GpclientWidget::settingChanged);
+    connect(m_ui->mtuSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+        // loadConfig() blocks this signal while it sets the value
+        m_mtuTouched = true;
+        Q_EMIT settingChanged();
+    });
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
@@ -252,10 +198,11 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         }
 
         // Tunnel MTU: a missing or invalid value shows as automatic (0)
-        m_mtuShown = parseMtu(data.value(QLatin1String("mtu")));
+        const int mtuShown = nm_gpclient_mtu_parse(data.value(QLatin1String("mtu")).toUtf8().constData());
+        m_mtuTouched = false;
         {
             const QSignalBlocker blocker(m_ui->mtuSpinBox);
-            m_ui->mtuSpinBox->setValue(m_mtuShown);
+            m_ui->mtuSpinBox->setValue(mtuShown > 0 ? mtuShown : 0);
         }
 
         // Load HIP (default: enabled)
@@ -339,15 +286,18 @@ QVariantMap GpclientWidget::setting() const
         break;
     }
 
-    // Save the MTU: 0 = automatic (no key), below 576 is saved as 576
+    // Save the MTU: 0 = automatic (no key), below 576 is saved as 576. An
+    // invalid stored value shows as 0; while the user did not touch the spin box
+    // the key keeps its text (data starts from m_originalData).
     const int mtu = m_ui->mtuSpinBox->value();
-    if (mtu <= 0 && m_mtuShown == 0 && !isAutomaticMtuText(m_originalData.value(QLatin1String("mtu")))) {
-        // The stored value could not be shown and the spin box is untouched:
-        // keep the text (data starts from m_originalData) instead of losing it
+    const bool keepStored = !m_mtuTouched
+        && nm_gpclient_mtu_parse(m_originalData.value(QLatin1String("mtu")).toUtf8().constData()) < 0;
+    if (keepStored) {
+        // nothing to do
     } else if (mtu <= 0) {
         data.remove(QLatin1String("mtu"));
     } else {
-        data.insert(QLatin1String("mtu"), QString::number(qBound(mtuMin, mtu, mtuMax)));
+        data.insert(QLatin1String("mtu"), QString::number(qBound(MTU_MIN, mtu, MTU_MAX)));
     }
 
     // Save HIP
