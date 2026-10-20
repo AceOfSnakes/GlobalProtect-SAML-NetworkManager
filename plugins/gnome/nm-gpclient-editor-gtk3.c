@@ -23,6 +23,8 @@ struct _NMGpclientEditor {
     GtkComboBoxText *browser_combo;
     GtkSpinButton *timeout_spin;
     GtkSpinButton *mtu_spin;
+    char *mtu_stored;  /* raw vpn.data mtu at load, NULL if none */
+    int mtu_shown;     /* what the spin button showed at load */
     gboolean timeout_follows_auth_mode;
     GtkEntry *dns_entry;
     GtkCheckButton *hip_check;
@@ -325,13 +327,15 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_hexpand (GTK_WIDGET (self->mtu_spin), TRUE);
     gtk_widget_set_tooltip_text (GTK_WIDGET (self->mtu_spin),
         "Maximum size of a packet in the tunnel.\n"
-        "0 = Automatic. Lower it, for example to 1300-1400, if the tunnel falls "
-        "back from ESP to HTTPS with \"Message too long\".\n"
-        "Used only when the gateway sends no MTU of its own. "
+        "0 = Automatic. Lowering it (for example to 1300-1400) may help when the "
+        "tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+        "It has an effect only when the gateway sends no MTU of its own. "
         "Values from 1 to 575 are saved as 576, the lowest value that is used.");
     gtk_widget_set_name (GTK_WIDGET (self->mtu_spin), "mtu_spin");
-    gtk_spin_button_set_value (self->mtu_spin,
-                               s_vpn ? nm_gpclient_parse_mtu (nm_setting_vpn_get_data_item (s_vpn, "mtu")) : 0);
+    g_free (self->mtu_stored);
+    self->mtu_stored = g_strdup (s_vpn ? nm_setting_vpn_get_data_item (s_vpn, "mtu") : NULL);
+    self->mtu_shown = nm_gpclient_parse_mtu (self->mtu_stored);
+    gtk_spin_button_set_value (self->mtu_spin, self->mtu_shown);
     g_signal_connect (G_OBJECT (self->mtu_spin), "value-changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_box_pack_start (GTK_BOX (mtu_box), GTK_WIDGET (self->mtu_spin), TRUE, TRUE, 0);
     mtu_hint = gtk_label_new ("bytes (0 = Automatic)");
@@ -504,7 +508,11 @@ update_connection (NMVpnEditor *iface,
 
         gtk_spin_button_update (self->mtu_spin);
         mtu = gtk_spin_button_get_value_as_int (self->mtu_spin);
-        if (mtu <= 0) {
+        if (mtu <= 0 && self->mtu_shown == 0 && !nm_gpclient_mtu_is_automatic_text (self->mtu_stored)) {
+            /* The stored value could not be shown and the spin button is
+             * untouched: keep the text instead of losing it */
+            nm_setting_vpn_add_data_item (s_vpn, "mtu", self->mtu_stored);
+        } else if (mtu <= 0) {
             nm_setting_vpn_remove_data_item (s_vpn, "mtu");
         } else {
             char *mtu_text = g_strdup_printf ("%d", CLAMP (mtu, MTU_MIN, MTU_MAX));
@@ -568,6 +576,8 @@ dispose (GObject *object)
         g_object_unref (self->widget);
         self->widget = NULL;
     }
+
+    g_clear_pointer (&self->mtu_stored, g_free);
 
     if (self->connection) {
         g_object_unref (self->connection);

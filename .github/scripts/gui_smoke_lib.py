@@ -69,8 +69,15 @@ MTU_CASES = [
     _mtu_case("stored with leading zero", "01300", None, 1300, "1300"),
     _mtu_case("stored 500 is shown as 576", "500", None, 576, "576"),
     _mtu_case("stored 00 is automatic", "00", None, 0, None),
-    _mtu_case("stored 1501 is invalid", "1501", None, 0, None),
-    _mtu_case("stored abc is invalid", "abc", None, 0, None),
+    # A stored value the spin button cannot show (it shows 0) is kept while the
+    # spin button is untouched. Setting 0 changes nothing (it is already 0), so
+    # that keeps the key too.
+    _mtu_case("stored 1501 is kept when untouched", "1501", None, 0, "1501"),
+    _mtu_case("stored 1600 is kept when untouched", "1600", None, 0, "1600"),
+    _mtu_case("stored abc is kept when untouched", "abc", None, 0, "abc"),
+    _mtu_case("stored 1600, 0 set: the key stays", "1600", 0, 0, "1600"),
+    _mtu_case("stored 1600 replaced by 1300", "1600", 1300, 1300, "1300"),
+    _mtu_case("stored abc replaced by 400", "abc", 400, 400, "576"),
     _mtu_case("0 removes the key", "1300", 0, 0, None),
     _mtu_case("400 is saved as 576", None, 400, 400, "576"),
     _mtu_case("1400 is saved", None, 1400, 1400, "1400"),

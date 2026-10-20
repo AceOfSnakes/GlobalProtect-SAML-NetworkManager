@@ -332,6 +332,18 @@ class TestMtuCases:
         assert expected["mtu: 0 removes the key"] == (0, None)
         assert expected["mtu: 1400 is saved"] == (1400, "1400")
 
+    def test_a_stored_value_the_editor_cannot_show_is_kept_until_the_user_changes_the_field(self):
+        expected = good_mtu_results()
+
+        assert expected["mtu: stored 1600 is kept when untouched"] == (0, "1600")
+        assert expected["mtu: stored abc is kept when untouched"] == (0, "abc")
+        assert expected["mtu: stored 1600, 0 set: the key stays"] == (0, "1600")
+        assert expected["mtu: stored 1600 replaced by 1300"] == (1300, "1300")
+        assert expected["mtu: stored abc replaced by 400"] == (400, "576")
+        # a value that is shown, or only zeros, is not kept as text
+        assert expected["mtu: stored 00 is automatic"] == (0, None)
+        assert expected["mtu: 0 removes the key"] == (0, None)
+
     @pytest.mark.parametrize("index", range(len(lib.MTU_CASES)))
     def test_a_wrong_shown_or_saved_value_is_reported(self, index):
         case = lib.MTU_CASES[index]

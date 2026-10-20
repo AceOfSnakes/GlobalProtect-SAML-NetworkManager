@@ -161,8 +161,8 @@ Select 'Custom...' to give the full path to your own executable.</string>
     <widget class="QSpinBox" name="mtuSpinBox">
      <property name="toolTip">
       <string>Maximum size of a packet in the tunnel.
-Automatic (0): openconnect picks the value. Lower it, for example to 1300-1400, if the tunnel falls back from ESP to HTTPS with "Message too long".
-Used only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used.</string>
+Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with "Message too long".
+It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used.</string>
      </property>
      <property name="specialValueText">
       <string>Automatic</string>

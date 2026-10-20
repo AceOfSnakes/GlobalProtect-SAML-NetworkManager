@@ -75,6 +75,19 @@ static int parseMtu(const QString &text)
     return mtu < mtuMin ? mtuMin : mtu;
 }
 
+/* True when the stored text means "automatic": empty, only ASCII whitespace or
+ * only zeros. False for a value the spin box cannot show: it is kept on save
+ * while the spin box is untouched, so a save does not lose it. */
+static bool isAutomaticMtuText(const QString &text)
+{
+    for (const QChar c : text) {
+        if (c != QLatin1Char('0') && !isMtuSpace(c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Browser values understood by the service (see resolve_browser()) */
 static const QStringList browserValues = {
     QStringLiteral("edge"),
@@ -239,7 +252,11 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         }
 
         // Tunnel MTU: a missing or invalid value shows as automatic (0)
-        m_ui->mtuSpinBox->setValue(parseMtu(data.value(QLatin1String("mtu"))));
+        m_mtuShown = parseMtu(data.value(QLatin1String("mtu")));
+        {
+            const QSignalBlocker blocker(m_ui->mtuSpinBox);
+            m_ui->mtuSpinBox->setValue(m_mtuShown);
+        }
 
         // Load HIP (default: enabled)
         const QString hipValue = data.value(QLatin1String("hip"), QLatin1String("true"));
@@ -324,7 +341,10 @@ QVariantMap GpclientWidget::setting() const
 
     // Save the MTU: 0 = automatic (no key), below 576 is saved as 576
     const int mtu = m_ui->mtuSpinBox->value();
-    if (mtu <= 0) {
+    if (mtu <= 0 && m_mtuShown == 0 && !isAutomaticMtuText(m_originalData.value(QLatin1String("mtu")))) {
+        // The stored value could not be shown and the spin box is untouched:
+        // keep the text (data starts from m_originalData) instead of losing it
+    } else if (mtu <= 0) {
         data.remove(QLatin1String("mtu"));
     } else {
         data.insert(QLatin1String("mtu"), QString::number(qBound(mtuMin, mtu, mtuMax)));

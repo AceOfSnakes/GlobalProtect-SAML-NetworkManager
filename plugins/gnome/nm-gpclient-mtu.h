@@ -44,4 +44,26 @@ nm_gpclient_parse_mtu (const char *text)
     return mtu < MTU_MIN ? MTU_MIN : mtu;
 }
 
+/* TRUE when the stored text means "automatic": missing, only ASCII whitespace,
+ * or only zeros. FALSE for a value the spin button cannot show (for example
+ * "1600" or "abc"): the editors keep such text when the user does not change
+ * the spin button, so a save does not lose it. */
+static inline gboolean
+nm_gpclient_mtu_is_automatic_text (const char *text)
+{
+    const char *p;
+
+    if (!text)
+        return TRUE;
+    for (p = text; g_ascii_isspace (*p); p++)
+        ;
+    if (*p == '\0')
+        return TRUE;
+    while (*p == '0')
+        p++;
+    while (g_ascii_isspace (*p))
+        p++;
+    return *p == '\0';
+}
+
 #endif /* NM_GPCLIENT_MTU_H */
