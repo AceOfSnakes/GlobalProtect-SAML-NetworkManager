@@ -1,0 +1,258 @@
+# RPM packaging of the GlobalProtect NetworkManager VPN plugin. It mirrors
+# debian/rules: the same three packages with the same files.
+#
+# Do not run rpmbuild on this file directly: rpm/build.sh passes the values of
+#   project_version  upstream version, from debian/changelog
+#   debian_release   Debian revision, from debian/changelog
+#   dist             distribution tag (.fc44, .el10, .lp160, .tw), from rpm/targets
+#   pr_suffix        ".pr<PR>.<run>" for pull request builds, else empty
+#   sdbus_version    version of the bundled python-sdbus, from rpm/sources
+# and appends the %changelog that rpm/debian_changelog.py generates.
+
+%if "%{?project_version}" == "" || "%{?debian_release}" == "" || "%{?sdbus_version}" == ""
+%{error:project_version, debian_release and sdbus_version must be defined: build with rpm/build.sh}
+%endif
+
+# No debuginfo/debugsource package: the output is exactly three binary RPMs
+# (and so no /usr/lib/.build-id links of the binaries either).
+%global debug_package %{nil}
+%global _build_id_links none
+
+Name:           network-manager-gpclient
+Version:        %{project_version}
+Release:        %{debian_release}%{?dist}%{?pr_suffix}
+Summary:        NetworkManager VPN plugin for GlobalProtect
+License:        GPL-3.0-or-later AND LGPL-2.1-or-later
+URL:            https://github.com/WMP/GlobalProtect-SAML-NetworkManager
+Source0:        %{name}-%{version}.tar.gz
+Source1:        sdbus-%{sdbus_version}.tar.gz
+
+BuildRequires:  autoconf
+BuildRequires:  automake
+BuildRequires:  cmake
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+BuildRequires:  libtool
+BuildRequires:  make
+BuildRequires:  patch
+BuildRequires:  pkgconfig(glib-2.0)
+BuildRequires:  pkgconfig(gtk+-3.0)
+BuildRequires:  pkgconfig(gtk4)
+BuildRequires:  pkgconfig(javascriptcoregtk-4.1)
+BuildRequires:  pkgconfig(libnm)
+BuildRequires:  pkgconfig(libnma)
+BuildRequires:  pkgconfig(libnma-gtk4)
+BuildRequires:  pkgconfig(libsoup-3.0)
+BuildRequires:  pkgconfig(libsystemd)
+BuildRequires:  pkgconfig(libxml-2.0)
+BuildRequires:  pkgconfig(openssl)
+BuildRequires:  pkgconfig(webkit2gtk-4.1)
+BuildRequires:  cmake(Qt6Widgets)
+BuildRequires:  cmake(KF6I18n)
+BuildRequires:  cmake(KF6NetworkManagerQt)
+BuildRequires:  cmake(KF6Service)
+BuildRequires:  cmake(KF6WidgetsAddons)
+BuildRequires:  cargo
+BuildRequires:  python3-devel
+BuildRequires:  python3-pip
+BuildRequires:  python3-setuptools
+BuildRequires:  python3-wheel
+BuildRequires:  systemd-rpm-macros
+%if 0%{?suse_version}
+BuildRequires:  kf6-extra-cmake-modules
+BuildRequires:  plasma6-nm
+BuildRequires:  openconnect-devel
+BuildRequires:  python-rpm-macros
+%else
+BuildRequires:  extra-cmake-modules
+BuildRequires:  plasma-nm
+BuildRequires:  openconnect-devel
+%endif
+
+Requires:       NetworkManager
+Requires:       openconnect
+Requires:       python3
+Requires:       xdg-utils
+Conflicts:      globalprotect-openconnect
+# python-sdbus: no target ships it as a package (Debian/Ubuntu: python3-sdbus)
+Provides:       bundled(python3dist(sdbus)) = %{sdbus_version}
+
+%description
+NetworkManager VPN service and command-line tools for GlobalProtect VPN
+connections with SAML/SSO authentication support. The package contains the
+service, the NetworkManager plugin, gpclient, gpauth and gpservice.
+
+The GUI packages add the connection editors.
+
+%package gnome
+Summary:        GNOME editor plugins for the GlobalProtect NetworkManager VPN
+Requires:       %{name} = %{version}-%{release}
+%if 0%{?suse_version}
+Requires:       python3-gobject-Gdk
+Requires:       typelib(Gtk) = 3.0
+Requires:       libnma-gtk4-0
+%else
+Requires:       python3-gobject
+Requires:       gtk3
+Requires:       libnma
+Requires:       libnma-gtk4
+%endif
+
+%description gnome
+GTK3 and GTK4 connection editor plugins and the authentication dialog for
+GlobalProtect VPN connections in GNOME, MATE, Cinnamon, XFCE and other
+GTK-based desktops.
+
+%package plasma
+Summary:        KDE Plasma 6 editor plugin for the GlobalProtect NetworkManager VPN
+Requires:       %{name} = %{version}-%{release}
+%if 0%{?suse_version}
+Requires:       plasma6-nm
+%else
+Requires:       plasma-nm
+%endif
+
+%description plasma
+KDE Plasma 6 NetworkManager connection editor plugin for GlobalProtect VPN
+connections.
+
+%prep
+%setup -q -n %{name}-%{version} -a 1
+
+%build
+# The openconnect crate builds the bundled openconnect and libxml2 (build.rs)
+test -d external/GlobalProtect-openconnect/crates/openconnect/deps/openconnect/.
+test -d external/GlobalProtect-openconnect/crates/openconnect/deps/libxml2/.
+
+# NM_PLUGIN_DIR and MULTIARCH are used by "make install" only; this spec installs by hand
+make -C plugins/gnome all
+
+mkdir -p plugins/plasma/build
+(cd plugins/plasma/build && cmake .. -DQT_MAJOR_VERSION=6 -DCMAKE_BUILD_TYPE=Release && %make_build)
+
+# python-sdbus: built here from the source archive, offline
+/usr/bin/python3 -m pip wheel --no-deps --no-build-isolation --no-index \
+  --wheel-dir sdbus-wheel ./sdbus-%{sdbus_version}
+
+# The longest step comes last
+(cd external/GlobalProtect-openconnect && \
+  cargo build --release --bin gpclient --bin gpauth --bin gpservice)
+
+%install
+install -D -m 0644 plugins/gnome/libnm-vpn-plugin-gpclient.so \
+  %{buildroot}%{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
+install -D -m 0644 plugins/gnome/libnm-vpn-plugin-gpclient-editor.so \
+  %{buildroot}%{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient-editor.so
+install -D -m 0644 plugins/gnome/libnm-gtk4-vpn-plugin-gpclient-editor.so \
+  %{buildroot}%{_libdir}/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so
+mkdir -p %{buildroot}%{_prefix}/lib
+ln -s %{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient-editor.so \
+  %{buildroot}%{_prefix}/lib/libnm-gpclient-properties
+install -D -m 0755 auth-dialog/nm-gpclient-auth-dialog.py \
+  %{buildroot}%{_prefix}/libexec/nm-gpclient-auth-dialog
+
+install -D -m 0644 plugins/plasma/build/plasmanetworkmanagement_gpclientui.so \
+  %{buildroot}%{_libdir}/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
+install -D -m 0644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
+  %{buildroot}%{_libdir}/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
+
+install -D -m 0644 plugins/gnome/nm-gpclient-service.name \
+  %{buildroot}%{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
+install -D -m 0755 service/nm-gpclient-service.py \
+  %{buildroot}%{_prefix}/lib/NetworkManager/nm-gpclient-service
+install -D -m 0755 scripts/browser-wrapper.sh \
+  %{buildroot}%{_prefix}/libexec/gpclient/browser-wrapper
+install -D -m 0755 scripts/edge-wrapper.sh \
+  %{buildroot}%{_prefix}/libexec/gpclient/edge-wrapper
+# Compatibility symlink for the old path
+mkdir -p %{buildroot}%{_prefix}/libexec/NetworkManager
+ln -s %{_prefix}/lib/NetworkManager/nm-gpclient-service \
+  %{buildroot}%{_prefix}/libexec/NetworkManager/gpclient-nm-service
+
+install -D -m 0644 config/nm-gpclient.service \
+  %{buildroot}%{_unitdir}/nm-gpclient.service
+install -D -m 0644 config/org.freedesktop.NetworkManager.gpclient.service \
+  %{buildroot}%{_datadir}/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
+install -D -m 0644 config/nm-gpclient.conf \
+  %{buildroot}%{_sysconfdir}/dbus-1/system.d/nm-gpclient.conf
+install -D -m 0755 config/90-gpclient-routing \
+  %{buildroot}%{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
+
+install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpclient \
+  %{buildroot}%{_bindir}/gpclient
+install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpauth \
+  %{buildroot}%{_bindir}/gpauth
+install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpservice \
+  %{buildroot}%{_bindir}/gpservice
+# URL handler for globalprotectcallback://
+install -D -m 0644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
+  %{buildroot}%{_datadir}/applications/gpgui.desktop
+
+/usr/bin/python3 -m pip install --no-deps --no-index --no-user --ignore-installed \
+  --root %{buildroot} --prefix %{_prefix} sdbus-wheel/sdbus-%{sdbus_version}-*.whl
+# pip leaves files that name the build directory
+rm -f %{buildroot}%{python3_sitearch}/sdbus-%{sdbus_version}.dist-info/{direct_url.json,INSTALLER,REQUESTED}
+
+%check
+test -x %{buildroot}%{_bindir}/gpclient
+test -f %{buildroot}%{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
+test -d %{buildroot}%{python3_sitearch}/sdbus
+PYTHONPATH=%{buildroot}%{python3_sitearch} /usr/bin/python3 -c 'import sdbus'
+
+%post
+%systemd_post nm-gpclient.service
+# Reload the D-Bus configuration to pick up the new service files
+if [ -x /usr/bin/dbus-send ]; then
+    dbus-send --system --type=method_call --dest=org.freedesktop.DBus \
+        /org/freedesktop/DBus org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 || :
+fi
+# Stop a running (old) service, so that NetworkManager starts the new one.
+# /etc/nsswitch.conf is not changed: Fedora and EL manage it with authselect.
+if [ -x /usr/bin/pkill ]; then
+    pkill -x nm-gpclient-service >/dev/null 2>&1 || :
+    pkill -f gpclient-nm-service >/dev/null 2>&1 || :
+fi
+
+%preun
+%systemd_preun nm-gpclient.service
+
+%postun
+%systemd_postun nm-gpclient.service
+if [ "$1" -eq 0 ]; then
+    if [ -x /usr/bin/dbus-send ]; then
+        dbus-send --system --type=method_call --dest=org.freedesktop.DBus \
+            /org/freedesktop/DBus org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 || :
+    fi
+fi
+
+%files
+%license LICENSE
+%license sdbus-%{sdbus_version}/COPYING.LESSER
+%doc README.md
+%{_bindir}/gpclient
+%{_bindir}/gpauth
+%{_bindir}/gpservice
+%{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
+%{_prefix}/lib/NetworkManager/nm-gpclient-service
+%{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
+%{_prefix}/libexec/gpclient
+%{_prefix}/libexec/NetworkManager/gpclient-nm-service
+%{_unitdir}/nm-gpclient.service
+%{_datadir}/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
+%{_datadir}/applications/gpgui.desktop
+%config(noreplace) %{_sysconfdir}/dbus-1/system.d/nm-gpclient.conf
+%config(noreplace) %{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
+%{python3_sitearch}/sdbus*
+
+%files gnome
+%{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient-editor.so
+%{_libdir}/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so
+%{_prefix}/lib/libnm-gpclient-properties
+%{_prefix}/libexec/nm-gpclient-auth-dialog
+
+%files plasma
+%{_libdir}/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
+%{_libdir}/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
+
+# rpm/build.sh appends the entries generated from debian/changelog
+%changelog

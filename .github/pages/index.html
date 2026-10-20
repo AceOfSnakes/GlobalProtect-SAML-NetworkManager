@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GlobalProtect NetworkManager plugin &mdash; apt repository</title>
+<title>GlobalProtect NetworkManager plugin &mdash; package repositories</title>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -33,9 +33,13 @@
 <body>
 
 <h1>GlobalProtect VPN plugin for NetworkManager</h1>
-<p class="sub">apt repository for Ubuntu &mdash; SAML/SSO GlobalProtect connections in GNOME&nbsp;Settings and KDE&nbsp;Plasma.</p>
+<p class="sub">apt repository for Ubuntu
+<!-- RPM-BEGIN -->
+and RPM repository for Fedora, EL&nbsp;10 and openSUSE
+<!-- RPM-END -->
+&mdash; SAML/SSO GlobalProtect connections in GNOME&nbsp;Settings and KDE&nbsp;Plasma.</p>
 
-<h2>Install</h2>
+<h2>Install on Ubuntu</h2>
 
 <pre><code>curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg &gt; /dev/null
@@ -54,7 +58,7 @@ sudo apt install network-manager-gpclient-plasma-6</code></pre>
 <p>Then add the VPN in your desktop's network settings: <em>Add VPN &rarr; GlobalProtect</em>,
 enter the portal address, connect.</p>
 
-<h2>Available releases</h2>
+<h3>Available releases</h3>
 
 <table>
   <tr><th>Ubuntu</th><th>Version</th></tr>
@@ -63,12 +67,52 @@ enter the portal address, connect.</p>
 
 <p>Architectures: <code>amd64</code> and <code>arm64</code>.</p>
 
+<!-- RPM-BEGIN -->
+<h2>Install on Fedora, EL&nbsp;10 and openSUSE</h2>
+
+<p>Every package and the repository metadata are signed. Pick the target of your
+distribution in the table below (<code>fedora43</code>, <code>fedora44</code>,
+<code>fedora45</code>, <code>el10</code>, <code>leap16.0</code> or <code>tumbleweed</code>).</p>
+
+<pre><code># Fedora
+sudo curl -fsSL -o /etc/yum.repos.d/network-manager-gpclient.repo \
+  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/fedora$(rpm -E %fedora)/network-manager-gpclient.repo
+sudo dnf install network-manager-gpclient-gnome    # or network-manager-gpclient-plasma (KDE Plasma 6)
+
+# AlmaLinux, Rocky Linux, RHEL 10: EPEL and CRB are needed for the dependencies
+sudo dnf install epel-release &amp;&amp; sudo /usr/bin/crb enable
+sudo curl -fsSL -o /etc/yum.repos.d/network-manager-gpclient.repo \
+  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/el10/network-manager-gpclient.repo
+sudo dnf install network-manager-gpclient-gnome
+
+# openSUSE Leap 16.0 (leap16.0) or Tumbleweed (tumbleweed)
+sudo zypper addrepo https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/tumbleweed/network-manager-gpclient.repo
+sudo zypper refresh
+sudo zypper install network-manager-gpclient-gnome</code></pre>
+
+<h3>Available releases</h3>
+
+<table>
+  <tr><th>Distribution</th><th>Target</th><th>Version</th></tr>
+  __RPM_VERSION_ROWS__
+</table>
+
+<p>Architectures: <code>x86_64</code> and <code>aarch64</code>. The public key is
+<a href="rpm/RPM-GPG-KEY-gpclient"><code>rpm/RPM-GPG-KEY-gpclient</code></a>.</p>
+<!-- RPM-END -->
+
 <h2>Uninstall</h2>
 
 <pre><code># the desktop packages depend on the core package and are removed with it
 sudo apt remove network-manager-gpclient
 sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update</code></pre>
+
+<!-- RPM-BEGIN -->
+<p>RPM systems: <code>sudo dnf remove network-manager-gpclient</code>
+(<code>sudo zypper remove network-manager-gpclient</code> on openSUSE), then remove
+<code>/etc/yum.repos.d/network-manager-gpclient.repo</code> or the zypper repository.</p>
+<!-- RPM-END -->
 
 <h2>Signing key</h2>
 

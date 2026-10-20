@@ -85,6 +85,14 @@ source $HOME/.cargo/env
 
 Packages will be in `output/ubuntu26.04/`, `output/ubuntu24.04/` or `output/ubuntu22.04/`.
 
+### Build RPM packages:
+
+```bash
+rpm/build.sh fedora44 amd64     # targets: rpm/targets; output: output/fedora44-amd64/
+```
+
+Details: [RPM_REPO.md](RPM_REPO.md).
+
 ### Build individual components (for development):
 
 ```bash
