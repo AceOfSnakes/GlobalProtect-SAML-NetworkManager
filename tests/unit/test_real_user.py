@@ -59,11 +59,17 @@ def fake_loginctl(monkeypatch, tmp_path):
         script = bindir / "loginctl"
         script.write_text(
             "#!/bin/sh\n"
+            f'echo "$*" >> {tmp_path}/loginctl_calls\n'
             f"[ {exit_code} -ne 0 ] && exit 1\n"
             'case "$1" in\n'
             f"  show-seat) echo '{active}' ;;\n"
             f"  list-sessions) cat <<'EOT'\n{listing}\nEOT\n ;;\n"
-            f"  show-session) case \"$2\" in\n"
+            # show-session <id>... -p ...: one block per id, blank line between
+            "  show-session) shift; first=1\n"
+            '  for id in "$@"; do\n'
+            '    case "$id" in -*) break ;; esac\n'
+            '    [ "$first" = 1 ] || echo; first=0\n'
+            '    case "$id" in\n'
             f"  c1) cat <<'EOT'\n{lines}\nEOT\n ;;\n"
             + "".join(
                 f"  {sid}) cat <<'EOT'\n"
@@ -74,7 +80,7 @@ def fake_loginctl(monkeypatch, tmp_path):
                 + "\nEOT\n ;;\n"
                 for sid, p in sessions.items()
             )
-            + "  esac ;;\n"
+            + "    esac\n  done ;;\n"
             f"  list-users) echo '{pwd.getpwnam(OTHER_USER).pw_uid} {OTHER_USER}' ;;\n"
             "esac\n"
         )
@@ -222,6 +228,24 @@ class TestOtherActiveSession:
         )
 
         assert plugin._get_real_user() == other_user()
+
+    def test_all_sessions_are_read_with_one_loginctl_call(
+        self, plugin, fake_loginctl, tmp_path
+    ):
+        fake_loginctl(
+            active="",
+            sessions={
+                "c5": {"User": OTHER_UID},
+                "c6": {"User": OTHER_UID},
+                "c7": {"User": 0},
+            },
+        )
+
+        assert plugin._get_real_user() == other_user()
+        calls = (tmp_path / "loginctl_calls").read_text().splitlines()
+        shows = [c for c in calls if c.startswith("show-session c5")]
+        assert shows == ["show-session c5 c6 c7 -p User -p Class -p State"]
+        assert not any(c.startswith(("show-session c6", "show-session c7")) for c in calls)
 
     def test_the_same_user_in_two_sessions_is_one_user(self, plugin, fake_loginctl):
         fake_loginctl(

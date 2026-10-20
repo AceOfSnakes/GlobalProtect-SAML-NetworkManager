@@ -205,6 +205,17 @@ def test_resolve_browser_keeps_custom_absolute_path(service_module, value):
     assert service_module.resolve_browser(value) == (value, None)
 
 
+@pytest.mark.parametrize("value", ["brave-browser", "opera", "safari"])
+def test_bare_browser_name_is_passed_as_single_token(
+    service_module, monkeypatch, tmp_path, value
+):
+    argv, _ = _command(service_module, monkeypatch, tmp_path, value, **TYPICAL)
+
+    assert f"--browser={value}" in argv
+    assert value not in argv
+    assert argv[-2:] == ["--", "portal.example.com"]
+
+
 @pytest.mark.parametrize("username", ["--script=/tmp/x.sh", "-x", "--hip=/tmp/x"])
 def test_username_is_never_a_standalone_option(
     service_module, monkeypatch, tmp_path, username
@@ -260,12 +271,27 @@ def test_do_connect_accepts_plain_gateway_and_username(service_module, monkeypat
 
 
 @pytest.mark.parametrize(
+    "gateway", [" vpn.example.com\n", "\tvpn.example.com", "vpn.example.com  "]
+)
+def test_do_connect_strips_spaces_around_the_gateway(
+    service_module, monkeypatch, gateway
+):
+    error, starts = _drive_connect(service_module, monkeypatch, {"gateway": gateway})
+
+    assert error is None
+    assert starts == ["vpn.example.com"]
+
+
+@pytest.mark.parametrize(
     "data",
     [
         {"gateway": "--script=/tmp/x"},
         {"gateway": "-x"},
         {"gateway": "portal.example.com --script=/tmp/x"},
-        {"gateway": "portal.example.com\n"},
+        {"gateway": "portal.example\ncom"},
+        {"gateway": "portal.example.com\tx"},
+        {"gateway": " \n"},
+        {"gateway": " -x"},
         {"gateway": "portal.example.com", "username": "-x"},
         {"gateway": "portal.example.com", "username": "--script=/tmp/x"},
         {"gateway": "portal.example.com", "username": "al\nice"},

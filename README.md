@@ -126,7 +126,7 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `gateway-list-count` | (written by the service) | gpclient's `Found N gateways in portal config` count when the list was last read completely. It marks `gateway-list` as complete; the list is read again when the portal reports another number, and never without that line |
 | `auth-mode` | `saml` | `saml` = browser login, `credentials` = username/password collected upfront |
 | `username` | (empty) | Username for portals that ask on the terminal |
-| `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
+| `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path (or command name) of your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |

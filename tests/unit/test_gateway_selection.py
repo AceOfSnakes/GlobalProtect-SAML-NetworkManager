@@ -1575,14 +1575,11 @@ class TestResolveBrowser:
         assert service_module.resolve_browser(value) == (value, None)
 
     @pytest.mark.parametrize("value", ["manual-browser", "remote2"])
-    def test_names_merely_containing_a_mode_use_the_default_browser(
+    def test_names_merely_containing_a_mode_are_passed_through(
         self, service_module, monkeypatch, value
     ):
         self._with_wrapper(service_module, monkeypatch)
-        assert service_module.resolve_browser(value) == (
-            service_module.BROWSER_WRAPPER,
-            "default",
-        )
+        assert service_module.resolve_browser(value) == (value, None)
 
     @pytest.mark.parametrize("value", ["/usr/bin/safari", "/opt/me/epiphany"])
     def test_unknown_absolute_browser_is_passed_through_untouched(
@@ -1591,8 +1588,33 @@ class TestResolveBrowser:
         self._with_wrapper(service_module, monkeypatch)
         assert service_module.resolve_browser(value) == (value, None)
 
-    @pytest.mark.parametrize("value", ["safari", "epiphany"])
-    def test_unknown_relative_browser_uses_the_default_browser(
+    @pytest.mark.parametrize(
+        "value", ["safari", "epiphany", "brave-browser", "opera", "my.browser_2+x"]
+    )
+    def test_bare_command_name_is_passed_through_untouched(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (value, None)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "--script=/tmp/x.sh",
+            "-S",
+            "-brave",
+            "relative/wrapper",
+            "./wrapper",
+            "x --script=/tmp/x",
+            "two words",
+            "tab\tname",
+            "new\nline",
+            "nul\x00byte",
+            "caf\u00e9",
+            "name;rm",
+        ],
+    )
+    def test_unsafe_relative_browser_uses_the_default_browser(
         self, service_module, monkeypatch, value
     ):
         self._with_wrapper(service_module, monkeypatch)

@@ -61,7 +61,8 @@ def _fake_browser(tmp_path):
         # What the planted old log path holds when the browser runs (the wrapper
         # removes it later)
         f"cat /tmp/edge-wrapper-{FAKE_UID}.log > {tmp_path}/old_log_at_browser 2>/dev/null\n"
-        "echo browser-stderr-marker >&2\n",
+        "echo browser-stderr-marker >&2\n"
+        'echo "browser-stderr-url $*" >&2\n',
     )
 
 
@@ -111,6 +112,10 @@ def _run_wrapper(env):
         # The wrapper's files are removed below: keep what the log said
         logs = glob.glob(f"/tmp/edge-wrapper-{FAKE_UID}*/wrapper.log")
         result.wrapper_log = open(logs[0]).read() if logs else ""
+        # What the wrapper itself leaves behind (removed below)
+        base = _wrapper_files(FAKE_UID)[0]
+        result.base_left = os.path.lexists(base)
+        result.fallbacks_left = glob.glob(f"{base}.*")
         return result
     finally:
         for uid in RESERVED_UIDS:
@@ -1074,3 +1079,145 @@ def test_non_root_probes_the_home_directly(tmp_path):
     _assert_browser_started(tmp_path, result)
     assert not (tmp_path / "sudo_args").exists()
     assert "using the user's own browser profile" in result.wrapper_log
+
+
+# --- The auth URL stays out of sudo's command line --------------------------------
+#
+# sudo logs the command line of every call (journal, auth.log). The URL can carry
+# the SAML request or a one-time token, so the root wrapper hands it to the
+# dropped shell through stdin.
+
+
+def _fake_recording_sudo(tmp_path):
+    """Like the fake sudo, but keep the arguments of every call."""
+    _script(
+        tmp_path / "sudo",
+        f'printf "%s\\n" "$@" >> {tmp_path}/sudo_all_args\n'
+        "shift 2\n"
+        'exec "$@"\n',
+    )
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+@pytest.mark.parametrize(
+    "suffix",
+    ["?SAMLRequest=topsecret&x=1", "#access_token=topsecret"],
+    ids=["query", "fragment"],
+)
+def test_root_keeps_the_auth_url_out_of_sudo_arguments(tmp_path, monkeypatch, suffix):
+    monkeypatch.setattr(sys.modules[__name__], "URL", URL + suffix)
+    _fake_root_tools(tmp_path)
+    _fake_recording_sudo(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
+
+    # The browser still gets the whole URL
+    _assert_browser_started(tmp_path, result)
+    calls = (tmp_path / "sudo_all_args").read_text()
+    assert "-u" in calls and "topsecret" not in calls
+    assert "portal.example.com" not in calls
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+def test_root_hands_the_browser_a_hostile_url_unchanged(tmp_path, monkeypatch):
+    """The values travel as quoted text: quotes and shell syntax in the URL must
+    reach the browser as data and run nothing."""
+    hostile = URL + "?a=$(touch " + str(tmp_path / "pwned") + ")&b='\"`x`"
+    monkeypatch.setattr(sys.modules[__name__], "URL", hostile)
+    _fake_root_tools(tmp_path)
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
+
+    _assert_browser_started(tmp_path, result)
+
+
+# --- Browser stderr is redacted like the wrapper's own messages -------------------
+
+
+@pytest.mark.parametrize(
+    "suffix, shown",
+    [
+        ("?SAMLRequest=topsecret&x=1", "/saml?<hidden>"),
+        ("#access_token=topsecret", "/saml#<hidden>"),
+        ("", "/saml"),
+    ],
+    ids=["query", "fragment", "no-query"],
+)
+def test_browser_stderr_does_not_log_the_url_query(tmp_path, monkeypatch, suffix, shown):
+    monkeypatch.setattr(sys.modules[__name__], "URL", URL + suffix)
+
+    text = _run_with_log(tmp_path)
+
+    assert "topsecret" not in text
+    line = [x for x in text.splitlines() if x.startswith("browser-stderr-url")]
+    assert line == [f"browser-stderr-url https://portal.example.com{shown}"]
+    # The other stderr lines are kept as they are
+    assert "browser-stderr-marker" in text
+
+
+# --- The fallback directory from mktemp does not pile up --------------------------
+
+
+@pytest.mark.parametrize("plant", PLANTERS)
+def test_fallback_temp_base_is_removed_after_the_run(tmp_path, plant):
+    base_path = f"/tmp/edge-wrapper-{FAKE_UID}"
+    plant(tmp_path, base_path)
+
+    result, base = _run_for_profile(tmp_path)
+
+    assert base.startswith(base_path + ".")  # the fallback was used ...
+    assert result.fallbacks_left == []  # ... and is gone
+    assert result.base_left  # the planted path is not ours to remove
+
+
+def test_normal_temp_base_stays_after_the_run(tmp_path):
+    result, base = _run_for_profile(tmp_path)
+
+    assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert result.base_left
+    assert result.fallbacks_left == []
+
+
+# --- No private base: only a problem when the home is read-only -------------------
+
+
+def _run_without_any_base(tmp_path, home_writable):
+    """mktemp fails and a symlink sits at the well-known path: no private base."""
+    _fake_logger(tmp_path)
+    _fake_browser(tmp_path)
+    _script(tmp_path / "mktemp", "exit 1\n")
+    home = tmp_path / "home"
+    if home_writable:
+        home.mkdir()
+    if IS_ROOT:
+        _fake_root_tools(tmp_path)  # fake getent: home is tmp_path/home
+        extra = {"SUDO_UID": str(FAKE_UID)}
+    else:
+        _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+        _script(
+            tmp_path / "getent",
+            f"echo 'u:x:{FAKE_UID}:{FAKE_UID}::{home}:/bin/bash'\n",
+        )
+        extra = {}
+    _plant_symlink(tmp_path, f"/tmp/edge-wrapper-{FAKE_UID}")
+    return _run_wrapper(_root_env(tmp_path, **extra))
+
+
+def test_no_private_base_with_writable_home_still_starts_the_browser(tmp_path):
+    result = _run_without_any_base(tmp_path, home_writable=True)
+
+    _assert_browser_started(tmp_path, result)
+    env = _browser_env(tmp_path)
+    assert env["HOME"] == str(tmp_path / "home")
+    assert "XDG_CACHE_HOME" not in env
+    assert "XDG_DATA_HOME" not in env
+    assert not (tmp_path / "log_stat").read_text()  # no log file
+    assert "WARNING: cannot create a private temporary directory" in result.stderr
+
+
+def test_no_private_base_with_read_only_home_is_an_error(tmp_path):
+    result = _run_without_any_base(tmp_path, home_writable=False)
+
+    assert result.returncode != 0
+    assert "ERROR: cannot create a private temporary directory" in result.stderr
+    assert not (tmp_path / "opened").exists(), "the browser was started"

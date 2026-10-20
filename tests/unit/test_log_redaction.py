@@ -110,6 +110,42 @@ class TestMaskSecrets:
         assert masked == "? Answer: <hidden>"
 
 
+class TestMaskSecretPrompts:
+    @pytest.mark.parametrize(
+        "line, shown",
+        [
+            ("? Code: h", "? Code: <hidden>"),
+            ("? Code: hunter", "? Code: <hidden>"),
+            ("? Code: hunter2 extra", "? Code: <hidden>"),
+            ("? Code:h", "? Code: <hidden>"),
+        ],
+        ids=["first-key", "partial", "whole-line", "no-blank"],
+    )
+    def test_everything_after_the_label_is_hidden(self, service_module, line, shown):
+        assert service_module.mask_secret_prompts(line, {"Code:"}) == shown
+
+    @pytest.mark.parametrize(
+        "line, labels",
+        [
+            ("? Code:", {"Code:"}),
+            ("? Code: ", {"Code:"}),
+            ("? Username: jdoe", {"Code:"}),
+            ("? Code: h", set()),
+            ("? Code: h", {""}),
+        ],
+        ids=["label-only", "label-and-blank", "other-label", "no-labels", "empty-label"],
+    )
+    def test_line_stays_without_a_matching_label_or_text(
+        self, service_module, line, labels
+    ):
+        assert service_module.mask_secret_prompts(line, labels) == line
+
+    def test_label_without_colon_keeps_the_colon(self, service_module):
+        assert service_module.mask_secret_prompts(
+            "? Enter your passcode: 1", {"Enter your passcode"}
+        ) == "? Enter your passcode: <hidden>"
+
+
 class TestDebugLogging:
     def _plugin(self, service_module):
         return service_module.GpclientVPNPlugin()
@@ -209,6 +245,91 @@ class TestEchoedAnswers:
 
         assert PASSWORD not in caplog.text
 
+    @pytest.mark.parametrize("typed", ["h", "hu", "hunter", "hunter2"])
+    def test_partial_echo_of_a_secret_is_masked(self, service_module, caplog, typed):
+        """inquire redraws the prompt after every keystroke"""
+        plugin = self._plugin(service_module)
+        self._answer(plugin, "Code:", "hunter2")
+
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, f"? Code: {typed}\r\n"))
+
+        assert "gpclient output: ? Code: <hidden>" in caplog.text
+        assert f"Code: {typed}" not in caplog.text
+
+    def test_partial_echo_without_a_secret_answer_is_not_masked(
+        self, service_module, caplog
+    ):
+        plugin = self._plugin(service_module)
+
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, "? Code: hu\r\n"))
+
+        assert "gpclient output: ? Code: hu" in caplog.text
+
+    def test_partial_echo_of_the_stored_username_is_still_logged(
+        self, service_module, caplog
+    ):
+        plugin = self._plugin(service_module)
+        plugin.vpn_username = "jdoe"
+        asyncio.run(plugin._handle_prompt("Username"))
+
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, "? Username: jd\r\n? Username: jdoe\r\n"))
+
+        assert "gpclient output: ? Username: jd\n" in caplog.text
+        assert "gpclient output: ? Username: jdoe" in caplog.text
+        assert "<hidden>" not in caplog.text
+
+    def test_password_equal_to_the_stored_username_is_masked(
+        self, service_module, caplog
+    ):
+        """Only the answer to the username prompt may show the stored name"""
+        plugin = self._plugin(service_module)
+        plugin.vpn_username = "jdoe"
+        plugin._answered_username = True
+        self._answer(plugin, "Password", "jdoe")
+
+        assert "jdoe" in plugin._written_secrets
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, "? Password: jdoe\r\n"))
+
+        assert "gpclient output: ? Password: <hidden>" in caplog.text
+
+    def test_stored_password_is_masked_without_any_prompt(
+        self, service_module, caplog
+    ):
+        plugin = self._plugin(service_module)
+
+        async def nothing(*args, **kwargs):
+            return None
+
+        async def started(*args, **kwargs):
+            return True
+
+        plugin._start_gpclient = started
+        plugin._cleanup_stale_gpd0 = nothing
+        plugin._snapshot_tunnel_interfaces = nothing
+        plugin._check_tunnel_loop = nothing
+        asyncio.run(
+            plugin._do_connect(
+                {
+                    "vpn": {
+                        "data": {"gateway": "vpn.example.com"},
+                        "secrets": {"password": PASSWORD},
+                    }
+                },
+                interactive=False,
+            )
+        )
+        assert PASSWORD in plugin._written_secrets
+
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, f"error: bad {PASSWORD} here\r\n"))
+
+        assert PASSWORD not in caplog.text
+        assert "gpclient output: error: bad <hidden> here" in caplog.text
+
     def test_stored_username_is_still_logged(self, service_module, caplog):
         plugin = self._plugin(service_module)
         plugin.vpn_username = "jdoe"
@@ -257,6 +378,7 @@ class TestEchoedAnswers:
             asyncio.run(plugin._do_connect({"vpn": {}}, interactive=False))
 
         assert plugin._written_secrets == set()
+        assert plugin._secret_prompt_labels == set()
 
     def test_write_answer_never_logs_the_answer(self, service_module, caplog):
         plugin = self._plugin(service_module)

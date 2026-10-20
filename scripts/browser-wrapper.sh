@@ -20,10 +20,10 @@ MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 # cannot receive messages written as root. As root, LOG_FILE stays empty for the
 # whole run: only the part that runs as the real user writes the log file.
 LOG_FILE=""
-log() {
+redact_urls() {
     # The auth URL's query or fragment can carry the SAML request or a one-time
     # token, and the messages may end up in the system journal: never log them
-    # (pure bash: log() must work with an almost empty PATH)
+    # (pure bash: this must work with an almost empty PATH)
     local rest="$*" msg="" hit
     while [[ $rest =~ ://[^[:space:]?#]*[?#] ]]; do
         hit=${BASH_REMATCH[0]}
@@ -32,6 +32,12 @@ log() {
         rest=${rest#"${rest%%[[:space:]]*}"}
     done
     msg+=$rest
+    printf '%s' "$msg"
+}
+
+log() {
+    local msg
+    msg=$(redact_urls "$*")
     if [ -n "$LOG_FILE" ]; then
         echo "[$(date '+%F %T')] $msg" >> "$LOG_FILE"
     else # Print to stderr if LOG_FILE is unset, for troubleshooting in the terminal
@@ -277,6 +283,18 @@ private_dir_ok() {
     [ "$info" = "$EUID 700" ]
 }
 
+# Remove the fallback directory that prepare_temp_base took from mktemp. Nothing
+# removes it later, and a leftover /tmp/edge-wrapper-<uid> that we cannot fix
+# would make every login leave a new one. Never touches /tmp/edge-wrapper-<uid>
+# itself, and only a private directory of the current user.
+remove_fallback_base() {
+    local base="$1" uid="$2" name
+    name=${base#"/tmp/edge-wrapper-$uid."}
+    [ "$name" != "$base" ] && [ -n "$name" ] && [[ "$name" != */* ]] || return 0
+    private_dir_ok "$base" && rm -rf -- "$base" 2>/dev/null
+    return 0
+}
+
 # Print the private base directory for the browser profile, HOME and caches.
 # /tmp is shared, so another user can pre-create /tmp/edge-wrapper-<uid> (or a
 # symlink) and plant a browser profile (proxy, CA) to attack the SAML login. A
@@ -303,24 +321,25 @@ prepare_temp_base() {
         private_dir_ok "$base" || return 1
         log "using new private directory $base"
     fi
-    mkdir -p -- "$base/$profile" "$base/home/.config" "$base/cache" "$base/data" 2>/dev/null || return 1
+    if ! mkdir -p -- "$base/$profile" "$base/home/.config" "$base/cache" "$base/data" 2>/dev/null; then
+        remove_fallback_base "$base" "$uid"
+        return 1
+    fi
     echo "$base"
 }
 
 make_temp_base() {
     if [ "$EUID" -eq 0 ]; then
-        sudo -u "#$REAL_UID" bash -c "$(declare -f log private_dir_ok prepare_temp_base); \
+        sudo -u "#$REAL_UID" bash -c "$(declare -f redact_urls log private_dir_ok remove_fallback_base prepare_temp_base); \
 LOG_FILE=; prepare_temp_base ${REAL_UID@Q} ${PROFILE_NAME@Q}"
     else
         prepare_temp_base "$REAL_UID" "$PROFILE_NAME"
     fi
 }
 
+# Empty when no private directory could be made. That matters only when the
+# home is read-only (checked below): then the temporary profile is required.
 TEMP_BASE=$(make_temp_base)
-if [ -z "$TEMP_BASE" ]; then
-    log "ERROR: cannot create a private temporary directory for the browser profile"
-    exit 1
-fi
 
 # Create the log file with mode 600. Run only as the real user, inside the
 # private TEMP_BASE (nobody else can plant anything there).
@@ -330,8 +349,9 @@ init_log_file() {
 
 # The user-side log file. As root we never open it ourselves (root keeps logging
 # to stderr and syslog): the code that runs after the privilege drop does.
-USER_LOG_FILE="$TEMP_BASE/wrapper.log"
-if [ "$EUID" -ne 0 ]; then
+USER_LOG_FILE=""
+[ -n "$TEMP_BASE" ] && USER_LOG_FILE="$TEMP_BASE/wrapper.log"
+if [ "$EUID" -ne 0 ] && [ -n "$USER_LOG_FILE" ]; then
     init_log_file "$USER_LOG_FILE" && LOG_FILE="$USER_LOG_FILE"
 fi
 ALT_HOME_DIR="$TEMP_BASE/home"
@@ -362,6 +382,14 @@ else
     HOME_IS_RO=1
     EFFECTIVE_HOME="$ALT_HOME_DIR"
     log "home is read-only (sandboxed); using temp HOME=$EFFECTIVE_HOME profile=$ALT_PROFILE_DIR"
+fi
+
+if [ -z "$TEMP_BASE" ]; then
+    if [ "$HOME_IS_RO" -eq 1 ]; then
+        log "ERROR: cannot create a private temporary directory for the browser profile"
+        exit 1
+    fi
+    log "WARNING: cannot create a private temporary directory; continuing without a log file"
 fi
 
 # Chromium-family policy that auto-launches the globalprotectcallback://
@@ -407,10 +435,11 @@ ENV_VARS=(
     "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
     "HOME=$EFFECTIVE_HOME"
     "XDG_CONFIG_HOME=$EFFECTIVE_HOME/.config"
-    "XDG_CACHE_HOME=$TEMP_BASE/cache"
-    "XDG_DATA_HOME=$TEMP_BASE/data"
     "XDG_SESSION_TYPE=$SESSION_TYPE"
 )
+if [ -n "$TEMP_BASE" ]; then
+    ENV_VARS+=("XDG_CACHE_HOME=$TEMP_BASE/cache" "XDG_DATA_HOME=$TEMP_BASE/data")
+fi
 [ -n "${DISPLAY:-}" ] && ENV_VARS+=("DISPLAY=$DISPLAY")
 [ -n "${XAUTHORITY:-}" ] && ENV_VARS+=("XAUTHORITY=$XAUTHORITY")
 [ -n "$WAYLAND_DISPLAY" ] && ENV_VARS+=("WAYLAND_DISPLAY=$WAYLAND_DISPLAY")
@@ -484,8 +513,18 @@ fi
 log "env: ${ENV_VARS[*]}"
 log "cmd: $BROWSER_BIN ${BROWSER_FLAGS[*]}"
 
+redact_stream() {
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s\n' "$(redact_urls "$line")"
+    done
+}
+
 run_browser_with_monitor() {
-    env "${ENV_VARS[@]}" "$BROWSER_BIN" "${BROWSER_FLAGS[@]}" 2>>"${LOG_FILE:-/dev/null}" &
+    # The browser may print the auth URL: redact each stderr line before it
+    # reaches the log file. The file is opened once, by the reader.
+    env "${ENV_VARS[@]}" "$BROWSER_BIN" "${BROWSER_FLAGS[@]}" < /dev/null \
+        2> >(redact_stream >> "${LOG_FILE:-/dev/null}") &
     BROWSER_PID=$!
     log "started browser with PID=$BROWSER_PID"
 
@@ -536,16 +575,26 @@ run_browser_with_monitor() {
 }
 
 if [ "$EUID" -eq 0 ]; then
-    # "#uid" makes sudo take a numeric UID, so the name is never involved
+    # "#uid" makes sudo take a numeric UID, so the name is never involved.
+    # sudo logs its command line, and the browser flags hold the auth URL: the
+    # values go through stdin (already quoted with @Q) and the dropped shell
+    # evals them. Only the function bodies, without any URL, are in the arguments.
     log "running as root; dropping privileges to $REAL_USER (uid=$REAL_UID) via sudo"
-    exec sudo -u "#$REAL_UID" bash -c "$(declare -f log init_log_file prepare_browser_files run_browser_with_monitor); \
-LOG_FILE=; init_log_file ${USER_LOG_FILE@Q} && LOG_FILE=${USER_LOG_FILE@Q}; \
-POLICY_DIR=${POLICY_DIR@Q}; MAKE_DIRS=(${MAKE_DIRS[*]@Q}); prepare_browser_files; \
+    DECLS="USER_LOG_FILE=${USER_LOG_FILE@Q}; TEMP_BASE=${TEMP_BASE@Q}; REAL_UID=${REAL_UID@Q}; \
+POLICY_DIR=${POLICY_DIR@Q}; MAKE_DIRS=(${MAKE_DIRS[*]@Q}); \
 ENV_VARS=(${ENV_VARS[*]@Q}); BROWSER_BIN=${BROWSER_BIN@Q}; \
 BROWSER_FLAGS=(${BROWSER_FLAGS[*]@Q}); \
-GPAUTH_PID=${GPAUTH_PID@Q}; MAX_WAIT=${MAX_WAIT@Q}; run_browser_with_monitor"
+GPAUTH_PID=${GPAUTH_PID@Q}; MAX_WAIT=${MAX_WAIT@Q}"
+    exec sudo -u "#$REAL_UID" bash -c "$(declare -f redact_urls log redact_stream private_dir_ok remove_fallback_base init_log_file prepare_browser_files run_browser_with_monitor); \
+IFS= read -r -d '' DECLS; eval \"\$DECLS\"; unset DECLS; \
+LOG_FILE=; [ -z \"\$USER_LOG_FILE\" ] || { init_log_file \"\$USER_LOG_FILE\" && LOG_FILE=\$USER_LOG_FILE; }; \
+prepare_browser_files; run_browser_with_monitor; rc=\$?; \
+remove_fallback_base \"\$TEMP_BASE\" \"\$REAL_UID\"; exit \$rc" < <(printf '%s\0' "$DECLS")
 else
     log "running as EUID=$EUID (no privilege drop needed)"
     prepare_browser_files
     run_browser_with_monitor
+    rc=$?
+    remove_fallback_base "$TEMP_BASE" "$REAL_UID"
+    exit "$rc"
 fi

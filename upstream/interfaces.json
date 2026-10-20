@@ -257,6 +257,17 @@
       ]
     },
     {
+      "function": "service/nm-gpclient-service.py::mask_secret_prompts",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_everything_after_the_label_is_hidden",
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_line_stays_without_a_matching_label_or_text"
+      ]
+    },
+    {
       "function": "scripts/browser-wrapper.sh",
       "kind": "runs-upstream",
       "upstream": [

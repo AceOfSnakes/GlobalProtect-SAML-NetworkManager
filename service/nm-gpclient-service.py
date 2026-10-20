@@ -251,6 +251,10 @@ WRAPPED_BROWSER_PATH_RE = re.compile(
 # A user's own wrapper: an absolute path without whitespace or control chars
 CUSTOM_BROWSER_PATH_RE = re.compile(r"^/[^\s\x00-\x1f\x7f]*$")
 
+# A browser command on PATH (brave-browser, opera): one plain word, no slash
+# and no leading dash, so it can never become a gpclient option
+BARE_BROWSER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
 # Profile values that must not reach the gpclient command line
 UNSAFE_GATEWAY_RE = re.compile(r"[\s\x00-\x1f\x7f]")
 UNSAFE_USERNAME_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -604,6 +608,28 @@ def mask_secrets(line: str, secrets: Sequence[str]) -> str:
     return line
 
 
+def mask_secret_prompts(line: str, labels: Sequence[str]) -> str:
+    """Hide whatever follows the label of a prompt that was answered with a secret
+
+    inquire redraws a text prompt after every keystroke, so the output holds
+    partial echoes ("? Code: h", "? Code: hu", ...) that mask_secrets cannot
+    know. A colon right after the label is kept; a line that ends there stays.
+    """
+    # Longest first: a label that contains another one wins
+    for label in sorted(labels, key=len, reverse=True):
+        if not label:
+            continue
+        start = line.find(label)
+        if start < 0:
+            continue
+        end = start + len(label)
+        if line.startswith(":", end):
+            end += 1
+        if line[end:].strip():
+            line = f"{line[:end]} {HIDDEN}"
+    return line
+
+
 def classify_prompt(label: str) -> str:
     """Classify a prompt label as 'username' or 'password' (any secret).
 
@@ -757,8 +783,8 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
     Returns (argument for gpclient --browser, GP_BROWSER for the wrapper).
     Friendly names and the browser binaries our editors used to offer go
     through the wrapper. A user's own wrapper script is passed through when it
-    is an absolute path; any other value falls back to "default", so a profile
-    value can never become an extra gpclient option.
+    is an absolute path or a bare command name; any other value falls back to
+    "default", so a profile value can never become an extra gpclient option.
     """
     value = (value or "").strip()
 
@@ -778,11 +804,11 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
         target = "default"
     elif WRAPPED_BROWSER_PATH_RE.match(value):
         target = value
-    elif CUSTOM_BROWSER_PATH_RE.match(value):
+    elif CUSTOM_BROWSER_PATH_RE.match(value) or BARE_BROWSER_NAME_RE.fullmatch(value):
         return value, None
     else:
         logger.warning(
-            f"browser={value!r} is not a known name or an absolute path - "
+            f"browser={value!r} is not a known name, a command name or an absolute path - "
             "using the desktop's default browser"
         )
         target = "default"
@@ -1239,6 +1265,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # Secret answers written to the PTY in this attempt: masked in the
         # logged output (inquire echoes a typed answer). Never logged.
         self._written_secrets: set = set()
+        self._secret_prompt_labels: set = set()
         # Per-phase prompt state (a "phase" is one Portal/Gateway auth round,
         # delimited by the auth banner). gpclient asks username then password;
         # any prompt after the password is a follow-up challenge (MFA).
@@ -1327,6 +1354,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._secret_future = None
         self._last_answer = ""
         self._written_secrets = set()
+        self._secret_prompt_labels = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
@@ -1415,6 +1443,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 self.vpn_username = ""
                 raise Exception("Invalid username specified")
             self.vpn_password = secrets_dict.get("password", "")
+            if self.vpn_password:
+                # Masked in the output even if no prompt is ever answered with it
+                self._written_secrets.add(self.vpn_password)
             # When a username is stored we pass it as gpclient --user, so
             # gpclient does not prompt for it - treat username as already
             # answered in every auth phase.
@@ -1438,7 +1469,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             # Get the server address (required). This is the portal address, or
             # a gateway address when as-gateway is set.
-            self.gateway = data_dict.get("gateway", "")
+            self.gateway = data_dict.get("gateway", "").strip()
             if not self.gateway:
                 raise Exception("No gateway specified")
             # The server goes to gpclient as an argument, never as an option
@@ -1613,6 +1644,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answering = False
         self._last_answer = ""
         self._written_secrets = set()
+        self._secret_prompt_labels = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
@@ -1767,6 +1799,17 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         return props
 
     @staticmethod
+    def _user_entry(pw_lookup: Any, key: Any) -> Optional[Tuple[int, str, str]]:
+        """(uid, name, home) from pwd.getpwuid/getpwnam, None for root or unknown"""
+        try:
+            pw = pw_lookup(key)
+        except KeyError:
+            return None
+        if pw.pw_uid == 0:
+            return None
+        return pw.pw_uid, pw.pw_name, pw.pw_dir
+
+    @staticmethod
     def _seat0_active_user() -> Optional[int]:
         """UID of the active local graphical user session on seat0, or None"""
         loginctl = GpclientVPNPlugin._loginctl
@@ -1813,22 +1856,20 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         loginctl = GpclientVPNPlugin._loginctl
         uids = set()
         try:
-            for line in loginctl("list-sessions", "--no-legend").splitlines():
-                fields = line.split()
-                if not fields:
-                    continue
-                props = GpclientVPNPlugin._session_props(
-                    loginctl(
-                        "show-session",
-                        fields[0],
-                        "-p",
-                        "User",
-                        "-p",
-                        "Class",
-                        "-p",
-                        "State",
-                    )
-                )
+            session_ids = [
+                line.split()[0]
+                for line in loginctl("list-sessions", "--no-legend").splitlines()
+                if line.split()
+            ]
+            if not session_ids:
+                return None
+            # One call for all sessions: the output has one block per session,
+            # separated by a blank line
+            output = loginctl(
+                "show-session", *session_ids, "-p", "User", "-p", "Class", "-p", "State"
+            )
+            for block in re.split(r"\n\s*\n", output):
+                props = GpclientVPNPlugin._session_props(block)
                 if props.get("Class") != "user" or props.get("State") != "active":
                     continue
                 try:
@@ -1875,37 +1916,34 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             return uid, username, home
 
         # The connection is limited to one user: that is the desktop user
-        permission_user = getattr(self, "_permission_user", "")
-        if permission_user:
-            try:
-                pw = pwd.getpwnam(permission_user)
-                if pw.pw_uid != 0:
-                    logger.debug(f"Using the user of the connection: {pw.pw_name}")
-                    return pw.pw_uid, pw.pw_name, pw.pw_dir
-            except KeyError:
-                logger.debug(f"Connection user {permission_user} does not exist")
+        if self._permission_user:
+            entry = self._user_entry(pwd.getpwnam, self._permission_user)
+            if entry:
+                logger.debug(f"Using the user of the connection: {entry[1]}")
+                return entry
+            logger.debug(
+                f"Connection user {self._permission_user} does not exist or is root"
+            )
 
         # The active local session on seat0
         uid = self._seat0_active_user()
         if uid is not None:
-            try:
-                pw = pwd.getpwuid(uid)
-                logger.debug(f"Found active seat0 user: {pw.pw_name} (UID: {uid})")
-                return uid, pw.pw_name, pw.pw_dir
-            except KeyError:
-                logger.debug(f"Seat0 user with UID {uid} does not exist")
+            entry = self._user_entry(pwd.getpwuid, uid)
+            if entry:
+                logger.debug(f"Found active seat0 user: {entry[1]} (UID: {uid})")
+                return entry
+            logger.debug(f"Seat0 user with UID {uid} does not exist")
 
         # No seat0 session (xrdp, remote desktop, VM): one active user is clear
         uid = self._single_active_session_user()
         if uid is not None:
-            try:
-                pw = pwd.getpwuid(uid)
+            entry = self._user_entry(pwd.getpwuid, uid)
+            if entry:
                 logger.info(
-                    f"Using the active non-seat0 session of {pw.pw_name} (UID: {uid})"
+                    f"Using the active non-seat0 session of {entry[1]} (UID: {uid})"
                 )
-                return uid, pw.pw_name, pw.pw_dir
-            except KeyError:
-                logger.debug(f"Session user with UID {uid} does not exist")
+                return entry
+            logger.debug(f"Session user with UID {uid} does not exist")
 
         logger.warning(
             "no active local session on seat0 and not exactly one other user "
@@ -2243,8 +2281,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     if line == last_logged_line:
                         continue
                     last_logged_line = line
+                    shown = mask_secret_prompts(line, self._secret_prompt_labels)
                     logger.info(
-                        f"gpclient output: {mask_secrets(line, self._written_secrets)}"
+                        f"gpclient output: {mask_secrets(shown, self._written_secrets)}"
                     )
 
                     found = parse_gateway_count(line)
@@ -2665,9 +2704,12 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         # Only the username stored in the profile may show up in the log. A
         # prompt that was classified as "username" (also by position, for a
-        # label we do not know) can still ask for a secret.
-        is_stored_username = bool(self.vpn_username) and answer == self.vpn_username
-        self._write_answer(answer, secret=not is_stored_username)
+        # label we do not know) can still ask for a secret; a password that
+        # equals the stored username is still a password.
+        secret = not (
+            kind == "username" and self.vpn_username and answer == self.vpn_username
+        )
+        self._write_answer(answer, secret=secret, label=label)
 
     @staticmethod
     def _gateway_entry(option: str) -> str:
@@ -3206,11 +3248,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         return value
 
-    def _write_answer(self, answer: str, secret: bool = False) -> None:
-        """Type an answer into gpclient's PTY (never logs the answer)"""
+    def _write_answer(
+        self, answer: str, secret: bool = False, label: str = ""
+    ) -> None:
+        """Type an answer into gpclient's PTY (never logs the answer)
+
+        `label` is the prompt that is answered: the echo of a secret after that
+        label is hidden in the log, also while it is still being typed.
+        """
         self._last_answer = answer
         if secret and answer:
             self._written_secrets.add(answer)
+            if label.strip():
+                self._secret_prompt_labels.add(label.strip())
         # inquire (crossterm raw mode) treats \r as Enter
         self._write_keys(answer.encode("utf-8") + KEY_ENTER, "answer")
 
