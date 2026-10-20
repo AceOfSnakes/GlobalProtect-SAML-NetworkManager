@@ -225,6 +225,30 @@ make gnome-plugins      # Build only GNOME plugins
 cd plugins/plasma && ./build.sh  # Build only Plasma plugin
 ```
 
+## GlobalProtect-openconnect version
+
+Upstream version: [`v3.1.0`](https://github.com/yuezk/GlobalProtect-openconnect/releases/tag/v3.1.0)
+
+The `external/GlobalProtect-openconnect` submodule is pinned to a release tag,
+never to upstream `main`.
+
+Clone with the submodules:
+
+```bash
+git clone --recursive https://github.com/WMP/GlobalProtect-SAML-NetworkManager.git
+```
+
+Update an existing clone. `git submodule sync` is needed because upstream 3.x
+moved the nested openconnect submodule to `github.com/yuezk/openconnect`:
+
+```bash
+git pull
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+To bump the version, see [docs/UPSTREAM.md](docs/UPSTREAM.md).
+
 ## Why Microsoft Edge?
 
 Microsoft Edge is the recommended browser for SAML authentication because:

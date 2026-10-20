@@ -36,7 +36,8 @@ Depends: ${shlibs:Depends},
          network-manager,
          python3,
          python3-sdbus,
-         openconnect
+         openconnect,
+         xdg-utils
 Conflicts: globalprotect-openconnect
 Recommends: network-manager-gpclient-gnome | network-manager-gpclient-plasma
 Description: NetworkManager VPN plugin for GlobalProtect (core service)

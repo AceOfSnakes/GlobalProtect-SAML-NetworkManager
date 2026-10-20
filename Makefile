@@ -6,7 +6,7 @@ GPOC_DIR = external/GlobalProtect-openconnect
 RUSTUP_HOME ?= $(HOME)/.rustup
 CARGO_HOME ?= $(HOME)/.cargo
 CARGO = $(CARGO_HOME)/bin/cargo
-RUST_VERSION = 1.85
+RUST_VERSION = 1.91
 
 # Main targets
 all: gnome-plugins gpclient gpauth
@@ -191,6 +191,11 @@ test-ui: install-dev restart-nm $(ARTIFACTS_DIR)
 .PHONY: test-unit
 test-unit:
 	python3 -m pytest tests/unit -v
+
+# Run the upstream contract tests (see docs/UPSTREAM.md)
+.PHONY: test-upstream
+test-upstream:
+	python3 -m pytest tests/upstream -q
 
 # Run GUI tests without rebuilding (assumes plugin already installed)
 test-ui-only: $(ARTIFACTS_DIR)

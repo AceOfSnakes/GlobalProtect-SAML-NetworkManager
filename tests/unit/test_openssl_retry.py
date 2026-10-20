@@ -13,6 +13,8 @@ import asyncio
 import os
 import sys
 
+import pytest
+
 # Stand-in for gpclient: fails like a portal that needs legacy renegotiation,
 # unless --fix-openssl is passed before the subcommand.
 FAKE_GPCLIENT = r'''
@@ -72,6 +74,21 @@ sys.stdout.write("Re-run it with the `--fix-openssl` option to work around this 
 sys.stdout.flush()
 sys.exit(1)
 '''
+
+# Stand-in that prints one given line (filled in by the test) and fails - the
+# way gpclient 3.x reports a TLS problem
+FAKE_GPCLIENT_ONE_ERROR_LINE = r'''
+import sys
+sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
+sys.stdout.write(__LINE__ + "\r\n")
+sys.stdout.flush()
+sys.exit(1)
+'''
+
+V3_LEGACY_TLS_LINE = (
+    "Error: The server requires unsafe legacy TLS renegotiation: "
+    "https://portal.example.com"
+)
 
 
 def _write_fake(tmp_path, name, body):
@@ -206,6 +223,57 @@ class TestOpensslRetry:
         assert len(argv_lines) == 1
         assert "--fix-openssl" not in argv_lines[0]
         assert plugin.fix_openssl is False
+
+
+class TestV3TlsErrors:
+    """gpclient 3.x words the TLS errors differently (issue #34)"""
+
+    def test_v3_legacy_tls_error_triggers_retry(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        # Only the v3 line, without the `--fix-openssl` hint line
+        fake = _write_fake(
+            tmp_path,
+            "gpclient-v3.py",
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(V3_LEGACY_TLS_LINE)),
+        )
+        plugin = _plugin(service_module, monkeypatch, fake)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        assert plugin._openssl_error_seen is True
+        assert plugin._openssl_retried is True
+        assert plugin.fix_openssl is True
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Error: error:0A000086:SSL routines:tls_post_process_server_certificate:"
+            "certificate verify failed",
+            "Re-run it with the `--ignore-tls-errors` option to ignore the "
+            "certificate error",
+            "Error: The server certificate is not trusted: https://portal.example.com",
+        ],
+    )
+    def test_v3_unrelated_tls_error_does_not_trigger_retry(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, line
+    ):
+        fake = _write_fake(
+            tmp_path,
+            "gpclient-v3-other.py",
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)),
+        )
+        plugin = _plugin(service_module, monkeypatch, fake)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        assert plugin._openssl_error_seen is False
+        assert plugin._openssl_retried is False
+        assert plugin.fix_openssl is False
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
 
 
 class TestPersistingTheWorkaround:

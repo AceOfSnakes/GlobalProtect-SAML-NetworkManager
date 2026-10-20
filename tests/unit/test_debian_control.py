@@ -209,6 +209,12 @@ def check_control(text, qt, formers=None, conflicts=(), plasma_nm="plasma-nm", r
     return problems
 
 
+def depends_of(text, package):
+    """The names (without version) the Depends field of `package` lists; empty when it has none"""
+    depends = parse_control(text).get(package, {}).get("depends", "")
+    return {item.split("(")[0].split("|")[0].strip() for item in relations(depends)}
+
+
 def read(name):
     with open(os.path.join(DEBIAN, name), encoding="utf-8") as handle:
         return handle.read()
@@ -473,6 +479,21 @@ class TestControlFiles:
     def test_the_packages_are_the_core_gnome_and_plasma_ones(self, name):
         packages = parse_control(read(name))
         assert sorted(p for p in packages if p) == [CORE, CORE + "-gnome", PLASMA]
+
+    @pytest.mark.parametrize("name", sorted(QT))
+    def test_core_package_depends_on_xdg_utils(self, name):
+        # gpauth 3.x runs xdg-mime to register the callback URL handler and
+        # fails without it (issue #34)
+        assert "xdg-utils" in depends_of(read(name), CORE), name
+
+    def test_missing_xdg_utils_dependency_is_reported(self):
+        # The same control text without xdg-utils: the helper must not find it
+        text = read("control.ubuntu24.04")
+        assert "xdg-utils" in depends_of(text, CORE)
+        broken = text.replace("openconnect,\n         xdg-utils\n", "openconnect\n")
+        assert broken != text
+        assert "xdg-utils" not in depends_of(broken, CORE)
+        assert "xdg-utils" not in depends_of(GOOD["qt5"], CORE)
 
     @pytest.mark.parametrize("name", sorted(QT))
     def test_the_core_package_recommends_gnome_or_plasma(self, name):

@@ -128,14 +128,39 @@ OTP_FLAG_MAX_ATTEMPTS = 2
 #   error:0A000152:SSL routines:final_renegotiate:unsafe legacy renegotiation disabled
 #   Re-run it with the `--fix-openssl` option to work around this issue
 #
+# gpclient 3.x words the final error differently, and still prints the hint:
+#
+#   The server requires unsafe legacy TLS renegotiation: https://vpn.example.com
+#
 # gpclient has the workaround built in (a temporary OPENSSL_CONF enabling
 # UnsafeLegacyServerConnect, also passed on to gpauth), but it has to be asked
 # for with a global flag placed before the subcommand. We watch for the error
 # and retry once with the flag, so nobody has to know the option exists
 # (issue #2).
 OPENSSL_LEGACY_ERROR_RE = re.compile(
-    r"unsafe legacy renegotiation disabled|--fix-openssl"
+    r"unsafe legacy renegotiation disabled"
+    r"|requires unsafe legacy TLS renegotiation"
+    r"|--fix-openssl"
 )
+
+# --- Internal network ---------------------------------------------------------
+#
+# With internal host detection configured on the portal, a gateway can answer
+# in non-tunnel mode: gpclient 3.x stays in the foreground, creates no tun
+# device and logs (apps/gpclient/src/connect/internal.rs):
+#
+#   Internal network — authenticated: <gateway> (IPv4: ..., IPv6: ...)
+#
+# upstream writes an em dash; a plain hyphen or en dash is accepted too, in
+# case a future release (or a terminal) swaps it. The phrase is anchored on
+# "Internal network" and "authenticated:", so other lines about internal hosts
+# do not match.
+INTERNAL_NETWORK_RE = re.compile(r"Internal network\s+[\u2014\u2013-]\s+authenticated:")
+
+# gpclient logs out of every gateway session on SIGTERM, each with its own 5 s
+# timeout, so it needs more than 5 s before we may SIGKILL it (a cut logout
+# leaves a stale lock on the gateway)
+GPCLIENT_TERMINATE_TIMEOUT = 10
 
 # How long we wait for the user to answer an interactive secrets request
 # (NewSecrets from NetworkManager) before giving up.
@@ -196,6 +221,13 @@ BROWSER_ALIASES = {
     "firefox": "firefox",
     "default": "default",
 }
+
+# Browser modes of gpclient itself (apps/gpclient/src/connect/args.rs,
+# crates/auth/src/browser/browser_auth.rs). `manual` and `remote` wait for the
+# callback to be pasted on the terminal, which the service never does, and
+# `auto` bypasses the wrapper: all of them go through the wrapper with the
+# desktop's default browser instead.
+GPCLIENT_BROWSER_MODES = ("auto", "manual", "remote")
 
 # Concrete binaries the connection editors used to offer - wrapping them keeps
 # existing profiles working and fixes them at the same time
@@ -680,6 +712,12 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
         target = "edge"  # historical default
     elif value.lower() in BROWSER_ALIASES:
         target = BROWSER_ALIASES[value.lower()]
+    elif value.lower() in GPCLIENT_BROWSER_MODES:
+        logger.warning(
+            f"browser={value} is a gpclient mode the service cannot drive - "
+            "using the desktop's default browser"
+        )
+        target = "default"
     elif WRAPPED_BROWSER_PATH_RE.match(value):
         target = value
     else:
@@ -1457,7 +1495,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 )
                 self.gpclient_process.terminate()
                 try:
-                    await asyncio.wait_for(self.gpclient_process.wait(), timeout=5)
+                    await asyncio.wait_for(
+                        self.gpclient_process.wait(),
+                        timeout=GPCLIENT_TERMINATE_TIMEOUT,
+                    )
                 except asyncio.TimeoutError:
                     logger.warning("gpclient didn't terminate, killing it")
                     self.gpclient_process.kill()
@@ -2018,6 +2059,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(line):
                         # The portal needs legacy TLS renegotiation (issue #2)
                         self._openssl_error_seen = True
+
+                    if INTERNAL_NETWORK_RE.search(line):
+                        self._fail_internal_network()
 
                     banner = parse_auth_banner(line)
                     if banner:
@@ -2934,6 +2978,28 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             except ProcessLookupError:
                 pass
 
+    def _fail_internal_network(self) -> None:
+        """The gateway authenticated us without a tunnel: nothing to connect.
+
+        Not a login failure (the credentials were fine), so this reports
+        CONNECT_FAILED. _login_failed doubles as "failure already reported":
+        it keeps the monitor from reporting the exit of the terminated gpclient
+        a second time.
+        """
+        if self._login_failed:
+            return
+        logger.error(
+            "The device is on the internal network; the gateway authenticated "
+            "it without a VPN tunnel, so there is nothing to connect"
+        )
+        self._login_failed = True
+        self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
+        if self.gpclient_process:
+            try:
+                self.gpclient_process.terminate()
+            except ProcessLookupError:
+                pass
+
     async def _get_iface_ipv4(self, iface: str) -> Tuple[Any, int]:
         """Get the first IPv4 address of an interface.
 
@@ -3481,7 +3547,10 @@ async def main_async():
         if plugin.gpclient_process:
             try:
                 plugin.gpclient_process.terminate()
-                await asyncio.wait_for(plugin.gpclient_process.wait(), timeout=5)
+                await asyncio.wait_for(
+                    plugin.gpclient_process.wait(),
+                    timeout=GPCLIENT_TERMINATE_TIMEOUT,
+                )
             except:
                 pass
 
