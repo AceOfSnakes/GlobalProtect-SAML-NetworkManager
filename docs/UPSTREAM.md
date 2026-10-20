@@ -81,16 +81,27 @@ build error. This page explains how we find such a change and how we accept it.
 
 ## What "breaking" means and what the gate does
 
-The gate compares the checked-out upstream with the contract of the **base
-branch** of the pull request, not with the contract in the pull request. A
-pull request cannot hide a breaking change by editing the contract. The change
-is breaking when:
+"Breaking" means what the upstream changelog says. The gate takes the version
+of the contract on the **base branch** of the pull request (not the one in the
+pull request, so a pull request cannot hide a change by editing it) and the
+version in `Cargo.toml` of the checked-out upstream. The change is breaking when:
 
-- the base branch has no `upstream/contract.json`, or
-- one item of the base contract is not `OK` (`CHANGED`, `MISSING`, or a
-  changed `cargo-lock`). A `MOVED` anchor is not breaking: the text still
-  exists. Or
-- the major version of upstream changed.
+- the base branch has no `upstream/contract.json` ("no accepted baseline": this
+  is true once, for the pull request that adds the contract), or
+- the major version changed (for example 3.x to 4.0.0), or
+- the upstream `changelog.md` has, in a version V with base < V <= current,
+  a `###` section whose name contains `breaking`, `command-line notes`,
+  `removed` or `deprecated` (every bullet is a reason), or a bullet in any
+  section that has one of the whole words `breaking`, `incompatible`,
+  `removed`, `renamed`, `deprecated` or `must` (case-insensitive; `removal`
+  and `mustard` do not count). The lists are `BREAKING_SECTIONS` and
+  `BREAKING_WORDS` in `scripts/upstream_contract.py`, or
+- the changelog is missing or has no entries for the new versions (fail safe).
+
+If the version did not change, the change is not breaking. A change of the
+contract items alone (`CHANGED`, `MISSING`, `MOVED`) is **not** breaking: it
+fails `check` and `tests/upstream`, you review the upstream diff, adapt our code
+and run `update`, but no manual verification is needed.
 
 If the change is not breaking, the gate passes and no manual verification is
 needed. If it is breaking, the check fails until both are present:

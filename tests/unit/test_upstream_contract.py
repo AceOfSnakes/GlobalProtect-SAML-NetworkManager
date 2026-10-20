@@ -699,9 +699,26 @@ def add_record(env, **changes):
     env["verification"].write_text(json.dumps({"records": [record]}))
 
 
-def break_block(env):
-    write(env["source"] / "crates" / "a" / "lib.rs", LIB_RS.replace("let x = 1;", "let x = 2;"))
+def set_base_version(env, version):
+    env["contract"]["version"] = version
+    env["base"].write_text(json.dumps(env["contract"]))
+
+
+def set_changelog(env, text, version=None):
+    write(env["source"] / "changelog.md", text)
+    if version:
+        write(env["source"] / "Cargo.toml", CARGO_TOML.replace("3.1.0", version))
     env["commit"] = commit_all(env["source"])
+
+
+def make_breaking(env):
+    """The base is 3.0.0 and 3.1.0 has a "Command-line notes" section"""
+    set_base_version(env, "3.0.0")
+    set_changelog(env, CHANGELOG.replace("### Fixed\n\n- Fixed one thing.", "### Command-line notes\n\n- Changed a flag."))
+
+
+def changelog_with(version, section, bullet):
+    return f"# Changelog\n\n## {version}\n\n### {section}\n\n- {bullet}\n\n## 3.0.0\n\n### Added\n\n- Old.\n"
 
 
 def test_gate_not_breaking_passes_without_record_or_label(gate_env, capsys):
@@ -715,58 +732,157 @@ def test_gate_not_breaking_when_only_unrelated_code_changes(gate_env):
     assert run_gate(gate_env) == 0
 
 
-def test_gate_moved_anchor_alone_is_not_breaking(gate_env):
-    write(gate_env["source"] / "crates" / "a" / "lib.rs", LIB_RS.replace('"Enter {}:"', '"Other"'))
-    write(gate_env["source"] / "crates" / "a" / "elsewhere.rs", 'fn g() { "Enter {}:"; }\n')
-    # the block changed too in that edit, so restrict the base contract to the anchor
-    gate_env["base"].write_text(json.dumps(make_contract(gate_env["source"], [anchor_item()])))
-    commit_all(gate_env["source"])
-    assert uc.evaluate([anchor_item()], gate_env["source"])[0].status == uc.MOVED
+def drift(env, how):
+    src = env["source"]
+    if how == "changed-block":
+        write(src / "crates" / "a" / "lib.rs", LIB_RS.replace("let x = 1;", "let x = 2;"))
+    elif how == "missing-anchor":
+        write(src / "crates" / "a" / "lib.rs", LIB_RS.replace("Enter", "Type"))
+    elif how == "moved-anchor":
+        write(src / "crates" / "a" / "lib.rs", LIB_RS.replace('"Enter {}:"', '"Other"'))
+        write(src / "crates" / "a" / "elsewhere.rs", 'fn g() { "Enter {}:"; }\n')
+    elif how == "cargo-lock":
+        write(src / "Cargo.lock", CARGO_LOCK.replace("0.9.4", "0.9.5"))
+    elif how == "missing-block":
+        write(src / "crates" / "a" / "lib.rs", LIB_RS.replace("prompt_credential", "renamed"))
+    commit_all(src)
+
+
+@pytest.mark.parametrize("how", ["changed-block", "missing-anchor", "moved-anchor", "cargo-lock", "missing-block"])
+def test_gate_contract_drift_alone_is_not_breaking(gate_env, how, capsys):
+    drift(gate_env, how)
+    # the contract really does not match any more (check would fail)...
+    if how != "moved-anchor":
+        assert any(r.status != uc.OK for r in uc.check_contract(gate_env["contract"], gate_env["source"]))
+    # ...but the gate needs neither a record nor a label
+    assert run_gate(gate_env) == 0
+    assert "not breaking" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("how", ["no-baseline", "empty-path"])
+def test_gate_without_a_base_contract_is_breaking(gate_env, how, capsys):
+    base = gate_env["tmp"] / "does-not-exist.json" if how == "no-baseline" else ""
+    assert run_gate(gate_env, base=base) == 1
+    out = capsys.readouterr().out
+    assert "no accepted baseline" in out and "BREAKING" in out and "docs/UPSTREAM.md" in out
+
+
+def test_gate_breaking_message_lists_reason_and_docs(gate_env, capsys):
+    make_breaking(gate_env)
+    assert run_gate(gate_env) == 1
+    out = capsys.readouterr().out
+    assert "3.1.0 / Command-line notes: Changed a flag." in out and "docs/UPSTREAM.md" in out
+
+
+@pytest.mark.parametrize("section", ["Breaking", "Breaking changes", "Command-line notes", "Removed", "Deprecated", "REMOVED FEATURES"])
+def test_gate_breaking_section_name_is_breaking(gate_env, section, capsys):
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, changelog_with("3.1.0", section, "A harmless bullet."))
+    assert run_gate(gate_env) == 1
+    assert f"3.1.0 / {section}: A harmless bullet." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("section", ["Added", "Fixed", "Improved", "Changed"])
+def test_gate_ordinary_sections_with_harmless_bullets_are_not_breaking(gate_env, section):
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, changelog_with("3.1.0", section, "Added a nicer dialog."))
     assert run_gate(gate_env) == 0
 
 
-@pytest.mark.parametrize("how", ["no-baseline", "empty-path", "changed-block", "missing-anchor", "major", "cargo-lock", "missing-block"])
-def test_gate_breaking_fails_without_record_and_label(gate_env, how, capsys):
-    base = None
-    if how == "no-baseline":
-        base = gate_env["tmp"] / "does-not-exist.json"
-    elif how == "empty-path":
-        base = ""
-    elif how == "changed-block":
-        break_block(gate_env)
-    elif how == "missing-anchor":
-        write(gate_env["source"] / "crates" / "a" / "lib.rs", LIB_RS.replace("Enter", "Type"))
-        commit_all(gate_env["source"])
-    elif how == "major":
-        write(gate_env["source"] / "Cargo.toml", CARGO_TOML.replace("3.1.0", "4.0.0"))
-        commit_all(gate_env["source"])
-    elif how == "cargo-lock":
-        write(gate_env["source"] / "Cargo.lock", CARGO_LOCK.replace("0.9.4", "0.9.5"))
-        commit_all(gate_env["source"])
-    elif how == "missing-block":
-        write(gate_env["source"] / "crates" / "a" / "lib.rs", LIB_RS.replace("prompt_credential", "renamed"))
-        commit_all(gate_env["source"])
-    assert run_gate(gate_env, base=base) == 1
-    out = capsys.readouterr().out
-    assert "BREAKING" in out
-    assert "docs/UPSTREAM.md" in out
+@pytest.mark.parametrize("word", list(uc.BREAKING_WORDS) + ["Breaking", "MUST", "Removed"])
+def test_gate_breaking_word_in_a_bullet_is_breaking(gate_env, word):
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, changelog_with("3.1.0", "Improved", f"The old flag {word} now, use the new one."))
+    assert run_gate(gate_env) == 1
+
+
+@pytest.mark.parametrize("bullet", [
+    "The tool no longer reports an error.",
+    "Added mustard to the menu.",
+    "A renamedly odd word.",
+    "Removal of the old cache is planned.",
+    "Undeprecated nothing.",
+    "The breakingly fast start.",
+    "Improved the incompatibility message.",
+])
+def test_gate_near_misses_are_not_breaking(gate_env, bullet):
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, changelog_with("3.1.0", "Improved", bullet))
+    assert run_gate(gate_env) == 0
+
+
+def test_gate_a_word_before_a_hyphen_is_a_whole_word(gate_env):
+    # \b sees "must" in "must-have" as a whole word: it counts, by design
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, changelog_with("3.1.0", "Improved", "Added a must-have panel."))
+    assert run_gate(gate_env) == 1
+
+
+def test_gate_breaking_bullet_in_the_base_version_or_a_newer_one_is_ignored(gate_env):
+    text = (changelog_with("3.1.0", "Added", "Harmless.")
+            + "\n## 3.2.0\n\n### Removed\n\n- Removed a thing.\n"
+            + "\n## 3.0.0\n\n### Removed\n\n- Removed an old thing.\n")
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, text)
+    assert run_gate(gate_env) == 0
+
+
+def test_gate_breaking_bullet_between_base_and_current_counts(gate_env):
+    text = changelog_with("3.1.0", "Added", "Harmless.") + "\n## 3.0.5\n\n### Fixed\n\n- Removed a thing.\n"
+    set_base_version(gate_env, "3.0.0")
+    set_changelog(gate_env, text)
+    assert run_gate(gate_env) == 1
+
+
+def test_gate_major_bump_with_a_harmless_changelog_is_breaking(gate_env, capsys):
+    set_changelog(gate_env, changelog_with("4.0.0", "Added", "Harmless."), version="4.0.0")
+    assert run_gate(gate_env) == 1
+    assert "major version changed: 3.1.0 -> 4.0.0" in capsys.readouterr().out
+
+
+def test_gate_minor_bump_with_a_harmless_changelog_is_not_breaking(gate_env):
+    set_changelog(gate_env, changelog_with("3.2.0", "Added", "Harmless."), version="3.2.0")
+    assert run_gate(gate_env) == 0
+
+
+def test_gate_same_version_is_not_breaking_even_with_breaking_text(gate_env):
+    set_changelog(gate_env, changelog_with("3.1.0", "Removed", "Removed a thing."))
+    assert run_gate(gate_env) == 0
+
+
+@pytest.mark.parametrize("changelog", ["missing", "no-entries"])
+def test_gate_missing_or_empty_changelog_with_a_version_change_is_breaking(gate_env, changelog, capsys):
+    set_base_version(gate_env, "3.0.0")
+    if changelog == "missing":
+        (gate_env["source"] / "changelog.md").unlink()
+        gate_env["commit"] = commit_all(gate_env["source"])
+    else:
+        set_changelog(gate_env, "# Changelog\n")
+    assert run_gate(gate_env) == 1
+    assert "changelog not found" in capsys.readouterr().out
+
+
+def test_gate_missing_changelog_with_the_same_version_is_not_breaking(gate_env):
+    (gate_env["source"] / "changelog.md").unlink()
+    commit_all(gate_env["source"])
+    assert run_gate(gate_env) == 0
 
 
 def test_gate_breaking_fails_with_record_but_no_label(gate_env, capsys):
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env)
     assert run_gate(gate_env, labels=["other"]) == 1
     assert "upstream-verified" in capsys.readouterr().out
 
 
 def test_gate_breaking_fails_with_label_but_no_record(gate_env, capsys):
-    break_block(gate_env)
+    make_breaking(gate_env)
     assert run_gate(gate_env, labels=["upstream-verified"]) == 1
     assert "no record" in capsys.readouterr().out
 
 
 def test_gate_breaking_fails_with_label_and_a_record_for_another_commit(gate_env):
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env, commit="c" * 40)
     assert run_gate(gate_env, labels=["upstream-verified"]) == 1
 
@@ -778,14 +894,14 @@ def test_gate_breaking_fails_with_label_and_a_record_for_another_commit(gate_env
     {"systems": []},
 ])
 def test_gate_breaking_fails_with_label_and_an_invalid_record(gate_env, changes, capsys):
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env, **changes)
     assert run_gate(gate_env, labels=["upstream-verified"]) == 1
     assert "not valid" in capsys.readouterr().out
 
 
 def test_gate_breaking_passes_with_valid_record_and_label(gate_env, capsys):
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env)
     assert run_gate(gate_env, labels=["bug", "upstream-verified"]) == 0
     assert "BREAKING" in capsys.readouterr().out
@@ -793,7 +909,7 @@ def test_gate_breaking_passes_with_valid_record_and_label(gate_env, capsys):
 
 def test_gate_compares_with_the_base_not_with_the_contract_of_the_pr(gate_env):
     # The PR updates upstream/contract.json to accept the change: that must not help.
-    break_block(gate_env)
+    make_breaking(gate_env)
     pr_contract = gate_env["tmp"] / "pr-contract.json"
     new_item = block_item(gate_env["source"])
     pr_contract.write_text(json.dumps(make_contract(gate_env["source"], [new_item])))
@@ -811,7 +927,7 @@ def test_gate_writes_github_output_and_summary(gate_env, monkeypatch):
     assert run_gate(gate_env) == 0
     assert out.read_text().splitlines() == ["breaking=false", "verified=false"]
     assert "not breaking" in summary.read_text()
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env)
     assert run_gate(gate_env, labels=["upstream-verified"]) == 0
     assert out.read_text().splitlines()[2:] == ["breaking=true", "verified=true"]
@@ -827,7 +943,7 @@ def test_gate_writes_nothing_when_the_variables_are_not_set(gate_env, monkeypatc
 
 
 def test_gate_without_a_git_checkout_cannot_match_a_record(gate_env, tmp_path):
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env)
     outcome = uc.gate(gate_env["source"], gate_env["contract"], {"records": [dict(GOOD_RECORD, commit=gate_env["commit"])]},
                       ["upstream-verified"], commit="")
@@ -841,7 +957,7 @@ def test_gate_bad_labels_is_an_error(gate_env, labels):
 
 
 def test_gate_empty_labels_means_no_labels(gate_env):
-    break_block(gate_env)
+    make_breaking(gate_env)
     add_record(gate_env)
     assert uc.main(["gate", "--source", str(gate_env["source"]), "--base-contract", str(gate_env["base"]),
                     "--verification", str(gate_env["verification"]), "--labels", ""]) == 1

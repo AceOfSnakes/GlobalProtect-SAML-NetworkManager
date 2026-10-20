@@ -12,7 +12,7 @@ Subcommands:
   update    record the current source in the contract (after a review)
   features  every changelog entry since the baseline is classified
   interfaces  every function that reads upstream output or runs upstream has tests
-  gate      CI: a breaking change needs a human verification
+  gate      CI: a change that the changelog calls breaking needs a human verification
 """
 
 import argparse
@@ -486,7 +486,35 @@ def record_problems(records, commit):
     return [f"record for commit {commit} is not valid: {problem}" for problem in attempts[0]]
 
 
-def gate(source, base_contract, verification, labels, commit=None):
+# A change is breaking when the upstream changelog says so, not when the contract
+# drifts (drift fails `check` and needs a code review and `update`, no manual
+# verification). The names and words come from the maintainer's decision and
+# from yuezk's changelog style: there is no "Breaking" section so far, but
+# 3.1.0 has "Command-line notes" (a rename and a removal). A section name
+# matches when it contains one of BREAKING_SECTIONS (case-insensitive); a word
+# matches as a whole word only ("removal" and "mustard" do not match).
+BREAKING_SECTIONS = ("breaking", "command-line notes", "removed", "deprecated")
+BREAKING_WORDS = ("breaking", "incompatible", "removed", "renamed", "deprecated", "must")
+BREAKING_WORDS_RE = re.compile(r"\b(?:" + "|".join(BREAKING_WORDS) + r")\b", re.I)
+
+
+def changelog_breaking_reasons(changelog_text, base_version, version):
+    """['<version> / <section>: <bullet>'] for the entries in base < v <= version that break"""
+    if changelog_text is None:
+        return ["changelog not found: cannot tell what changed"]
+    low, high = version_tuple(base_version), version_tuple(version)
+    bullets = [b for b in parse_changelog(changelog_text) if low < version_tuple(b[0]) <= high]
+    if not bullets:
+        return [f"changelog not found: no entries for {base_version} < v <= {version}"]
+    reasons = []
+    for bullet_version, section, text in bullets:
+        by_section = any(name in section.lower() for name in BREAKING_SECTIONS)
+        if by_section or BREAKING_WORDS_RE.search(text):
+            reasons.append(f"{bullet_version} / {section}: {text}")
+    return reasons
+
+
+def gate(source, base_contract, verification, labels, commit=None, changelog_path="changelog.md"):
     """
     Decide if the source is a breaking change relative to the accepted base
     contract (None: there is none). Returns a dict with breaking, verified,
@@ -496,17 +524,14 @@ def gate(source, base_contract, verification, labels, commit=None):
     if base_contract is None:
         reasons.append("no accepted baseline: the base branch has no upstream/contract.json")
     else:
-        for result in check_contract(base_contract, source)[1:]:
-            if result.status == OK:
-                continue
-            if result.status == MOVED and result.item.get("kind") == "anchor":
-                continue
-            reasons.append(result.line())
+        base_version = base_contract["version"]
         version = source_version(source)
         if version is None:
             reasons.append("version of the source is unknown")
-        elif version_tuple(version)[0] != version_tuple(base_contract["version"])[0]:
-            reasons.append(f"major version changed: {base_contract['version']} -> {version}")
+        elif version_tuple(version) != version_tuple(base_version):
+            if version_tuple(version)[0] != version_tuple(base_version)[0]:
+                reasons.append(f"major version changed: {base_version} -> {version}")
+            reasons += changelog_breaking_reasons(read_text(Path(source) / changelog_path), base_version, version)
     outcome = {"breaking": bool(reasons), "verified": False, "reasons": reasons, "problems": []}
     if not reasons:
         return outcome

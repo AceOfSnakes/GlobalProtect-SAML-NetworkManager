@@ -98,10 +98,16 @@ For AI agents (Claude Code, Codex, Copilot and others). People read
 
 ## 5. Breaking changes and the gate
 
-1. The gate compares the checked-out upstream with `upstream/contract.json` of the
-   base branch (not the one in your pull request). It says "breaking" when
-   there is no base contract, when one base item is not `OK` (`MOVED` anchors do
-   not count), or when the major version changed.
+1. "Breaking" means what the upstream changelog says. The gate compares the
+   version in `upstream/contract.json` of the base branch (not the one in your
+   pull request) with the version of the checked-out upstream. It says "breaking"
+   when there is no base contract, when the major version changed, when a
+   changelog section of a new version is named like `BREAKING_SECTIONS`
+   (`breaking`, `command-line notes`, `removed`, `deprecated`), when a bullet has
+   one of the whole words in `BREAKING_WORDS` (`breaking`, `incompatible`,
+   `removed`, `renamed`, `deprecated`, `must`), or when the changelog is missing.
+   Contract drift (`CHANGED`, `MISSING`) is not breaking: review it and run
+   `update` (section 2). It needs no manual verification.
 2. A breaking pull request stays red until both exist: a valid record in
    `upstream/verification.json` for the commit of the submodule, and the label
    `upstream-verified`. A person must install and run the packages. You cannot do it.
