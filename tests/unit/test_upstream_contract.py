@@ -774,6 +774,22 @@ def test_gate_breaking_message_lists_reason_and_docs(gate_env, capsys):
     assert "3.1.0 / Command-line notes: Changed a flag." in out and "docs/UPSTREAM.md" in out
 
 
+@pytest.mark.parametrize("base_version", ["3.1.1", "3.2.0", "4.0.0"])
+def test_gate_a_downgrade_is_breaking_and_says_so(gate_env, base_version, capsys):
+    set_base_version(gate_env, base_version)
+    assert run_gate(gate_env) == 1
+    out = capsys.readouterr().out
+    assert f"version went down: {base_version} -> 3.1.0" in out
+    assert "changelog not found" not in out
+
+
+@pytest.mark.parametrize("base_version", ["3.1.0", "3.0.5"])
+def test_gate_the_same_version_or_an_upgrade_is_not_reported_as_a_downgrade(gate_env, base_version, capsys):
+    set_base_version(gate_env, base_version)
+    run_gate(gate_env)
+    assert "version went down" not in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("section", ["Breaking", "Breaking changes", "Command-line notes", "Removed", "Deprecated", "REMOVED FEATURES"])
 def test_gate_breaking_section_name_is_breaking(gate_env, section, capsys):
     set_base_version(gate_env, "3.0.0")

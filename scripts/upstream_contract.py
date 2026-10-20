@@ -528,7 +528,10 @@ def gate(source, base_contract, verification, labels, commit=None, changelog_pat
         version = source_version(source)
         if version is None:
             reasons.append("version of the source is unknown")
-        elif version_tuple(version) != version_tuple(base_version):
+        elif version_tuple(version) < version_tuple(base_version):
+            # No changelog scan: the entries of a downgrade are not "new"
+            reasons.append(f"version went down: {base_version} -> {version}")
+        elif version_tuple(version) > version_tuple(base_version):
             if version_tuple(version)[0] != version_tuple(base_version)[0]:
                 reasons.append(f"major version changed: {base_version} -> {version}")
             reasons += changelog_breaking_reasons(read_text(Path(source) / changelog_path), base_version, version)

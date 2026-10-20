@@ -104,14 +104,18 @@
         "gateway-chosen-only",
         "auth-banner",
         "tls-legacy-detail",
-        "internal-network"
+        "internal-network",
+        "internal-gateway-state",
+        "code-maintenance-state"
       ],
       "tests": [
         "tests/unit/test_select_pty.py::test_username_and_password_are_typed_from_the_profile",
         "tests/unit/test_openssl_retry.py::test_v3_legacy_tls_error_triggers_retry",
         "tests/unit/test_openssl_retry.py::test_v3_unrelated_tls_error_does_not_trigger_retry",
         "tests/unit/test_internal_network.py::test_internal_network_session_fails_activation",
-        "tests/unit/test_internal_network.py::test_tunnel_log_lines_do_not_count_as_internal_network"
+        "tests/unit/test_internal_network.py::test_tunnel_log_lines_do_not_count_as_internal_network",
+        "tests/unit/test_internal_network.py::test_every_internal_state_line_matches",
+        "tests/unit/test_internal_network.py::test_near_misses_do_not_match"
       ]
     },
     {

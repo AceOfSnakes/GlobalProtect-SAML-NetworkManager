@@ -105,7 +105,10 @@ For AI agents (Claude Code, Codex, Copilot and others). People read
    changelog section of a new version is named like `BREAKING_SECTIONS`
    (`breaking`, `command-line notes`, `removed`, `deprecated`), when a bullet has
    one of the whole words in `BREAKING_WORDS` (`breaking`, `incompatible`,
-   `removed`, `renamed`, `deprecated`, `must`), or when the changelog is missing.
+   `removed`, `renamed`, `deprecated`, `must`), when the version went down, or when
+   the changelog is missing. CI runs the gate script of the base branch, so a change
+   to `scripts/upstream_contract.py` in your pull request does not change the gate
+   of that pull request.
    Contract drift (`CHANGED`, `MISSING`) is not breaking: review it and run
    `update` (section 2). It needs no manual verification.
 2. A breaking pull request stays red until both exist: a valid record in

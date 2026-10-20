@@ -88,6 +88,7 @@ version in `Cargo.toml` of the checked-out upstream. The change is breaking when
 
 - the base branch has no `upstream/contract.json` ("no accepted baseline": this
   is true once, for the pull request that adds the contract), or
+- the version went down (`version went down: <base> -> <current>`), or
 - the major version changed (for example 3.x to 4.0.0), or
 - the upstream `changelog.md` has, in a version V with base < V <= current,
   a `###` section whose name contains `breaking`, `command-line notes`,
@@ -98,7 +99,11 @@ version in `Cargo.toml` of the checked-out upstream. The change is breaking when
   `BREAKING_WORDS` in `scripts/upstream_contract.py`, or
 - the changelog is missing or has no entries for the new versions (fail safe).
 
-If the version did not change, the change is not breaking. A change of the
+If the version did not change, the change is not breaking. The workflow runs
+`scripts/upstream_contract.py` from the base branch too (the pull request cannot
+weaken the gate by editing the script; only the pull request that adds the
+script uses its own copy). The workflow file itself comes from the pull request,
+so review every change to it. A change of the
 contract items alone (`CHANGED`, `MISSING`, `MOVED`) is **not** breaking: it
 fails `check` and `tests/upstream`, you review the upstream diff, adapt our code
 and run `update`, but no manual verification is needed.

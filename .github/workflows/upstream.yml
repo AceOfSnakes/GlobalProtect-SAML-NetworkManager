@@ -54,10 +54,17 @@ jobs:
       - name: Check the pinned upstream
         run: python -m pytest tests/upstream -q -p no:cacheprovider
 
-      # Compared with the contract of the base branch, not with the one of the
-      # pull request: a pull request cannot hide a breaking change by editing
-      # its own contract (the base version is the starting point). The label list is passed through the environment,
-      # never into the script text.
+      # The gate compares with the contract of the base branch, not with the one
+      # of the pull request: a pull request cannot hide a breaking change by
+      # editing its own contract (the base version is the starting point). The
+      # gate logic (BREAKING_WORDS, the label check) also comes from the base
+      # branch: a pull request cannot weaken it by editing
+      # scripts/upstream_contract.py. Only the first pull request that adds the
+      # script uses its own copy. The workflow file itself comes from the pull
+      # request (pull_request trigger), so a change to it is visible in the
+      # review. The script runs isolated (python -I) with explicit paths: it
+      # imports nothing from its own directory. The label list is passed through
+      # the environment, never into the script text.
       - name: Gate breaking upstream changes
         if: always() && github.event_name == 'pull_request'
         env:
@@ -72,4 +79,15 @@ jobs:
             : > "$BASE"
             echo "The base branch has no upstream/contract.json"
           fi
-          python scripts/upstream_contract.py gate --base-contract "$BASE" --labels "$LABELS"
+          GATE="$RUNNER_TEMP/gate.py"
+          if git show FETCH_HEAD:scripts/upstream_contract.py > "$GATE" 2>/dev/null; then
+            echo "Gate script: $BASE_REF"
+          else
+            cp scripts/upstream_contract.py "$GATE"
+            echo "The base branch has no scripts/upstream_contract.py: using the one of the pull request"
+          fi
+          python -I "$GATE" gate \
+            --source external/GlobalProtect-openconnect \
+            --verification upstream/verification.json \
+            --base-contract "$BASE" \
+            --labels "$LABELS"

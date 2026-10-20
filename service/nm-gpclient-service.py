@@ -147,15 +147,28 @@ OPENSSL_LEGACY_ERROR_RE = re.compile(
 #
 # With internal host detection configured on the portal, a gateway can answer
 # in non-tunnel mode: gpclient 3.x stays in the foreground, creates no tun
-# device and logs (apps/gpclient/src/connect/internal.rs):
+# device and logs one line per gateway status change
+# (apps/gpclient/src/connect/internal.rs):
 #
 #   Internal network — authenticated: <gateway> (IPv4: ..., IPv6: ...)
+#   Internal gateway <gateway>: Authenticated | Rejected
 #
-# upstream writes an em dash; a plain hyphen or en dash is accepted too, in
-# case a future release (or a terminal) swaps it. The phrase is anchored on
-# "Internal network" and "authenticated:", so other lines about internal hosts
-# do not match.
-INTERNAL_NETWORK_RE = re.compile(r"Internal network\s+[\u2014\u2013-]\s+authenticated:")
+# The first form is for MaintenanceState::Healthy (upstream writes an em dash;
+# a plain hyphen or en dash is accepted too, in case a future release or a
+# terminal swaps it), the second for the other states
+# (crates/gpapi/src/session/connection.rs). In all of them gpclient is in
+# internal mode with no tunnel. The second form has the gateway as upstream
+# prints it ("name (address)") and the state word at the end of the line, so an
+# unknown state does not match.
+#
+# "Internal gateway <gateway> authentication failed: ..." is a warning for one
+# of the further gateways: gpclient goes on with the gateways that
+# authenticated (the first one already did), so it says nothing about the
+# tunnel, and it does not match.
+INTERNAL_NETWORK_RE = re.compile(
+    r"Internal network\s+[\u2014\u2013-]\s+authenticated:"
+    r"|Internal gateway\s+.+\):\s+(?:Authenticated|Healthy|Rejected)\s*$"
+)
 
 # gpclient logs out of every gateway session on SIGTERM, each with its own 5 s
 # timeout, so it needs more than 5 s before we may SIGKILL it (a cut logout
@@ -1484,30 +1497,15 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 pass
             self.stdout_monitor_task = None
 
+        # Stop gpclient first, close the PTY after. gpclient is the session
+        # leader of the PTY: closing the master sends it SIGHUP, which gpclient
+        # does not handle (only SIGINT and SIGTERM), so it would die at once and
+        # skip the gateway logout. It does not block on the PTY while it waits:
+        # it writes a few log lines at most, and the PTY buffer holds them.
+        await self._stop_gpclient()
+
         # Close the PTY
         self._close_pty()
-
-        # Kill gpclient process
-        if self.gpclient_process:
-            try:
-                logger.info(
-                    f"Terminating gpclient process (PID: {self.gpclient_process.pid})"
-                )
-                self.gpclient_process.terminate()
-                try:
-                    await asyncio.wait_for(
-                        self.gpclient_process.wait(),
-                        timeout=GPCLIENT_TERMINATE_TIMEOUT,
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("gpclient didn't terminate, killing it")
-                    self.gpclient_process.kill()
-                    try:
-                        await asyncio.wait_for(self.gpclient_process.wait(), timeout=2)
-                    except asyncio.TimeoutError:
-                        logger.error("gpclient process refused to die after SIGKILL")
-            except Exception as e:
-                logger.error(f"Error terminating gpclient: {e}")
 
         # Also run gpclient disconnect command
         try:
@@ -2217,6 +2215,39 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         logger.error("Failed to restart gpclient with --fix-openssl")
         return False
+
+    async def _stop_gpclient(self) -> None:
+        """Stop gpclient with SIGTERM, so it logs out of the gateways.
+
+        Waits GPCLIENT_TERMINATE_TIMEOUT, then sends SIGKILL. Does nothing when
+        there is no process. Never raises: a failure here must not stop the
+        rest of the shutdown.
+        """
+        process = self.gpclient_process
+        if not process:
+            return
+        try:
+            logger.info(f"Terminating gpclient process (PID: {process.pid})")
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                return
+            try:
+                await asyncio.wait_for(
+                    process.wait(), timeout=GPCLIENT_TERMINATE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.warning("gpclient didn't terminate, killing it")
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    return
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=2)
+                except asyncio.TimeoutError:
+                    logger.error("gpclient process refused to die after SIGKILL")
+        except Exception as e:
+            logger.error(f"Error terminating gpclient: {e}")
 
     def _close_pty(self) -> None:
         """Close the PTY master (and its transport, if a reader was attached)"""
@@ -2971,38 +3002,39 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         except OSError as e:
             logger.error(f"Failed to send {description} to PTY: {e}")
 
-    def _fail_login(self, reason: str) -> None:
-        """Emit a login failure and terminate gpclient"""
-        logger.error(f"Login failed: {reason}")
+    def _fail(self, reason_code: int, message: str) -> None:
+        """Report one failure to NetworkManager and terminate gpclient.
+
+        _login_failed means "failure already reported": it keeps the monitor
+        from reporting the exit of the terminated gpclient a second time.
+        """
+        logger.error(message)
         self._login_failed = True
-        self._emit_failure(NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED)
+        self._emit_failure(reason_code)
         if self.gpclient_process:
             try:
                 self.gpclient_process.terminate()
             except ProcessLookupError:
                 pass
+
+    def _fail_login(self, reason: str) -> None:
+        """Emit a login failure and terminate gpclient"""
+        self._fail(NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED, f"Login failed: {reason}")
 
     def _fail_internal_network(self) -> None:
         """The gateway authenticated us without a tunnel: nothing to connect.
 
         Not a login failure (the credentials were fine), so this reports
-        CONNECT_FAILED. _login_failed doubles as "failure already reported":
-        it keeps the monitor from reporting the exit of the terminated gpclient
-        a second time.
+        CONNECT_FAILED. The line can come more than once (one per gateway), and
+        a failure may be reported already: then there is nothing to do.
         """
         if self._login_failed:
             return
-        logger.error(
+        self._fail(
+            NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
             "The device is on the internal network; the gateway authenticated "
-            "it without a VPN tunnel, so there is nothing to connect"
+            "it without a VPN tunnel, so there is nothing to connect",
         )
-        self._login_failed = True
-        self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
-        if self.gpclient_process:
-            try:
-                self.gpclient_process.terminate()
-            except ProcessLookupError:
-                pass
 
     async def _get_iface_ipv4(self, iface: str) -> Tuple[Any, int]:
         """Get the first IPv4 address of an interface.
@@ -3547,16 +3579,8 @@ async def main_async():
         logger.error(f"Error in main loop: {e}")
         return 1
     finally:
-        # Cleanup
-        if plugin.gpclient_process:
-            try:
-                plugin.gpclient_process.terminate()
-                await asyncio.wait_for(
-                    plugin.gpclient_process.wait(),
-                    timeout=GPCLIENT_TERMINATE_TIMEOUT,
-                )
-            except:
-                pass
+        # Cleanup: stop gpclient before the PTY goes away (see Disconnect)
+        await plugin._stop_gpclient()
 
     logger.info("gpclient VPN service stopped")
     return 0

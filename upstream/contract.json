@@ -109,6 +109,13 @@
       "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
     },
     {
+      "id": "internal-gateway-state",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/internal.rs",
+      "text": "Internal gateway {}: {state:?}",
+      "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
+    },
+    {
       "id": "lock-file",
       "kind": "anchor",
       "path": "apps/gpclient/src/main.rs",
@@ -291,6 +298,15 @@
       "path": "apps/gpclient/src/connect/internal.rs",
       "start": "async fn run_internal_session(",
       "sha256": "300da6bb01b96e56561f5a36233ab3a3f0ea826029319f24cc6745829bf02c4d",
+      "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
+    },
+    {
+      "id": "code-maintenance-state",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/session/connection.rs",
+      "start": "pub enum MaintenanceState",
+      "sha256": "4f619e4d8c7c253d0de5935b36b627b63070330391f67c6bc5ef96ef21002545",
       "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
     },
     {
