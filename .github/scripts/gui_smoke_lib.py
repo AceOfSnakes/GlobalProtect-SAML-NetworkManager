@@ -58,6 +58,13 @@ TIMEOUT_CASES = [
      "steps": [("auth", 0)], "shown": VPN_TIMEOUT, "saved": VPN_TIMEOUT},
     {"name": "existing profile, typed value", "new": False, "timeout": VPN_TIMEOUT,
      "steps": [("type", "300")], "shown": 300, "saved": 300},
+    # a numeric spin button accepts a sign; GTK parses with g_strtod and clamps
+    {"name": "existing profile, typed sign", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "+90")], "shown": 90, "saved": 90},
+    {"name": "existing profile, typed negative value", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "-5")], "shown": -5, "saved": 0},
+    {"name": "existing profile, typed value above the range", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "99999999999999999999")], "shown": 99999999999999999999, "saved": 4294967295},
     # vpn.timeout is a guint32: values above 2^31 must survive a save
     {"name": "existing profile with a timeout above 2^31", "new": False, "timeout": 3000000000,
      "steps": [], "shown": 3000000000, "saved": 3000000000},
@@ -74,13 +81,13 @@ def step_problems(step):
     if kind not in STEP_KINDS:
         return [f"unknown step kind {kind!r}"]
     if kind == "auth":
-        if isinstance(value, bool) or value not in (0, 1):
-            return [f"auth index {value!r} is not 0 or 1"]
+        if type(value) is not int or value not in (0, 1):
+            return [f"auth index {value!r} is not the int 0 or 1"]
     elif kind == "spin":
-        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            return [f"spin value {value!r} is not an int >= 0"]
-    elif not isinstance(value, str) or not value or not value.isascii() or not value.isdigit():
-        return [f"typed text {value!r} is not a non-empty digit string"]
+        if type(value) is not int or not 0 <= value <= 4294967295:
+            return [f"spin value {value!r} is not an int in 0..4294967295"]
+    elif not isinstance(value, str) or not value.isascii() or not re.fullmatch(r"[+-]?[0-9]+", value):
+        return [f"typed text {value!r} is not an ASCII number with an optional sign"]
     return []
 
 

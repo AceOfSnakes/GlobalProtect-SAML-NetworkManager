@@ -223,3 +223,8 @@ error, comes first. 360 s fits the 300 s default. A new connection with browser
 login starts with 360 s. While a connection has no timeout of its own (0) and
 you have not changed the field, choosing browser login sets 360 s. If you
 raise `GP_AUTH_TIMEOUT`, raise `vpn.timeout` too.
+
+`GP_AUTH_TIMEOUT` applies to each browser login. A portal that asks for a second
+login at the gateway can open the browser twice, so 360 s may not be enough.
+Then tick **Address is a gateway** (one login) or raise `vpn.timeout` (for
+example to 660 s).

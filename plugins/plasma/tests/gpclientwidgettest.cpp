@@ -100,7 +100,6 @@ void GpclientWidgetTest::timeout()
             authMode->setCurrentIndex(arg.toInt());
         } else if (kind == QLatin1String("spin")) {
             spin->setValue(arg.toDouble());
-            QCOMPARE(changed.count(), before + 1); // one change, one signal
         } else if (kind == QLatin1String("type")) {
             spin->setFocus();
             edit->selectAll();
@@ -108,7 +107,9 @@ void GpclientWidgetTest::timeout()
         } else {
             QFAIL("unknown step");
         }
-        // Not covered by plasma-nm's watchChangedSetting() for a QDoubleSpinBox
+        // At least one signal. plasma-nm 5 watches only QSpinBox, so our own emit is
+        // needed there. plasma-nm 6 also watches QDoubleSpinBox, so there
+        // settingChanged comes twice, which is harmless.
         QVERIFY2(changed.count() > before, qPrintable(QStringLiteral("no settingChanged after ") + step));
     }
 

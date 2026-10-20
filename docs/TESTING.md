@@ -92,7 +92,7 @@ connection editor starts:
   shows the gateway, the preferred gateway and the two gateways of the list, the
   username, the authentication mode, the "Address is a gateway" check button
   and the connect timeout (a spin button showing the `vpn.timeout` of the test
-  connection). It then runs the 12 save scenarios of `TIMEOUT_CASES` in
+  connection). It then runs the 15 save scenarios of `TIMEOUT_CASES` in
   `gui_smoke_lib.py`. Each one shows the editor in its own window and applies
   steps: choose an authentication mode, set the spin button value, or type text
   into it without committing it. A new profile starts with 360 s for browser
@@ -100,7 +100,10 @@ connection editor starts:
   existing profile keeps its value, and a stored 0 that the user has not changed
   changes to 360 s when the
   user chooses browser login. Two scenarios store a value above 2^31 (3000000000
-  and 4294967295, the largest `guint32`) and expect it to survive a save. The
+  and 4294967295, the largest `guint32`) and expect it to survive a save. Three
+  scenarios type a sign or a number out of range without committing it: `+90`
+  saves 90, `-5` saves 0 and `99999999999999999999` saves 4294967295 (GTK parses
+  the text with `g_strtod` and clamps it to the range). The
   checks are: the number shown, the
   `vpn.timeout` that `update_connection()` writes (also for typed text), a
   "changed" signal after every user action (GNOME Settings enables Apply only

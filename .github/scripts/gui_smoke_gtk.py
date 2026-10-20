@@ -12,6 +12,7 @@ The decisions are in gui_smoke_lib.py.
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -147,7 +148,7 @@ def run_timeout_case(NM, GLib, Gtk, major, plugin, service, case):
             if changed[0] == before:
                 silent_steps += 1
         text = Gtk.Entry.get_text(spin) if major == 3 else Gtk.Editable.get_text(spin)
-        shown = int(text) if text.isdigit() else -1
+        shown = int(text) if re.fullmatch(r"[+-]?[0-9]+", text) else -1
         if case["new"]:
             # the GTK3 editor refuses to save without a gateway
             grid.get_child_at(1, 0).set_text(lib.GATEWAY)

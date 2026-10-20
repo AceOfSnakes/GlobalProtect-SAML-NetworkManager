@@ -25,7 +25,7 @@ All components have been implemented and are ready for testing:
    - QFormLayout with labeled fields, among them:
      - Gateway (QLineEdit)
      - Browser (QLineEdit)
-     - Connect timeout (QSpinBox, NetworkManager's `vpn.timeout`)
+     - Connect timeout (QDoubleSpinBox for the full `guint32` range, NetworkManager's `vpn.timeout`)
      - DNS Servers (QLineEdit)
    - Tooltips and placeholders for user guidance
 

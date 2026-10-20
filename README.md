@@ -140,6 +140,9 @@ the browser counts towards it. `0` means the NetworkManager default, usually
 browser login starts with 360 s. While a connection has no timeout of its own
 (0) and you have not changed the field, choosing browser login sets 360 s
 ([#46](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/46)).
+Choosing browser login on a connection with 0 writes 360 s, which replaces a
+global default from `NetworkManager.conf`; set the field back to 0 to keep that
+default.
 
 An existing connection with 0 keeps 0: the editor cannot tell it from a
 deliberate 0, and `NetworkManager.conf` can set a longer global default for 0.

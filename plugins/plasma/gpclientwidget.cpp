@@ -13,7 +13,6 @@
 #include <QLineEdit>
 #include <QSignalBlocker>
 #include <QDoubleSpinBox>
-#include <QLocale>
 #include <QString>
 #include <QStringList>
 
@@ -58,10 +57,7 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     m_ui->fixOpensslComboBox->addItem(QStringLiteral("Never"));
 
     // vpn.timeout is a guint32, so the field is a QDoubleSpinBox without decimals
-    // (a QSpinBox stops at INT_MAX). No group separators: 3000000000, not 3,000,000,000.
-    QLocale numberLocale;
-    numberLocale.setNumberOptions(QLocale::OmitGroupSeparator);
-    m_ui->timeoutSpinBox->setLocale(numberLocale);
+    // (a QSpinBox stops at INT_MAX).
 
     // Load configuration if available
     loadConfig(setting);
@@ -81,9 +77,10 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->timeoutSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
         // The user chose a value: keep it whatever the authentication mode.
         m_timeoutFollowsAuthMode = false;
-        // plasma-nm's watchChangedSetting() only watches QSpinBox::valueChanged(int)
-        // and a spin box line edit does not signal on setValue(), so a
-        // QDoubleSpinBox needs its own emit (checked by the timeout test).
+        // plasma-nm 5 watches only QSpinBox in watchChangedSetting(), so a
+        // QDoubleSpinBox needs our own emit there (checked by the timeout test).
+        // plasma-nm 6 also watches QDoubleSpinBox, so there settingChanged comes
+        // twice, which is harmless.
         Q_EMIT settingChanged();
     });
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);

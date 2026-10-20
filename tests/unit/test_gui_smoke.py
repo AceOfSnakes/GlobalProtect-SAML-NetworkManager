@@ -273,14 +273,16 @@ class TestTimeoutCases:
         assert 2**32 - 1 in timeouts
 
     @pytest.mark.parametrize("step", [
-        ("auth", 0), ("auth", 1), ("spin", 0), ("spin", 300), ("type", "500")])
+        ("auth", 0), ("auth", 1), ("spin", 0), ("spin", 300), ("spin", 4294967295),
+        ("type", "500"), ("type", "+90"), ("type", "-5")])
     def test_a_good_step_has_no_problems(self, step):
         assert lib.step_problems(step) == []
 
     @pytest.mark.parametrize("step", [
         ("auth", 2), ("auth", -1), ("auth", True), ("auth", "1"),
-        ("spin", "5"), ("spin", True), ("spin", -1), ("spin", 1.5),
-        ("type", ""), ("type", "5x"), ("type", "-5"), ("type", 5), ("type", "\u0665"),
+        ("auth", 1.0), ("spin", "5"), ("spin", True), ("spin", -1), ("spin", 1.5),
+        ("spin", 4294967296),
+        ("type", ""), ("type", "5x"), ("type", "+"), ("type", "1-"), ("type", " 5"), ("type", 5), ("type", "\u0665"),
         ("click", 1), ("auth",), "auth", None])
     def test_the_shape_test_would_reject_a_bad_step(self, step):
         assert lib.step_problems(step) != []

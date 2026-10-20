@@ -90,26 +90,28 @@ timeout_changed_cb (gpointer widget, gpointer user_data)
     NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
 
     /* The user set a value (+/-, typing): keep it whatever the authentication
-     * mode. Connected to "value-changed" and to the text "changed" of the
-     * spin button: GNOME Settings enables Apply only on the editor's "changed". */
+     * mode. Connected only to the text "changed" of the spin button: every
+     * user change (typing, +/-, wheel, keys) changes the text, so there is one
+     * signal per change. GNOME Settings enables Apply only on the editor's
+     * "changed". auth_mode_changed_cb blocks this handler for its own changes. */
     self->timeout_follows_auth_mode = FALSE;
     g_signal_emit_by_name (self, "changed");
 }
 
 /* The value the user sees. Typed text is committed to the adjustment only on
- * focus-out or Enter, so read the text; this never changes the widget. */
+ * focus-out or Enter, so read the text. Parse it as GTK does on commit (a
+ * numeric spin button accepts a sign at position 0): g_strtod, then clamp to
+ * the range of the adjustment ("+90" is 90, "-5" is 0, a very long number is
+ * the upper limit, empty text is 0). This never changes the widget. */
 static guint
 timeout_from_spin (GtkSpinButton *spin)
 {
     const char *text = gtk_editable_get_text (GTK_EDITABLE (spin));
-    guint64 v;
-    guint64 upper = (guint64) gtk_adjustment_get_upper (gtk_spin_button_get_adjustment (spin));
+    GtkAdjustment *adj = gtk_spin_button_get_adjustment (spin);
+    double v = g_ascii_strtod (text ? text : "", NULL);
 
-    if (!text || !*text)
-        return 0;
-    if (g_ascii_string_to_unsigned (text, 10, 0, G_MAXUINT64, &v, NULL))
-        return (guint) MIN (v, upper);
-    return (guint) gtk_spin_button_get_value (spin);
+    v = CLAMP (v, gtk_adjustment_get_lower (adj), gtk_adjustment_get_upper (adj));
+    return (guint) v;
 }
 
 static void
@@ -333,7 +335,6 @@ build_ui (NMGpclientEditor *self)
         gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin), (double) stored);
     self->timeout_follows_auth_mode = (stored == 0);
     /* Connect after the initial value is set */
-    g_signal_connect (self->timeout_spin, "value-changed", G_CALLBACK (timeout_changed_cb), self);
     g_signal_connect (self->timeout_spin, "changed", G_CALLBACK (timeout_changed_cb), self);
     gtk_box_append (GTK_BOX (timeout_box), self->timeout_spin);
     timeout_hint = gtk_label_new ("seconds (0 = NetworkManager default)");
