@@ -588,10 +588,14 @@ def redact_settings(obj: Any) -> Any:
 
 def mask_secrets(line: str, secrets: Sequence[str]) -> str:
     """Replace every occurrence of a secret value in a line of output"""
-    # Longest first: a secret that contains another one is masked whole
+    # Longest first: a secret that contains another one is masked whole. Only
+    # whole occurrences count, so a short answer ("1", "y") does not garble
+    # every word that happens to contain it.
     for secret in sorted(secrets, key=len, reverse=True):
         if secret:
-            line = line.replace(secret, HIDDEN)
+            line = re.sub(
+                rf"(?<!\w){re.escape(secret)}(?!\w)", lambda _: HIDDEN, line
+            )
     return line
 
 
@@ -1759,8 +1763,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 session_id,
                 "-p",
                 "User",
-                "-p",
-                "Name",
                 "-p",
                 "Class",
                 "-p",

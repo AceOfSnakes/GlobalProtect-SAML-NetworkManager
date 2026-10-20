@@ -21,12 +21,23 @@ MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 # whole run: only the part that runs as the real user writes the log file.
 LOG_FILE=""
 log() {
+    # The auth URL's query can carry the SAML request or a one-time token, and
+    # the messages may end up in the system journal: never log a query string
+    # (pure bash: log() must work with an almost empty PATH)
+    local rest="$*" msg="" hit
+    while [[ $rest =~ ://[^[:space:]?]*\? ]]; do
+        hit=${BASH_REMATCH[0]}
+        msg+="${rest%%"$hit"*}$hit<hidden>"
+        rest=${rest#*"$hit"}
+        rest=${rest#"${rest%%[[:space:]]*}"}
+    done
+    msg+=$rest
     if [ -n "$LOG_FILE" ]; then
-        echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"
+        echo "[$(date '+%F %T')] $msg" >> "$LOG_FILE"
     else # Print to stderr if LOG_FILE is unset, for troubleshooting in the terminal
-        echo "[$(date '+%F %T')] $*" >&2
+        echo "[$(date '+%F %T')] $msg" >&2
         # gpauth runs us detached, so stderr goes nowhere: keep early errors in syslog
-        command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- "$*" 2>/dev/null
+        command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- "$msg" 2>/dev/null
     fi
 }
 
@@ -277,13 +288,16 @@ private_dir_ok() {
 prepare_temp_base() {
     local uid="$1" runtime="$2" profile="$3" base
     umask 077  # also makes mkdir -p create the parents with mode 700
-    if private_dir_ok "$runtime"; then
-        base="$runtime/edge-wrapper"
-    else
-        base="/tmp/edge-wrapper-$uid"
+    base="/tmp/edge-wrapper-$uid"
+    # ProtectHome=read-only also makes /run/user read-only: -w is false there
+    if private_dir_ok "$runtime" && [ -w "$runtime" ]; then
+        mkdir -m 700 -- "$runtime/edge-wrapper" 2>/dev/null
+        if private_dir_ok "$runtime/edge-wrapper" && [ -w "$runtime/edge-wrapper" ]; then
+            base="$runtime/edge-wrapper"
+        fi
     fi
     mkdir -m 700 -- "$base" 2>/dev/null
-    if ! private_dir_ok "$base"; then
+    if ! private_dir_ok "$base" || [ ! -w "$base" ]; then
         log "WARNING: $base is not a private directory of uid $EUID (planted by another user?); not using it"
         base=$(mktemp -d "/tmp/edge-wrapper-$uid.XXXXXXXX" 2>/dev/null) || return 1
         private_dir_ok "$base" || return 1
@@ -345,17 +359,26 @@ fi
 # handler. Note that the actual suppression of the "open external app?" dialog
 # comes from the --disable-features=ExternalProtocolDialog flag below; this
 # policy file is kept for browsers/setups that honour a per-HOME policy dir.
-write_chromium_policy() {
-    local policy_name policy_dir
+chromium_policy_dir() {
+    local policy_name
     case "$FAMILY" in
         edge)     policy_name=microsoft-edge ;;
         chromium) policy_name=$(basename "$BROWSER_BIN" | grep -q chromium && echo chromium || echo google-chrome) ;;
         *)        return 0 ;;
     esac
+    echo "$EFFECTIVE_HOME/.config/$policy_name/policies/managed"
+}
+POLICY_DIR=$(chromium_policy_dir)
+MAKE_DIRS=()  # directories the browser needs, created as the real user
 
-    policy_dir="$EFFECTIVE_HOME/.config/$policy_name/policies/managed"
-    mkdir -p "$policy_dir" 2>/dev/null || return 0
-    cat > "$policy_dir/globalprotect.json" 2>/dev/null << 'EOF'
+# Write the policy file and create MAKE_DIRS. Runs as the real user (after the
+# sudo drop when we are root): the directories belong to that user, so root
+# must never write there or it could follow a symlink the user planted.
+prepare_browser_files() {
+    [ "${#MAKE_DIRS[@]}" -eq 0 ] || mkdir -p -- "${MAKE_DIRS[@]}" 2>/dev/null
+    [ -n "$POLICY_DIR" ] || return 0
+    mkdir -p -- "$POLICY_DIR" 2>/dev/null || return 0
+    cat > "$POLICY_DIR/globalprotect.json" 2>/dev/null << 'EOF'
 {
     "AutoLaunchProtocolsFromOrigins": [
         {
@@ -394,10 +417,9 @@ fi
 BROWSER_FLAGS=()
 case "$FAMILY" in
     edge|chromium)
-        write_chromium_policy
         if [ "$HOME_IS_RO" -eq 1 ]; then
             PROFILE_DIR="$ALT_PROFILE_DIR"
-            mkdir -p "$PROFILE_DIR/Crash Reports" "$EFFECTIVE_HOME/.config/Crash Reports" 2>/dev/null
+            MAKE_DIRS=("$PROFILE_DIR/Crash Reports" "$EFFECTIVE_HOME/.config/Crash Reports")
         else
             # Reuse the user's real profile so existing SSO cookies apply
             case "$(basename "$BROWSER_BIN")" in
@@ -507,12 +529,14 @@ run_browser_with_monitor() {
 if [ "$EUID" -eq 0 ]; then
     # "#uid" makes sudo take a numeric UID, so the name is never involved
     log "running as root; dropping privileges to $REAL_USER (uid=$REAL_UID) via sudo"
-    exec sudo -u "#$REAL_UID" bash -c "$(declare -f log init_log_file run_browser_with_monitor); \
+    exec sudo -u "#$REAL_UID" bash -c "$(declare -f log init_log_file prepare_browser_files run_browser_with_monitor); \
 LOG_FILE=; init_log_file ${USER_LOG_FILE@Q} && LOG_FILE=${USER_LOG_FILE@Q}; \
+POLICY_DIR=${POLICY_DIR@Q}; MAKE_DIRS=(${MAKE_DIRS[*]@Q}); prepare_browser_files; \
 ENV_VARS=(${ENV_VARS[*]@Q}); BROWSER_BIN=${BROWSER_BIN@Q}; \
 BROWSER_FLAGS=(${BROWSER_FLAGS[*]@Q}); \
 GPAUTH_PID=${GPAUTH_PID@Q}; MAX_WAIT=${MAX_WAIT@Q}; run_browser_with_monitor"
 else
     log "running as EUID=$EUID (no privilege drop needed)"
+    prepare_browser_files
     run_browser_with_monitor
 fi

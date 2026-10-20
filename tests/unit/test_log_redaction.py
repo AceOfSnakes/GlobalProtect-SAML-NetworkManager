@@ -92,6 +92,24 @@ class TestMaskSecrets:
         )
 
 
+    @pytest.mark.parametrize(
+        "line",
+        ["? Continue: yes", "Found 1 gateways in portal config", "key=value"],
+    )
+    def test_short_secret_is_not_masked_inside_other_words(
+        self, service_module, line
+    ):
+        assert service_module.mask_secrets(line, {"y", "1", "e"}) == line.replace(
+            " 1 ", " <hidden> "
+        )
+
+    @pytest.mark.parametrize("secret", ["1", "y"])
+    def test_short_secret_is_masked_as_a_whole_word(self, service_module, secret):
+        masked = service_module.mask_secrets(f"? Answer: {secret}", {secret})
+
+        assert masked == "? Answer: <hidden>"
+
+
 class TestDebugLogging:
     def _plugin(self, service_module):
         return service_module.GpclientVPNPlugin()

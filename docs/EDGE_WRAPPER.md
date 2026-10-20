@@ -81,13 +81,16 @@ The wrapper creates temporary directories in a private base directory:
 
 `<base>` is `$XDG_RUNTIME_DIR/edge-wrapper` (`/run/user/$UID/edge-wrapper`) when
 that directory is a real directory (not a symlink) owned by the user with mode
-700. Otherwise it is `/tmp/edge-wrapper-$UID`. The wrapper creates `<base>` with
+700 and writable (`ProtectHome=read-only` also makes `/run/user` read-only).
+Otherwise it is `/tmp/edge-wrapper-$UID`. The wrapper creates `<base>` with
 mode 700 and uses it only if it is a real directory, owned by the user, with mode
 700. If someone else created it first (a symlink, a directory with other owner or
 mode, a file), the wrapper does not use it: it logs a warning and takes a new
 directory from `mktemp` (`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). When the
 wrapper runs as root, it creates the directories as the desktop user (through
 `sudo -u "#$UID"`), so they never belong to root and root never follows a symlink.
+The Chromium policy file and the `Crash Reports` directories are also written
+after the privilege drop, as the desktop user.
 
 #### Security Considerations
 

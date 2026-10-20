@@ -16,6 +16,7 @@ import shlex
 import glob
 import shutil
 import subprocess
+import sys
 from collections import Counter
 
 import pytest
@@ -889,6 +890,18 @@ def test_bad_runtime_dir_is_not_used(tmp_path, make_runtime):
         assert os.listdir(runtime) == []
 
 
+def test_unusable_runtime_subdir_falls_back_to_tmp_base(tmp_path):
+    """A runtime dir we cannot use (read-only under ProtectHome, or blocked)
+    falls back to the usual /tmp base, not to a new random directory."""
+    runtime = _runtime_dir(tmp_path, 0o700)
+    (runtime / "edge-wrapper").write_text("not a directory")
+
+    _, base = _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime))
+
+    assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
+
+
 def _runtime_dir(tmp_path, mode, owner=None):
     runtime = tmp_path / "run"
     runtime.mkdir()
@@ -940,6 +953,27 @@ def test_log_file_is_in_the_private_base_and_not_readable_by_others(tmp_path):
     # The browser's stderr goes to the same file
     assert "browser-stderr-marker" in text
     assert not glob.glob("/tmp/edge-wrapper-*.log")
+
+
+def test_auth_url_query_is_never_logged(tmp_path, monkeypatch):
+    # The query can carry the SAML request or a one-time token; the browser
+    # still gets the whole URL
+    monkeypatch.setattr(
+        sys.modules[__name__], "URL", URL + "?SAMLRequest=topsecret&x=1"
+    )
+    log = _run_with_runtime(tmp_path)
+
+    logged = log.read_text() + (tmp_path / "syslog").read_text()
+    assert "topsecret" not in logged
+    assert "/saml?<hidden>" in logged
+
+
+def test_url_without_query_is_logged_unchanged(tmp_path):
+    log = _run_with_runtime(tmp_path)
+
+    logged = log.read_text() + (tmp_path / "syslog").read_text()
+    assert URL in logged
+    assert "<hidden>" not in logged
 
 
 def _plant_log_symlink(tmp_path, path):
