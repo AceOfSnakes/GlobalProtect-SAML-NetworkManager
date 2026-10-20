@@ -1555,6 +1555,25 @@ class TestResolveBrowser:
             "edge",
         )
 
+    @pytest.mark.parametrize("value", ["manual", "remote", "auto", "Manual", " REMOTE "])
+    def test_gpclient_browser_modes_use_the_wrapped_default_browser(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (
+            service_module.BROWSER_WRAPPER,
+            "default",
+        )
+
+    @pytest.mark.parametrize(
+        "value", ["/opt/manual", "/opt/remote/browser", "manual-browser", "remote2"]
+    )
+    def test_names_merely_containing_a_mode_are_passed_through(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (value, None)
+
     @pytest.mark.parametrize("value", ["safari", "/usr/bin/safari", "epiphany"])
     def test_unknown_browser_is_passed_through_untouched(
         self, service_module, monkeypatch, value

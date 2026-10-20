@@ -227,11 +227,10 @@ cd plugins/plasma && ./build.sh  # Build only Plasma plugin
 
 ## GlobalProtect-openconnect version
 
-Upstream version: untagged commit [`9e4f459`](https://github.com/yuezk/GlobalProtect-openconnect/commit/9e4f45997ebee452c58d7d3066dcfc175d65ef82) (v2.6.5+14)
+Upstream version: [`v3.1.0`](https://github.com/yuezk/GlobalProtect-openconnect/releases/tag/v3.1.0)
 
 The `external/GlobalProtect-openconnect` submodule is pinned to a release tag,
-never to upstream `main`. The current pin is older than this rule and is not a
-tag. The next bump moves it to a release tag.
+never to upstream `main`.
 
 Clone with the submodules:
 
@@ -239,7 +238,8 @@ Clone with the submodules:
 git clone --recursive https://github.com/WMP/GlobalProtect-SAML-NetworkManager.git
 ```
 
-Update an existing clone:
+Update an existing clone. `git submodule sync` is needed because upstream 3.x
+moved the nested openconnect submodule to `github.com/yuezk/openconnect`:
 
 ```bash
 git pull

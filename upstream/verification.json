@@ -1,3 +1,58 @@
 {
-  "records": []
+  "records": [
+    {
+      "commit": "4faa2ecb0d136ea5cf2eec27d067219cb1f0fb6b",
+      "tag": "v3.1.0",
+      "pr": 40,
+      "tester": "Ace Of Snakes",
+      "date": "2026-10-20",
+      "systems": [
+        {
+          "ubuntu": "26.04",
+          "arch": "amd64",
+          "desktop": "plasma"
+        }
+      ],
+      "scenarios": {
+        "install": "pass",
+        "saml-login": "pass",
+        "disconnect": "pass",
+        "reconnect": "pass",
+        "gateway-selection": "pass",
+        "credentials-prompt": "pass",
+        "otp-prompt": "pass",
+        "fix-openssl": "n/a",
+        "hip": "n/a"
+      },
+      "result": "pass",
+      "notes": "MFA with ubikey"
+    },
+    {
+      "commit": "4faa2ecb0d136ea5cf2eec27d067219cb1f0fb6b",
+      "tag": "v3.1.0",
+      "pr": 40,
+      "tester": "WMP",
+      "date": "2026-10-20",
+      "systems": [
+        {
+          "ubuntu": "26.04",
+          "arch": "amd64",
+          "desktop": "plasma"
+        }
+      ],
+      "scenarios": {
+        "install": "pass",
+        "saml-login": "pass",
+        "disconnect": "pass",
+        "reconnect": "pass",
+        "gateway-selection": "n/a",
+        "credentials-prompt": "n/a",
+        "otp-prompt": "n/a",
+        "fix-openssl": "n/a",
+        "hip": "pass"
+      },
+      "result": "pass",
+      "notes": "SAML via Edge (Entra ID). First try hit the NetworkManager 60 s timeout (#46, not upstream). HIP report with the built-in generator submitted. ESP falls back to HTTPS on 3.1.0 and on 2.6.5 alike. Reversed extra address on tun0 is our service (#48)."
+    }
+  ]
 }

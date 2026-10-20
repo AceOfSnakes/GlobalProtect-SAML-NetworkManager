@@ -87,7 +87,8 @@
       "function": "service/nm-gpclient-service.py::resolve_browser",
       "kind": "runs-upstream",
       "upstream": [
-        "cli-browser"
+        "cli-browser",
+        "callback-handler-desktop"
       ],
       "tests": [
         "tests/unit/test_gateway_selection.py::test_empty_defaults_to_wrapped_edge",
@@ -102,12 +103,19 @@
         "gateway-chosen-selected",
         "gateway-chosen-only",
         "auth-banner",
-        "fix-openssl-hint",
-        "legacy-openssl-detect"
+        "tls-legacy-detail",
+        "internal-network",
+        "internal-gateway-state",
+        "code-maintenance-state"
       ],
       "tests": [
         "tests/unit/test_select_pty.py::test_username_and_password_are_typed_from_the_profile",
-        "tests/unit/test_select_pty.py::test_no_stored_password_without_interaction_fails_login"
+        "tests/unit/test_openssl_retry.py::test_v3_legacy_tls_error_triggers_retry",
+        "tests/unit/test_openssl_retry.py::test_v3_unrelated_tls_error_does_not_trigger_retry",
+        "tests/unit/test_internal_network.py::test_internal_network_session_fails_activation",
+        "tests/unit/test_internal_network.py::test_tunnel_log_lines_do_not_count_as_internal_network",
+        "tests/unit/test_internal_network.py::test_every_internal_state_line_matches",
+        "tests/unit/test_internal_network.py::test_near_misses_do_not_match"
       ]
     },
     {
@@ -167,7 +175,8 @@
         "cli-as-gateway",
         "cli-user",
         "cli-browser",
-        "sudo-uid"
+        "sudo-uid",
+        "callback-handler-desktop"
       ],
       "tests": [
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_passes_flags_and_environment",
@@ -240,6 +249,8 @@
       "function": "scripts/browser-wrapper.sh",
       "kind": "runs-upstream",
       "upstream": [
+        "callback-handler-desktop",
+        "callback-mime-type",
         "cli-browser"
       ],
       "tests": [

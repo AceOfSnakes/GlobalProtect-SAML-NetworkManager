@@ -1,8 +1,7 @@
 {
-  "tag": null,
-  "legacy_untagged": true,
-  "commit": "9e4f45997ebee452c58d7d3066dcfc175d65ef82",
-  "version": "2.6.5",
+  "tag": "v3.1.0",
+  "commit": "4faa2ecb0d136ea5cf2eec27d067219cb1f0fb6b",
+  "version": "3.1.0",
   "items": [
     {
       "id": "gateway-count",
@@ -89,18 +88,39 @@
       "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
     },
     {
-      "id": "legacy-openssl-detect",
+      "id": "tls-legacy-message",
       "kind": "anchor",
-      "path": "crates/gpapi/src/error.rs",
-      "text": "contains(\"unsafe legacy renegotiation\")",
+      "path": "crates/gpapi/src/error/server_tls.rs",
+      "text": "The server requires unsafe legacy TLS renegotiation",
       "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
+    },
+    {
+      "id": "tls-legacy-detail",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/error/server_tls.rs",
+      "text": "unsafe legacy renegotiation",
+      "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
+    },
+    {
+      "id": "internal-network",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/internal.rs",
+      "text": "Internal network — authenticated:",
+      "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
+    },
+    {
+      "id": "internal-gateway-state",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/internal.rs",
+      "text": "Internal gateway {}: {state:?}",
+      "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
     },
     {
       "id": "lock-file",
       "kind": "anchor",
       "path": "apps/gpclient/src/main.rs",
       "text": "/var/run/gpclient.lock",
-      "used_by": "service/nm-gpclient-service.py: _cleanup_stale_gpd0 (gpclient keeps one session by its lock file)"
+      "used_by": "service/nm-gpclient-service.py: stale lock file handling"
     },
     {
       "id": "sudo-uid",
@@ -108,6 +128,27 @@
       "path": "crates/gpapi/src/process/users.rs",
       "text": "SUDO_UID",
       "used_by": "service/nm-gpclient-service.py: SUDO_UID in the gpclient environment"
+    },
+    {
+      "id": "callback-handler-desktop",
+      "kind": "anchor",
+      "path": "crates/auth/src/callback.rs",
+      "text": "gpgui.desktop",
+      "used_by": "service/nm-gpclient-service.py: browser callback handling (scripts/browser-wrapper.sh)"
+    },
+    {
+      "id": "callback-mime-type",
+      "kind": "anchor",
+      "path": "crates/auth/src/callback.rs",
+      "text": "x-scheme-handler/globalprotectcallback",
+      "used_by": "debian/rules: gpgui.desktop; scripts/browser-wrapper.sh"
+    },
+    {
+      "id": "desktop-exec",
+      "kind": "anchor",
+      "path": "packaging/files/usr/share/applications/gpgui.desktop",
+      "text": "Exec=/usr/bin/gpclient launch-gui %u",
+      "used_by": "debian/rules: installs gpgui.desktop"
     },
     {
       "id": "cli-fix-openssl",
@@ -157,7 +198,7 @@
       "role": "code",
       "path": "apps/gpclient/src/connect/credential.rs",
       "start": "pub(super) async fn obtain_credential(",
-      "sha256": "c9fb1eaaa61231e8f325dfba37fb2fe175d4a7acd95e52eb323d2ef60b6aca37",
+      "sha256": "07bf58eaa1aabd790cc6d1c2ea2a0dc558fecda8b937b99123d6d29392ecd82c",
       "used_by": "service/nm-gpclient-service.py: AUTH_BANNER_RE, credentials prompt detection"
     },
     {
@@ -184,7 +225,7 @@
       "role": "code",
       "path": "apps/gpclient/src/connect/gateway.rs",
       "start": "async fn login_gateway(",
-      "sha256": "1847d8b49c05276395fc66ea984e6326d9e5c7b7b371fba8b55ad1dfdb8e9f5f",
+      "sha256": "5cfe0ca90a0ac058c41b6b8ab63a3dcd0e63a0e4d09ec6f67e79b70bccbea2e5",
       "used_by": "service/nm-gpclient-service.py: OTP prompt detection (MFA)"
     },
     {
@@ -193,16 +234,25 @@
       "role": "code",
       "path": "apps/gpclient/src/connect/mod.rs",
       "start": "async fn connect_portal_with_prelogin(",
-      "sha256": "34167c54e1af160d355e95392f4ee4093d7864984e3002bdcb2fada16321119d",
+      "sha256": "49e7f896f9233c16b1950d4f9828ba5b9088fb8b43b356a5efcd8cbfa1eda0e4",
       "used_by": "service/nm-gpclient-service.py: GATEWAY_COUNT_RE, GATEWAY_CHOSEN_RE, gateway selection"
     },
     {
-      "id": "code-legacy-openssl-detect",
+      "id": "code-tls-classifier",
       "kind": "block",
       "role": "code",
-      "path": "crates/gpapi/src/error.rs",
-      "start": "pub fn is_legacy_openssl_error(",
-      "sha256": "22e7aae2ce709f13972a493d66ad4b9dc7230c375277c65ac5083d2a0b1fe42a",
+      "path": "crates/gpapi/src/error/server_tls.rs",
+      "start": "fn classify_native_detail(",
+      "sha256": "98262bd36c8536052659739389f1b10d00778e848b1f426f973a578c97d5170c",
+      "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
+    },
+    {
+      "id": "code-tls-display",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/error/server_tls.rs",
+      "start": "impl fmt::Display for ServerTlsError {",
+      "sha256": "e5ea08edafdfe717cd9d2453989d069e652acf574d822839fdfb355375b0bca6",
       "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
     },
     {
@@ -211,7 +261,7 @@
       "role": "code",
       "path": "crates/gpapi/src/clap/mod.rs",
       "start": "fn retry_hints(",
-      "sha256": "fe17465d0c7c21bf324318f6643a7afb8f00502e1679ef6d63d5ca45f1d43b2a",
+      "sha256": "acdb5e03c207993d7c70b6703191f219872186c3c79c62f0646f0ead5462ae2f",
       "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
     },
     {
@@ -224,6 +274,15 @@
       "used_by": "service/nm-gpclient-service.py: parsing of 'name (address)' in the gateway list"
     },
     {
+      "id": "code-ensure-callback-handler",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/auth/src/callback.rs",
+      "start": "#[cfg(any(target_os = \"linux\", target_os = \"freebsd\", target_os = \"openbsd\"))]\npub fn ensure_auth_callback_handler()",
+      "sha256": "9776f7753517995c3a43925c74595ea96096754ace7c8f13ad62e4788f2b23e3",
+      "used_by": "scripts/browser-wrapper.sh: xdg-mime handler for globalprotectcallback; debian/control: xdg-utils"
+    },
+    {
       "id": "code-real-user-lookup",
       "kind": "block",
       "role": "code",
@@ -233,6 +292,24 @@
       "used_by": "service/nm-gpclient-service.py: SUDO_UID environment"
     },
     {
+      "id": "code-internal-network",
+      "kind": "block",
+      "role": "code",
+      "path": "apps/gpclient/src/connect/internal.rs",
+      "start": "async fn run_internal_session(",
+      "sha256": "300da6bb01b96e56561f5a36233ab3a3f0ea826029319f24cc6745829bf02c4d",
+      "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
+    },
+    {
+      "id": "code-maintenance-state",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/session/connection.rs",
+      "start": "pub enum MaintenanceState",
+      "sha256": "4f619e4d8c7c253d0de5935b36b627b63070330391f67c6bc5ef96ef21002545",
+      "used_by": "service/nm-gpclient-service.py: INTERNAL_NETWORK_RE"
+    },
+    {
       "id": "test-direct_gateway_recommendation_uses_gateway_server",
       "kind": "block",
       "role": "test",
@@ -240,6 +317,33 @@
       "start": "fn direct_gateway_recommendation_uses_gateway_server(",
       "sha256": "662b38869d9c6e927374a5a768f948023b1a8c0d71e807fa89ee878018c1f535",
       "used_by": "service/nm-gpclient-service.py: --as-gateway note"
+    },
+    {
+      "id": "test-hints_distinguish_legacy_and_unknown_tls_and_respect_both_flags",
+      "kind": "block",
+      "role": "test",
+      "path": "crates/gpapi/src/clap/mod.rs",
+      "start": "fn hints_distinguish_legacy_and_unknown_tls_and_respect_both_flags(",
+      "sha256": "556557ff7f57943e5d07f7fe0f3832c9fa1eed75259b5d52e6fec0a7789e6535",
+      "used_by": "service/nm-gpclient-service.py: OPENSSL_LEGACY_ERROR_RE"
+    },
+    {
+      "id": "test-openssl_option_is_available_only_on_supported_platforms",
+      "kind": "block",
+      "role": "test",
+      "path": "apps/gpclient/src/cli.rs",
+      "start": "fn openssl_option_is_available_only_on_supported_platforms(",
+      "sha256": "020df3351b5f502cff1641b0e6b13bb8fdb7dccfe646744c70ce6cf92ea8266c",
+      "used_by": "service/nm-gpclient-service.py: --fix-openssl"
+    },
+    {
+      "id": "test-openssl_option_is_available_only_on_supported_platforms-gpauth",
+      "kind": "block",
+      "role": "test",
+      "path": "apps/gpauth/src/cli.rs",
+      "start": "fn openssl_option_is_available_only_on_supported_platforms(",
+      "sha256": "a7065cf1467e85f9b9fae1afed0f319ba2401d6ab9150dc979b1a2c0546661ca",
+      "used_by": "service/nm-gpclient-service.py: --fix-openssl (gpauth)"
     },
     {
       "id": "test-browser_without_value_uses_auto_mode",
@@ -276,6 +380,42 @@
       "start": "fn browser_default_keeps_system_default_mode(",
       "sha256": "af7f1a9e692cb669c28a1cefe4d65d53b9bd0e566f98f6591ec8f75656a79217",
       "used_by": "scripts/browser-wrapper.sh: gpauth --browser"
+    },
+    {
+      "id": "test-lock_file_defaults_to_standard_path",
+      "kind": "block",
+      "role": "test",
+      "path": "apps/gpclient/src/cli.rs",
+      "start": "fn lock_file_defaults_to_standard_path(",
+      "sha256": "23587b0bb857ec800aca7c805ba679d134c8a3aeb5d7071fd0126c4077d90a85",
+      "used_by": "service/nm-gpclient-service.py: /var/run/gpclient.lock"
+    },
+    {
+      "id": "test-replaces_any_other_callback_handler",
+      "kind": "block",
+      "role": "test",
+      "path": "crates/auth/src/callback.rs",
+      "start": "fn replaces_any_other_callback_handler(",
+      "sha256": "edcc0f610f178e7cee29ad71d5868c7a21eb91a4656c4ba25efcb98e61b53858",
+      "used_by": "scripts/browser-wrapper.sh: callback handler"
+    },
+    {
+      "id": "test-custom_browser_names_are_preserved",
+      "kind": "block",
+      "role": "test",
+      "path": "crates/browser-launcher/src/lib.rs",
+      "start": "fn custom_browser_names_are_preserved(",
+      "sha256": "bac84ca8ec0cdc9373dad53fd1ae28b32dcbc1b22b28dac7d9b8ffb9aa777c36",
+      "used_by": "service/nm-gpclient-service.py: --browser with a wrapper path"
+    },
+    {
+      "id": "test-unavailable_custom_browser_returns_an_error",
+      "kind": "block",
+      "role": "test",
+      "path": "crates/browser-launcher/src/platform/generic.rs",
+      "start": "fn unavailable_custom_browser_returns_an_error(",
+      "sha256": "91bacbcee64bcfe1e7f466bc6f09ead0b5bbc9b1fba7c3a1a3aa75c748e9de3b",
+      "used_by": "service/nm-gpclient-service.py: --browser with a wrapper path"
     },
     {
       "id": "test-real_user_lookup_uses_sudo_uid",
