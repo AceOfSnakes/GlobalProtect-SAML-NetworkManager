@@ -428,3 +428,138 @@ def test_install_test_needs_exactly_three_rpms(tmp_path):
         result = run_install_test(str(directory))
         assert result.returncode == 1
         assert "expected 3 RPMs" in result.stderr
+
+
+# --- the functions of rpm/install-test.sh (sourced; ldd is a fake) ---
+
+
+def run_function(tmp_path, call, ldd_output=None):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    if ldd_output is not None:
+        (tmp_path / "ldd.out").write_text(ldd_output)
+        (bin_dir / "ldd").write_text(f'#!/bin/sh\ncat "{tmp_path}/ldd.out"\n')
+        (bin_dir / "ldd").chmod(0o755)
+    return subprocess.run(
+        ["bash", "-c", f'. "{RPM_DIR}/install-test.sh"; {call}'],
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        check=False,
+    )
+
+
+OPENSSL3 = "\tlibssl.so.3 => /lib64/libssl.so.3 (0x1)\n\tlibcrypto.so.3 => /lib64/libcrypto.so.3 (0x2)\n"
+
+
+def test_check_openssl_accepts_openssl_3(tmp_path):
+    result = run_function(tmp_path, "check_openssl /bin/a /bin/b", OPENSSL3)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "ldd_output",
+    [
+        "\tlibssl.so.60 => /lib64/libssl.so.60 (0x1)\n\tlibcrypto.so.58 => /lib64/libcrypto.so.58 (0x2)\n",
+        "\tlibssl.so.59 (LIBRESSL_2.5) => /lib64/libssl.so.59 (0x1)\n",
+        "\tlibssl.so.1.1 => /lib64/libssl.so.1.1 (0x1)\n",
+        OPENSSL3 + "\tlibssl.so.60 => /lib64/libssl.so.60 (0x1)\n",
+        "\tlibc.so.6 => /lib64/libc.so.6 (0x1)\n",
+    ],
+)
+def test_check_openssl_rejects_other_libraries(tmp_path, ldd_output):
+    result = run_function(tmp_path, "check_openssl /bin/a", ldd_output)
+    assert result.returncode == 1
+    assert "FAIL" in result.stderr
+
+
+def make_vpnc_root(tmp_path, hooks="/etc/vpnc", hook=True, script_mode=0o755, where="/etc/vpnc/vpnc-script"):
+    root = tmp_path / "root"
+    script = root / where.lstrip("/")
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(f"#!/bin/sh\nHOOKS_DIR={hooks}\n")
+    script.chmod(script_mode)
+    if hook:
+        hook_file = root / hooks.lstrip("/") / "connect.d" / "90-gpclient-routing"
+        hook_file.parent.mkdir(parents=True, exist_ok=True)
+        hook_file.write_text("#!/bin/sh\n")
+        hook_file.chmod(0o755)
+    return root
+
+
+@pytest.mark.parametrize("where", ["/etc/vpnc/vpnc-script", "/usr/share/vpnc-scripts/vpnc-script"])
+def test_check_vpnc_script_accepts(tmp_path, where):
+    root = make_vpnc_root(tmp_path, where=where)
+    result = run_function(tmp_path, f'check_vpnc_script "{root}"')
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"hook": False},  # our hook is not in the directory the script runs
+        {"hooks": "/usr/share/vpnc", "hook": False},
+        {"script_mode": 0o644},  # not executable
+        {"where": "/opt/vpnc-script"},  # a path gpclient does not search
+    ],
+)
+def test_check_vpnc_script_rejects(tmp_path, kwargs):
+    root = make_vpnc_root(tmp_path, **kwargs)
+    if kwargs.get("hooks"):
+        # The hook is in /etc/vpnc, the script runs those of another directory
+        hook = root / "etc/vpnc/connect.d/90-gpclient-routing"
+        hook.parent.mkdir(parents=True)
+        hook.write_text("")
+        hook.chmod(0o755)
+    result = run_function(tmp_path, f'check_vpnc_script "{root}"')
+    assert result.returncode == 1
+    assert "FAIL" in result.stderr
+
+
+def test_check_vpnc_script_rejects_a_missing_script(tmp_path):
+    (tmp_path / "root").mkdir()
+    result = run_function(tmp_path, f'check_vpnc_script "{tmp_path / "root"}"')
+    assert result.returncode == 1 and "no executable vpnc-script" in result.stderr
+
+
+# --- spec ---
+
+
+def test_spec_openssl_and_vpnc_script_per_family():
+    spec = read("rpm/network-manager-gpclient.spec")
+    suse, _, other = spec.partition("%if 0%{?suse_version}\n")[2].partition("%else\n")
+    assert "BuildRequires:  libopenssl-devel" in suse
+    assert "BuildConflicts: libressl-devel" in suse
+    assert "BuildRequires:  pkgconfig(openssl)" in other
+    # Not for openSUSE, where it resolves to LibreSSL
+    assert "BuildRequires:  pkgconfig(openssl)" not in suse
+    assert "Requires:       vpnc\n%else\nRequires:       vpnc-script\n%endif" in spec
+
+
+def test_spec_owns_its_directories_and_stops_the_service_by_command_line():
+    spec = read("rpm/network-manager-gpclient.spec")
+    for directory in ("%{_sysconfdir}/vpnc", "%{_sysconfdir}/vpnc/connect.d", "%{_prefix}/libexec/NetworkManager"):
+        assert f"%dir {directory}\n" in spec
+    # The process name is cut to 15 characters: pkill -x can never match
+    assert "pkill -x" not in spec
+    assert "pkill -f '^(/usr/bin/)?python3[.0-9]* /usr/lib/NetworkManager/nm-gpclient-service'" in spec
+
+
+def test_spec_pkill_pattern_matches_the_service_only():
+    spec = read("rpm/network-manager-gpclient.spec")
+    pattern = re.search(r"pkill -f '(\^[^']*nm-gpclient-service)'", spec).group(1)
+    regex = re.compile(pattern)
+    for line in (
+        "/usr/bin/python3 /usr/lib/NetworkManager/nm-gpclient-service",
+        "python3 /usr/lib/NetworkManager/nm-gpclient-service",
+        "/usr/bin/python3.13 /usr/lib/NetworkManager/nm-gpclient-service",
+    ):
+        assert regex.match(line), line
+    for line in (
+        "pkill -f nm-gpclient-service",
+        "/bin/sh /var/tmp/rpm-tmp.x",
+        "vim /usr/lib/NetworkManager/nm-gpclient-service",
+        "/usr/bin/pkill -f /usr/lib/NetworkManager/nm-gpclient-service",
+        "/usr/bin/perl /usr/lib/NetworkManager/nm-gpclient-service",
+    ):
+        assert not regex.match(line), line

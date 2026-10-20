@@ -137,6 +137,10 @@ def published_summary(repo, pr, sha, script_ref, debs, rpms=()):
             "",
             "```bash",
             "sudo dnf downgrade network-manager-gpclient network-manager-gpclient-gnome   # or -plasma, as installed",
+            "# openSUSE: the released version is older, so name it (zypper search -s --match-exact "
+            "network-manager-gpclient)",
+            "sudo zypper install --oldpackage network-manager-gpclient=<released version> "
+            "network-manager-gpclient-gnome=<released version>   # or -plasma",
             "```",
             "",
             "Without it: `sudo dnf remove network-manager-gpclient network-manager-gpclient-gnome` "

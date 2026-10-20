@@ -207,8 +207,12 @@ def rpm_table(repo, blob, rpms):
         "[docs/RPM_REPO.md](%s/docs/RPM_REPO.md). With single files, take "
         "`network-manager-gpclient` and one desktop package (`-gnome` or `-plasma`) from the "
         "same row and architecture and install them together, e.g. "
-        "`sudo dnf install ./network-manager-gpclient-*.rpm ./network-manager-gpclient-gnome-*.rpm` "
-        "(`sudo zypper install` on openSUSE)." % blob,
+        "`sudo dnf install ./network-manager-gpclient-[0-9]*.<dist>.<arch>.rpm "
+        "./network-manager-gpclient-gnome-[0-9]*.<dist>.<arch>.rpm`, with the dist tag of the row "
+        "(`fc44` for Fedora 44, `el10`, `lp160` for Leap 16.0, `tw`) and its architecture, so that "
+        "the pattern matches one target only. On openSUSE use "
+        "`sudo zypper install --allow-unsigned-rpm` with the same files: the release files are "
+        "not signed." % blob,
         "",
         "| RPM target | " + " | ".join(arches) + " |",
         "|---|" + "---|" * len(arches),

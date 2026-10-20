@@ -14,13 +14,56 @@
 # Usage inside the container: install-test.sh <dir with the RPMs>
 set -euo pipefail
 
-rpms=${1:-}
-[ -n "$rpms" ] && [ -d "$rpms" ] || { echo "usage: install-test.sh <dir with the RPMs>" >&2; exit 2; }
-
 fail() {
     echo "FAIL: $*" >&2
     exit 1
 }
+
+# check_openssl <executable>...: none links another libssl than OpenSSL 3 (on openSUSE
+# pkgconfig(openssl) can resolve to LibreSSL, which gpclient does not work with), and
+# the first one (gpclient) links libssl.so.3.
+check_openssl() {
+    local exe out first=1
+    for exe in "$@"; do
+        out=$(ldd "$exe" 2>&1) || fail "ldd $exe: $out"
+        if grep -qi 'libressl' <<<"$out" || grep -Eq 'libssl\.so\.([0-24-9]|[0-9][0-9]+)' <<<"$out"; then
+            fail "$exe does not link OpenSSL 3: $(grep -Ei 'libressl|libssl|libcrypto' <<<"$out" | tr '\n' ' ')"
+        fi
+        if [ "$first" = 1 ] && ! grep -q 'libssl\.so\.3' <<<"$out"; then
+            fail "$exe does not link libssl.so.3"
+        fi
+        first=0
+    done
+}
+
+# check_vpnc_script [root]: a vpnc-script that gpclient finds (the list of
+# crates/openconnect/src/vpn_utils.rs) is executable and runs the hooks of /etc/vpnc,
+# where 90-gpclient-routing is.
+check_vpnc_script() {
+    local root=${1:-} path script= hooks
+    for path in /usr/local/libexec/gpclient/vpnc-script /usr/libexec/gpclient/vpnc-script \
+        /usr/lib/gpclient/vpnc-script /usr/local/share/vpnc-scripts/vpnc-script \
+        /usr/local/sbin/vpnc-script /usr/share/vpnc-scripts/vpnc-script /usr/sbin/vpnc-script \
+        /etc/vpnc/vpnc-script /etc/openconnect/vpnc-script /usr/libexec/vpnc-scripts/vpnc-script; do
+        if [ -f "$root$path" ] && [ -x "$root$path" ]; then
+            script=$root$path
+            break
+        fi
+    done
+    [ -n "$script" ] || fail "no executable vpnc-script in a path gpclient searches"
+    hooks=$(sed -n 's/^HOOKS_DIR=//p' "$script" | head -n1)
+    [ -n "$hooks" ] || fail "$script has no HOOKS_DIR"
+    [ -x "$root$hooks/connect.d/90-gpclient-routing" ] \
+        || fail "$script runs the hooks of $hooks, but $hooks/connect.d/90-gpclient-routing is not there"
+}
+
+# Sourced by the unit tests: only the functions above are needed
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    return 0
+fi
+
+rpms=${1:-}
+[ -n "$rpms" ] && [ -d "$rpms" ] || { echo "usage: install-test.sh <dir with the RPMs>" >&2; exit 2; }
 
 shopt -s nullglob
 files=("$rpms"/*.rpm)
@@ -94,12 +137,31 @@ for exe in /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
     fi
 done
 
+check_openssl /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
+check_vpnc_script
+
 /usr/bin/gpclient --version >/dev/null || fail "gpclient --version"
 /usr/bin/gpauth --version >/dev/null || fail "gpauth --version"
-python3 -c 'import sdbus; print("sdbus", sdbus.__file__)' || fail "python3 cannot import sdbus"
 
-# The service needs a D-Bus to run: byte-compile it and import it with the real sdbus
-python3 - <<'PY' || fail "the service does not import"
+# The Python programs run with the interpreter of their shebang (on openSUSE the
+# versioned one, which has sdbus and PyGObject in its site-packages)
+shebang=$(head -n1 /usr/lib/NetworkManager/nm-gpclient-service)
+[ "$(head -n1 /usr/libexec/nm-gpclient-auth-dialog)" = "$shebang" ] \
+    || fail "the service and the auth dialog have different shebangs"
+case "$shebang" in
+    '#!'*) read -r -a python <<<"${shebang#\#!}" ;;
+    *) fail "the service has no shebang" ;;
+esac
+case "${ID:-}" in
+    opensuse-* | sles)
+        [[ "$shebang" =~ ^#!/usr/bin/python3\.[0-9]+$ ]] \
+            || fail "the shebang '$shebang' is not a versioned interpreter"
+        ;;
+esac
+"${python[@]}" -c 'import sdbus; print("sdbus", sdbus.__file__)' || fail "${python[*]} cannot import sdbus"
+
+# The service needs a D-Bus to run: import it with the real sdbus
+"${python[@]}" - <<'PY' || fail "the service does not import"
 import importlib.machinery
 import importlib.util
 
@@ -111,6 +173,6 @@ loader.exec_module(module)
 PY
 
 # The auth dialog is a GTK program: its Python module imports must resolve
-python3 -c 'import gi; gi.require_version("Gtk", "3.0")' || fail "python3 gi / GTK 3 typelib missing"
+"${python[@]}" -c 'import gi; gi.require_version("Gtk", "3.0")' || fail "${python[*]} gi / GTK 3 typelib missing"
 
 echo "OK: all checks passed"

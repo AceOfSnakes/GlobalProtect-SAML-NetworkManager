@@ -45,7 +45,6 @@ BuildRequires:  pkgconfig(libnma-gtk4)
 BuildRequires:  pkgconfig(libsoup-3.0)
 BuildRequires:  pkgconfig(libsystemd)
 BuildRequires:  pkgconfig(libxml-2.0)
-BuildRequires:  pkgconfig(openssl)
 BuildRequires:  pkgconfig(webkit2gtk-4.1)
 BuildRequires:  cmake(Qt6Widgets)
 BuildRequires:  cmake(KF6I18n)
@@ -59,11 +58,15 @@ BuildRequires:  python3-setuptools
 BuildRequires:  python3-wheel
 BuildRequires:  systemd-rpm-macros
 %if 0%{?suse_version}
+# pkgconfig(openssl) resolves to libressl-devel on openSUSE; gpclient needs OpenSSL 3
+BuildRequires:  libopenssl-devel
+BuildConflicts: libressl-devel
 BuildRequires:  kf6-extra-cmake-modules
 BuildRequires:  plasma6-nm
 BuildRequires:  openconnect-devel
 BuildRequires:  python-rpm-macros
 %else
+BuildRequires:  pkgconfig(openssl)
 BuildRequires:  extra-cmake-modules
 BuildRequires:  plasma-nm
 BuildRequires:  openconnect-devel
@@ -73,6 +76,13 @@ Requires:       NetworkManager
 Requires:       openconnect
 Requires:       python3
 Requires:       xdg-utils
+# openconnect needs a vpnc-script, which also runs /etc/vpnc/connect.d/90-gpclient-routing
+# (HOOKS_DIR=/etc/vpnc); openSUSE installs none with openconnect
+%if 0%{?suse_version}
+Requires:       vpnc
+%else
+Requires:       vpnc-script
+%endif
 Conflicts:      globalprotect-openconnect
 # python-sdbus: no target ships it as a package (Debian/Ubuntu: python3-sdbus)
 Provides:       bundled(python3dist(sdbus)) = %{sdbus_version}
@@ -178,6 +188,16 @@ install -D -m 0644 config/nm-gpclient.conf \
 install -D -m 0755 config/90-gpclient-routing \
   %{buildroot}%{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
 
+%if 0%{?suse_version}
+# sdbus and PyGObject are in the site-packages of this python3.X: do not follow a
+# python3 that moves to a newer version
+sed -i '1s|^#!/usr/bin/env python3$|#!/usr/bin/python%{python3_version}|' \
+  %{buildroot}%{_prefix}/lib/NetworkManager/nm-gpclient-service \
+  %{buildroot}%{_prefix}/libexec/nm-gpclient-auth-dialog
+head -n1 %{buildroot}%{_prefix}/lib/NetworkManager/nm-gpclient-service | grep -qx '#!/usr/bin/python%{python3_version}'
+head -n1 %{buildroot}%{_prefix}/libexec/nm-gpclient-auth-dialog | grep -qx '#!/usr/bin/python%{python3_version}'
+%endif
+
 install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpclient \
   %{buildroot}%{_bindir}/gpclient
 install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpauth \
@@ -208,9 +228,11 @@ if [ -x /usr/bin/dbus-send ]; then
 fi
 # Stop a running (old) service, so that NetworkManager starts the new one.
 # /etc/nsswitch.conf is not changed: Fedora and EL manage it with authselect.
+# (the service runs as "python3[.X] /usr/lib/NetworkManager/nm-gpclient-service"; its
+# process name is cut to 15 characters, so match the whole command line)
 if [ -x /usr/bin/pkill ]; then
-    pkill -x nm-gpclient-service >/dev/null 2>&1 || :
-    pkill -f gpclient-nm-service >/dev/null 2>&1 || :
+    pkill -f '^(/usr/bin/)?python3[.0-9]* /usr/lib/NetworkManager/nm-gpclient-service' >/dev/null 2>&1 || :
+    pkill -f '^(/usr/bin/)?python3[.0-9]* /usr/libexec/NetworkManager/gpclient-nm-service' >/dev/null 2>&1 || :
 fi
 
 %preun
@@ -236,11 +258,14 @@ fi
 %{_prefix}/lib/NetworkManager/nm-gpclient-service
 %{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
 %{_prefix}/libexec/gpclient
+%dir %{_prefix}/libexec/NetworkManager
 %{_prefix}/libexec/NetworkManager/gpclient-nm-service
 %{_unitdir}/nm-gpclient.service
 %{_datadir}/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
 %{_datadir}/applications/gpgui.desktop
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/nm-gpclient.conf
+%dir %{_sysconfdir}/vpnc
+%dir %{_sysconfdir}/vpnc/connect.d
 %config(noreplace) %{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
 %{python3_sitearch}/sdbus*
 

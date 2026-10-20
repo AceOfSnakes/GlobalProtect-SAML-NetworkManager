@@ -603,6 +603,15 @@ class TestRpm:
 
         assert "(1 files, network-manager-gpclient)" in summary
 
+    def test_the_way_back_has_the_dnf_and_the_zypper_command(self):
+        summary = published(debs=[], rpms=PR_RPMS)["output"]["summary"]
+
+        assert "sudo dnf downgrade network-manager-gpclient" in summary
+        assert "sudo zypper install --oldpackage network-manager-gpclient=<released version>" in summary
+
+    def test_a_deb_only_summary_has_no_zypper_command(self):
+        assert "oldpackage" not in published(debs=PR_DEBS)["output"]["summary"]
+
     def test_the_summary_says_how_the_script_treats_rpm_systems(self):
         summary = published(debs=[], rpms=PR_RPMS)["output"]["summary"]
 

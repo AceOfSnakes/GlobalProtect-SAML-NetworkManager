@@ -337,15 +337,48 @@ class TestWhichFilesCount:
         "other-1.5.0-1.fc44.x86_64.rpm",
         "notes.rpm",
     ])
-    def test_a_name_that_is_not_one_of_our_packages_stops_the_script(self, box, name):
+    def test_a_name_that_is_not_one_of_our_packages_is_skipped_with_a_warning(self, box, name):
         box.add_set()
         box.add(name)
 
         result = box.run()
 
+        assert result.returncode == 0, result.stderr
+        assert "WARNING: unexpected name of an RPM, not published" in result.stdout
+        assert not any(name in entry for entry in box.tree())
+        assert not any(name in call for call in box.calls())
+        assert "fedora44/x86_64/repodata/repomd.xml" in box.tree()
+
+    @pytest.mark.parametrize("name", ["a b.rpm", "$(id).rpm", ";rm -rf x.rpm", "`id`.rpm", "-rf.rpm", "x\ny.rpm"])
+    def test_a_hostile_name_is_skipped_and_never_reaches_a_tool(self, box, name):
+        box.add_set()
+        box.add(name)
+
+        result = box.run()
+
+        assert result.returncode == 0, result.stderr
+        assert "not published" in result.stdout
+        assert not any(name in call for call in box.calls())
+        assert len(box.tree()) == len([t for t in box.tree() if "fedora44" in t or t == "RPM-GPG-KEY-gpclient"])
+        assert "\n::" not in result.stdout
+
+    def test_only_odd_names_is_still_an_error_and_publishes_nothing(self, box):
+        box.add(f"{CORE}-debuginfo-1.5.0-1.fc44.x86_64.rpm", "notes.rpm")
+
+        result = box.run()
+
         assert result.returncode != 0
-        assert "unexpected name of an RPM" in result.stderr
+        assert "no binary RPM files" in result.stderr
         assert box.calls() == []
+        assert not box.out.exists()
+
+    def test_only_odd_names_with_allow_empty_leaves_the_page_clean(self, box):
+        box.add("notes.rpm")
+
+        result = box.run("--index", str(box.index), "--allow-empty")
+
+        assert result.returncode == 0, result.stderr
+        assert "dnf" not in box.page() and "__RPM" not in box.page()
         assert not box.out.exists()
 
     def test_other_files_are_not_looked_at(self, box):

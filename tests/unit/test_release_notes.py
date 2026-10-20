@@ -778,3 +778,27 @@ def test_the_url_of_an_rpm_must_be_its_download_link(tmp_path):
 
 def test_no_deb_and_no_rpm_is_an_error(tmp_path):
     refused(run(tmp_path, [asset("network-manager-gpclient-1.4.2-1.fc44.src.rpm")]), "no .deb or binary .rpm")
+
+
+def test_the_rpm_install_hint_picks_one_target_and_the_core_package_only(tmp_path):
+    out = run(tmp_path, rpm_matrix()).stdout
+    assert "./network-manager-gpclient-[0-9]*.<dist>.<arch>.rpm" in out
+    assert "./network-manager-gpclient-gnome-[0-9]*.<dist>.<arch>.rpm" in out
+    assert "zypper install --allow-unsigned-rpm" in out
+    assert "not signed" in out
+
+
+def test_the_rpm_install_hint_glob_matches_only_the_core_package_of_a_target():
+    import fnmatch
+    names = [rpm_asset_name(p, d, a) for p in PACKAGES for d in ("fc44", "el10") for a in ("x86_64", "aarch64")]
+    core = fnmatch.filter(names, "network-manager-gpclient-[0-9]*.fc44.x86_64.rpm")
+    assert core == [rpm_asset_name(PACKAGES[0], "fc44", "x86_64")]
+    gnome = fnmatch.filter(names, "network-manager-gpclient-gnome-[0-9]*.fc44.x86_64.rpm")
+    assert gnome == [rpm_asset_name(PACKAGES[1], "fc44", "x86_64")]
+    # the old pattern took the desktop packages and other targets with it
+    assert len(fnmatch.filter(names, "network-manager-gpclient-*.rpm")) == len(names)
+
+
+def test_the_deb_only_notes_have_no_rpm_hint(tmp_path):
+    out = run(tmp_path, full_matrix()).stdout
+    assert "zypper" not in out and "<dist>" not in out

@@ -13,8 +13,8 @@
 # Which target (rpm/targets) an RPM belongs to follows from the dist tag in its
 # file name: network-manager-gpclient-gnome-1.5.0-1.fc44.x86_64.rpm is for
 # fedora44 (.fc44) and x86_64. A well-formed name with a dist tag no target has
-# (a target that was dropped) is skipped with a warning; any other name stops
-# the script.
+# (a target that was dropped) is skipped with a warning, and so is any other
+# name that is not one of our three packages.
 #
 # Layout produced (every RPM signed with rpmsign when there is a key):
 #   <target>/<x86_64|aarch64>/*.rpm + repodata/{repomd.xml,repomd.xml.asc}
@@ -101,8 +101,13 @@ declare -A newest=()    # target -> newest version of the core package
 for rpm in "${rpms[@]}"; do
     file="$(basename "$rpm")"
     case "$file" in *.src.rpm) log "skipping the source package $file"; continue ;; esac
-    [[ "$file" =~ $name_re ]] \
-        || die "unexpected name of an RPM: $file (expected <package>-<version>-<revision><dist>.<x86_64|aarch64>.rpm of the packages network-manager-gpclient, -gnome or -plasma)"
+    # A name that is not one of ours is skipped, not fatal: one odd asset in any
+    # release must not stop the publication (the apt repository is built in the
+    # same job). Nothing of it is copied or passed to a tool.
+    if ! [[ "$file" =~ $name_re ]]; then
+        log "WARNING: unexpected name of an RPM, not published: ${file//[^A-Za-z0-9._+~-]/?}"
+        continue
+    fi
     package="${BASH_REMATCH[1]}"; version="${BASH_REMATCH[3]}"; dist="${BASH_REMATCH[5]}"; arch="${BASH_REMATCH[6]}"
     target="${target_of_dist[$dist]:-}"
     if [ -z "$target" ]; then
