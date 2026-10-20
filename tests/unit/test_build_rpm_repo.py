@@ -34,6 +34,7 @@ CORE = "network-manager-gpclient"
 TARGETS = """# target image dist family
 fedora44   registry.example/fedora:44      .fc44   fedora
 el10       registry.example/alma:10        .el10   el
+leap16.0   registry.example/leap:16.0      .lp160  suse
 tumbleweed registry.example/tw:latest      .tw     suse
 """
 
@@ -252,7 +253,8 @@ class TestSigning:
         assert box.run().returncode == 0
         repo = (box.out / "fedora44" / "network-manager-gpclient.repo").read_text().splitlines()
         assert "[network-manager-gpclient]" in repo
-        assert f"baseurl={BASE}/fedora44/$basearch" in repo
+        assert f"baseurl={BASE}/fedora$releasever/$basearch" in repo
+        assert "skip_if_unavailable=1" in repo
         assert "gpgcheck=1" in repo and "repo_gpgcheck=1" in repo
         assert f"gpgkey={BASE}/RPM-GPG-KEY-gpclient" in repo
         assert "enabled=1" in repo
@@ -262,7 +264,7 @@ class TestSigning:
 
         assert box.run(BASE_URL="https://example.org/pkgs").returncode == 0
         repo = (box.out / "fedora44" / "network-manager-gpclient.repo").read_text()
-        assert "baseurl=https://example.org/pkgs/fedora44/$basearch" in repo
+        assert "baseurl=https://example.org/pkgs/fedora$releasever/$basearch" in repo
         assert "gpgkey=https://example.org/pkgs/RPM-GPG-KEY-gpclient" in repo
 
     def test_without_a_key_nothing_is_signed_and_the_repo_file_says_so(self, box):
@@ -561,3 +563,158 @@ class TestLandingPage:
 
         assert box.run().returncode == 0
         assert box.page() == before
+
+
+class TestRepoFileFollowsTheRelease:
+    def repo_file(self, box, dist, target):
+        box.add_set(dist, "x86_64")
+        assert box.run().returncode == 0
+        return (box.out / target / "network-manager-gpclient.repo").read_text().splitlines()
+
+    def test_fedora_and_leap_name_their_directory_with_releasever(self, box):
+        fedora = self.repo_file(box, ".fc44", "fedora44")
+        leap = self.repo_file(box, ".lp160", "leap16.0")
+
+        assert f"baseurl={BASE}/fedora$releasever/$basearch" in fedora
+        assert f"baseurl={BASE}/leap$releasever/$basearch" in leap
+
+    @pytest.mark.parametrize("dist, target", [(".el10", "el10"), (".tw", "tumbleweed")])
+    def test_el10_and_tumbleweed_keep_their_one_directory(self, box, dist, target):
+        repo = self.repo_file(box, dist, target)
+
+        assert f"baseurl={BASE}/{target}/$basearch" in repo
+        assert not any("releasever" in line for line in repo)
+
+    @pytest.mark.parametrize("dist, target", [(".fc44", "fedora44"), (".el10", "el10"), (".lp160", "leap16.0"),
+                                              (".tw", "tumbleweed")])
+    def test_the_variables_are_left_for_the_package_manager_and_the_directory_is_not_the_target_name(
+            self, box, dist, target):
+        repo = "\n".join(self.repo_file(box, dist, target))
+
+        assert "$basearch" in repo
+        assert "x86_64" not in repo and "$(" not in repo
+        assert "skip_if_unavailable=1" in repo
+        if target in ("fedora44", "leap16.0"):
+            assert f"/{target}/" not in repo and "$releasever" in repo
+
+    def test_the_family_of_the_target_decides_not_its_name_alone(self, box):
+        (box.root / "targets").write_text(TARGETS.replace("fedora44   registry.example/fedora:44      .fc44   fedora",
+                                                          "fedora44   registry.example/fedora:44      .fc44   el"))
+        repo = self.repo_file(box, ".fc44", "fedora44")
+
+        assert f"baseurl={BASE}/fedora44/$basearch" in repo
+
+
+def add_versions(box, versions, package=CORE, dist=".fc44", arch="x86_64"):
+    """versions: (version, revision) pairs"""
+    for version, revision in versions:
+        box.add(rpm_name(package, version, dist, arch, revision))
+
+
+class TestPruning:
+    def versions(self, box, package=CORE, target="fedora44", arch="x86_64"):
+        directory = box.out / target / arch
+        found = []
+        for name in os.listdir(directory):
+            match = re.fullmatch(re.escape(package) + r"-([0-9][^-]*)-([0-9]+)\.[a-z0-9]+\.[a-z0-9_]+\.rpm", name)
+            if match:
+                found.append((match.group(1), match.group(2)))
+        return sorted(found)
+
+    def test_three_versions_leave_the_two_newest(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")])
+
+        result = box.run()
+
+        assert result.returncode == 0, result.stderr
+        assert self.versions(box) == [("1.4.0", "1"), ("1.5.0", "1")]
+        assert "pruned" in result.stdout and "1.3.0" in result.stdout
+        assert not any("1.3.0" in c for c in box.calls())
+
+    def test_two_versions_are_both_kept(self, box):
+        add_versions(box, [("1.4.0", "1"), ("1.5.0", "1")])
+
+        result = box.run()
+
+        assert self.versions(box) == [("1.4.0", "1"), ("1.5.0", "1")]
+        assert "pruned" not in result.stdout
+
+    @pytest.mark.parametrize("given, kept", [
+        # not by text and not by the order of the directory
+        ([("1.9.0", "1"), ("1.10.0", "1"), ("1.2.0", "1")], [("1.10.0", "1"), ("1.9.0", "1")]),
+        ([("1.5.0", "1"), ("1.5.0", "2"), ("1.5.1", "1"), ("1.10.0", "1")], [("1.10.0", "1"), ("1.5.1", "1")]),
+        ([("1.5.0", "10"), ("1.5.0", "9"), ("1.5.0", "2")], [("1.5.0", "10"), ("1.5.0", "9")]),
+        ([("1.5.0", "1"), ("1.5.0~rc1", "1"), ("1.5.0~rc2", "1")], [("1.5.0", "1"), ("1.5.0~rc2", "1")]),
+        ([("1.05", "1"), ("1.5", "1"), ("1.4", "1")], [("1.05", "1"), ("1.5", "1")]),
+        ([("1.5", "1"), ("1.5.1", "1"), ("1.5a", "1")], [("1.5.1", "1"), ("1.5a", "1")]),
+        ([("2.0", "1"), ("10.0", "1"), ("9.0", "1")], [("10.0", "1"), ("9.0", "1")]),
+    ])
+    def test_the_order_is_the_one_of_rpm(self, box, given, kept):
+        add_versions(box, given)
+
+        result = box.run()
+
+        assert result.returncode == 0, result.stderr
+        assert sorted(self.versions(box)) == sorted(kept)
+
+    def test_one_version_with_the_option_set_to_one(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")])
+
+        result = box.run(RPM_KEEP_VERSIONS="1")
+
+        assert result.returncode == 0, result.stderr
+        assert self.versions(box) == [("1.5.0", "1")]
+
+    def test_more_than_the_default_with_the_option_raised(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")])
+
+        assert box.run(RPM_KEEP_VERSIONS="3").returncode == 0
+        assert len(self.versions(box)) == 3
+
+    @pytest.mark.parametrize("value", ["0", "", "-1", "two", "1.5", "2;id", "$(id)", "00", "10000", " 2"])
+    def test_a_bad_number_is_refused_before_any_tool_runs(self, box, value):
+        add_versions(box, [("1.4.0", "1"), ("1.5.0", "1")])
+
+        result = box.run(RPM_KEEP_VERSIONS=value)
+
+        assert result.returncode != 0
+        assert "RPM_KEEP_VERSIONS" in result.stderr
+        assert box.calls() == [] and not box.out.exists()
+
+    def test_every_package_target_and_architecture_is_counted_on_its_own(self, box):
+        for dist in (".fc44", ".el10"):
+            for arch in ("x86_64", "aarch64"):
+                for package in (CORE, CORE + "-gnome"):
+                    add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")], package, dist, arch)
+
+        assert box.run().returncode == 0
+        for target in ("fedora44", "el10"):
+            for arch in ("x86_64", "aarch64"):
+                for package in (CORE, CORE + "-gnome"):
+                    assert self.versions(box, package, target, arch) == [("1.4.0", "1"), ("1.5.0", "1")]
+
+    def test_a_package_that_has_only_old_versions_in_one_target_keeps_them(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")])
+        add_versions(box, [("1.0.0", "1")], dist=".el10")
+
+        assert box.run().returncode == 0
+        assert self.versions(box, target="el10") == [("1.0.0", "1")]
+
+    def test_pruned_files_are_not_signed_and_not_in_the_repository(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")])
+
+        assert box.run().returncode == 0
+        signed = " ".join(c for c in box.calls() if c.startswith("rpmsign"))
+        assert "1.3.0" not in signed and not any("1.3.0" in name for name in box.tree())
+
+    def test_the_page_names_the_newest_version(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.10.0", "1"), ("1.9.0", "1")])
+
+        assert box.run("--index", str(box.index)).returncode == 0
+        assert "<code>1.10.0</code>" in box.page() and "1.3.0" not in box.page()
+
+    def test_the_pruning_is_done_before_the_tools_see_the_files(self, box):
+        add_versions(box, [("1.3.0", "1"), ("1.4.0", "1"), ("1.5.0", "1")], package=CORE + "-gnome")
+
+        assert box.run().returncode == 0
+        assert self.versions(box, CORE + "-gnome") == [("1.4.0", "1"), ("1.5.0", "1")]

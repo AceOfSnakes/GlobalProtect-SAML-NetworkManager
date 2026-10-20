@@ -100,8 +100,22 @@ sudo zypper removerepo network-manager-gpclient
   `authselect`, and Fedora uses systemd-resolved by default.
 - openSUSE does not use systemd-resolved by default; the VPN DNS then follows
   what vpnc-script does without it. This is not tested with a real VPN yet.
-- On Tumbleweed the bundled `sdbus` is built for the Python of the release day.
-  When Tumbleweed moves to a new Python, install the next release of the plugin.
+- On openSUSE the service and the auth dialog start with the versioned Python
+  of the build (`/usr/bin/python3.13`), which has the bundled `sdbus`. On
+  Tumbleweed, install the next release of the plugin after a Python change.
+- The Plasma plugin links plasma-nm's private libraries. After a Plasma update
+  within a release (Fedora, Tumbleweed) it can fail to load until the next
+  release of the plugin is built against the new Plasma.
+
+## Distribution upgrades
+
+The Fedora and Leap `.repo` files use `$releasever` (`.../rpm/fedora$releasever/`),
+so after `dnf system-upgrade` or a Leap upgrade they serve the build for the new
+release. They have `skip_if_unavailable=1`: when a release leaves the supported
+list (`rpm/targets`), its directory goes away and dnf only warns.
+
+The repository keeps the newest two versions of every package (for
+`dnf downgrade`); older ones stay in the GitHub releases.
 
 ## Building
 
@@ -131,3 +145,7 @@ apt repository and the RPM repositories from all published releases
 `repodata/repomd.xml` with the apt key (`APT_GPG_PRIVATE_KEY`, RSA), so a key
 rotation is the one described in [APT_REPO.md](APT_REPO.md); the repository
 signs the RPMs again on every publish.
+
+The release job waits for every Ubuntu and RPM build: a release has all its
+packages or is not made. When one build fails on the tag (Tumbleweed changes
+every day), fix it or re-run the failed jobs; the release then continues.

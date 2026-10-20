@@ -570,3 +570,32 @@ def test_spec_pkill_pattern_matches_the_service_only():
         "/usr/bin/perl /usr/lib/NetworkManager/nm-gpclient-service",
     ):
         assert not regex.match(line), line
+
+
+def test_spec_strips_the_rust_binaries():
+    # Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
+    # upstream's release profile (strip = true)
+    spec = read("rpm/network-manager-gpclient.spec")
+    assert "env -u RUSTFLAGS cargo build --release" in spec
+    assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
+
+
+def provides_exclude_pattern():
+    spec = read("rpm/network-manager-gpclient.spec")
+    match = re.search(r"^%global __provides_exclude (\S+)$", spec, re.M)
+    assert match, "no __provides_exclude"
+    # The spec doubles the backslashes (rpm macro escaping); rpm passes single ones on
+    return re.compile(match.group(1).replace("\\\\", "\\"))
+
+
+@pytest.mark.parametrize("provide", ["python3dist(sdbus)", "python3.14dist(sdbus)", "python3.13dist(sdbus)"])
+def test_spec_drops_the_generated_sdbus_provides(provide):
+    assert provides_exclude_pattern().search(provide)
+
+
+@pytest.mark.parametrize(
+    "provide",
+    ["bundled(python3dist(sdbus)) = 0.14.3", "network-manager-gpclient", "python3dist(sdbus-networkmanager)", "libssl.so.3()(64bit)"],
+)
+def test_spec_keeps_every_other_provide(provide):
+    assert not provides_exclude_pattern().search(provide)

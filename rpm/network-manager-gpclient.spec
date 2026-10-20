@@ -17,6 +17,9 @@
 # (and so no /usr/lib/.build-id links of the binaries either).
 %global debug_package %{nil}
 %global _build_id_links none
+# The bundled sdbus is ours only: provide bundled(python3dist(sdbus)), not the
+# python3dist(sdbus) a distribution package would provide
+%global __provides_exclude ^python[0-9.]*dist\\(sdbus\\)
 
 Name:           network-manager-gpclient
 Version:        %{project_version}
@@ -58,7 +61,7 @@ BuildRequires:  python3-setuptools
 BuildRequires:  python3-wheel
 BuildRequires:  systemd-rpm-macros
 %if 0%{?suse_version}
-# pkgconfig(openssl) resolves to libressl-devel on openSUSE; gpclient needs OpenSSL 3
+# pkgconfig(openssl) resolves to libressl-devel on openSUSE; gpclient needs OpenSSL (3 or later)
 BuildRequires:  libopenssl-devel
 BuildConflicts: libressl-devel
 BuildRequires:  kf6-extra-cmake-modules
@@ -145,8 +148,10 @@ mkdir -p plugins/plasma/build
   --wheel-dir sdbus-wheel ./sdbus-%{sdbus_version}
 
 # The longest step comes last
+# With upstream's release profile (strip, opt-level "z"), as the Debian build: Fedora's
+# rpmbuild exports RUSTFLAGS with -Cstrip=none -Cdebuginfo=2, which would override it
 (cd external/GlobalProtect-openconnect && \
-  cargo build --release --bin gpclient --bin gpauth --bin gpservice)
+  env -u RUSTFLAGS cargo build --release --bin gpclient --bin gpauth --bin gpservice)
 
 %install
 install -D -m 0644 plugins/gnome/libnm-vpn-plugin-gpclient.so \
