@@ -1,4 +1,388 @@
 {
   "baseline": "2.6.5",
-  "entries": []
+  "entries": [
+    {
+      "version": "3.1.0",
+      "section": "Added",
+      "text": "Added a Connection Details panel showing VPN information and live upload and download activity.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. The matching CLI log lines are tracked in issue 37."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Added",
+      "text": "Added an optional terminal dashboard showing connection status and logs, enabled with `--dashboard`.",
+      "status": "tested",
+      "reason": "The service relies on text output, a foreground process and its own browser wrapper: it never passes --dashboard.",
+      "tests": [
+        "tests/unit/test_gpclient_command.py::test_connect_command_never_uses_unsupported_modes",
+        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags"
+      ]
+    },
+    {
+      "version": "3.1.0",
+      "section": "Added",
+      "text": "Added client certificate setup in Settings, with guidance when a VPN requires a certificate.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Client certificate setup is in the GUI."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Improved",
+      "text": "Refreshed Settings and dialogs, with automatic saving for most settings and Save and Cancel buttons for detailed edits.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Settings and dialogs."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Improved",
+      "text": "Made sign-in errors clearer and added recovery options within the app.",
+      "status": "no-action",
+      "reason": "Error texts of the GUI and recovery options in the app. The only error text we parse (legacy TLS renegotiation) is guarded by contract items tls-legacy-* and code-tls-classifier."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Improved",
+      "text": "Added a website address bar to the sign-in window.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. The sign-in window with an address bar is the embedded browser; the service uses its own browser wrapper."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Improved",
+      "text": "Expanded support for client certificate files, including password-protected files, with clearer file and password errors.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Client certificate files are set in the GUI."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Improved",
+      "text": "Improved license activation error messages and troubleshooting logs.",
+      "status": "not-applicable",
+      "reason": "License activation is a GUI feature (gpgui)."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Fixed",
+      "text": "Fixed sign-in retries losing the selected VPN server after a security error.",
+      "status": "no-action",
+      "reason": "Retry logic inside the upstream sign-in flow after a security error; the interface we use does not change. The flow code is guarded by contract item code-connect-portal."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Fixed",
+      "text": "Fixed mismatched certificate and key files being accepted and replacing a working certificate setup.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Certificate setup in Settings."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Fixed",
+      "text": "Fixed failed saves discarding certificate details or custom device report (HIP) edits, allowing a retry without re-entering changes.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Saving of certificate and HIP settings."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Fixed",
+      "text": "Fixed theme, automatic-update, and logging settings appearing saved when saving had failed; errors are now shown and previous settings remain in use.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Settings."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Fixed",
+      "text": "Fixed notifications disappearing too quickly on GNOME and clarified notification sender names and update titles.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Desktop notifications."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Fixed",
+      "text": "Fixed connection failures with some VPN gateways.",
+      "status": "no-action",
+      "reason": "Upstream-internal fix for some gateways. It does not change the interface or the text we use."
+    },
+    {
+      "version": "3.1.0",
+      "section": "Command-line notes",
+      "text": "Renamed copy-and-paste browser sign-in to `--browser manual`; existing commands using `--browser remote` still work.",
+      "status": "tested",
+      "reason": "The service relies on text output, a foreground process and its own browser wrapper: it never passes --browser manual or remote.",
+      "tests": [
+        "tests/unit/test_gpclient_command.py::test_connect_command_never_uses_unsupported_modes",
+        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags"
+      ]
+    },
+    {
+      "version": "3.1.0",
+      "section": "Command-line notes",
+      "text": "Removed the unneeded `--fix-openssl` option on macOS; existing macOS commands and scripts must omit it.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu."
+    },
+    {
+      "version": "3.0.5",
+      "section": "Added",
+      "text": "Added adaptive macOS app icons for light and dark appearances.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu. App icons."
+    },
+    {
+      "version": "3.0.5",
+      "section": "Fixed",
+      "text": "Fixed macOS browser sign-in by automatically selecting the installed callback handler.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu."
+    },
+    {
+      "version": "3.0.5",
+      "section": "Fixed",
+      "text": "Improved app icon proportions in Finder and across the app, installer, and website.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. App icons, installer and website."
+    },
+    {
+      "version": "3.0.4",
+      "section": "Added",
+      "text": "Added `gpclient connect --background` with connection logs and graceful disconnect.",
+      "status": "tested",
+      "reason": "The service relies on text output, a foreground process and its own browser wrapper: it never passes --background.",
+      "tests": [
+        "tests/unit/test_gpclient_command.py::test_connect_command_never_uses_unsupported_modes",
+        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags"
+      ]
+    },
+    {
+      "version": "3.0.4",
+      "section": "Fixed",
+      "text": "Improved macOS service startup, relaunch, and quit responsiveness.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu."
+    },
+    {
+      "version": "3.0.4",
+      "section": "Fixed",
+      "text": "Updated app icons for clearer artwork across platforms.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. App icons."
+    },
+    {
+      "version": "3.0.3",
+      "section": "Fixed",
+      "text": "Improved Wayland crash recovery on Linux and BSD.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. WebKit and Wayland crash recovery of the desktop app and the embedded browser."
+    },
+    {
+      "version": "3.0.3",
+      "section": "Fixed",
+      "text": "Fixed pasted callbacks and prompts for remote browser sign-in.",
+      "status": "not-applicable",
+      "reason": "Pasted callbacks of --browser remote/manual. The service does not use this flow."
+    },
+    {
+      "version": "3.0.3",
+      "section": "Fixed",
+      "text": "Fixed legacy TLS configuration while preserving device identities.",
+      "status": "tested",
+      "reason": "gpclient v3 prints the legacy renegotiation text that makes the service retry with --fix-openssl.",
+      "tests": [
+        "tests/unit/test_openssl_retry.py::test_v3_legacy_tls_error_triggers_retry",
+        "tests/unit/test_openssl_retry.py::test_v3_unrelated_tls_error_does_not_trigger_retry"
+      ]
+    },
+    {
+      "version": "3.0.3",
+      "section": "Fixed",
+      "text": "Fixed diagnostics when optional tools are unavailable.",
+      "status": "no-action",
+      "reason": "The service does not run gpclient diagnostics."
+    },
+    {
+      "version": "3.0.3",
+      "section": "Fixed",
+      "text": "Fixed bundled macOS library paths and polished release notes in About.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu."
+    },
+    {
+      "version": "3.0.2",
+      "section": "Added",
+      "text": "Added `gpclient diagnostics` to collect system and client information for troubleshooting.",
+      "status": "no-action",
+      "reason": "The service does not run gpclient diagnostics. Users can run it to collect data for a bug report."
+    },
+    {
+      "version": "3.0.2",
+      "section": "Fixed",
+      "text": "Recognized WebKit Wayland rendering crashes now trigger one retry with DMABUF disabled when opening the GUI, first-time setup, or embedded browser sign-in.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. WebKit and Wayland rendering of the desktop app."
+    },
+    {
+      "version": "3.0.2",
+      "section": "Fixed",
+      "text": "Improved desktop rendering with opaque windows to reduce transparency-related flickering on Linux and BSD.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Window rendering."
+    },
+    {
+      "version": "3.0.2",
+      "section": "Fixed",
+      "text": "Browser sign-in retries refresh authentication data, and repeated failures report both attempts instead of leaving the client waiting.",
+      "status": "no-action",
+      "reason": "Retry logic inside the upstream browser sign-in. The service uses its own browser wrapper and the callback handler is guarded by contract item code-ensure-callback-handler."
+    },
+    {
+      "version": "3.0.2",
+      "section": "Fixed",
+      "text": "Cancelling startup or sign-in now stops pending desktop child processes and version checks.",
+      "status": "no-action",
+      "reason": "Upstream-internal handling of cancellation of child processes. The service stops gpclient itself (see the terminate tests listed under 3.0.0 Improved cancellation)."
+    },
+    {
+      "version": "3.0.1",
+      "section": "Fixed",
+      "text": "Fixed the bundled macOS CLI when launched through Homebrew.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu. Homebrew."
+    },
+    {
+      "version": "3.0.1",
+      "section": "Fixed",
+      "text": "Fixed browser sign-in failures leaving the CLI waiting without an error.",
+      "status": "no-action",
+      "reason": "Upstream-internal error handling in gpauth. The service has its own browser wrapper and timeouts."
+    },
+    {
+      "version": "3.0.1",
+      "section": "Fixed",
+      "text": "Fixed first-time startup on Linux and BSD when no system keyring is available.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. First-time startup of the desktop app and its keyring."
+    },
+    {
+      "version": "3.0.1",
+      "section": "Fixed",
+      "text": "Improved tray menu behavior on Linux and BSD.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Tray menu."
+    },
+    {
+      "version": "3.0.1",
+      "section": "Fixed",
+      "text": "Added clearer results when manually checking for updates.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Update checks of the desktop app."
+    },
+    {
+      "version": "3.0.1",
+      "section": "Fixed",
+      "text": "Improved desktop dialogs, settings, keyboard focus, and Linux window controls.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Dialogs, settings and window controls."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Added",
+      "text": "GP Connect for Apple silicon Macs running macOS 13 or later.",
+      "status": "not-applicable",
+      "reason": "macOS only: this package is for Ubuntu."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Added",
+      "text": "Support for internal gateways that authenticate your device without creating a VPN tunnel.",
+      "status": "tested",
+      "reason": "gpclient v3 can authenticate on an internal gateway without a tunnel. The service must show this as a failed activation, not as a connected VPN.",
+      "tests": [
+        "tests/unit/test_internal_network.py::test_internal_network_session_fails_activation",
+        "tests/unit/test_internal_network.py::test_tunnel_log_lines_do_not_count_as_internal_network"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "section": "Added",
+      "text": "More control over device compliance reports (HIP), including generated reports and custom scripts.",
+      "status": "follow-up",
+      "reason": "The service passes only --hip and cannot use generated reports or custom scripts yet.",
+      "issue": 38
+    },
+    {
+      "version": "3.0.0",
+      "section": "Added",
+      "text": "Desktop update notifications, with in-app updates on macOS and links to new releases on Linux and BSD.",
+      "status": "not-applicable",
+      "reason": "Desktop update notifications (gpgui). Updates of this package come from the apt repository."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Added",
+      "text": "JSON log output for CLI integrations and automation.",
+      "status": "tested",
+      "reason": "The service relies on text output, a foreground process and its own browser wrapper: it never passes --log-format json.",
+      "tests": [
+        "tests/unit/test_gpclient_command.py::test_connect_command_never_uses_unsupported_modes",
+        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "section": "Changed",
+      "text": "Refreshed the desktop connection view, gateway selection, and session details.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. The CLI gateway prompt that the service parses is guarded by contract items gateway-select-prompt, code-connect-portal and code-gateway-display."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Changed",
+      "text": "Improved browser sign-in, including opening your normal user's browser when the CLI runs with elevated privileges.",
+      "status": "tested",
+      "reason": "gpauth registers the globalprotectcallback handler with xdg-mime and fails without it, so the core package must depend on xdg-utils.",
+      "tests": [
+        "tests/unit/test_debian_control.py::test_core_package_depends_on_xdg_utils",
+        "tests/unit/test_debian_control.py::test_missing_xdg_utils_dependency_is_reported"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "section": "Changed",
+      "text": "Improved session expiry warnings and session extension when allowed by your VPN administrator.",
+      "status": "no-action",
+      "reason": "Session expiry warnings and extension are not used by the service. A session that ends is handled as a disconnect."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Changed",
+      "text": "Updated license activation and recovery. Start the seven-day desktop trial by verifying your email address in the app.",
+      "status": "not-applicable",
+      "reason": "License activation and trial are GUI features (gpgui)."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Fixed",
+      "text": "Improved cancellation, disconnect, and cached sign-in handling.",
+      "status": "tested",
+      "reason": "gpclient now logs out of the gateway on exit, so the service waits longer before SIGKILL.",
+      "tests": [
+        "tests/unit/test_terminate.py::test_terminate_waits_for_gateway_logout",
+        "tests/unit/test_terminate.py::test_terminate_kills_after_timeout"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "section": "Fixed",
+      "text": "Improved desktop window and tray behavior across macOS, Linux, FreeBSD, and OpenBSD.",
+      "status": "not-applicable",
+      "reason": "GUI only: the service does not run gpgui. Window and tray behavior; macOS and BSD."
+    },
+    {
+      "version": "3.0.0",
+      "section": "Fixed",
+      "text": "Improved package installation and desktop integration on Linux and BSD.",
+      "status": "no-action",
+      "reason": "We build our own Debian packages. The desktop file we install is guarded by contract item desktop-exec."
+    }
+  ]
 }

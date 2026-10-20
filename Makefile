@@ -6,7 +6,7 @@ GPOC_DIR = external/GlobalProtect-openconnect
 RUSTUP_HOME ?= $(HOME)/.rustup
 CARGO_HOME ?= $(HOME)/.cargo
 CARGO = $(CARGO_HOME)/bin/cargo
-RUST_VERSION = 1.89
+RUST_VERSION = 1.91
 
 # Main targets
 all: gnome-plugins gpclient gpauth

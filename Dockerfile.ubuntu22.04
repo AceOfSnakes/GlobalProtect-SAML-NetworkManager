@@ -49,7 +49,7 @@ USER builder
 
 # Install Rust via rustup as builder user (the version comes from rust-toolchain.toml of GlobalProtect-openconnect)
 # This layer will be cached as long as Rust version doesn't change
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.89
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91
 ENV PATH="/home/builder/.cargo/bin:${PATH}"
 
 # Switch back to root to set working directory
