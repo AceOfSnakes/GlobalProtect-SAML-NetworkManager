@@ -244,6 +244,7 @@ selection="$(python3 - "$tmp/release.json" "$package_format" "$release_id" "$arc
 import json
 import re
 import sys
+import urllib.parse
 
 path, package_format, release_id, arch, desktop, pr, plasma_package, rpm_dist = sys.argv[1:9]
 try:
@@ -289,7 +290,8 @@ for package in wanted:
         why = " (it is built for amd64 only)" if package.endswith("-plasma-6") and arch != "amd64" else ""
         sys.exit("the release has no %s package for %s/%s%s (the build of this PR may have failed or is not finished)"
                  % (package, release_id, arch, why))
-    print("%s\t%s\t%s" % (package, asset[0], asset[1]))
+    # The name as GitHub writes it in a download address ("+" is "%2B")
+    print("%s\t%s\t%s\t%s" % (package, asset[0], asset[1], urllib.parse.quote(asset[0], safe="")))
 PY
 )" || die "cannot pick the packages for $release_id/$arch from release $tag (see the message above)"
 
@@ -304,11 +306,13 @@ fi
 echo "Unreviewed test build of PR #$pr, installed as root. Packages:"
 package_files=()
 packages=()
-while IFS=$'\t' read -r package name asset_url; do
+while IFS=$'\t' read -r package name asset_url encoded_name; do
     # With GP_RELEASE_API set (tests, mirrors) any URL is fine; by default only
-    # GitHub's own download address is trusted
+    # GitHub's own download address is trusted: GitHub writes "+" as "%2B" there
+    # (the name is matched strictly above, so the plain "+" is the same file)
     if [ -z "${GP_RELEASE_API:-}" ]; then
         case "$asset_url" in
+            "https://github.com/$REPO/releases/download/$tag/$encoded_name") ;;
             "https://github.com/$REPO/releases/download/$tag/$name") ;;
             *) die "unexpected download address for $name: $asset_url" ;;
         esac
