@@ -116,6 +116,17 @@ def _run_wrapper(env):
         base = _wrapper_files(FAKE_UID)[0]
         result.base_left = os.path.lexists(base)
         result.fallbacks_left = glob.glob(f"{base}.*")
+        fallback_dirs = [
+            p
+            for p in result.fallbacks_left
+            if os.path.isdir(p) and not os.path.islink(p)
+        ]
+        result.fallback_contents = (
+            sorted(os.listdir(fallback_dirs[0])) if fallback_dirs else None
+        )
+        result.base_contents = (
+            os.listdir(base) if os.path.isdir(base) and not os.path.islink(base) else []
+        )
         return result
     finally:
         for uid in RESERVED_UIDS:
@@ -856,6 +867,44 @@ def test_planted_temp_base_is_not_used(tmp_path, plant):
         assert os.listdir(target) == []
 
 
+@pytest.mark.parametrize("plant", PLANTERS)
+def test_planted_temp_base_warning_says_planted(tmp_path, plant):
+    plant(tmp_path, f"/tmp/edge-wrapper-{FAKE_UID}")
+
+    result, _ = _run_for_profile(tmp_path)
+
+    assert "planted by another user?" in result.stderr
+    assert "older version of the wrapper" not in result.stderr
+
+
+@pytest.mark.skipif(
+    IS_ROOT,
+    reason="as root (the fake sudo keeps uid 0) a root-owned directory is our own; "
+    "the non-root run covers this",
+)
+def test_root_owned_leftover_of_the_old_wrapper_is_named_in_the_warning(tmp_path):
+    """The old wrapper ran mkdir as root. Only root can create such a directory,
+    so a fake stat reports owner 0 for the well-known path of a directory that
+    the test user made."""
+    base_path = f"/tmp/edge-wrapper-{FAKE_UID}"
+    os.mkdir(base_path, 0o700)
+    _script(
+        tmp_path / "stat",
+        'out=$(/usr/bin/stat "$@") || exit $?\n'
+        'case "$*" in\n'
+        f'    *" -- {base_path}") out="0${{out#${{out%% *}}}}" ;;\n'
+        "esac\n"
+        'echo "$out"\n',
+    )
+
+    result, base = _run_for_profile(tmp_path)
+
+    assert base != base_path and base.startswith(base_path + ".")
+    assert "left by an older version of the wrapper (owned by root)" in result.stderr
+    assert f"sudo rm -rf {base_path}" in result.stderr
+    assert "planted by another user?" not in result.stderr
+
+
 def test_old_open_temp_base_of_the_user_is_fixed_and_reused(tmp_path):
     """The old wrapper made /tmp/edge-wrapper-<uid> with mode 755. It belongs to
     the user (only the user could write in it), so it gets chmod 700 and is
@@ -1159,23 +1208,41 @@ def test_browser_stderr_does_not_log_the_url_query(tmp_path, monkeypatch, suffix
 
 
 @pytest.mark.parametrize("plant", PLANTERS)
-def test_fallback_temp_base_is_removed_after_the_run(tmp_path, plant):
+def test_fallback_temp_base_is_emptied_but_keeps_the_log(tmp_path, plant):
     base_path = f"/tmp/edge-wrapper-{FAKE_UID}"
     plant(tmp_path, base_path)
 
     result, base = _run_for_profile(tmp_path)
 
     assert base.startswith(base_path + ".")  # the fallback was used ...
-    assert result.fallbacks_left == []  # ... and is gone
+    assert result.fallback_contents == ["wrapper.log"]  # ... only the log is left
+    assert "done:" in result.wrapper_log
     assert result.base_left  # the planted path is not ours to remove
 
 
-def test_normal_temp_base_stays_after_the_run(tmp_path):
+def test_normal_temp_base_keeps_its_profile_after_the_run(tmp_path):
     result, base = _run_for_profile(tmp_path)
 
     assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
-    assert result.base_left
-    assert result.fallbacks_left == []
+    assert result.fallback_contents is None
+    assert sorted(result.base_contents) == ["cache", "data", "home", "profile", "wrapper.log"]
+
+
+def test_failing_removal_is_retried_three_times_and_keeps_the_exit_code(tmp_path):
+    """rm fails, so the fallback directory cannot be emptied: the loop stops after
+    3 attempts and the wrapper still exits with the browser run's code."""
+    _script(
+        tmp_path / "rm",
+        f'echo x >> {tmp_path}/rm_calls\nexit 1\n',
+    )
+    plant = _plant_symlink
+    plant(tmp_path, f"/tmp/edge-wrapper-{FAKE_UID}")
+
+    result, base = _run_for_profile(tmp_path)
+
+    assert result.returncode == 0
+    assert (tmp_path / "rm_calls").read_text().split() == ["x"] * 3
+    assert "wrapper.log" in result.fallback_contents
 
 
 # --- No private base: only a problem when the home is read-only -------------------

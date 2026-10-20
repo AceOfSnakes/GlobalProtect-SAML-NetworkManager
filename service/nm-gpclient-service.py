@@ -600,10 +600,15 @@ def mask_secrets(line: str, secrets: Sequence[str]) -> str:
     # Longest first: a secret that contains another one is masked whole. Only
     # whole occurrences count, so a short answer ("1", "y") does not garble
     # every word that happens to contain it.
+    # A guard applies only on a side where the secret has a word character: a
+    # secret that starts or ends with a symbol ("#Hunter2", "abc!") is also
+    # masked when a word character touches it ("x#Hunter2", "abc!def").
     for secret in sorted(secrets, key=len, reverse=True):
         if secret:
+            before = r"(?<!\w)" if re.match(r"\w", secret[0]) else ""
+            after = r"(?!\w)" if re.match(r"\w", secret[-1]) else ""
             line = re.sub(
-                rf"(?<!\w){re.escape(secret)}(?!\w)", lambda _: HIDDEN, line
+                f"{before}{re.escape(secret)}{after}", lambda _: HIDDEN, line
             )
     return line
 
@@ -1865,9 +1870,15 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 return None
             # One call for all sessions: the output has one block per session,
             # separated by a blank line
-            output = loginctl(
-                "show-session", *session_ids, "-p", "User", "-p", "Class", "-p", "State"
-            )
+            props_args = ("-p", "User", "-p", "Class", "-p", "State")
+            output = loginctl("show-session", *session_ids, *props_args)
+            if not output.strip():
+                # A session that closed in between fails the whole call: ask
+                # for each one, and skip the ones that are gone
+                output = "\n\n".join(
+                    loginctl("show-session", session_id, *props_args)
+                    for session_id in session_ids
+                )
             for block in re.split(r"\n\s*\n", output):
                 props = GpclientVPNPlugin._session_props(block)
                 if props.get("Class") != "user" or props.get("State") != "active":

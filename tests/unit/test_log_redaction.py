@@ -103,6 +103,28 @@ class TestMaskSecrets:
             " 1 ", " <hidden> "
         )
 
+    @pytest.mark.parametrize(
+        "secret, line, masked",
+        [
+            ("#Hunter2", "x#Hunter2", "x<hidden>"),
+            ("abc!", "abc!def", "<hidden>def"),
+            ("#Hunter2", "? Pw: #Hunter2", "? Pw: <hidden>"),
+        ],
+    )
+    def test_secret_with_a_symbol_at_the_edge_is_masked_next_to_a_word(
+        self, service_module, secret, line, masked
+    ):
+        assert service_module.mask_secrets(line, {secret}) == masked
+
+    @pytest.mark.parametrize(
+        "secret, line",
+        [("Hunter2", "xHunter2"), ("Hunter2", "Hunter2x"), ("abc!", "xabc!")],
+    )
+    def test_word_edge_of_a_secret_still_needs_a_word_boundary(
+        self, service_module, secret, line
+    ):
+        assert service_module.mask_secrets(line, {secret}) == line
+
     @pytest.mark.parametrize("secret", ["1", "y"])
     def test_short_secret_is_masked_as_a_whole_word(self, service_module, secret):
         masked = service_module.mask_secrets(f"? Answer: {secret}", {secret})

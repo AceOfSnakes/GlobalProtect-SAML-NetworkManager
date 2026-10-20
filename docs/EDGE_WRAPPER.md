@@ -81,14 +81,21 @@ The wrapper creates temporary directories in a private base directory:
 
 `<base>` is `/tmp/edge-wrapper-$UID`. The wrapper creates it with mode 700 and
 uses it only if it is a real directory, owned by the user, with mode 700. A
-directory from an older wrapper (owned by the user, mode 755) gets `chmod 700`
-and is then used: only its owner could have written in it. If someone else
-created it first (a symlink, a directory with other owner, a file), the wrapper
-does not use it: it logs a warning and takes a new directory from `mktemp`
-(`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). When the wrapper runs as root, it
-creates the directories and checks that the home is writable as the desktop user
-(through `sudo -u "#$UID"`), so they never belong to root and root never follows
-a symlink.
+directory from an older wrapper that is owned by the user (mode 755) gets
+`chmod 700` and is then used: only its owner could have written in it. The older
+wrapper ran `mkdir` as root, so on many systems the leftover directory is owned
+by root. The wrapper cannot fix it: it logs "left by an older version of the
+wrapper (owned by root)", uses a new directory, and you can remove the old one
+with `sudo rm -rf /tmp/edge-wrapper-$UID`. If someone else created it first (a
+symlink, a directory with other owner, a file), the wrapper does not use it: it
+logs a "planted by another user?" warning and takes a new directory from
+`mktemp` (`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). After the run, the
+wrapper empties such a `mktemp` directory but keeps `wrapper.log`, so you can
+read the log of a failed login. If a file cannot be removed (the browser may
+still write for a moment), it tries 3 times, 1 second apart. When the wrapper
+runs as root, it creates the directories and checks that the home is writable as
+the desktop user (through `sudo -u "#$UID"`), so they never belong to root and
+root never follows a symlink.
 The Chromium policy file and the `Crash Reports` directories are also written
 after the privilege drop, as the desktop user.
 

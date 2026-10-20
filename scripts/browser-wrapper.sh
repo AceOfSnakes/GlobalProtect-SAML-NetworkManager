@@ -21,23 +21,27 @@ MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 # whole run: only the part that runs as the real user writes the log file.
 LOG_FILE=""
 redact_urls() {
+    # Usage: redact_urls -v VAR text... (no subshell: log() and redact_stream call
+    # it for every line, and $(...) would fork each time)
     # The auth URL's query or fragment can carry the SAML request or a one-time
     # token, and the messages may end up in the system journal: never log them
     # (pure bash: this must work with an almost empty PATH)
-    local rest="$*" msg="" hit
-    while [[ $rest =~ ://[^[:space:]?#]*[?#] ]]; do
-        hit=${BASH_REMATCH[0]}
-        msg+="${rest%%"$hit"*}$hit<hidden>"
-        rest=${rest#*"$hit"}
-        rest=${rest#"${rest%%[[:space:]]*}"}
+    local _ru_var="$2" _ru_rest _ru_msg="" _ru_hit
+    shift 2
+    _ru_rest="$*"
+    while [[ $_ru_rest =~ ://[^[:space:]?#]*[?#] ]]; do
+        _ru_hit=${BASH_REMATCH[0]}
+        _ru_msg+="${_ru_rest%%"$_ru_hit"*}$_ru_hit<hidden>"
+        _ru_rest=${_ru_rest#*"$_ru_hit"}
+        _ru_rest=${_ru_rest#"${_ru_rest%%[[:space:]]*}"}
     done
-    msg+=$rest
-    printf '%s' "$msg"
+    _ru_msg+=$_ru_rest
+    printf -v "$_ru_var" '%s' "$_ru_msg"
 }
 
 log() {
     local msg
-    msg=$(redact_urls "$*")
+    redact_urls -v msg "$*"
     if [ -n "$LOG_FILE" ]; then
         echo "[$(date '+%F %T')] $msg" >> "$LOG_FILE"
     else # Print to stderr if LOG_FILE is unset, for troubleshooting in the terminal
@@ -283,15 +287,23 @@ private_dir_ok() {
     [ "$info" = "$EUID 700" ]
 }
 
-# Remove the fallback directory that prepare_temp_base took from mktemp. Nothing
-# removes it later, and a leftover /tmp/edge-wrapper-<uid> that we cannot fix
-# would make every login leave a new one. Never touches /tmp/edge-wrapper-<uid>
-# itself, and only a private directory of the current user.
+# Empty the fallback directory that prepare_temp_base took from mktemp, but keep
+# wrapper.log: the user needs the log of a failed login. Nothing removes the
+# directory later, and a leftover /tmp/edge-wrapper-<uid> that we cannot fix would
+# make every login leave a new one. Never touches /tmp/edge-wrapper-<uid> itself,
+# and only a private directory of the current user. The browser's child processes
+# and the log reader can still write for a moment after the main process exits,
+# so the removal is tried up to 3 times, 1 second apart.
 remove_fallback_base() {
-    local base="$1" uid="$2" name
+    local base="$1" uid="$2" name attempt
     name=${base#"/tmp/edge-wrapper-$uid."}
     [ "$name" != "$base" ] && [ -n "$name" ] && [[ "$name" != */* ]] || return 0
-    private_dir_ok "$base" && rm -rf -- "$base" 2>/dev/null
+    private_dir_ok "$base" || return 0
+    for attempt in 1 2 3; do
+        find "$base" -mindepth 1 -maxdepth 1 ! -name wrapper.log -exec rm -rf -- {} + 2>/dev/null
+        [ -z "$(find "$base" -mindepth 1 -maxdepth 1 ! -name wrapper.log 2>/dev/null)" ] && break
+        [ "$attempt" -lt 3 ] && sleep 1
+    done
     return 0
 }
 
@@ -316,13 +328,21 @@ prepare_temp_base() {
         chmod 700 -- "$base" 2>/dev/null
     fi
     if ! private_dir_ok "$base" || [ ! -w "$base" ]; then
-        log "WARNING: $base is not a private directory of uid $EUID (planted by another user?); not using it"
+        if [ -d "$base" ] && [ ! -L "$base" ] && [ "$EUID" -ne 0 ] \
+            && [ "$(stat -c '%u' -- "$base" 2>/dev/null)" = 0 ]; then
+            # The old wrapper made the directory as root (mkdir -p before the drop)
+            log "WARNING: $base was left by an older version of the wrapper (owned by root); using a new directory - remove it with: sudo rm -rf $base"
+        else
+            log "WARNING: $base is not a private directory of uid $EUID (planted by another user?); not using it"
+        fi
         base=$(mktemp -d "/tmp/edge-wrapper-$uid.XXXXXXXX" 2>/dev/null) || return 1
         private_dir_ok "$base" || return 1
         log "using new private directory $base"
     fi
     if ! mkdir -p -- "$base/$profile" "$base/home/.config" "$base/cache" "$base/data" 2>/dev/null; then
         remove_fallback_base "$base" "$uid"
+        # no wrapper.log exists yet; never the well-known directory
+        [ "$base" != "/tmp/edge-wrapper-$uid" ] && rmdir -- "$base" 2>/dev/null
         return 1
     fi
     echo "$base"
@@ -516,7 +536,8 @@ log "cmd: $BROWSER_BIN ${BROWSER_FLAGS[*]}"
 redact_stream() {
     local line
     while IFS= read -r line || [ -n "$line" ]; do
-        printf '%s\n' "$(redact_urls "$line")"
+        redact_urls -v line "$line"
+        printf '%s\n' "$line"
     done
 }
 

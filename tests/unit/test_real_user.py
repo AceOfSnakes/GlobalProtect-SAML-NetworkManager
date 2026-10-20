@@ -40,9 +40,10 @@ def fake_loginctl(monkeypatch, tmp_path):
     bindir.mkdir()
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
 
-    def install(active="c1", session=None, fail=False, sessions=None):
+    def install(active="c1", session=None, fail=False, sessions=None, vanished=()):
         """sessions: {id: {"User": uid, "Class": ..., "State": ...}} for
-        `list-sessions` (the seat0 session c1 is only listed when given)"""
+        `list-sessions` (the seat0 session c1 is only listed when given);
+        vanished: ids that are listed but make `show-session` fail"""
         session = session or {}
         sessions = sessions or {}
         props = {
@@ -66,7 +67,11 @@ def fake_loginctl(monkeypatch, tmp_path):
             f"  list-sessions) cat <<'EOT'\n{listing}\nEOT\n ;;\n"
             # show-session <id>... -p ...: one block per id, blank line between
             "  show-session) shift; first=1\n"
-            '  for id in "$@"; do\n'
+            + "".join(
+                f'  for id in "$@"; do [ "$id" = {sid} ] && exit 1; done\n'
+                for sid in vanished
+            )
+            + '  for id in "$@"; do\n'
             '    case "$id" in -*) break ;; esac\n'
             '    [ "$first" = 1 ] || echo; first=0\n'
             '    case "$id" in\n'
@@ -246,6 +251,37 @@ class TestOtherActiveSession:
         shows = [c for c in calls if c.startswith("show-session c5")]
         assert shows == ["show-session c5 c6 c7 -p User -p Class -p State"]
         assert not any(c.startswith(("show-session c6", "show-session c7")) for c in calls)
+
+    def test_a_session_that_closed_in_between_does_not_hide_the_user(
+        self, plugin, fake_loginctl, tmp_path
+    ):
+        """The batched call fails when one id is gone: ask for each id instead"""
+        fake_loginctl(
+            active="",
+            sessions={"c5": {"User": OTHER_UID}, "c6": {"User": 0}, "c7": {"User": 0}},
+            vanished=["c6"],
+        )
+
+        assert plugin._get_real_user() == other_user()
+        calls = (tmp_path / "loginctl_calls").read_text().splitlines()
+        assert "show-session c5 c6 c7 -p User -p Class -p State" in calls
+        assert "show-session c5 -p User -p Class -p State" in calls
+        assert "show-session c6 -p User -p Class -p State" in calls
+
+    def test_two_users_stay_ambiguous_after_a_session_closed(
+        self, plugin, fake_loginctl
+    ):
+        fake_loginctl(
+            active="",
+            sessions={
+                "c5": {"User": OTHER_UID},
+                "c6": {"User": OTHER_UID + 1},
+                "c7": {"User": 0},
+            },
+            vanished=["c7"],
+        )
+
+        assert plugin._get_real_user() == current_user()
 
     def test_the_same_user_in_two_sessions_is_one_user(self, plugin, fake_loginctl):
         fake_loginctl(
