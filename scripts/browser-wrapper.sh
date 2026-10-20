@@ -251,12 +251,65 @@ done
 
 # --- Profile / HOME workaround for ProtectHome=read-only --------------------
 
-TEMP_BASE="/tmp/edge-wrapper-$REAL_UID"
-ALT_HOME_DIR="$TEMP_BASE/home"
 case "$FAMILY" in
-    firefox) ALT_PROFILE_DIR="$TEMP_BASE/profile-firefox" ;;
-    *)       ALT_PROFILE_DIR="$TEMP_BASE/profile" ;;
+    firefox) PROFILE_NAME="profile-firefox" ;;
+    *)       PROFILE_NAME="profile" ;;
 esac
+
+# True for a real directory (not a symlink) that belongs to the user who runs
+# this check and has mode 700. $EUID is that user: the wrapper itself, or the
+# real user after the sudo drop below.
+private_dir_ok() {
+    local path="$1" info
+    [ -d "$path" ] && [ ! -L "$path" ] || return 1
+    info=$(stat -c '%u %a' -- "$path" 2>/dev/null) || return 1
+    [ "$info" = "$EUID 700" ]
+}
+
+# Print the private base directory for the browser profile, HOME and caches.
+# /tmp is shared, so another user can pre-create /tmp/edge-wrapper-<uid> (or a
+# symlink) and plant a browser profile (proxy, CA) to attack the SAML login. A
+# directory that is not ours and private is never used: we take a new one from
+# mktemp (mode 700, random name) instead. $XDG_RUNTIME_DIR (/run/user/<uid>) is
+# already private, so it is the first choice. Run this as the real user (see
+# make_temp_base): then the directories are never owned by root and root never
+# follows a planted symlink.
+prepare_temp_base() {
+    local uid="$1" runtime="$2" profile="$3" base
+    umask 077  # also makes mkdir -p create the parents with mode 700
+    if private_dir_ok "$runtime"; then
+        base="$runtime/edge-wrapper"
+    else
+        base="/tmp/edge-wrapper-$uid"
+    fi
+    mkdir -m 700 -- "$base" 2>/dev/null
+    if ! private_dir_ok "$base"; then
+        log "WARNING: $base is not a private directory of uid $EUID (planted by another user?); not using it"
+        base=$(mktemp -d "/tmp/edge-wrapper-$uid.XXXXXXXX" 2>/dev/null) || return 1
+        private_dir_ok "$base" || return 1
+        log "using new private directory $base"
+    fi
+    mkdir -p -- "$base/$profile" "$base/home/.config" "$base/cache" "$base/data" 2>/dev/null || return 1
+    echo "$base"
+}
+
+make_temp_base() {
+    local runtime="${XDG_RUNTIME_DIR:-/run/user/$REAL_UID}"
+    if [ "$EUID" -eq 0 ]; then
+        sudo -u "#$REAL_UID" bash -c "$(declare -f log private_dir_ok prepare_temp_base); \
+LOG_FILE=${LOG_FILE@Q}; prepare_temp_base ${REAL_UID@Q} ${runtime@Q} ${PROFILE_NAME@Q}"
+    else
+        prepare_temp_base "$REAL_UID" "$runtime" "$PROFILE_NAME"
+    fi
+}
+
+TEMP_BASE=$(make_temp_base)
+if [ -z "$TEMP_BASE" ]; then
+    log "ERROR: cannot create a private temporary directory for the browser profile"
+    exit 1
+fi
+ALT_HOME_DIR="$TEMP_BASE/home"
+ALT_PROFILE_DIR="$TEMP_BASE/$PROFILE_NAME"
 
 home_is_writable() {
     # An unknown home must not turn into probing "/"
@@ -264,8 +317,6 @@ home_is_writable() {
     touch "$REAL_HOME/.gp-browser-writecheck" 2>/dev/null && \
         rm -f "$REAL_HOME/.gp-browser-writecheck" 2>/dev/null
 }
-
-mkdir -p "$ALT_PROFILE_DIR" "$ALT_HOME_DIR/.config" 2>/dev/null
 
 if home_is_writable; then
     HOME_IS_RO=0

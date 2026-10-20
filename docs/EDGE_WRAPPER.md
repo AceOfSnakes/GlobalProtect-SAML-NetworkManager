@@ -69,30 +69,40 @@ NetworkManager uses systemd's `ProtectHome=read-only` for security, making the u
 - Cache
 - Crash reports
 
-The wrapper creates temporary directories:
+The wrapper creates temporary directories in a private base directory:
 ```
-/tmp/edge-wrapper-$UID/
-├── profile/     # Edge user data
+<base>/
+├── profile/     # Edge user data (profile-firefox/ for Firefox)
 ├── home/        # Fake HOME
 ├── cache/       # XDG_CACHE_HOME
 └── data/        # XDG_DATA_HOME
 ```
+
+`<base>` is `$XDG_RUNTIME_DIR/edge-wrapper` (`/run/user/$UID/edge-wrapper`) when
+that directory is a real directory (not a symlink) owned by the user with mode
+700. Otherwise it is `/tmp/edge-wrapper-$UID`. The wrapper creates `<base>` with
+mode 700 and uses it only if it is a real directory, owned by the user, with mode
+700. If someone else created it first (a symlink, a directory with other owner or
+mode, a file), the wrapper does not use it: it logs a warning and takes a new
+directory from `mktemp` (`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). When the
+wrapper runs as root, it creates the directories as the desktop user (through
+`sudo -u "#$UID"`), so they never belong to root and root never follows a symlink.
 
 #### Security Considerations
 
 **Why temporary profile?**
 - NetworkManager's `ProtectHome=read-only` is a security feature that prevents VPN services from reading/writing user's home directory
 - Edge cannot function without a writable profile directory
-- The wrapper creates a fresh profile in `/tmp` for each authentication session
+- The wrapper uses a separate profile in a private directory (see above), not your normal one. Under `/run/user/$UID` it is removed when you log out; under `/tmp` it is reused until you delete it
 
 **Implications:**
 - Your main Edge profile (`~/.config/microsoft-edge`) with saved passwords, cookies, and browsing history is **not used**
-- Each VPN authentication starts with a clean browser profile
+- The browser profile does not contain your normal browsing data
 - Intune/Entra authentication still works because it uses device certificates (stored in system keychain, not browser profile)
 
 **Security tradeoffs:**
-- `/tmp` is typically world-readable on Linux systems
-- The wrapper creates directories with user-only permissions (`/tmp/edge-wrapper-$UID/`)
+- `/tmp` is shared between all users, so the wrapper never trusts a directory there that it did not create with mode 700 for the right user
+- All directories have user-only permissions (mode 700)
 - Temporary profile may contain session cookies during authentication
 - Profile is not automatically cleaned up after use
 
@@ -231,7 +241,8 @@ the VPN is unaffected.
 
 Edge policy may not be applied. Check:
 ```bash
-cat /tmp/edge-wrapper-$(id -u)/home/.config/microsoft-edge/policies/managed/globalprotect.json
+# <base> is /run/user/$(id -u)/edge-wrapper or /tmp/edge-wrapper-$(id -u); see the log
+cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 ```
 
 ### Wrong display / window doesn't appear

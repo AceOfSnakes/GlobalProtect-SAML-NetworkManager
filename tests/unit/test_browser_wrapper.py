@@ -13,6 +13,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import os
 import shlex
+import glob
 import shutil
 import subprocess
 from collections import Counter
@@ -48,6 +49,10 @@ def _fake_browser(tmp_path):
         tmp_path / "browser",
         f'echo "$@" > {tmp_path}/opened\n'
         f"env > {tmp_path}/browser_env\n"
+        f'stat -c "%a %u" "$XDG_CACHE_HOME" "$XDG_DATA_HOME" '
+        f'"$(dirname "$XDG_CACHE_HOME")" > {tmp_path}/base_stat 2>/dev/null\n'
+        # What sits in the well-known /tmp path (the wrapper removes it later)
+        f"ls -A /tmp/edge-wrapper-{FAKE_UID}/ > {tmp_path}/planted_listing 2>/dev/null\n"
         f"ls /tmp/edge-wrapper-*.log > {tmp_path}/wrapper_logs 2>/dev/null\n",
     )
 
@@ -67,11 +72,22 @@ def _wrapper_files(uid):
     return f"/tmp/edge-wrapper-{uid}", f"/tmp/edge-wrapper-{uid}.log"
 
 
+def _remove_path(path):
+    if os.path.islink(path) or os.path.isfile(path):
+        os.remove(path)
+    else:
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def _remove_wrapper_files(uid):
     directory, log_file = _wrapper_files(uid)
-    shutil.rmtree(directory, ignore_errors=True)
+    if os.path.lexists(directory):
+        _remove_path(directory)
     if os.path.lexists(log_file):
         os.remove(log_file)
+    # Fresh private directories the wrapper takes when the usual one is unusable
+    for fallback in glob.glob(f"{directory}.*"):
+        _remove_path(fallback)
 
 
 def _run_wrapper(env):
@@ -738,3 +754,148 @@ def test_non_root_without_home_sets_no_xauthority(tmp_path):
 
     _assert_browser_started(tmp_path, result)
     assert "XAUTHORITY" not in _browser_env(tmp_path)
+
+
+# --- The browser profile directory must be private ------------------------------
+#
+# /tmp is shared: another user could pre-create /tmp/edge-wrapper-<uid> (or a
+# symlink) and plant a browser profile (proxy, CA) to attack the SAML login.
+
+
+def _run_for_profile(tmp_path, **extra):
+    """Run the wrapper as the fake user; return (result, base dir used)."""
+    _fake_logger(tmp_path)
+    _fake_browser(tmp_path)
+    if IS_ROOT:
+        _fake_root_tools(tmp_path)
+        extra["SUDO_UID"] = str(FAKE_UID)
+    else:
+        _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    result = _run_wrapper(_root_env(tmp_path, **extra))
+    _assert_browser_started(tmp_path, result)
+    env = _browser_env(tmp_path)
+    base = os.path.dirname(env["XDG_CACHE_HOME"])
+    assert env["XDG_DATA_HOME"] == base + "/data"
+    return result, base
+
+
+def _profile_stat(tmp_path):
+    """(mode, uid) of cache, data and the base directory, taken by the browser."""
+    return [line.split() for line in (tmp_path / "base_stat").read_text().splitlines()]
+
+
+def test_profile_dir_is_private_and_owned_by_the_user(tmp_path):
+    _, base = _run_for_profile(tmp_path)
+
+    assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
+
+
+def test_profile_dir_prefers_a_valid_runtime_dir(tmp_path):
+    runtime = tmp_path / "run"
+    runtime.mkdir(mode=0o700)
+    runtime.chmod(0o700)
+
+    _, base = _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime))
+
+    assert base == f"{runtime}/edge-wrapper"
+    assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
+    assert not os.path.lexists(f"/tmp/edge-wrapper-{FAKE_UID}")
+
+
+def _plant_symlink(tmp_path, path):
+    target = tmp_path / "planted"
+    target.mkdir()
+    os.symlink(target, path)
+    return target
+
+
+def _plant_open_dir(tmp_path, path):
+    os.mkdir(path, 0o755)
+    os.chmod(path, 0o755)
+
+
+def _plant_file(tmp_path, path):
+    with open(path, "w") as handle:
+        handle.write("not a directory")
+
+
+def _plant_foreign_dir(tmp_path, path):
+    os.mkdir(path, 0o700)
+    os.chown(path, OTHER_UID, OTHER_UID)
+
+
+PLANTERS = [
+    pytest.param(_plant_symlink, id="symlink"),
+    pytest.param(_plant_open_dir, id="mode-755"),
+    pytest.param(_plant_file, id="regular-file"),
+    pytest.param(
+        _plant_foreign_dir,
+        id="other-owner",
+        marks=pytest.mark.skipif(not IS_ROOT, reason="needs root to chown"),
+    ),
+]
+
+
+@pytest.mark.parametrize("plant", PLANTERS)
+def test_planted_temp_base_is_not_used(tmp_path, plant):
+    base_path = f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert not os.path.lexists(base_path)
+    target = plant(tmp_path, base_path)
+
+    _, base = _run_for_profile(tmp_path)
+
+    assert base != base_path
+    assert base.startswith(base_path + ".")
+    assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
+    # Nothing was written into the planted directory or the symlink target
+    assert (tmp_path / "planted_listing").read_text() == ""
+    if target is not None:
+        assert os.listdir(target) == []
+
+
+@pytest.mark.parametrize(
+    "make_runtime",
+    [
+        pytest.param(lambda tmp: tmp / "missing", id="missing"),
+        pytest.param(lambda tmp: _runtime_symlink(tmp), id="symlink"),
+        pytest.param(lambda tmp: _runtime_dir(tmp, 0o755), id="mode-755"),
+        pytest.param(lambda tmp: _runtime_file(tmp), id="regular-file"),
+        pytest.param(
+            lambda tmp: _runtime_dir(tmp, 0o700, owner=OTHER_UID),
+            id="other-owner",
+            marks=pytest.mark.skipif(not IS_ROOT, reason="needs root to chown"),
+        ),
+    ],
+)
+def test_bad_runtime_dir_is_not_used(tmp_path, make_runtime):
+    runtime = make_runtime(tmp_path)
+
+    _, base = _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime))
+
+    assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert not os.path.lexists(f"{runtime}/edge-wrapper")
+    if os.path.isdir(runtime):
+        assert os.listdir(runtime) == []
+
+
+def _runtime_dir(tmp_path, mode, owner=None):
+    runtime = tmp_path / "run"
+    runtime.mkdir()
+    runtime.chmod(mode)
+    if owner is not None:
+        os.chown(runtime, owner, owner)
+    return runtime
+
+
+def _runtime_symlink(tmp_path):
+    real = _runtime_dir(tmp_path, 0o700)
+    link = tmp_path / "run-link"
+    link.symlink_to(real)
+    return link
+
+
+def _runtime_file(tmp_path):
+    path = tmp_path / "run-file"
+    path.write_text("")
+    return path

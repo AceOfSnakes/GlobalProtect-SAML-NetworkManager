@@ -271,7 +271,7 @@ The included `edge-wrapper` script handles:
 - Auto-closing Edge window after successful authentication
 - Setting up Edge policies for automatic protocol handling
 
-**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper creates a temporary profile in `/tmp/edge-wrapper-$UID/` to work around this. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication - each session starts fresh. While `/tmp` is world-readable, the wrapper creates per-user directories with restricted permissions.
+**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `$XDG_RUNTIME_DIR/edge-wrapper`, or `/tmp/edge-wrapper-$UID/` when the runtime directory cannot be used. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
 
 Firefox and Chrome also work but may require manual credential entry for Intune-protected portals.
 
