@@ -105,10 +105,9 @@ def test_start_gpclient_passes_flags_and_environment(start_env):
         "connect",
         "--hip",
         "--as-gateway",
-        "--user",
-        "alice",
-        "--browser",
-        "default",
+        "--user=alice",
+        "--browser=default",
+        "--",
         "portal.example.com",
     ]
     env = dumped["env"]

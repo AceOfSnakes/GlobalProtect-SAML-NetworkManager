@@ -1566,20 +1566,40 @@ class TestResolveBrowser:
         )
 
     @pytest.mark.parametrize(
-        "value", ["/opt/manual", "/opt/remote/browser", "manual-browser", "remote2"]
+        "value", ["/opt/manual", "/opt/remote/browser"]
     )
-    def test_names_merely_containing_a_mode_are_passed_through(
+    def test_paths_merely_containing_a_mode_are_passed_through(
         self, service_module, monkeypatch, value
     ):
         self._with_wrapper(service_module, monkeypatch)
         assert service_module.resolve_browser(value) == (value, None)
 
-    @pytest.mark.parametrize("value", ["safari", "/usr/bin/safari", "epiphany"])
-    def test_unknown_browser_is_passed_through_untouched(
+    @pytest.mark.parametrize("value", ["manual-browser", "remote2"])
+    def test_names_merely_containing_a_mode_use_the_default_browser(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (
+            service_module.BROWSER_WRAPPER,
+            "default",
+        )
+
+    @pytest.mark.parametrize("value", ["/usr/bin/safari", "/opt/me/epiphany"])
+    def test_unknown_absolute_browser_is_passed_through_untouched(
         self, service_module, monkeypatch, value
     ):
         self._with_wrapper(service_module, monkeypatch)
         assert service_module.resolve_browser(value) == (value, None)
+
+    @pytest.mark.parametrize("value", ["safari", "epiphany"])
+    def test_unknown_relative_browser_uses_the_default_browser(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (
+            service_module.BROWSER_WRAPPER,
+            "default",
+        )
 
     def test_without_wrapper_and_binary_the_name_is_returned(
         self, service_module, monkeypatch

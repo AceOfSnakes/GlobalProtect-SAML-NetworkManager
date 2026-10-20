@@ -256,8 +256,11 @@ nmcli connection modify "My VPN" +vpn.data "browser=firefox"    # or chrome, chr
 
 The service maps these names (and the old `/usr/bin/firefox`-style paths) to
 `browser-wrapper` and passes the binary in `GP_BROWSER`, so every browser gets
-the session-environment fixup that used to be Edge-only. A value that is not a
-known browser - your own wrapper script - is passed to gpclient untouched.
+the session-environment fixup that used to be Edge-only. Your own wrapper
+script must be given as an absolute path (for example `/opt/me/my-wrapper`) and
+is passed to gpclient untouched. Any other unknown value (a relative path, a
+value that starts with `-`, a value with spaces) is logged and falls back to the
+desktop's default browser.
 
 | Value | Launched as |
 |-------|-------------|

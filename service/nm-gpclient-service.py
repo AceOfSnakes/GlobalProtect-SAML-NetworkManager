@@ -248,6 +248,13 @@ WRAPPED_BROWSER_PATH_RE = re.compile(
     r"^/usr/bin/(?:microsoft-edge\S*|google-chrome\S*|chromium\S*|firefox\S*)$"
 )
 
+# A user's own wrapper: an absolute path without whitespace or control chars
+CUSTOM_BROWSER_PATH_RE = re.compile(r"^/[^\s\x00-\x1f\x7f]*$")
+
+# Profile values that must not reach the gpclient command line
+UNSAFE_GATEWAY_RE = re.compile(r"[\s\x00-\x1f\x7f]")
+UNSAFE_USERNAME_RE = re.compile(r"[\x00-\x1f\x7f]")
+
 # Fallback when the wrapper is missing (service upgraded, wrapper not yet
 # installed): let gpclient launch the browser directly
 BROWSER_BINARIES = {
@@ -712,8 +719,9 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
 
     Returns (argument for gpclient --browser, GP_BROWSER for the wrapper).
     Friendly names and the browser binaries our editors used to offer go
-    through the wrapper; anything else (a user's own wrapper script) is passed
-    through untouched.
+    through the wrapper. A user's own wrapper script is passed through when it
+    is an absolute path; any other value falls back to "default", so a profile
+    value can never become an extra gpclient option.
     """
     value = (value or "").strip()
 
@@ -733,8 +741,14 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
         target = "default"
     elif WRAPPED_BROWSER_PATH_RE.match(value):
         target = value
-    else:
+    elif CUSTOM_BROWSER_PATH_RE.match(value):
         return value, None
+    else:
+        logger.warning(
+            f"browser={value!r} is not a known name or an absolute path - "
+            "using the desktop's default browser"
+        )
+        target = "default"
 
     if os.path.exists(BROWSER_WRAPPER):
         return BROWSER_WRAPPER, target
@@ -1355,6 +1369,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             # Username lives in vpn.data, password in vpn.secrets.
             secrets_dict = vpn_data.get("secrets", {}) or {}
             self.vpn_username = data_dict.get("username", "")
+            if self.vpn_username.startswith("-") or UNSAFE_USERNAME_RE.search(
+                self.vpn_username
+            ):
+                self.vpn_username = ""
+                raise Exception("Invalid username specified")
             self.vpn_password = secrets_dict.get("password", "")
             # When a username is stored we pass it as gpclient --user, so
             # gpclient does not prompt for it - treat username as already
@@ -1378,6 +1397,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.gateway = data_dict.get("gateway", "")
             if not self.gateway:
                 raise Exception("No gateway specified")
+            # The server goes to gpclient as an argument, never as an option
+            if self.gateway.startswith("-") or UNSAFE_GATEWAY_RE.search(self.gateway):
+                raise Exception("Invalid gateway specified")
             logger.info(f"Server: {self.gateway}")
 
             # Legacy TLS renegotiation workaround (issue #2): auto retries once
@@ -1870,9 +1892,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:
-                cmd.extend(["--user", self.vpn_username])
+                cmd.append(f"--user={self.vpn_username}")
 
-            cmd.extend(["--browser", self.browser, self.gateway])
+            # Single-token options and "--" keep profile values from being
+            # parsed as options of their own (--browser takes an optional value)
+            cmd.extend([f"--browser={self.browser}", "--", self.gateway])
 
             logger.info(f"Spawning: {' '.join(cmd)}")
 
