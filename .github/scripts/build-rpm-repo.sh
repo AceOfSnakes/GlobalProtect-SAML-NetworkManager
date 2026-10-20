@@ -228,12 +228,17 @@ dir_of=()       # <target>/<rpm arch> of each, same index
 declare -A newest=()    # target -> newest version of the core package
 declare -A pruned=()
 if [ "${#cand_file[@]}" -gt 0 ]; then
+    # Through a file, not a process substitution: set -e does not see a failure there,
+    # and the script would publish every version with an empty version table
+    prune_out=$(mktemp)
+    prune_and_newest > "$prune_out" || { rm -f "$prune_out"; die "ordering the RPM versions failed"; }
     while read -r kind first second; do
         case "$kind" in
             prune) pruned["$first"]=1 ;;
             newest) newest["$first"]="$second" ;;
         esac
-    done < <(prune_and_newest)
+    done < "$prune_out"
+    rm -f "$prune_out"
 fi
 for i in "${!cand_file[@]}"; do
     if [ -n "${pruned[$i]:-}" ]; then

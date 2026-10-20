@@ -599,3 +599,39 @@ def test_spec_drops_the_generated_sdbus_provides(provide):
 )
 def test_spec_keeps_every_other_provide(provide):
     assert not provides_exclude_pattern().search(provide)
+
+
+def make_elf(path, section_types):
+    # A 64-bit little-endian ELF header and one section header per type: all
+    # check_stripped reads (e_shoff at 0x28, e_shentsize and e_shnum at 0x3A)
+    import struct
+
+    header = bytearray(64)
+    header[:6] = b"\x7fELF\x02\x01"
+    struct.pack_into("<Q", header, 0x28, 64)
+    struct.pack_into("<HH", header, 0x3A, 64, len(section_types))
+    sections = b"".join(struct.pack("<II", 0, t) + bytes(56) for t in section_types)
+    path.write_bytes(bytes(header) + sections)
+    return path
+
+
+def test_check_stripped_accepts_binaries_without_a_symbol_table(tmp_path):
+    # NULL, PROGBITS, STRTAB, DYNSYM (the dynamic symbols stay in a stripped binary)
+    exe = make_elf(tmp_path / "gpclient", [0, 1, 3, 11])
+    result = run_function(tmp_path, f'check_stripped "{exe}"')
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("section_types", [[0, 1, 2, 3], [2]])
+def test_check_stripped_rejects_a_symbol_table(tmp_path, section_types):
+    exe = make_elf(tmp_path / "gpclient", section_types)
+    result = run_function(tmp_path, f'check_stripped "{exe}"')
+    assert result.returncode == 1
+    assert "is not stripped" in result.stderr
+
+
+def test_check_stripped_rejects_a_file_that_is_not_elf(tmp_path):
+    exe = tmp_path / "gpclient"
+    exe.write_text("#!/bin/sh\n")
+    result = run_function(tmp_path, f'check_stripped "{exe}"')
+    assert result.returncode == 1

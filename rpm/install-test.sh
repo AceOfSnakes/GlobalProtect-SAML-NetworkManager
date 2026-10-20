@@ -37,6 +37,28 @@ check_openssl() {
     done
 }
 
+# check_stripped <executable>...: no symbol table (SHT_SYMTAB section) in the ELF
+# file. Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
+# upstream's strip = true unless the spec builds without them.
+check_stripped() {
+    local exe
+    for exe in "$@"; do
+        python3 - "$exe" <<'PY' || fail "$exe is not stripped (it has a symbol table)"
+import struct, sys
+with open(sys.argv[1], "rb") as f:
+    data = f.read()
+if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+    sys.exit("%s: not a 64-bit little-endian ELF file" % sys.argv[1])
+shoff, = struct.unpack_from("<Q", data, 0x28)
+shentsize, shnum = struct.unpack_from("<HH", data, 0x3A)
+for i in range(shnum):
+    sh_type, = struct.unpack_from("<I", data, shoff + i * shentsize + 4)
+    if sh_type == 2:  # SHT_SYMTAB
+        sys.exit(1)
+PY
+    done
+}
+
 # check_vpnc_script [root]: a vpnc-script that gpclient finds (the list of
 # crates/openconnect/src/vpn_utils.rs) is executable and runs the hooks of /etc/vpnc,
 # where 90-gpclient-routing is.
@@ -139,6 +161,7 @@ for exe in /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
 done
 
 check_openssl /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
+check_stripped /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
 check_vpnc_script
 
 /usr/bin/gpclient --version >/dev/null || fail "gpclient --version"

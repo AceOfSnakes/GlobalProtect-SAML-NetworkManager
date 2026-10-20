@@ -306,6 +306,21 @@ class TestSigning:
         assert result.returncode != 0
         assert not (box.out / "RPM-GPG-KEY-gpclient").exists()
 
+    def test_a_failing_version_ordering_stops_the_script(self, box):
+        # The ordering (python3) runs before anything is published: when it fails,
+        # nothing is signed and no repository is made (not every version unpruned)
+        box.add_set(version="1.4.0")
+        box.add_set(version="1.5.0")
+        (box.bin / "python3").write_text("#!/bin/sh\nexit 3\n")
+        (box.bin / "python3").chmod(0o755)
+
+        result = box.run()
+
+        assert result.returncode != 0
+        assert "ordering the RPM versions failed" in result.stderr
+        assert not [c for c in box.calls() if c.startswith(("rpmsign", "createrepo_c"))]
+        assert box.tree() == []
+
     def test_a_key_that_exports_nothing_is_an_error(self, box):
         box.add_set()
 

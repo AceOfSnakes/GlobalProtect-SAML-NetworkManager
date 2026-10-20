@@ -112,7 +112,8 @@ sudo zypper removerepo network-manager-gpclient
 The Fedora and Leap `.repo` files use `$releasever` (`.../rpm/fedora$releasever/`),
 so after `dnf system-upgrade` or a Leap upgrade they serve the build for the new
 release. They have `skip_if_unavailable=1`: when a release leaves the supported
-list (`rpm/targets`), its directory goes away and dnf only warns.
+list (`rpm/targets`), its directory goes away and dnf and zypper skip the
+repository with a warning (`zypper refresh` then exits with 4).
 
 The repository keeps the newest two versions of every package (for
 `dnf downgrade`); older ones stay in the GitHub releases.
