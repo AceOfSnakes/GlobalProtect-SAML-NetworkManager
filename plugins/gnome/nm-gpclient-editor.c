@@ -15,6 +15,8 @@ struct _NMGpclientEditor {
     GtkWidget *auth_mode_combo;
     GtkWidget *username_entry;
     GtkWidget *browser_combo;
+    GtkWidget *timeout_spin;
+    gboolean timeout_follows_auth_mode;
     GtkWidget *dns_entry;
     GtkWidget *hip_check;
     GtkWidget *fix_openssl_combo;
@@ -23,6 +25,11 @@ struct _NMGpclientEditor {
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * an empty vpn.data value, so existing profiles keep behaving the same. */
 #define GATEWAY_AUTO_LABEL "First proposed by portal (automatic)"
+
+/* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
+ * default, usually 60 s), which is too short for a SAML login with MFA. A new
+ * connection with browser authentication starts with this value (issue #46). */
+#define SAML_TIMEOUT_DEFAULT 180
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const char *browser_values[] = {
@@ -72,12 +79,39 @@ combo_changed_cb (GtkComboBox *combo, gpointer user_data)
     g_signal_emit_by_name (user_data, "changed");
 }
 
+static void
+timeout_changed_cb (GtkSpinButton *spin, gpointer user_data)
+{
+    NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+
+    /* The user chose a value: keep it whatever the authentication mode */
+    self->timeout_follows_auth_mode = FALSE;
+    g_signal_emit_by_name (self, "changed");
+}
+
+static void
+auth_mode_changed_cb (GtkComboBox *combo, gpointer user_data)
+{
+    NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+
+    if (self->timeout_follows_auth_mode && self->timeout_spin) {
+        g_signal_handlers_block_by_func (self->timeout_spin, timeout_changed_cb, self);
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin),
+                                   gtk_combo_box_get_active (combo) == 0 ? SAML_TIMEOUT_DEFAULT : 0);
+        g_signal_handlers_unblock_by_func (self->timeout_spin, timeout_changed_cb, self);
+    }
+    g_signal_emit_by_name (self, "changed");
+}
+
 static GtkWidget *
 build_ui (NMGpclientEditor *self)
 {
-    GtkWidget *grid, *label;
+    GtkWidget *grid, *label, *timeout_box, *timeout_hint;
     NMSettingVpn *s_vpn;
     const char *value;
+    gboolean is_new;
+    guint stored;
+    int auth_index;
     int row = 0;
 
     grid = gtk_grid_new ();
@@ -89,6 +123,9 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_margin_end (grid, 12);
 
     s_vpn = nm_connection_get_setting_vpn (self->connection);
+    /* A profile that exists has at least the gateway in vpn.data */
+    is_new = !s_vpn || nm_setting_vpn_get_num_data_items (s_vpn) == 0;
+    stored = s_vpn ? nm_setting_vpn_get_timeout (s_vpn) : 0;
 
     /* Portal / gateway address */
     label = gtk_label_new ("Portal or gateway address:");
@@ -183,7 +220,8 @@ build_ui (NMGpclientEditor *self)
     } else {
         gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_mode_combo), 0);
     }
-    g_signal_connect (self->auth_mode_combo, "changed", G_CALLBACK (combo_changed_cb), self);
+    auth_index = gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo));
+    g_signal_connect (self->auth_mode_combo, "changed", G_CALLBACK (auth_mode_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->auth_mode_combo, 1, row++, 1, 1);
 
     /* Username */
@@ -244,6 +282,36 @@ build_ui (NMGpclientEditor *self)
     }
     g_signal_connect (self->browser_combo, "changed", G_CALLBACK (browser_combo_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->browser_combo, 1, row++, 1, 1);
+
+    /* Connect timeout (NetworkManager's vpn.timeout, not a vpn.data item) */
+    label = gtk_label_new ("Connect timeout:");
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+
+    timeout_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    self->timeout_spin = gtk_spin_button_new_with_range (0, G_MAXINT32, 10);
+    gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->timeout_spin), 0);
+    gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (self->timeout_spin), TRUE);
+    gtk_widget_set_hexpand (self->timeout_spin, TRUE);
+    gtk_widget_set_tooltip_text (self->timeout_spin,
+        "How long NetworkManager waits for the VPN to connect, including the "
+        "login in the browser (vpn.timeout).\n"
+        "0 uses the NetworkManager default, usually 60 s - often too short for a "
+        "SAML login with MFA. New connections with browser authentication start "
+        "with 180 s.");
+    if (is_new && stored == 0) {
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin),
+                                   auth_index == 0 ? SAML_TIMEOUT_DEFAULT : 0);
+        self->timeout_follows_auth_mode = TRUE;
+    } else {
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin), stored);
+        self->timeout_follows_auth_mode = FALSE;
+    }
+    g_signal_connect (self->timeout_spin, "value-changed", G_CALLBACK (timeout_changed_cb), self);
+    gtk_box_append (GTK_BOX (timeout_box), self->timeout_spin);
+    timeout_hint = gtk_label_new ("seconds (0 = NetworkManager default)");
+    gtk_box_append (GTK_BOX (timeout_box), timeout_hint);
+    gtk_grid_attach (GTK_GRID (grid), timeout_box, 1, row++, 1, 1);
 
     /* Legacy TLS renegotiation workaround */
     label = gtk_label_new ("Legacy TLS renegotiation:");
@@ -389,6 +457,12 @@ update_connection (NMVpnEditor *editor,
     else
         nm_setting_vpn_remove_data_item (s_vpn, "browser");
     g_free ((char *)str);
+
+    /* Save the connect timeout: NetworkManager's own vpn.timeout */
+    gtk_spin_button_update (GTK_SPIN_BUTTON (self->timeout_spin));
+    g_object_set (s_vpn, NM_SETTING_VPN_TIMEOUT,
+                  (guint) gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->timeout_spin)),
+                  NULL);
 
     /* Save DNS */
     str = gtk_editable_get_text (GTK_EDITABLE (self->dns_entry));

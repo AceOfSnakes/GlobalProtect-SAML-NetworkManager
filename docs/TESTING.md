@@ -25,6 +25,7 @@ objdump -T /usr/lib/*-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient-editor.
 **Expected:** Dialog opens with VPN tab containing:
 - Gateway (text entry)
 - Browser (text entry)
+- Connect timeout (spin button)
 - DNS Servers (text entry)
 
 ### 3. Test GNOME Settings (Ubuntu 24.04)
@@ -89,7 +90,13 @@ connection editor starts:
   with `NM.VpnPluginInfo`), opens it for a test connection and shows it in a
   window. It then saves a screenshot and checks that the widget has a size and
   shows the gateway, the preferred gateway and the two gateways of the list, the
-  username, the authentication mode and the "Address is a gateway" check button.
+  username, the authentication mode, the "Address is a gateway" check button
+  and the connect timeout (a spin button showing the `vpn.timeout` of the test
+  connection). It then runs the save scenarios of `TIMEOUT_CASES` in
+  `gui_smoke_lib.py`: a new profile starts with 180 s for browser login and 0
+  for username and password (until the user sets a value), an existing profile
+  keeps its value, and `update_connection()` writes the shown value to
+  `vpn.timeout`.
   It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
   for GTK4 in a second process.
 - **KDE neon** (`neon`): installs `network-manager-gpclient-plasma-6` in an

@@ -132,6 +132,14 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
 | `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |
 
+The **Connect timeout** field is NetworkManager's own `vpn.timeout`, not a
+`vpn.data` item: set it with `nmcli connection modify "My VPN" vpn.timeout 180`.
+NetworkManager stops the connection after that many seconds, and the login in
+the browser counts towards it. `0` means the NetworkManager default, usually
+60 s, which is often too short for a SAML login with MFA. New connections with
+browser login start with 180 s; existing connections keep their value
+([#46](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/46)).
+
 The DNS servers and search domains the gateway pushes are reported to
 NetworkManager as part of the VPN's IP configuration, so they survive
 NetworkManager's own DNS recalculations (they used to be applied only by
