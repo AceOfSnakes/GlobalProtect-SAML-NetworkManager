@@ -175,6 +175,12 @@ check to the PR with the install command
 Their version carries the PR and run number after the codename
 (`1.4.2-1~noble1+pr24.57`), which sorts above the release's `1.4.2-1~noble1`, so
 installing one over the released version is an upgrade for apt. Going back to the
-release is a downgrade: `sudo apt install --reinstall --allow-downgrades <packages>`.
+release is a downgrade:
+`sudo apt install --allow-downgrades <package>/$(lsb_release -cs) ...`.
+Name the suite after each package (`network-manager-gpclient/noble`): the
+installed test build is newer than the release, so apt's own candidate is that
+build, which no repository has, and `--reinstall` fails with "it cannot be
+downloaded". The suite of our repository is the codename, and Ubuntu's archive
+has no such package, so the suite selects the newest release.
 If testing builds for users become a habit, the natural shape is a second suite
 (`<codename>-testing`) fed by prereleases rather than a separate repository.

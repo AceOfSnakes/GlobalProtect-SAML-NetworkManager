@@ -170,9 +170,23 @@ class TestPublished:
     def test_the_summary_says_how_to_go_back(self):
         summary = published()["output"]["summary"]
 
-        assert "sudo apt install --reinstall --allow-downgrades network-manager-gpclient" in summary
+        assert (
+            "sudo apt update && sudo apt install --allow-downgrades "
+            "network-manager-gpclient/$(lsb_release -cs) network-manager-gpclient-gnome/$(lsb_release -cs)"
+        ) in summary
         assert "sudo apt remove network-manager-gpclient" in summary
         assert "docs/APT_REPO.md" in summary
+
+    def test_the_way_back_does_not_reinstall_and_names_the_suite(self):
+        summary = published()["output"]["summary"]
+        commands = [line for line in summary.splitlines() if line.startswith("sudo apt update && sudo apt install")]
+
+        assert len(commands) == 1
+        assert "--reinstall" not in summary
+        words = commands[0].split("#")[0].replace("$(lsb_release -cs)", "SUITE").split()
+        names = [word for word in words if word.startswith("network-manager-gpclient")]
+        assert names
+        assert all(name.endswith("/SUITE") for name in names), commands[0]
 
     def test_the_summary_links_the_release_and_names_the_commit(self):
         summary = published()["output"]["summary"]
