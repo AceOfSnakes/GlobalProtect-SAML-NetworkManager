@@ -10,6 +10,13 @@ build error. This page explains how we find such a change and how we accept it.
 
 - The submodule is pinned to a **release tag**, never to upstream `main`. The
   tag is named in the line `Upstream version:` of `README.md`.
+- One exception: the pin that `main` had before this rule, commit
+  `9e4f45997ebee452c58d7d3066dcfc175d65ef82` (v2.6.5+14), is not a tag. The
+  contract has `"tag": null` and `"legacy_untagged": true` for it, and the
+  README line names the commit. The flag is valid for this one commit only
+  (`LEGACY_UNTAGGED_COMMIT` in `scripts/upstream_contract.py`), and never
+  together with a tag. The next bump must name a tag: `update --tag vX.Y.Z`
+  removes the flag.
 - `upstream/contract.json` lists the upstream code, texts and versions that we
   depend on (the contract). It records the tag, the commit and the version.
   Item kinds:
@@ -85,6 +92,11 @@ build error. This page explains how we find such a change and how we accept it.
 of the contract on the **base branch** of the pull request (not the one in the
 pull request, so a pull request cannot hide a change by editing it) and the
 version in `Cargo.toml` of the checked-out upstream. The change is breaking when:
+
+(Before all rules below: when the commit of the submodule on the base branch is
+the commit of the pull request, the upstream commit is unchanged and the change is
+not breaking, also when the base branch has no contract. The workflow passes the
+base commit as `--base-commit`.)
 
 - the base branch has no `upstream/contract.json` ("no accepted baseline": this
   is true once, for the pull request that adds the contract), or

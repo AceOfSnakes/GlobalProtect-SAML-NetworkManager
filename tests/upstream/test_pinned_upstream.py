@@ -53,6 +53,8 @@ def submodule(contract):
             pytrace=False,
         )
     tag = contract["tag"]
+    if tag is None:
+        return  # the legacy untagged pin: there is no tag to look for
     if git("rev-parse", "--verify", "-q", f"refs/tags/{tag}^{{commit}}").returncode != 0:
         pytest.fail(
             f"the tag {tag} is not in external/GlobalProtect-openconnect. Run:\n"
@@ -81,8 +83,8 @@ def test_every_function_that_reads_or_runs_upstream_has_tests():
     assert code == 0, output
 
 
-def test_pin_is_a_release_tag(contract):
-    assert uc.tag_problem(contract["tag"]) is None
+def test_pin_is_a_release_tag_or_the_legacy_untagged_commit(contract):
+    assert uc.pin_problem(contract) is None
 
 
 def test_contract_commit_is_the_checked_out_commit(contract):
@@ -94,12 +96,15 @@ def test_contract_commit_is_the_checked_out_commit(contract):
 
 
 def test_pinned_tag_points_at_the_contract_commit(contract):
+    if uc.is_legacy(contract):
+        assert contract["tag"] is None and contract["commit"] == uc.LEGACY_UNTAGGED_COMMIT
+        return
     tagged = git("rev-parse", f"refs/tags/{contract['tag']}^{{commit}}").stdout.strip()
     assert tagged == contract["commit"], f"{contract['tag']} is {tagged}, not the pinned commit {contract['commit']}"
 
 
-def test_readme_names_the_pinned_tag(contract):
-    assert uc.readme_problem(read("README.md"), contract["tag"]) is None
+def test_readme_names_the_pinned_tag_or_the_legacy_commit(contract):
+    assert uc.readme_pin_problem(read("README.md"), contract) is None
 
 
 def test_builds_use_a_rust_toolchain_that_upstream_accepts():

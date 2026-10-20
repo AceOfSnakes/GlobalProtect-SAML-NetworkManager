@@ -8,6 +8,8 @@ For AI agents (Claude Code, Codex, Copilot and others). People read
 1. Never modify `external/`. Fix upstream behaviour in `service/` or `scripts/`.
 2. Pin the submodule only to a release tag (`vX.Y.Z`) that `README.md` names in the
    line `Upstream version:`. Never pin to upstream `main` or to a branch tip.
+   The only exception is the legacy untagged pin of `main` (`"legacy_untagged":
+   true` in the contract): do not add it for any other commit. A bump moves to a tag.
 3. Never add or edit a record in `upstream/verification.json`.
 4. Never add or remove the label `upstream-verified`.
 5. Never run `update` to make a failing contract green before you read the
@@ -98,7 +100,9 @@ For AI agents (Claude Code, Codex, Copilot and others). People read
 
 ## 5. Breaking changes and the gate
 
-1. "Breaking" means what the upstream changelog says. The gate compares the
+1. When the upstream commit is the same as on the base branch (`--base-commit`),
+   the gate says "upstream commit unchanged" and the change is not breaking.
+   Otherwise: "Breaking" means what the upstream changelog says. The gate compares the
    version in `upstream/contract.json` of the base branch (not the one in your
    pull request) with the version of the checked-out upstream. It says "breaking"
    when there is no base contract, when the major version changed, when a

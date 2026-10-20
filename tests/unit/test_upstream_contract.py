@@ -453,6 +453,26 @@ def test_update_rewrites_hashes_versions_commit_and_tag_but_not_anchors(source, 
     assert uc.main(["check", "--source", str(source), "--contract", str(path)]) == 0
 
 
+def test_update_with_a_tag_removes_the_legacy_flag(source, tmp_path, capsys):
+    commit = commit_all(source)
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(make_contract(source) | {"tag": None, "legacy_untagged": True}))
+
+    assert uc.main(["update", "--source", str(source), "--contract", str(path), "--tag", "v3.1.0"]) == 0
+    new = json.loads(path.read_text())
+    assert new["tag"] == "v3.1.0" and new["commit"] == commit
+    assert "legacy_untagged" not in new
+    assert "legacy_untagged" in capsys.readouterr().out
+
+
+def test_update_without_the_flag_does_not_add_one(source, tmp_path):
+    commit_all(source)
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(make_contract(source)))
+    assert uc.main(["update", "--source", str(source), "--contract", str(path), "--tag", "v3.1.0"]) == 0
+    assert "legacy_untagged" not in json.loads(path.read_text())
+
+
 def test_update_does_not_hide_a_missing_anchor(source, tmp_path, capsys):
     commit_all(source)
     contract = make_contract(source, [anchor_item("No such text")])
@@ -509,6 +529,16 @@ def problems_of(registry, root, version="3.1.0"):
 
 def test_features_all_classified_passes(tmp_path):
     assert problems_of(full_registry(), tmp_path) == []
+
+
+def test_features_empty_range_needs_no_entries(tmp_path):
+    # the pin is at the baseline: nothing is new, an empty registry is complete
+    assert uc.check_features({"baseline": "2.6.5", "entries": []}, CHANGELOG, "2.6.5", tmp_path) == []
+
+
+def test_features_empty_range_refuses_an_entry(tmp_path):
+    registry = {"baseline": "2.6.5", "entries": [entry("2.6.5", "Fixed", "Fixed the baseline thing.")]}
+    assert uc.check_features(registry, CHANGELOG, "2.6.5", tmp_path)
 
 
 def test_features_version_range_excludes_baseline_and_newer(tmp_path):
@@ -685,12 +715,14 @@ def gate_env(source, tmp_path):
             "verification": verification, "tmp": tmp_path}
 
 
-def run_gate(env, labels=(), base=None):
+def run_gate(env, labels=(), base=None, base_commit=None):
+    extra = [] if base_commit is None else ["--base-commit", base_commit]
     return uc.main([
         "gate", "--source", str(env["source"]),
         "--base-contract", str(env["base"] if base is None else base),
         "--verification", str(env["verification"]),
         "--labels", json.dumps(list(labels)),
+        *extra,
     ])
 
 
@@ -765,6 +797,49 @@ def test_gate_without_a_base_contract_is_breaking(gate_env, how, capsys):
     assert run_gate(gate_env, base=base) == 1
     out = capsys.readouterr().out
     assert "no accepted baseline" in out and "BREAKING" in out and "docs/UPSTREAM.md" in out
+
+
+# The upstream commit is the one of the base branch: nothing changed upstream
+
+OTHER_COMMIT = "c" * 40
+
+
+def test_gate_unchanged_commit_is_not_breaking_without_a_base_contract(gate_env, capsys):
+    base = gate_env["tmp"] / "does-not-exist.json"
+    assert run_gate(gate_env, base=base, base_commit=gate_env["commit"]) == 0
+    out = capsys.readouterr().out
+    assert "Upstream commit unchanged" in out and "BREAKING" not in out
+
+
+def test_gate_unchanged_commit_is_not_breaking_even_with_a_breaking_changelog(gate_env, capsys):
+    make_breaking(gate_env)
+    assert run_gate(gate_env, base_commit=gate_env["commit"]) == 0
+    assert "Upstream commit unchanged" in capsys.readouterr().out
+
+
+def test_gate_a_different_commit_without_a_base_contract_is_breaking(gate_env, capsys):
+    base = gate_env["tmp"] / "does-not-exist.json"
+    assert run_gate(gate_env, base=base, base_commit=OTHER_COMMIT) == 1
+    assert "no accepted baseline" in capsys.readouterr().out
+
+
+def test_gate_a_different_commit_with_a_breaking_changelog_is_still_breaking(gate_env, capsys):
+    make_breaking(gate_env)
+    assert run_gate(gate_env, base_commit=OTHER_COMMIT) == 1
+    assert "Command-line notes" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("base_commit", ["", None])
+def test_gate_an_empty_base_commit_keeps_the_old_behaviour(gate_env, base_commit, capsys):
+    base = gate_env["tmp"] / "does-not-exist.json"
+    assert run_gate(gate_env, base=base, base_commit=base_commit) == 1
+    out = capsys.readouterr().out
+    assert "no accepted baseline" in out and "unchanged" not in out
+
+
+def test_gate_function_does_not_call_the_source_unchanged_when_its_commit_is_unknown(tmp_path):
+    outcome = uc.gate(tmp_path, None, {"records": []}, [], base_commit="a" * 40)
+    assert outcome["breaking"] and not outcome["unchanged"]
 
 
 def test_gate_breaking_message_lists_reason_and_docs(gate_env, capsys):
@@ -999,6 +1074,70 @@ def test_readme_naming_the_pinned_tag_is_accepted():
 ])
 def test_readme_not_naming_the_pinned_tag_is_refused(text):
     assert uc.readme_problem(text, "v3.1.0")
+
+
+LEGACY = uc.LEGACY_UNTAGGED_COMMIT
+LEGACY_LINE = (f"Upstream version: untagged commit [`{LEGACY[:7]}`]"
+               f"(https://github.com/yuezk/GlobalProtect-openconnect/commit/{LEGACY}) (v2.6.5+14)")
+
+
+def legacy_contract(**changes):
+    return {"tag": None, "legacy_untagged": True, "commit": LEGACY, "version": "2.6.5", "items": [], **changes}
+
+
+def test_legacy_pin_is_accepted_for_the_exact_commit():
+    assert uc.pin_problem(legacy_contract()) is None
+
+
+@pytest.mark.parametrize("changes", [
+    {"commit": "d" * 40},                      # another commit
+    {"commit": LEGACY[:7]},                    # not the full commit
+    {"legacy_untagged": False},                # no flag, and no tag
+    {"tag": "v3.1.0"},                         # flag and tag exclude each other
+    {"tag": "v3.1.0", "commit": "d" * 40},
+    {"legacy_untagged": "true"},               # not a boolean
+    {"legacy_untagged": 1},
+])
+def test_legacy_pin_is_refused_otherwise(changes):
+    assert uc.pin_problem(legacy_contract(**changes))
+
+
+def test_untagged_pin_without_the_flag_is_refused():
+    contract = legacy_contract()
+    del contract["legacy_untagged"]
+    assert uc.pin_problem(contract)
+
+
+def test_a_tagged_pin_is_accepted_and_a_bad_tag_is_refused():
+    assert uc.pin_problem({"tag": "v3.1.0", "commit": "d" * 40}) is None
+    assert uc.pin_problem({"tag": "main", "commit": "d" * 40})
+    assert uc.pin_problem({"tag": "v3.1.0", "legacy_untagged": False, "commit": "d" * 40}) is None
+
+
+def test_readme_legacy_line_is_accepted_for_the_pinned_commit():
+    assert uc.readme_legacy_problem("# X\n\n" + LEGACY_LINE + "\n\ntext\n", LEGACY) is None
+    assert uc.readme_pin_problem(LEGACY_LINE + "\n", legacy_contract()) is None
+
+
+@pytest.mark.parametrize("text", [
+    "no pin here\n",
+    LEGACY_LINE + "\n" + LEGACY_LINE + "\n",
+    LEGACY_LINE.replace(LEGACY, "d" * 40) + "\n",                          # another commit
+    LEGACY_LINE.replace(f"`{LEGACY[:7]}`", "`ddddddd`") + "\n",             # short name differs
+    LEGACY_LINE.replace("untagged commit", "commit") + "\n",
+    "see " + LEGACY_LINE + "\n",
+    PIN_LINE + "\n",                                                        # a tag line does not name the commit
+    LEGACY_LINE + "\n" + PIN_LINE + "\n",
+])
+def test_readme_legacy_line_that_does_not_match_is_refused(text):
+    assert uc.readme_legacy_problem(text, LEGACY)
+    assert uc.readme_pin_problem(text, legacy_contract())
+
+
+def test_readme_legacy_line_does_not_name_a_tag():
+    assert uc.readme_problem(LEGACY_LINE + "\n", "v3.1.0")
+    assert uc.readme_problem(LEGACY_LINE + "\n" + PIN_LINE + "\n", "v3.1.0")
+    assert uc.readme_pin_problem(PIN_LINE + "\n", {"tag": "v3.1.0"}) is None
 
 
 def test_toolchain_channel_is_read():

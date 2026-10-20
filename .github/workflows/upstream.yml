@@ -37,11 +37,16 @@ jobs:
           submodules: true
 
       # The pin is a release tag: the tests check that the tag resolves to the
-      # commit that is checked out. The tag is read from the contract.
+      # commit that is checked out. The tag is read from the contract. The legacy
+      # untagged pin has no tag (null): there is nothing to fetch.
       - name: Fetch the pinned upstream tag
         run: |
-          TAG=$(python3 -c 'import json; print(json.load(open("upstream/contract.json"))["tag"])')
-          git -C external/GlobalProtect-openconnect fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          TAG=$(python3 -c 'import json; print(json.load(open("upstream/contract.json"))["tag"] or "")')
+          if [ -n "$TAG" ]; then
+            git -C external/GlobalProtect-openconnect fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          else
+            echo "The contract pins an untagged commit: no tag to fetch"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -79,6 +84,9 @@ jobs:
             : > "$BASE"
             echo "The base branch has no upstream/contract.json"
           fi
+          # The commit that the base branch pins: when it is the commit of this
+          # pull request, upstream did not change (empty when the base has none)
+          BASE_COMMIT=$(git ls-tree FETCH_HEAD external/GlobalProtect-openconnect | awk '{print $3}')
           GATE="$RUNNER_TEMP/gate.py"
           if git show FETCH_HEAD:scripts/upstream_contract.py > "$GATE" 2>/dev/null; then
             echo "Gate script: $BASE_REF"
@@ -90,4 +98,5 @@ jobs:
             --source external/GlobalProtect-openconnect \
             --verification upstream/verification.json \
             --base-contract "$BASE" \
+            --base-commit "$BASE_COMMIT" \
             --labels "$LABELS"

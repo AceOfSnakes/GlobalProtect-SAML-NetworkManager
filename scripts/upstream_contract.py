@@ -35,6 +35,11 @@ SERVICE = "service/nm-gpclient-service.py"
 DOCS = "docs/UPSTREAM.md"
 LABEL = "upstream-verified"
 
+# The pin of main before the rule "pin to a release tag" (v2.6.5+14, not a tag).
+# Only this commit may be accepted without a tag, with "legacy_untagged": true
+# in the contract. The next bump names a tag and drops the flag.
+LEGACY_UNTAGGED_COMMIT = "9e4f45997ebee452c58d7d3066dcfc175d65ef82"
+
 OK = "OK"
 MOVED = "MOVED"
 CHANGED = "CHANGED"
@@ -514,12 +519,22 @@ def changelog_breaking_reasons(changelog_text, base_version, version):
     return reasons
 
 
-def gate(source, base_contract, verification, labels, commit=None, changelog_path="changelog.md"):
+def gate(source, base_contract, verification, labels, commit=None, changelog_path="changelog.md",
+         base_commit=None):
     """
     Decide if the source is a breaking change relative to the accepted base
     contract (None: there is none). Returns a dict with breaking, verified,
-    reasons (why breaking) and problems (what is missing to accept it).
+    reasons (why breaking), problems (what is missing to accept it) and
+    unchanged (the upstream commit is the one of the base branch).
+
+    `base_commit` is the commit that the base branch pins. When it is the commit
+    of the source, upstream did not change: the change is not breaking, also
+    when the base branch has no contract.
     """
+    if commit is None:
+        commit = source_commit(source)
+    if base_commit and base_commit == commit:
+        return {"breaking": False, "verified": False, "reasons": [], "problems": [], "unchanged": True}
     reasons = []
     if base_contract is None:
         reasons.append("no accepted baseline: the base branch has no upstream/contract.json")
@@ -535,11 +550,10 @@ def gate(source, base_contract, verification, labels, commit=None, changelog_pat
             if version_tuple(version)[0] != version_tuple(base_version)[0]:
                 reasons.append(f"major version changed: {base_version} -> {version}")
             reasons += changelog_breaking_reasons(read_text(Path(source) / changelog_path), base_version, version)
-    outcome = {"breaking": bool(reasons), "verified": False, "reasons": reasons, "problems": []}
+    outcome = {"breaking": bool(reasons), "verified": False, "reasons": reasons, "problems": [],
+               "unchanged": False}
     if not reasons:
         return outcome
-    if commit is None:
-        commit = source_commit(source)
     problems = record_problems(verification.get("records", []), commit)
     if LABEL not in labels:
         problems.append(f"the pull request has no label {LABEL}")
@@ -754,6 +768,38 @@ README_PIN_RE = re.compile(
 RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
+README_LEGACY_RE = re.compile(
+    r"^Upstream version: untagged commit \[`([0-9a-f]{7})`\]"
+    r"\(https://github\.com/yuezk/GlobalProtect-openconnect/commit/([0-9a-f]{40})\)"
+    r" \(v[0-9][^)\s]*\)\s*$",
+    re.M,
+)
+
+
+def is_legacy(contract):
+    return contract.get("legacy_untagged") is True
+
+
+def pin_problem(contract):
+    """Why the pin of the contract is not allowed, or None.
+
+    A release tag, or the one legacy exception: "tag": null with
+    "legacy_untagged": true and the commit LEGACY_UNTAGGED_COMMIT. A tag
+    together with the flag is not allowed: the flag says "no tag".
+    """
+    tag = contract.get("tag")
+    if "legacy_untagged" in contract and not isinstance(contract["legacy_untagged"], bool):
+        return "legacy_untagged must be true or absent"
+    if not is_legacy(contract):
+        return tag_problem(tag)
+    if tag is not None:
+        return f"legacy_untagged is set and the tag is {tag!r}: a tag and the legacy flag exclude each other"
+    if contract.get("commit") != LEGACY_UNTAGGED_COMMIT:
+        return (f"legacy_untagged is only for the commit {LEGACY_UNTAGGED_COMMIT}, "
+                f"the contract pins {contract.get('commit')}: pin a release tag")
+    return None
+
+
 def tag_problem(tag):
     """Why `tag` is not a release tag (never a branch such as main), or None"""
     if not isinstance(tag, str) or not RELEASE_TAG_RE.match(tag):
@@ -763,12 +809,34 @@ def tag_problem(tag):
 
 def readme_problem(text, tag):
     """Why the README does not name `tag` as the upstream version, or None"""
+    if README_LEGACY_RE.search(text):
+        return "README names an untagged commit, the contract pins a tag"
     pins = README_PIN_RE.findall(text)
     if len(pins) != 1:
         return f"README must have exactly one 'Upstream version: [`{tag}`](...)' line, found {len(pins)}"
     if pins[0] != (tag, tag):
         return f"README names {pins[0][0]} (link {pins[0][1]}), the contract pins {tag}"
     return None
+
+
+def readme_legacy_problem(text, commit):
+    """Why the README does not name the untagged `commit` as the upstream version, or None"""
+    if README_PIN_RE.search(text):
+        return "README names a release tag, the contract pins an untagged commit"
+    pins = README_LEGACY_RE.findall(text)
+    if len(pins) != 1:
+        return f"README must have exactly one 'Upstream version: untagged commit [`...`](...)' line, found {len(pins)}"
+    short, full = pins[0]
+    if full != commit or short != commit[:7]:
+        return f"README names {full} (short {short}), the contract pins {commit}"
+    return None
+
+
+def readme_pin_problem(text, contract):
+    """Why the README does not match the pin of the contract (tag or legacy), or None"""
+    if is_legacy(contract):
+        return readme_legacy_problem(text, contract.get("commit") or "")
+    return readme_problem(text, contract.get("tag"))
 
 
 def toolchain_channel(text):
@@ -859,6 +927,8 @@ def cmd_update(args):
     if version is None:
         raise ContractError(f"no version in {source}/Cargo.toml")
     set_key(contract, "tag", args.tag, "tag")
+    if "legacy_untagged" in contract:
+        changes.append(f"legacy_untagged: {contract.pop('legacy_untagged')} -> removed")
     set_key(contract, "commit", commit, "commit")
     set_key(contract, "version", version, "version")
     dump_json(args.contract, contract)
@@ -907,9 +977,11 @@ def cmd_gate(args):
         raise ContractError(f"--labels is not a JSON array: {exc}")
     if not isinstance(labels, list):
         raise ContractError("--labels is not a JSON array")
-    outcome = gate(args.source, base, verification, labels)
+    outcome = gate(args.source, base, verification, labels, base_commit=args.base_commit or None)
     lines = []
-    if not outcome["breaking"]:
+    if outcome["unchanged"]:
+        lines.append("Upstream commit unchanged: no manual verification is needed.")
+    elif not outcome["breaking"]:
         lines.append("Upstream change is not breaking: no manual verification is needed.")
     else:
         lines.append("Upstream change is BREAKING relative to the accepted contract:")
@@ -955,6 +1027,8 @@ def build_parser():
     interfaces.set_defaults(func=cmd_interfaces)
     gate_parser = sub.add_parser("gate", parents=[common], help="CI gate for breaking upstream changes")
     gate_parser.add_argument("--base-contract", default="", help="upstream/contract.json of the base branch")
+    gate_parser.add_argument("--base-commit", default="",
+                             help="commit of the submodule on the base branch (empty: unknown)")
     gate_parser.add_argument("--verification", default=str(DEFAULT_VERIFICATION))
     gate_parser.add_argument("--labels", default="[]", help="JSON array of the labels of the pull request")
     gate_parser.set_defaults(func=cmd_gate)
