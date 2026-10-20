@@ -21,11 +21,11 @@ MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
 # whole run: only the part that runs as the real user writes the log file.
 LOG_FILE=""
 log() {
-    # The auth URL's query can carry the SAML request or a one-time token, and
-    # the messages may end up in the system journal: never log a query string
+    # The auth URL's query or fragment can carry the SAML request or a one-time
+    # token, and the messages may end up in the system journal: never log them
     # (pure bash: log() must work with an almost empty PATH)
     local rest="$*" msg="" hit
-    while [[ $rest =~ ://[^[:space:]?]*\? ]]; do
+    while [[ $rest =~ ://[^[:space:]?#]*[?#] ]]; do
         hit=${BASH_REMATCH[0]}
         msg+="${rest%%"$hit"*}$hit<hidden>"
         rest=${rest#*"$hit"}
@@ -281,22 +281,22 @@ private_dir_ok() {
 # /tmp is shared, so another user can pre-create /tmp/edge-wrapper-<uid> (or a
 # symlink) and plant a browser profile (proxy, CA) to attack the SAML login. A
 # directory that is not ours and private is never used: we take a new one from
-# mktemp (mode 700, random name) instead. $XDG_RUNTIME_DIR (/run/user/<uid>) is
-# already private, so it is the first choice. Run this as the real user (see
+# mktemp (mode 700, random name) instead. Run this as the real user (see
 # make_temp_base): then the directories are never owned by root and root never
 # follows a planted symlink.
 prepare_temp_base() {
-    local uid="$1" runtime="$2" profile="$3" base
+    local uid="$1" profile="$2" base
     umask 077  # also makes mkdir -p create the parents with mode 700
     base="/tmp/edge-wrapper-$uid"
-    # ProtectHome=read-only also makes /run/user read-only: -w is false there
-    if private_dir_ok "$runtime" && [ -w "$runtime" ]; then
-        mkdir -m 700 -- "$runtime/edge-wrapper" 2>/dev/null
-        if private_dir_ok "$runtime/edge-wrapper" && [ -w "$runtime/edge-wrapper" ]; then
-            base="$runtime/edge-wrapper"
-        fi
-    fi
     mkdir -m 700 -- "$base" 2>/dev/null
+    # Upgrade: the old wrapper made this directory with mode 755. A real
+    # directory that we own is safe to fix: only its owner (or root) could have
+    # created entries in it, so nobody else planted anything, and the chmod
+    # cannot follow a symlink because we checked for one first. The check below
+    # still runs after the chmod.
+    if [ -d "$base" ] && [ ! -L "$base" ] && [ "$(stat -c '%u' -- "$base" 2>/dev/null)" = "$EUID" ]; then
+        chmod 700 -- "$base" 2>/dev/null
+    fi
     if ! private_dir_ok "$base" || [ ! -w "$base" ]; then
         log "WARNING: $base is not a private directory of uid $EUID (planted by another user?); not using it"
         base=$(mktemp -d "/tmp/edge-wrapper-$uid.XXXXXXXX" 2>/dev/null) || return 1
@@ -308,12 +308,11 @@ prepare_temp_base() {
 }
 
 make_temp_base() {
-    local runtime="${XDG_RUNTIME_DIR:-/run/user/$REAL_UID}"
     if [ "$EUID" -eq 0 ]; then
         sudo -u "#$REAL_UID" bash -c "$(declare -f log private_dir_ok prepare_temp_base); \
-LOG_FILE=; prepare_temp_base ${REAL_UID@Q} ${runtime@Q} ${PROFILE_NAME@Q}"
+LOG_FILE=; prepare_temp_base ${REAL_UID@Q} ${PROFILE_NAME@Q}"
     else
-        prepare_temp_base "$REAL_UID" "$runtime" "$PROFILE_NAME"
+        prepare_temp_base "$REAL_UID" "$PROFILE_NAME"
     fi
 }
 
@@ -338,11 +337,21 @@ fi
 ALT_HOME_DIR="$TEMP_BASE/home"
 ALT_PROFILE_DIR="$TEMP_BASE/$PROFILE_NAME"
 
+# The probe writes into the user's home, so as root it runs as the real user
+# (like make_temp_base): root must not follow a symlink the user planted there.
+probe_home() {
+    touch "$1/.gp-browser-writecheck" 2>/dev/null && \
+        rm -f "$1/.gp-browser-writecheck" 2>/dev/null
+}
+
 home_is_writable() {
     # An unknown home must not turn into probing "/"
-    [ -n "$REAL_HOME" ] && \
-    touch "$REAL_HOME/.gp-browser-writecheck" 2>/dev/null && \
-        rm -f "$REAL_HOME/.gp-browser-writecheck" 2>/dev/null
+    [ -n "$REAL_HOME" ] || return 1
+    if [ "$EUID" -eq 0 ]; then
+        sudo -u "#$REAL_UID" bash -c "$(declare -f probe_home); probe_home ${REAL_HOME@Q}"
+    else
+        probe_home "$REAL_HOME"
+    fi
 }
 
 if home_is_writable; then

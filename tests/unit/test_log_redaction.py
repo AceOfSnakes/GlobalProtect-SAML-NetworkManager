@@ -209,14 +209,32 @@ class TestEchoedAnswers:
 
         assert PASSWORD not in caplog.text
 
-    def test_answered_username_is_still_logged(self, service_module, caplog):
+    def test_stored_username_is_still_logged(self, service_module, caplog):
         plugin = self._plugin(service_module)
-        self._answer(plugin, "Username", "jdoe")
+        plugin.vpn_username = "jdoe"
+        asyncio.run(plugin._handle_prompt("Username"))
 
         with caplog.at_level("DEBUG", logger=service_module.logger.name):
             asyncio.run(_monitor(plugin, "? Username: jdoe\r\n"))
 
         assert "gpclient output: ? Username: jdoe" in caplog.text
+
+    @pytest.mark.parametrize("stored", ["", "other-user"], ids=["none", "different"])
+    def test_typed_answer_to_a_username_prompt_is_masked(
+        self, service_module, caplog, stored
+    ):
+        """A prompt classified as "username" (also by position, for a label we
+        do not know) can ask for a secret: only the stored username is shown."""
+        plugin = self._plugin(service_module)
+        plugin.vpn_username = stored
+        plugin._answered_username = bool(stored)  # the stored name was used already
+        self._answer(plugin, "Username", PASSWORD)
+
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, f"? Username: {PASSWORD}\r\n"))
+
+        assert PASSWORD not in caplog.text
+        assert "? Username: <hidden>" in caplog.text
 
     def test_output_without_an_answer_is_not_masked(self, service_module, caplog):
         plugin = self._plugin(service_module)

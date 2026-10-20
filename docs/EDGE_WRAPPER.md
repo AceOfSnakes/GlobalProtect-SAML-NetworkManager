@@ -79,16 +79,16 @@ The wrapper creates temporary directories in a private base directory:
 └── wrapper.log  # log file (mode 600)
 ```
 
-`<base>` is `$XDG_RUNTIME_DIR/edge-wrapper` (`/run/user/$UID/edge-wrapper`) when
-that directory is a real directory (not a symlink) owned by the user with mode
-700 and writable (`ProtectHome=read-only` also makes `/run/user` read-only).
-Otherwise it is `/tmp/edge-wrapper-$UID`. The wrapper creates `<base>` with
-mode 700 and uses it only if it is a real directory, owned by the user, with mode
-700. If someone else created it first (a symlink, a directory with other owner or
-mode, a file), the wrapper does not use it: it logs a warning and takes a new
-directory from `mktemp` (`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). When the
-wrapper runs as root, it creates the directories as the desktop user (through
-`sudo -u "#$UID"`), so they never belong to root and root never follows a symlink.
+`<base>` is `/tmp/edge-wrapper-$UID`. The wrapper creates it with mode 700 and
+uses it only if it is a real directory, owned by the user, with mode 700. A
+directory from an older wrapper (owned by the user, mode 755) gets `chmod 700`
+and is then used: only its owner could have written in it. If someone else
+created it first (a symlink, a directory with other owner, a file), the wrapper
+does not use it: it logs a warning and takes a new directory from `mktemp`
+(`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). When the wrapper runs as root, it
+creates the directories and checks that the home is writable as the desktop user
+(through `sudo -u "#$UID"`), so they never belong to root and root never follows
+a symlink.
 The Chromium policy file and the `Crash Reports` directories are also written
 after the privilege drop, as the desktop user.
 
@@ -97,7 +97,7 @@ after the privilege drop, as the desktop user.
 **Why temporary profile?**
 - NetworkManager's `ProtectHome=read-only` is a security feature that prevents VPN services from reading/writing user's home directory
 - Edge cannot function without a writable profile directory
-- The wrapper uses a separate profile in a private directory (see above), not your normal one. Under `/run/user/$UID` it is removed when you log out; under `/tmp` it is reused until you delete it
+- The wrapper uses a separate profile in a private directory (see above), not your normal one. It is reused until you delete it
 
 **Implications:**
 - Your main Edge profile (`~/.config/microsoft-edge`) with saved passwords, cookies, and browsing history is **not used**
@@ -188,7 +188,7 @@ waits for the browser to exit or for the safety timeout (`GP_AUTH_TIMEOUT`,
 
 Debug logs are written to the private base directory (see above):
 ```
-<base>/wrapper.log        # /run/user/$UID/edge-wrapper/wrapper.log, or under /tmp/edge-wrapper-$UID
+<base>/wrapper.log        # /tmp/edge-wrapper-$UID/wrapper.log (or the mktemp directory)
 ```
 The file has mode 600 and is created by the desktop user, never by root. The
 messages from before the base directory exists (user lookup, browser and session
@@ -220,7 +220,7 @@ The last line always starts with `done:` and says why the wrapper finished:
 
 ```bash
 # Check log file
-cat /run/user/$(id -u)/edge-wrapper/wrapper.log   # or <base>/wrapper.log; early errors: journalctl -t gpclient-browser-wrapper
+cat /tmp/edge-wrapper-$(id -u)/wrapper.log   # or <base>/wrapper.log; early errors: journalctl -t gpclient-browser-wrapper
 
 # Test manually (any browser, without a VPN connection involved)
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
@@ -232,7 +232,7 @@ close it.
 
 Check the reason in the log:
 ```bash
-grep "done:" /run/user/$(id -u)/edge-wrapper/wrapper.log
+grep "done:" /tmp/edge-wrapper-$(id -u)/wrapper.log
 ```
 `timeout after 300s` means the login took longer than the safety timeout. Raise
 it for the whole service:
@@ -253,7 +253,7 @@ the VPN is unaffected.
 
 Edge policy may not be applied. Check:
 ```bash
-# <base> is /run/user/$(id -u)/edge-wrapper or /tmp/edge-wrapper-$(id -u)
+# <base> is /tmp/edge-wrapper-$(id -u)
 cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 ```
 
@@ -261,7 +261,7 @@ cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 
 Check detected display:
 ```bash
-grep "detected DISPLAY" /run/user/$(id -u)/edge-wrapper/wrapper.log
+grep "detected DISPLAY" /tmp/edge-wrapper-$(id -u)/wrapper.log
 ```
 
 For Wayland, ensure `WAYLAND_DISPLAY` is correct:

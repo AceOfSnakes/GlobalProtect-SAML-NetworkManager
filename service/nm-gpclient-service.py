@@ -255,6 +255,11 @@ CUSTOM_BROWSER_PATH_RE = re.compile(r"^/[^\s\x00-\x1f\x7f]*$")
 UNSAFE_GATEWAY_RE = re.compile(r"[\s\x00-\x1f\x7f]")
 UNSAFE_USERNAME_RE = re.compile(r"[\x00-\x1f\x7f]")
 
+
+def is_unsafe_username(username: str) -> bool:
+    """A username must not look like a gpclient option or hold control chars"""
+    return username.startswith("-") or bool(UNSAFE_USERNAME_RE.search(username))
+
 # Fallback when the wrapper is missing (service upgraded, wrapper not yet
 # installed): let gpclient launch the browser directly
 BROWSER_BINARIES = {
@@ -1406,9 +1411,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             # Username lives in vpn.data, password in vpn.secrets.
             secrets_dict = vpn_data.get("secrets", {}) or {}
             self.vpn_username = data_dict.get("username", "")
-            if self.vpn_username.startswith("-") or UNSAFE_USERNAME_RE.search(
-                self.vpn_username
-            ):
+            if is_unsafe_username(self.vpn_username):
                 self.vpn_username = ""
                 raise Exception("Invalid username specified")
             self.vpn_password = secrets_dict.get("password", "")
@@ -1667,7 +1670,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         # Refresh stored credentials in case the user (re)entered them
         if data.get("username"):
-            self.vpn_username = data["username"]
+            if is_unsafe_username(data["username"]):
+                # Same rule as in _do_connect; never log the value
+                logger.warning("NewSecrets(): ignoring an invalid username")
+            else:
+                self.vpn_username = data["username"]
 
         if self._secret_future and not self._secret_future.done():
             self._secret_future.set_result(secrets)
@@ -1739,41 +1746,50 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         return users.pop() if len(users) == 1 else ""
 
     @staticmethod
+    def _loginctl(*args: str) -> str:
+        """Output of `loginctl <args>` ("" when it fails)"""
+        result = subprocess.run(
+            ["loginctl", *args],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return result.stdout if result.returncode == 0 else ""
+
+    @staticmethod
+    def _session_props(output: str) -> Dict[str, str]:
+        """Parse the Key=Value lines of `loginctl show-session`"""
+        props = {}
+        for line in output.splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                props[key.strip()] = value.strip()
+        return props
+
+    @staticmethod
     def _seat0_active_user() -> Optional[int]:
         """UID of the active local graphical user session on seat0, or None"""
-
-        def loginctl(*args: str) -> str:
-            result = subprocess.run(
-                ["loginctl", *args],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            return result.stdout if result.returncode == 0 else ""
-
+        loginctl = GpclientVPNPlugin._loginctl
         try:
             session_id = loginctl(
                 "show-seat", "seat0", "-p", "ActiveSession", "--value"
             ).strip()
             if not session_id:
                 return None
-            props = {}
-            output = loginctl(
-                "show-session",
-                session_id,
-                "-p",
-                "User",
-                "-p",
-                "Class",
-                "-p",
-                "Remote",
-                "-p",
-                "State",
+            props = GpclientVPNPlugin._session_props(
+                loginctl(
+                    "show-session",
+                    session_id,
+                    "-p",
+                    "User",
+                    "-p",
+                    "Class",
+                    "-p",
+                    "Remote",
+                    "-p",
+                    "State",
+                )
             )
-            for line in output.splitlines():
-                key, sep, value = line.partition("=")
-                if sep:
-                    props[key.strip()] = value.strip()
             if (
                 props.get("Class") != "user"
                 or props.get("Remote") != "no"
@@ -1786,6 +1802,46 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.debug(f"loginctl failed: {e}")
             return None
 
+    @staticmethod
+    def _single_active_session_user() -> Optional[int]:
+        """UID of the one non-root user with an active session, or None
+
+        For xrdp, remote desktops and VMs, where seat0 has no session. Remote
+        sessions count. With no such user or with several, None: we do not
+        guess between users.
+        """
+        loginctl = GpclientVPNPlugin._loginctl
+        uids = set()
+        try:
+            for line in loginctl("list-sessions", "--no-legend").splitlines():
+                fields = line.split()
+                if not fields:
+                    continue
+                props = GpclientVPNPlugin._session_props(
+                    loginctl(
+                        "show-session",
+                        fields[0],
+                        "-p",
+                        "User",
+                        "-p",
+                        "Class",
+                        "-p",
+                        "State",
+                    )
+                )
+                if props.get("Class") != "user" or props.get("State") != "active":
+                    continue
+                try:
+                    uid = int(props.get("User", ""))
+                except ValueError:
+                    continue
+                if uid != 0:
+                    uids.add(uid)
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug(f"loginctl failed: {e}")
+            return None
+        return uids.pop() if len(uids) == 1 else None
+
     def _get_real_user(self) -> Tuple[int, str, str]:
         """Find the desktop user whose session gets the authentication browser
 
@@ -1793,11 +1849,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         1. SUDO_UID/SUDO_USER (manual runs).
         2. The single user in the connection's `connection.permissions`.
         3. The active local session on seat0, from logind.
-        4. The current user, with a warning.
+        4. The only non-root user with an active session of any kind (also a
+           remote one: xrdp, remote desktop, VM), when seat0 has none.
+        5. The current user, with a warning.
 
         We never pick "some other logged-in user" (issue #51): with fast user
         switching, a lingering user or a gdm greeter user, the browser would
-        open in the wrong session.
+        open in the wrong session. Step 4 is used only when exactly one user
+        has an active session, so there is nothing to confuse.
         """
         import pwd
 
@@ -1836,9 +1895,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             except KeyError:
                 logger.debug(f"Seat0 user with UID {uid} does not exist")
 
+        # No seat0 session (xrdp, remote desktop, VM): one active user is clear
+        uid = self._single_active_session_user()
+        if uid is not None:
+            try:
+                pw = pwd.getpwuid(uid)
+                logger.info(
+                    f"Using the active non-seat0 session of {pw.pw_name} (UID: {uid})"
+                )
+                return uid, pw.pw_name, pw.pw_dir
+            except KeyError:
+                logger.debug(f"Session user with UID {uid} does not exist")
+
         logger.warning(
-            "no active local session on seat0 - the authentication browser "
-            "cannot be opened"
+            "no active local session on seat0 and not exactly one other user "
+            "with an active session - the authentication browser cannot be opened"
         )
 
         # Fallback to current user
@@ -2592,7 +2663,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-        self._write_answer(answer, secret=kind != "username")
+        # Only the username stored in the profile may show up in the log. A
+        # prompt that was classified as "username" (also by position, for a
+        # label we do not know) can still ask for a secret.
+        is_stored_username = bool(self.vpn_username) and answer == self.vpn_username
+        self._write_answer(answer, secret=not is_stored_username)
 
     @staticmethod
     def _gateway_entry(option: str) -> str:

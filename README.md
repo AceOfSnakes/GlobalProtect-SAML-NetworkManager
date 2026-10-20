@@ -271,7 +271,7 @@ The included `edge-wrapper` script handles:
 - Auto-closing Edge window after successful authentication
 - Setting up Edge policies for automatic protocol handling
 
-**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `$XDG_RUNTIME_DIR/edge-wrapper`, or `/tmp/edge-wrapper-$UID/` when the runtime directory cannot be used. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
+**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
 
 Firefox and Chrome also work but may require manual credential entry for Intune-protected portals.
 
@@ -353,8 +353,8 @@ this matches it and nothing else), and set **Size** to *Apply Initially*.
 
 ```bash
 # The wrapper logs every launch and always says why it finished
-# (path: <base>/wrapper.log, <base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u) if /run/user/$(id -u) is not usable)
-grep -E "done:|WARNING|ERROR" /run/user/$(id -u)/edge-wrapper/wrapper.log
+# (path: <base>/wrapper.log, <base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u), or the mktemp directory)
+grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u)/wrapper.log
 
 # Try the browser on its own - the window must open and stay open
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"

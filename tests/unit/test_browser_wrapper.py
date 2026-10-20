@@ -101,13 +101,17 @@ def _remove_wrapper_files(uid):
 def _run_wrapper(env):
     root_files_before = [p for p in _wrapper_files(ROOT_UID) if os.path.lexists(p)]
     try:
-        return subprocess.run(
+        result = subprocess.run(
             ["bash", WRAPPER, URL],
             env=env,
             timeout=30,
             capture_output=True,
             text=True,
         )
+        # The wrapper's files are removed below: keep what the log said
+        logs = glob.glob(f"/tmp/edge-wrapper-{FAKE_UID}*/wrapper.log")
+        result.wrapper_log = open(logs[0]).read() if logs else ""
+        return result
     finally:
         for uid in RESERVED_UIDS:
             _remove_wrapper_files(uid)
@@ -802,28 +806,11 @@ def test_profile_dir_is_private_and_owned_by_the_user(tmp_path):
     assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
 
 
-def test_profile_dir_prefers_a_valid_runtime_dir(tmp_path):
-    runtime = tmp_path / "run"
-    runtime.mkdir(mode=0o700)
-    runtime.chmod(0o700)
-
-    _, base = _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime))
-
-    assert base == f"{runtime}/edge-wrapper"
-    assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
-    assert not os.path.lexists(f"/tmp/edge-wrapper-{FAKE_UID}")
-
-
 def _plant_symlink(tmp_path, path):
     target = tmp_path / "planted"
     target.mkdir()
     os.symlink(target, path)
     return target
-
-
-def _plant_open_dir(tmp_path, path):
-    os.mkdir(path, 0o755)
-    os.chmod(path, 0o755)
 
 
 def _plant_file(tmp_path, path):
@@ -838,7 +825,6 @@ def _plant_foreign_dir(tmp_path, path):
 
 PLANTERS = [
     pytest.param(_plant_symlink, id="symlink"),
-    pytest.param(_plant_open_dir, id="mode-755"),
     pytest.param(_plant_file, id="regular-file"),
     pytest.param(
         _plant_foreign_dir,
@@ -865,63 +851,24 @@ def test_planted_temp_base_is_not_used(tmp_path, plant):
         assert os.listdir(target) == []
 
 
-@pytest.mark.parametrize(
-    "make_runtime",
-    [
-        pytest.param(lambda tmp: tmp / "missing", id="missing"),
-        pytest.param(lambda tmp: _runtime_symlink(tmp), id="symlink"),
-        pytest.param(lambda tmp: _runtime_dir(tmp, 0o755), id="mode-755"),
-        pytest.param(lambda tmp: _runtime_file(tmp), id="regular-file"),
-        pytest.param(
-            lambda tmp: _runtime_dir(tmp, 0o700, owner=OTHER_UID),
-            id="other-owner",
-            marks=pytest.mark.skipif(not IS_ROOT, reason="needs root to chown"),
-        ),
-    ],
-)
-def test_bad_runtime_dir_is_not_used(tmp_path, make_runtime):
-    runtime = make_runtime(tmp_path)
+def test_old_open_temp_base_of_the_user_is_fixed_and_reused(tmp_path):
+    """The old wrapper made /tmp/edge-wrapper-<uid> with mode 755. It belongs to
+    the user (only the user could write in it), so it gets chmod 700 and is
+    used: no new random directory."""
+    base_path = f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert not os.path.lexists(base_path)
+    os.mkdir(base_path, 0o755)
+    os.chmod(base_path, 0o755)
+    if IS_ROOT:
+        # The wrapper works as the fake user (the fake sudo keeps our uid): make
+        # the directory belong to whoever runs the wrapper
+        os.chown(base_path, os.geteuid(), os.geteuid())
 
-    _, base = _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime))
+    _, base = _run_for_profile(tmp_path)
 
-    assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
-    assert not os.path.lexists(f"{runtime}/edge-wrapper")
-    if os.path.isdir(runtime):
-        assert os.listdir(runtime) == []
-
-
-def test_unusable_runtime_subdir_falls_back_to_tmp_base(tmp_path):
-    """A runtime dir we cannot use (read-only under ProtectHome, or blocked)
-    falls back to the usual /tmp base, not to a new random directory."""
-    runtime = _runtime_dir(tmp_path, 0o700)
-    (runtime / "edge-wrapper").write_text("not a directory")
-
-    _, base = _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime))
-
-    assert base == f"/tmp/edge-wrapper-{FAKE_UID}"
+    assert base == base_path
     assert _profile_stat(tmp_path) == [["700", str(os.geteuid())]] * 3
-
-
-def _runtime_dir(tmp_path, mode, owner=None):
-    runtime = tmp_path / "run"
-    runtime.mkdir()
-    runtime.chmod(mode)
-    if owner is not None:
-        os.chown(runtime, owner, owner)
-    return runtime
-
-
-def _runtime_symlink(tmp_path):
-    real = _runtime_dir(tmp_path, 0o700)
-    link = tmp_path / "run-link"
-    link.symlink_to(real)
-    return link
-
-
-def _runtime_file(tmp_path):
-    path = tmp_path / "run-file"
-    path.write_text("")
-    return path
+    assert not glob.glob(f"{base_path}.*")
 
 
 # --- The log file lives in the private base directory ---------------------------
@@ -930,21 +877,16 @@ def _runtime_file(tmp_path):
 # (root would then write into any file) or a file that others can read.
 
 
-def _run_with_runtime(tmp_path, **extra):
-    runtime = tmp_path / "run"
-    runtime.mkdir(mode=0o700)
-    runtime.chmod(0o700)
-    _run_for_profile(tmp_path, XDG_RUNTIME_DIR=str(runtime), **extra)
-    return runtime / "edge-wrapper" / "wrapper.log"
+def _run_with_log(tmp_path, **extra):
+    """Run the wrapper; return the text of its log file in the private base."""
+    result, _ = _run_for_profile(tmp_path, **extra)
+    return result.wrapper_log
 
 
 def test_log_file_is_in_the_private_base_and_not_readable_by_others(tmp_path):
-    # The wrapper deletes nothing under XDG_RUNTIME_DIR, so the log stays
-    log = _run_with_runtime(tmp_path)
+    text = _run_with_log(tmp_path)
 
     assert (tmp_path / "log_stat").read_text().split() == ["600", str(os.geteuid())]
-    assert log.stat().st_mode & 0o077 == 0
-    text = log.read_text()
     # The messages from before the base directory exists are in syslog instead
     assert "called with args" not in text
     assert "called with args" in (tmp_path / "syslog").read_text()
@@ -955,23 +897,33 @@ def test_log_file_is_in_the_private_base_and_not_readable_by_others(tmp_path):
     assert not glob.glob("/tmp/edge-wrapper-*.log")
 
 
-def test_auth_url_query_is_never_logged(tmp_path, monkeypatch):
-    # The query can carry the SAML request or a one-time token; the browser
-    # still gets the whole URL
-    monkeypatch.setattr(
-        sys.modules[__name__], "URL", URL + "?SAMLRequest=topsecret&x=1"
-    )
-    log = _run_with_runtime(tmp_path)
+@pytest.mark.parametrize(
+    "suffix, shown",
+    [
+        ("?SAMLRequest=topsecret&x=1", "/saml?<hidden>"),
+        ("#access_token=topsecret", "/saml#<hidden>"),
+        ("?a=1#b=topsecret", "/saml?<hidden>"),
+        ("#b=topsecret?a=1", "/saml#<hidden>"),
+    ],
+    ids=["query", "fragment", "query-and-fragment", "fragment-and-query"],
+)
+def test_auth_url_query_and_fragment_are_never_logged(
+    tmp_path, monkeypatch, suffix, shown
+):
+    # The query or fragment can carry the SAML request or a one-time token; the
+    # browser still gets the whole URL
+    monkeypatch.setattr(sys.modules[__name__], "URL", URL + suffix)
+    text = _run_with_log(tmp_path)
 
-    logged = log.read_text() + (tmp_path / "syslog").read_text()
+    logged = text + (tmp_path / "syslog").read_text()
     assert "topsecret" not in logged
-    assert "/saml?<hidden>" in logged
+    assert shown in logged
 
 
-def test_url_without_query_is_logged_unchanged(tmp_path):
-    log = _run_with_runtime(tmp_path)
+def test_url_without_query_or_fragment_is_logged_unchanged(tmp_path):
+    text = _run_with_log(tmp_path)
 
-    logged = log.read_text() + (tmp_path / "syslog").read_text()
+    logged = text + (tmp_path / "syslog").read_text()
     assert URL in logged
     assert "<hidden>" not in logged
 
@@ -1007,14 +959,14 @@ def test_planted_tmp_log_file_is_not_written(tmp_path, plant):
     assert not os.path.lexists(old_log)
     victim = plant(tmp_path, old_log)
 
-    log = _run_with_runtime(tmp_path)
+    text = _run_with_log(tmp_path)
 
     assert (tmp_path / "old_log_at_browser").read_text() == "original", (
         "the planted log path was written to"
     )
     if victim is not None:
         assert victim.read_text() == "original"
-    assert "started browser with PID" in log.read_text()
+    assert "started browser with PID" in text
 
 
 @pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
@@ -1024,28 +976,24 @@ def test_root_never_opens_the_log_file(tmp_path, plant):
     has not created the log file: only the user-side code does that."""
     old_log = f"/tmp/edge-wrapper-{FAKE_UID}.log"
     victim = plant(tmp_path, old_log)
-    runtime = tmp_path / "run"
-    runtime.mkdir(mode=0o700)
-    runtime.chmod(0o700)
     _fake_root_tools(tmp_path)
+    log_path = f"/tmp/edge-wrapper-{FAKE_UID}/wrapper.log"
     # Replace the fake sudo: before it runs the "user" code, note what root did
     _script(
         tmp_path / "sudo",
         f'printf "%s\\n" "$@" > {tmp_path}/sudo_args\n'
         f"cat {old_log} >> {tmp_path}/planted_at_sudo\n"
-        f"[ -e {runtime}/edge-wrapper/wrapper.log ] && "
+        f"[ -e {log_path} ] && "
         f"echo exists >> {tmp_path}/log_at_sudo\n"
         "shift 2\n"
         'exec "$@"\n',
     )
 
-    result = _run_wrapper(
-        _root_env(tmp_path, SUDO_UID=str(FAKE_UID), XDG_RUNTIME_DIR=str(runtime))
-    )
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
 
     _assert_browser_started(tmp_path, result)
-    # Two sudo calls: the base directory and the browser
-    assert (tmp_path / "planted_at_sudo").read_text() == "original" * 2
+    # Three sudo calls: the base directory, the home probe and the browser
+    assert (tmp_path / "planted_at_sudo").read_text() == "original" * 3
     assert not (tmp_path / "log_at_sudo").exists(), "root created the log file"
     assert (tmp_path / "old_log_at_browser").read_text() == "original"
     if victim is not None:
@@ -1053,4 +1001,76 @@ def test_root_never_opens_the_log_file(tmp_path, plant):
     # Root's own messages went to stderr and syslog instead
     assert "dropping privileges" in result.stderr
     assert "dropping privileges" in (tmp_path / "syslog").read_text()
-    assert "called with args" not in (runtime / "edge-wrapper" / "wrapper.log").read_text()
+    assert "called with args" not in result.wrapper_log
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+def test_root_probes_the_home_as_the_real_user(tmp_path):
+    """Root must not touch the user's home (a planted symlink named
+    .gp-browser-writecheck would make it create any file): the write probe runs
+    through sudo -u "#uid". The fake sudo keeps our uid, so the probe itself
+    still runs as root here and the test cannot check the file owner. It checks
+    the sudo call instead: the probe is inside a call that starts with
+    -u #uid, and the wrapper itself never creates the file."""
+    home = tmp_path / "home"
+    home.mkdir()
+    _fake_root_tools(tmp_path)
+    # Record every call: "<first two args> <marker if the code probes the home>".
+    # The root process must not create the probe file before the call: check
+    # that the path is absent when sudo starts.
+    _script(
+        tmp_path / "sudo",
+        'case "$*" in *.gp-browser-writecheck*) m=probe;; *) m=other;; esac\n'
+        f'echo "$1 $2 $m" >> {tmp_path}/sudo_calls\n'
+        f"ls -A {home} >> {tmp_path}/home_at_sudo\n"
+        "shift 2\n"
+        'exec "$@"\n',
+    )
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
+
+    _assert_browser_started(tmp_path, result)
+    calls = (tmp_path / "sudo_calls").read_text().splitlines()
+    assert calls.count(f"-u #{FAKE_UID} probe") == 1, calls
+    # The probe call comes before the browser call and after the base directory
+    assert calls[1] == f"-u #{FAKE_UID} probe", calls
+    assert (tmp_path / "home_at_sudo").read_text() == ""
+
+
+@pytest.mark.skipif(not IS_ROOT, reason="needs root to take the privilege-drop path")
+def test_root_without_a_home_does_not_probe(tmp_path):
+    """Negative counterpart: an unknown home is not probed (not even "/")."""
+    _fake_root_tools(tmp_path)
+    _script(tmp_path / "getent", f"echo 'u:x:{FAKE_UID}:{FAKE_UID}:::/bin/bash'\n")
+    _script(
+        tmp_path / "sudo",
+        'case "$*" in *.gp-browser-writecheck*) echo probe >> '
+        f'{tmp_path}/sudo_calls;; esac\n'
+        "shift 2\n"
+        'exec "$@"\n',
+    )
+
+    result = _run_wrapper(_root_env(tmp_path, SUDO_UID=str(FAKE_UID)))
+
+    _assert_browser_started(tmp_path, result)
+    assert not (tmp_path / "sudo_calls").exists()
+
+
+@pytest.mark.skipif(IS_ROOT, reason="as root the wrapper runs sudo")
+def test_non_root_probes_the_home_directly(tmp_path):
+    """Negative counterpart: without root there is nothing to drop, sudo is not
+    called for the probe."""
+    _fake_sudo(tmp_path)
+    _fake_browser(tmp_path)
+    _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    _script(
+        tmp_path / "getent",
+        f"echo 'u:x:{FAKE_UID}:{FAKE_UID}::{tmp_path}/home:/bin/bash'\n",
+    )
+    (tmp_path / "home").mkdir()
+
+    result = _run_wrapper(_root_env(tmp_path))
+
+    _assert_browser_started(tmp_path, result)
+    assert not (tmp_path / "sudo_args").exists()
+    assert "using the user's own browser profile" in result.wrapper_log

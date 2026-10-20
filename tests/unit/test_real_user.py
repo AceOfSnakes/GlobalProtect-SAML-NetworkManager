@@ -4,7 +4,8 @@ Tests for finding the desktop user (issue #51).
 The service used to take the first non-root user of `loginctl list-users`, so
 with fast user switching, a lingering user or a gdm greeter user the browser
 opened in another user's session. Now: SUDO_UID, the single user of the
-connection's permissions, the active seat0 session, else the current user.
+connection's permissions, the active seat0 session, the only user with an
+active session (xrdp, remote desktop, VM), else the current user.
 
 `loginctl` is faked through PATH. System users from the container stand in
 for desktop users: daemon (1), bin (2) and nobody (65534).
@@ -39,8 +40,11 @@ def fake_loginctl(monkeypatch, tmp_path):
     bindir.mkdir()
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
 
-    def install(active="c1", session=None, fail=False):
+    def install(active="c1", session=None, fail=False, sessions=None):
+        """sessions: {id: {"User": uid, "Class": ..., "State": ...}} for
+        `list-sessions` (the seat0 session c1 is only listed when given)"""
         session = session or {}
+        sessions = sessions or {}
         props = {
             "User": str(pwd.getpwnam(SEAT_USER).pw_uid),
             "Name": SEAT_USER,
@@ -51,13 +55,26 @@ def fake_loginctl(monkeypatch, tmp_path):
         props.update(session)
         lines = "\n".join(f"{k}={v}" for k, v in props.items())
         exit_code = 1 if fail else 0
+        listing = "\n".join(f"{sid} {p['User']} name seat9" for sid, p in sessions.items())
         script = bindir / "loginctl"
         script.write_text(
             "#!/bin/sh\n"
             f"[ {exit_code} -ne 0 ] && exit 1\n"
             'case "$1" in\n'
             f"  show-seat) echo '{active}' ;;\n"
-            f"  show-session) [ \"$2\" = c1 ] && cat <<'EOT'\n{lines}\nEOT\n ;;\n"
+            f"  list-sessions) cat <<'EOT'\n{listing}\nEOT\n ;;\n"
+            f"  show-session) case \"$2\" in\n"
+            f"  c1) cat <<'EOT'\n{lines}\nEOT\n ;;\n"
+            + "".join(
+                f"  {sid}) cat <<'EOT'\n"
+                + "\n".join(
+                    f"{k}={v}"
+                    for k, v in {"Class": "user", "State": "active", **p}.items()
+                )
+                + "\nEOT\n ;;\n"
+                for sid, p in sessions.items()
+            )
+            + "  esac ;;\n"
             f"  list-users) echo '{pwd.getpwnam(OTHER_USER).pw_uid} {OTHER_USER}' ;;\n"
             "esac\n"
         )
@@ -184,6 +201,98 @@ class TestSudoUser:
         monkeypatch.setenv("SUDO_UID", "2")
 
         assert plugin._get_real_user() == seat_user()
+
+
+OTHER_UID = pwd.getpwnam(OTHER_USER).pw_uid
+SEAT_UID = pwd.getpwnam(SEAT_USER).pw_uid
+NOBODY_UID = pwd.getpwnam("nobody").pw_uid
+
+
+def other_user():
+    pw = pwd.getpwnam(OTHER_USER)
+    return pw.pw_uid, pw.pw_name, pw.pw_dir
+
+
+class TestOtherActiveSession:
+    """seat0 has no usable session (xrdp, remote desktop, VM)"""
+
+    def test_single_active_remote_user_is_chosen(self, plugin, fake_loginctl):
+        fake_loginctl(
+            active="", sessions={"c5": {"User": OTHER_UID, "Remote": "yes"}}
+        )
+
+        assert plugin._get_real_user() == other_user()
+
+    def test_the_same_user_in_two_sessions_is_one_user(self, plugin, fake_loginctl):
+        fake_loginctl(
+            active="",
+            sessions={"c5": {"User": OTHER_UID}, "c6": {"User": OTHER_UID}},
+        )
+
+        assert plugin._get_real_user() == other_user()
+
+    def test_seat0_wins_over_other_sessions(self, plugin, fake_loginctl):
+        fake_loginctl(sessions={"c5": {"User": OTHER_UID}})
+
+        assert plugin._get_real_user() == seat_user()
+
+    def test_remote_seat0_session_alone_is_chosen_too(self, plugin, fake_loginctl):
+        fake_loginctl(
+            session={"Remote": "yes"},
+            sessions={"c1": {"User": SEAT_UID, "Remote": "yes"}},
+        )
+
+        assert plugin._get_real_user() == seat_user()
+
+    @pytest.mark.parametrize(
+        "sessions",
+        [
+            {"c5": {"User": OTHER_UID}, "c6": {"User": NOBODY_UID}},
+            {"c5": {"User": OTHER_UID, "Remote": "yes"}, "c6": {"User": SEAT_UID}},
+        ],
+        ids=["two-local-users", "remote-and-local-users"],
+    )
+    def test_two_different_users_give_current_user(
+        self, plugin, fake_loginctl, sessions
+    ):
+        fake_loginctl(active="", sessions=sessions)
+
+        # Never one of them: we cannot tell which session is meant
+        assert plugin._get_real_user() == current_user()
+
+    @pytest.mark.parametrize(
+        "sessions",
+        [
+            {"c5": {"User": OTHER_UID, "Class": "greeter"}},
+            {"c5": {"User": OTHER_UID, "State": "closing"}},
+            {"c5": {"User": OTHER_UID, "State": "online"}},
+            {"c5": {"User": 0}},
+            {"c5": {"User": "not-a-number"}},
+            {},
+        ],
+        ids=["greeter", "closing", "online", "root", "bad-uid", "no-sessions"],
+    )
+    def test_no_usable_session_gives_current_user(
+        self, plugin, fake_loginctl, sessions
+    ):
+        fake_loginctl(active="", sessions=sessions)
+
+        assert plugin._get_real_user() == current_user()
+
+    def test_unusable_sessions_do_not_hide_the_one_good_user(
+        self, plugin, fake_loginctl
+    ):
+        fake_loginctl(
+            active="",
+            sessions={
+                "c4": {"User": SEAT_UID, "Class": "greeter"},
+                "c5": {"User": NOBODY_UID, "State": "closing"},
+                "c6": {"User": 0},
+                "c7": {"User": OTHER_UID, "Remote": "yes"},
+            },
+        )
+
+        assert plugin._get_real_user() == other_user()
 
 
 # --- Session environment helpers (_read_proc_environ, _scan_session_env,
