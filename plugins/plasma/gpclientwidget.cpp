@@ -27,25 +27,52 @@ static const QString gatewayAutoLabel = QStringLiteral("First proposed by portal
  * connection with browser authentication starts with this value (issue #46). */
 static const int samlTimeoutDefault = 180;
 
-/* Tunnel MTU (vpn.data "mtu"). 0 = automatic: no key is stored. openconnect
- * raises values below 576 to 576, so the editor never saves less. */
+/* Tunnel MTU (vpn.data "mtu"). 0 = automatic: no key is stored. gpclient --mtu
+ * reaches openconnect as the requested MTU, which it uses ONLY when the gateway
+ * sends no MTU of its own. openconnect raises values below 576 to 576, so the
+ * editor does the same. The same rule is in the service (parse_mtu) and in the
+ * GTK editors (nm-gpclient-mtu.h). */
 static const int mtuMin = 576;
 static const int mtuMax = 1500;
 
-/* The stored mtu as a number: 0 (automatic) when missing or invalid */
+static bool isMtuSpace(QChar c)
+{
+    // ASCII whitespace only (QString::trimmed() strips Unicode spaces too)
+    return c == QLatin1Char(' ') || (c >= QChar(0x09) && c <= QChar(0x0d));
+}
+
+/* The stored mtu as a number for the spin box: only ASCII whitespace is
+ * stripped, the rest must be ASCII digits (leading zeros are fine). Zero,
+ * missing or invalid text (sign, dot, inner space, non-ASCII digits, more than
+ * mtuMax) gives 0 = automatic; 1..575 gives mtuMin. */
 static int parseMtu(const QString &text)
 {
-    const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty() || trimmed.size() > 4) {
+    int begin = 0;
+    int end = text.size();
+    while (begin < end && isMtuSpace(text.at(begin))) {
+        ++begin;
+    }
+    while (end > begin && isMtuSpace(text.at(end - 1))) {
+        --end;
+    }
+    if (begin == end) {
         return 0;
     }
-    for (const QChar c : trimmed) {
+    int mtu = 0;
+    for (int i = begin; i < end; ++i) {
+        const QChar c = text.at(i);
         if (c < QLatin1Char('0') || c > QLatin1Char('9')) {
             return 0;
         }
+        mtu = mtu * 10 + (c.unicode() - '0');
+        if (mtu > mtuMax) {
+            return 0;
+        }
     }
-    const int mtu = trimmed.toInt();
-    return (mtu >= mtuMin && mtu <= mtuMax) ? mtu : 0;
+    if (mtu == 0) {
+        return 0;
+    }
+    return mtu < mtuMin ? mtuMin : mtu;
 }
 
 /* Browser values understood by the service (see resolve_browser()) */

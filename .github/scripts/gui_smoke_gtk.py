@@ -113,7 +113,7 @@ def run_timeout_case(NM, Gtk, major, plugin, service, case):
 
     combos = find_widgets(grid, Gtk, major, is_auth_combo)
     spins = [w for w in find_widgets(grid, Gtk, major, lambda w: isinstance(w, Gtk.SpinButton))
-             if w.get_range()[1] != lib.MTU_MAX]  # not the MTU spin button
+             if w.get_name() != lib.MTU_SPIN_NAME]  # not the MTU spin button
     if len(combos) != 1 or len(spins) != 1:
         fail(f"GTK{major} editor: {len(combos)} authentication combos and {len(spins)} connect timeout spin buttons, expected 1 each")
     for kind, value in case["steps"]:
@@ -137,7 +137,7 @@ def run_mtu_case(NM, Gtk, major, plugin, service, case):
     editor = plugin.get_editor(connection)
     grid = editor.get_widget()
     spins = [w for w in find_widgets(grid, Gtk, major, lambda w: isinstance(w, Gtk.SpinButton))
-             if w.get_range()[1] == lib.MTU_MAX]
+             if w.get_name() == lib.MTU_SPIN_NAME]
     if len(spins) != 1:
         fail(f"GTK{major} editor: {len(spins)} MTU spin buttons, expected 1")
     if case["spin"] is not None:

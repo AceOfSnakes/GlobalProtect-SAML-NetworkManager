@@ -115,7 +115,7 @@ sudo make install
    - **Gateway**: Your VPN server (e.g., `vpn.company.com`)
    - **Browser**: Browser path for 2FA (e.g., `/usr/bin/firefox`)
    - **Connect timeout**: Seconds NetworkManager waits for the VPN, including the browser login (`0` = NetworkManager default, new connections start with 180)
-   - **MTU**: Tunnel MTU (`0` = automatic). Lower it, for example to 1300-1400, if the tunnel falls back from ESP to HTTPS with "Message too long"
+   - **MTU**: Tunnel MTU (`0` = automatic). Lower it, for example to 1300-1400, if the tunnel falls back from ESP to HTTPS with "Message too long". Used only when the gateway sends no MTU of its own
    - **DNS Servers**: Optional DNS servers (e.g., `8.8.8.8;8.8.4.4`)
 5. Click **OK** to save
 

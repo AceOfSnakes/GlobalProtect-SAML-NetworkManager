@@ -331,19 +331,31 @@ def parse_stored_gateway_count(value: str) -> Optional[int]:
     return _gateway_count_value(value.strip())
 
 
-# MTU of the tunnel (vpn.data mtu). gpclient --mtu reaches openconnect, which
-# raises values below 576 to 576. Valid here: a plain decimal 576..1500.
+# MTU of the tunnel (vpn.data mtu). gpclient --mtu reaches openconnect as the
+# requested MTU. openconnect uses it ONLY when the gateway sends no MTU of its
+# own (it then logs "No MTU received. Calculated N ..."); a gateway MTU wins.
+# openconnect raises values below 576 to 576, and so does this code.
 MTU_MIN = 576
 MTU_MAX = 1500
+MTU_SPACE = " \t\n\r\f\v"  # the only whitespace that is stripped
 
 
 def parse_mtu(text: str) -> Optional[int]:
-    """vpn.data mtu as a number; None for automatic, empty or invalid text"""
-    value = text.strip()
-    if not (value.isascii() and value.isdigit()) or len(value) > 4:
+    """vpn.data mtu as a number: 0 = automatic (empty text or only zeros),
+    MTU_MIN..MTU_MAX otherwise (smaller values are raised to MTU_MIN), None
+    when the text is invalid (sign, dot, inner space, non-ASCII digits, more
+    than MTU_MAX). The same rule is in the editors (nm-gpclient-mtu.h)."""
+    value = text.strip(MTU_SPACE)
+    if not value:
+        return 0
+    if not (value.isascii() and value.isdigit()):
         return None
-    mtu = int(value)
-    return mtu if MTU_MIN <= mtu <= MTU_MAX else None
+    digits = value.lstrip("0")
+    if not digits:
+        return 0
+    if len(digits) > 4 or int(digits) > MTU_MAX:
+        return None
+    return max(int(digits), MTU_MIN)
 
 
 # --- Interactive prompt detection -------------------------------------------
@@ -1410,13 +1422,15 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.info(f"fix-openssl: {self.fix_openssl_mode}")
 
             # Tunnel MTU: empty or 0 means automatic. An invalid value is
-            # ignored so a typo cannot break the connection.
-            mtu_text = data_dict.get("mtu", "").strip()
-            self.mtu = parse_mtu(mtu_text)
-            if self.mtu is None and mtu_text not in ("", "0"):
+            # ignored so a typo cannot break the connection. openconnect uses
+            # the value only when the gateway sends no MTU.
+            mtu_text = data_dict.get("mtu", "")
+            mtu = parse_mtu(mtu_text)
+            if mtu is None:
                 logger.warning(
                     f"Invalid mtu value {mtu_text!r} (use 576-1500), ignoring it"
                 )
+            self.mtu = mtu or None
             logger.info(f"MTU: {self.mtu if self.mtu else 'automatic'}")
 
             # Portal / gateway handling (issue #7)

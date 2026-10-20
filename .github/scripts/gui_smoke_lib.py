@@ -46,33 +46,34 @@ TIMEOUT_CASES = [
      "steps": [("auth", 0)], "shown": TIMEOUT, "saved": TIMEOUT},
 ]
 
-# The MTU spin button has this upper limit (the connect timeout spin button
-# has a much higher one); the editors save less than MTU_MIN as MTU_MIN.
+# Name of the MTU spin button (gtk_widget_set_name in the GTK editors); the
+# editors save less than MTU_MIN as MTU_MIN, 0 = automatic (no key).
+MTU_SPIN_NAME = "mtu_spin"
 MTU_MAX = 1500
 MTU_MIN = 576
 
 # Save scenarios of the MTU (vpn.data mtu). Each case opens the editor for an
-# existing profile with "vpn_data" (default: only the gateway), optionally sets
-# the spin button ("spin"), then compares the spin button (shown) and the
-# vpn.data mtu that update_connection() writes (saved, None = no key) with the
-# expectation.
+# existing profile with "vpn_data", optionally sets the spin button ("spin"),
+# then compares the spin button (shown) and the vpn.data mtu that
+# update_connection() writes (saved, None = no key) with the expectation.
+def _mtu_case(name, stored, spin, shown, saved):
+    data = {"gateway": GATEWAY}
+    if stored is not None:
+        data["mtu"] = stored
+    return {"name": "mtu: " + name, "vpn_data": data, "spin": spin, "shown": shown, "saved": saved}
+
+
 MTU_CASES = [
-    {"name": "mtu: stored value", "vpn_data": {"gateway": GATEWAY, "mtu": "1300"},
-     "spin": None, "shown": 1300, "saved": "1300"},
-    {"name": "mtu: not stored", "vpn_data": {"gateway": GATEWAY},
-     "spin": None, "shown": 0, "saved": None},
-    {"name": "mtu: invalid stored value", "vpn_data": {"gateway": GATEWAY, "mtu": "abc"},
-     "spin": None, "shown": 0, "saved": None},
-    {"name": "mtu: stored value out of range", "vpn_data": {"gateway": GATEWAY, "mtu": "1501"},
-     "spin": None, "shown": 0, "saved": None},
-    {"name": "mtu: stored value below the minimum", "vpn_data": {"gateway": GATEWAY, "mtu": "400"},
-     "spin": None, "shown": 0, "saved": None},
-    {"name": "mtu: 0 removes the key", "vpn_data": {"gateway": GATEWAY, "mtu": "1300"},
-     "spin": 0, "shown": 0, "saved": None},
-    {"name": "mtu: 400 is saved as 576", "vpn_data": {"gateway": GATEWAY},
-     "spin": 400, "shown": 400, "saved": "576"},
-    {"name": "mtu: 1400 is saved", "vpn_data": {"gateway": GATEWAY},
-     "spin": 1400, "shown": 1400, "saved": "1400"},
+    _mtu_case("stored value", "1300", None, 1300, "1300"),
+    _mtu_case("not stored", None, None, 0, None),
+    _mtu_case("stored with leading zero", "01300", None, 1300, "1300"),
+    _mtu_case("stored 500 is shown as 576", "500", None, 576, "576"),
+    _mtu_case("stored 00 is automatic", "00", None, 0, None),
+    _mtu_case("stored 1501 is invalid", "1501", None, 0, None),
+    _mtu_case("stored abc is invalid", "abc", None, 0, None),
+    _mtu_case("0 removes the key", "1300", 0, 0, None),
+    _mtu_case("400 is saved as 576", None, 400, 400, "576"),
+    _mtu_case("1400 is saved", None, 1400, 1400, "1400"),
 ]
 
 

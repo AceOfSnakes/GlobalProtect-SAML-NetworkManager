@@ -128,7 +128,7 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `username` | (empty) | Username for portals that ask on the terminal |
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or a path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
-| `mtu` | (empty) | MTU of the tunnel, 576-1500; empty or `0` is automatic. A value outside the range is ignored with a warning in the log. Lower it (for example `nmcli connection modify "My VPN" +vpn.data mtu=1300`) if the tunnel falls back from ESP to HTTPS with "ESP receive error: Message too long", as seen on mobile hotspots |
+| `mtu` | (empty) | MTU of the tunnel, 576-1500 (smaller values are raised to 576); empty or `0` is automatic. A value that is not a plain number up to 1500 is ignored with a warning in the log. openconnect uses it only when the gateway sends no MTU (its log then says "No MTU received. Calculated N ..."); a gateway MTU wins. Lower it (`nmcli connection modify "My VPN" +vpn.data mtu=1300`) if the tunnel falls back from ESP to HTTPS with "ESP receive error: Message too long", as seen on mobile hotspots |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
 | `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |

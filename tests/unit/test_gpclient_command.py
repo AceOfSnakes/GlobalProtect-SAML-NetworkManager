@@ -147,33 +147,48 @@ def test_connect_command_never_uses_unsupported_modes(
 
 @pytest.mark.parametrize(
     "text, expected",
-    [("576", 576), ("1300", 1300), ("1500", 1500), (" 1400 ", 1400)],
+    [
+        ("576", 576),
+        ("1300", 1300),
+        ("1500", 1500),
+        (" \t1400\n", 1400),
+        ("01300", 1300),
+        ("0" * 50 + "1300", 1300),
+        ("500", 576),  # raised, like openconnect does
+        ("1", 576),
+        ("575", 576),
+        # automatic
+        ("", 0),
+        ("   ", 0),
+        ("0", 0),
+        ("00", 0),
+        ("0000", 0),
+        ("0" * 50, 0),
+    ],
 )
-def test_parse_mtu_accepts_a_decimal_in_range(service_module, text, expected):
+def test_parse_mtu_accepts_the_rule(service_module, text, expected):
     assert service_module.parse_mtu(text) == expected
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        "",
-        "   ",
-        "0",
-        "575",
-        "1",
         "1501",
         "99999999999999999999",
+        "9" * 5000,
         "-1400",
-        "+1400",
+        "+1300",
         "1400.0",
-        " 14 00",
+        "13 00",
         "abc",
         "1400mtu",
         "0x578",
-        "١٣٠٠",  # Arabic-Indic digits
+        "\u0661\u0663\u0660\u0660",  # Arabic-Indic digits
+        "\u00a01300",  # no-break space: not stripped
+        "\u20031300",  # em space: not stripped
     ],
 )
-def test_parse_mtu_gives_none_for_automatic_or_invalid(service_module, text):
+def test_parse_mtu_gives_none_for_invalid(service_module, text):
     assert service_module.parse_mtu(text) is None
 
 
@@ -226,7 +241,13 @@ def _do_connect(service_module, monkeypatch, vpn_data):
 
 
 @pytest.mark.parametrize(
-    "stored, expected", [({"mtu": "1300"}, 1300), ({"mtu": " 576 "}, 576)]
+    "stored, expected",
+    [
+        ({"mtu": "1300"}, 1300),
+        ({"mtu": " 576 "}, 576),
+        ({"mtu": "01300"}, 1300),
+        ({"mtu": "500"}, 576),
+    ],
 )
 def test_connect_reads_a_valid_mtu(service_module, monkeypatch, caplog, stored, expected):
     caplog.set_level("INFO")
@@ -238,7 +259,10 @@ def test_connect_reads_a_valid_mtu(service_module, monkeypatch, caplog, stored, 
     assert "Invalid mtu" not in caplog.text
 
 
-@pytest.mark.parametrize("stored", [{}, {"mtu": ""}, {"mtu": "0"}, {"mtu": " 0 "}])
+@pytest.mark.parametrize(
+    "stored",
+    [{}, {"mtu": ""}, {"mtu": "0"}, {"mtu": " 0 "}, {"mtu": "00"}, {"mtu": "0000"}],
+)
 def test_connect_mtu_automatic_logs_no_warning(
     service_module, monkeypatch, caplog, stored
 ):
@@ -251,7 +275,10 @@ def test_connect_mtu_automatic_logs_no_warning(
     assert "Invalid mtu" not in caplog.text
 
 
-@pytest.mark.parametrize("bad", ["575", "1501", "abc", "-1400", "+1400", "1400.0", "99999999999"])
+@pytest.mark.parametrize(
+    "bad",
+    ["1501", "abc", "-1400", "+1300", "1400.0", "13 00", "99999999999", "\u0661\u0663\u0660\u0660"],
+)
 def test_connect_ignores_an_invalid_mtu_with_a_warning(
     service_module, monkeypatch, caplog, bad
 ):

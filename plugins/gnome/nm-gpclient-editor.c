@@ -4,6 +4,7 @@
 #include <NetworkManager.h>
 #include <nm-vpn-editor-plugin.h>
 #include "nm-gpclient-editor.h"
+#include "nm-gpclient-mtu.h"
 
 struct _NMGpclientEditor {
     GObject parent;
@@ -31,36 +32,6 @@ struct _NMGpclientEditor {
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
  * connection with browser authentication starts with this value (issue #46). */
 #define SAML_TIMEOUT_DEFAULT 180
-
-/* Tunnel MTU (vpn.data "mtu"). 0 = automatic: no key is stored. openconnect
- * raises values below 576 to 576, so the editor never saves less. */
-#define MTU_MIN 576
-#define MTU_MAX 1500
-
-/* The stored mtu as a number: 0 (automatic) when missing or invalid */
-static int
-parse_mtu (const char *text)
-{
-    const char *p;
-    int mtu = 0;
-
-    if (!text)
-        return 0;
-    while (g_ascii_isspace (*text))
-        text++;
-    for (p = text; g_ascii_isdigit (*p); p++) {
-        mtu = mtu * 10 + (*p - '0');
-        if (mtu > MTU_MAX)
-            return 0;
-    }
-    if (p == text)
-        return 0;
-    while (g_ascii_isspace (*p))
-        p++;
-    if (*p != '\0')
-        return 0;
-    return mtu >= MTU_MIN ? mtu : 0;
-}
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const char *browser_values[] = {
@@ -364,9 +335,11 @@ build_ui (NMGpclientEditor *self)
         "Maximum size of a packet in the tunnel.\n"
         "0 = Automatic. Lower it, for example to 1300-1400, if the tunnel falls "
         "back from ESP to HTTPS with \"Message too long\".\n"
+        "Used only when the gateway sends no MTU of its own. "
         "Values from 1 to 575 are saved as 576, the lowest value that is used.");
+    gtk_widget_set_name (self->mtu_spin, "mtu_spin");
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->mtu_spin),
-                               s_vpn ? parse_mtu (nm_setting_vpn_get_data_item (s_vpn, "mtu")) : 0);
+                               s_vpn ? nm_gpclient_parse_mtu (nm_setting_vpn_get_data_item (s_vpn, "mtu")) : 0);
     g_signal_connect (self->mtu_spin, "value-changed", G_CALLBACK (spin_changed_cb), self);
     gtk_box_append (GTK_BOX (mtu_box), self->mtu_spin);
     mtu_hint = gtk_label_new ("bytes (0 = Automatic)");

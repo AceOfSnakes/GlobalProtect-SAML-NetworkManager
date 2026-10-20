@@ -351,16 +351,25 @@ class TestMtuCases:
 
         assert lib.check_mtu_results(results) == [f"MTU case {case['name']!r} did not run"]
 
-    @pytest.mark.parametrize("source, definition", [
-        ("gnome/nm-gpclient-editor.c", "#define MTU_MIN {}\n#define MTU_MAX {}\n"),
-        ("gnome/nm-gpclient-editor-gtk3.c", "#define MTU_MIN {}\n#define MTU_MAX {}\n"),
-        ("plasma/gpclientwidget.cpp", "static const int mtuMin = {};\nstatic const int mtuMax = {};\n"),
-    ])
-    def test_the_limits_are_the_ones_of_the_editor(self, source, definition):
-        with open(os.path.join(ROOT, "plugins", source), encoding="utf-8") as handle:
+    def test_the_limits_are_the_ones_of_the_gtk_header(self):
+        with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-mtu.h"), encoding="utf-8") as handle:
             text = handle.read()
 
-        assert definition.format(lib.MTU_MIN, lib.MTU_MAX) in text
+        assert f"#define MTU_MIN {lib.MTU_MIN}\n#define MTU_MAX {lib.MTU_MAX}\n" in text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_use_the_header_and_name_the_spin_button(self, source):
+        with open(os.path.join(ROOT, "plugins", "gnome", source), encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert '#include "nm-gpclient-mtu.h"' in text
+        assert f'"{lib.MTU_SPIN_NAME}"' in text
+
+    def test_the_plasma_limits_are_the_ones_of_the_editor(self):
+        with open(os.path.join(ROOT, "plugins", "plasma", "gpclientwidget.cpp"), encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert f"static const int mtuMin = {lib.MTU_MIN};\nstatic const int mtuMax = {lib.MTU_MAX};\n" in text
 
 
 class TestEditorTextsMatchTheSources:

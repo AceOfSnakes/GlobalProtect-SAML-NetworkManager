@@ -162,7 +162,7 @@ Select 'Custom...' to give the full path to your own executable.</string>
      <property name="toolTip">
       <string>Maximum size of a packet in the tunnel.
 Automatic (0): openconnect picks the value. Lower it, for example to 1300-1400, if the tunnel falls back from ESP to HTTPS with "Message too long".
-Values from 1 to 575 are saved as 576, the lowest value that is used.</string>
+Used only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used.</string>
      </property>
      <property name="specialValueText">
       <string>Automatic</string>
