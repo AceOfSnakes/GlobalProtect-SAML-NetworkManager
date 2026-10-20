@@ -7,6 +7,7 @@
 - **UI Widget**: GTK4 grid with 3 labeled entry fields:
   - Gateway (VPN server address)
   - Browser (path for 2FA/SAML authentication)
+  - Connect timeout (NetworkManager's `vpn.timeout`, in seconds)
   - DNS Servers (semicolon-separated, optional)
 - **Data Binding**: Loads values from `NMSettingVpn` and saves back on connection update
 - **Memory Management**: Proper `g_object_ref_sink()` and disposal
@@ -158,6 +159,7 @@ When working correctly:
 3. Identity tab shows:
    - Gateway: [text entry]
    - Browser: [text entry]  
+   - Connect timeout: [spin button]
    - DNS Servers: [text entry]
 4. Values persist after saving
 5. No "unable to load" errors

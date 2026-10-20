@@ -37,6 +37,10 @@ def combo(items, text):
     return {"kind": "combo", "items": items, "text": text}
 
 
+def spin(value):
+    return {"kind": "spin", "value": value}
+
+
 def good_tree():
     """What the GTK editor shows for lib.vpn_data(), in the shape the probe sends"""
     return {"kind": "other", "children": [
@@ -49,6 +53,7 @@ def good_tree():
         combo(["Browser (SAML, passkey, 2FA)", "Username and password (RSA token)"],
               "Username and password (RSA token)"),
         {"kind": "other", "children": [entry("test-user")]},
+        {"kind": "other", "children": [spin(240)]},
     ]}
 
 
@@ -104,6 +109,7 @@ class TestEditorCheck:
 
         assert kinds.count("entry") == 2
         assert kinds.count("label") == 2
+        assert kinds.count("spin") == 1
 
     @pytest.mark.parametrize("size", [(0, 300), (700, 0), (0, 0), (-1, 5), (None, 5)])
     def test_zero_size_is_reported(self, size):
@@ -186,7 +192,28 @@ class TestEditorCheck:
     def test_empty_tree(self):
         problems = lib.check_editor({"kind": "other"}, 700, 300)
 
-        assert len(problems) == 5
+        assert len(problems) == 6
+
+    def test_missing_spin_button(self):
+        tree = good_tree()
+        del tree["children"][6]
+
+        assert lib.check_editor(tree, 700, 300) == ["no spin button for the connect timeout"]
+
+    @pytest.mark.parametrize("value", [0, 180, 239, 241, None])
+    def test_wrong_connect_timeout(self, value):
+        tree = good_tree()
+        tree["children"][6]["children"][0] = spin(value)
+
+        problems = lib.check_editor(tree, 700, 300)
+
+        assert len(problems) == 1 and "connect timeout is not 240" in problems[0]
+
+    def test_a_spin_button_is_not_an_entry(self):
+        tree = good_tree()
+        tree["children"][6]["children"][0] = entry("240")
+
+        assert any("spin button" in p for p in lib.check_editor(tree, 700, 300))
 
     def test_all_problems_are_listed_together(self):
         tree = good_tree()
@@ -201,6 +228,85 @@ class TestEditorCheck:
         lib.check_editor(tree, 700, 300)
 
         assert tree == before
+
+
+def good_results():
+    return {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+
+
+class TestTimeoutCases:
+    def test_the_expected_results_pass(self):
+        assert lib.check_timeout_results(good_results()) == []
+
+    def test_the_constants(self):
+        assert lib.TIMEOUT == 240
+        assert lib.SAML_TIMEOUT == 180
+
+    def test_the_timeout_of_the_test_connection_is_neither_zero_nor_the_default(self):
+        assert lib.TIMEOUT not in (0, lib.SAML_TIMEOUT)
+
+    def test_case_names_are_unique_and_steps_are_known(self):
+        names = [case["name"] for case in lib.TIMEOUT_CASES]
+
+        assert len(names) == len(set(names))
+        for case in lib.TIMEOUT_CASES:
+            assert all(kind in ("auth", "spin") for kind, _ in case["steps"])
+
+    def test_a_new_profile_follows_the_authentication_mode_until_the_user_sets_a_value(self):
+        expected = {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+
+        assert expected["new profile"] == (180, 180)
+        assert expected["new profile, credentials"] == (0, 0)
+        assert expected["new profile, credentials, browser"] == (180, 180)
+        assert expected["new profile, own value, credentials"] == (300, 300)
+
+    def test_an_existing_profile_is_not_changed(self):
+        expected = {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+
+        assert expected["existing SAML profile without timeout"] == (0, 0)
+        assert expected["existing profile with timeout, browser"] == (240, 240)
+
+    @pytest.mark.parametrize("index", range(6))
+    @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
+    def test_a_wrong_shown_value_is_reported(self, index, wrong):
+        case = lib.TIMEOUT_CASES[index]
+        results = good_results()
+        results[case["name"]] = (wrong, case["saved"])
+
+        problems = lib.check_timeout_results(results)
+
+        assert len(problems) == 1 and case["name"] in problems[0] and "shown" in problems[0]
+
+    @pytest.mark.parametrize("index", range(6))
+    @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
+    def test_a_wrong_saved_value_is_reported(self, index, wrong):
+        case = lib.TIMEOUT_CASES[index]
+        results = good_results()
+        results[case["name"]] = (case["shown"], wrong)
+
+        problems = lib.check_timeout_results(results)
+
+        assert len(problems) == 1 and case["name"] in problems[0] and "saved" in problems[0]
+
+    @pytest.mark.parametrize("index", range(6))
+    def test_a_missing_case_is_reported(self, index):
+        case = lib.TIMEOUT_CASES[index]
+        results = good_results()
+        del results[case["name"]]
+
+        problems = lib.check_timeout_results(results)
+
+        assert problems == [f"connect timeout case {case['name']!r} did not run"]
+
+    def test_no_results_report_every_case(self):
+        assert len(lib.check_timeout_results({})) == len(lib.TIMEOUT_CASES)
+
+    def test_the_input_is_not_changed(self):
+        results = good_results()
+        before = copy.deepcopy(results)
+        lib.check_timeout_results(results)
+
+        assert results == before
 
 
 class TestEditorTextsMatchTheSources:
@@ -222,6 +328,18 @@ class TestEditorTextsMatchTheSources:
         for key in ("gateway", "as-gateway", "preferred-gateway", "gateway-list", "username", "auth-mode"):
             assert f'"{key}"' in text
             assert key in lib.vpn_data()
+
+    @pytest.mark.parametrize("source, definition", [
+        ("gnome/nm-gpclient-editor.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
+        ("gnome/nm-gpclient-editor-gtk3.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
+        # The Plasma editor runs in no smoke test: this is its only check
+        ("plasma/gpclientwidget.cpp", "static const int samlTimeoutDefault = {};\n"),
+    ])
+    def test_the_saml_timeout_is_the_one_of_the_editor(self, source, definition):
+        with open(os.path.join(ROOT, "plugins", source), encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert definition.format(lib.SAML_TIMEOUT) in text
 
 
 LDD_GOOD = """\
@@ -535,6 +653,42 @@ class TestGtkVersionPins:
     @pytest.mark.parametrize("namespace", ["Gtk", "Gdk"])
     def test_gtk_and_gdk_follow_the_requested_major(self, namespace):
         assert 'gi.require_version("%s", f"{major}.0")' % namespace in self.pins()
+
+
+class TestProbeNodes:
+    """to_node maps a SpinButton before an Entry: a GTK3 SpinButton is an Entry"""
+
+    class Gtk:
+        class Container:
+            pass
+
+        class Widget:
+            pass
+
+        class Entry(Widget):
+            pass
+
+        class SpinButton(Entry):
+            pass
+
+        class ComboBoxText(Widget):
+            pass
+
+        class CheckButton(Widget):
+            pass
+
+        class Label(Widget):
+            pass
+
+    def test_a_spin_button_becomes_a_spin_node(self):
+        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value_as_int": lambda self: 240, "get_text": lambda self: "240"})()
+
+        assert gui_smoke_gtk.to_node(spin_button, self.Gtk, 3) == {"kind": "spin", "value": 240, "children": []}
+
+    def test_an_entry_stays_an_entry(self):
+        entry_widget = type("E", (self.Gtk.Entry,), {"get_text": lambda self: "x"})()
+
+        assert gui_smoke_gtk.to_node(entry_widget, self.Gtk, 3)["kind"] == "entry"
 
 
 class TestTooltips:

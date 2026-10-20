@@ -21,6 +21,30 @@ USERNAME = "test-user"
 AUTH_ITEMS = ["Browser (SAML, passkey, 2FA)", "Username and password (RSA token)"]
 AUTH_ACTIVE = "Username and password (RSA token)"  # for auth-mode=credentials
 AS_GATEWAY_LABEL = "Address is a gateway (skip the portal)"
+# vpn.timeout of the test connection: a value "the user set" (not 0, not 180)
+TIMEOUT = 240
+# What a new profile with browser authentication starts with (issue #46)
+SAML_TIMEOUT = 180
+
+# Save scenarios of the connect timeout. Each case opens the editor (a new
+# profile has only the service type, an existing one has vpn.data and a stored
+# vpn.timeout), applies the steps ("auth", combo index) and ("spin", value),
+# then compares the spin button (shown) and the vpn.timeout that
+# update_connection() writes (saved) with the expectation.
+TIMEOUT_CASES = [
+    {"name": "new profile", "new": True, "timeout": 0, "steps": [],
+     "shown": SAML_TIMEOUT, "saved": SAML_TIMEOUT},
+    {"name": "new profile, credentials", "new": True, "timeout": 0, "steps": [("auth", 1)],
+     "shown": 0, "saved": 0},
+    {"name": "new profile, credentials, browser", "new": True, "timeout": 0,
+     "steps": [("auth", 1), ("auth", 0)], "shown": SAML_TIMEOUT, "saved": SAML_TIMEOUT},
+    {"name": "new profile, own value, credentials", "new": True, "timeout": 0,
+     "steps": [("spin", 300), ("auth", 1)], "shown": 300, "saved": 300},
+    {"name": "existing SAML profile without timeout", "new": False, "timeout": 0, "steps": [],
+     "vpn_data": {"gateway": GATEWAY}, "shown": 0, "saved": 0},
+    {"name": "existing profile with timeout, browser", "new": False, "timeout": TIMEOUT,
+     "steps": [("auth", 0)], "shown": TIMEOUT, "saved": TIMEOUT},
+]
 
 
 def parse_name_file(text):
@@ -59,8 +83,8 @@ def vpn_data():
 
 def flatten(node):
     """The node and all its descendants, depth first. A node is a dict:
-    {"kind": "entry"|"combo"|"check"|"label"|"other", "text": str,
-     "items": [str], "active": bool, "children": [node]}; all keys but kind are optional."""
+    {"kind": "entry"|"combo"|"check"|"label"|"spin"|"other", "text": str,
+     "items": [str], "active": bool, "value": int, "children": [node]}; all keys but kind are optional."""
     nodes = [node]
     for child in node.get("children", []):
         nodes.extend(flatten(child))
@@ -100,11 +124,35 @@ def check_editor(root, width, height):
         shown = [c.get("text") for c in auth_combos]
         problems.append(f"the authentication is not {AUTH_ACTIVE!r} (shown: {shown})")
 
+    spins = [n for n in nodes if n.get("kind") == "spin"]
+    if not spins:
+        problems.append("no spin button for the connect timeout")
+    elif not any(n.get("value") == TIMEOUT for n in spins):
+        shown = [n.get("value") for n in spins]
+        problems.append(f"the connect timeout is not {TIMEOUT} (shown: {shown})")
+
     checks = [n for n in nodes if n.get("kind") == "check" and n.get("text") == AS_GATEWAY_LABEL]
     if not checks:
         problems.append(f"no check button {AS_GATEWAY_LABEL!r}")
     elif not any(c.get("active") for c in checks):
         problems.append(f"the check button {AS_GATEWAY_LABEL!r} is not ticked")
+    return problems
+
+
+def check_timeout_results(results):
+    """The problems of the connect timeout scenarios (empty list = fine):
+    `results` maps the name of a TIMEOUT_CASES entry to (shown, saved)."""
+    problems = []
+    for case in TIMEOUT_CASES:
+        name = case["name"]
+        if name not in results:
+            problems.append(f"connect timeout case {name!r} did not run")
+            continue
+        shown, saved = results[name]
+        if shown != case["shown"]:
+            problems.append(f"{name}: the connect timeout shown is {shown}, expected {case['shown']}")
+        if saved != case["saved"]:
+            problems.append(f"{name}: the connect timeout saved is {saved}, expected {case['saved']}")
     return problems
 
 

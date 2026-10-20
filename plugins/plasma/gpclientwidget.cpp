@@ -11,12 +11,21 @@
 #include <QComboBox>
 #include <QFileInfo>
 #include <QLineEdit>
+#include <QSignalBlocker>
+#include <QSpinBox>
 #include <QString>
 #include <QStringList>
+
+#include <climits>
 
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * no vpn.data value at all, so existing profiles keep behaving the same. */
 static const QString gatewayAutoLabel = QStringLiteral("First proposed by portal (automatic)");
+
+/* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
+ * default, usually 60 s), which is too short for a SAML login with MFA. A new
+ * connection with browser authentication starts with this value (issue #46). */
+static const int samlTimeoutDefault = 180;
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const QStringList browserValues = {
@@ -54,6 +63,18 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->asGatewayCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
     connect(m_ui->preferredGatewayComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->authModeComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->authModeComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        if (m_timeoutFollowsAuthMode) {
+            // Keep following: only the user's own choice stops it
+            const QSignalBlocker blocker(m_ui->timeoutSpinBox);
+            m_ui->timeoutSpinBox->setValue(index == 0 ? samlTimeoutDefault : 0);
+        }
+    });
+    connect(m_ui->timeoutSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+        // The user chose a value: keep it whatever the authentication mode
+        m_timeoutFollowsAuthMode = false;
+        Q_EMIT settingChanged();
+    });
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
@@ -122,6 +143,22 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         // Authentication mode (SAML is the default)
         m_ui->authModeComboBox->setCurrentIndex(
             data.value(QLatin1String("auth-mode")) == QLatin1String("credentials") ? 1 : 0);
+
+        // Connect timeout: NetworkManager's own vpn.timeout, not a vpn.data item.
+        // A profile that exists has at least the gateway in vpn.data; only a new
+        // one gets the default for the authentication mode.
+        const bool isNew = data.isEmpty();
+        const uint stored = vpnSetting->timeout();
+        int timeoutValue = static_cast<int>(qMin<uint>(stored, INT_MAX));
+        m_timeoutFollowsAuthMode = false;
+        if (isNew && stored == 0) {
+            timeoutValue = m_ui->authModeComboBox->currentIndex() == 0 ? samlTimeoutDefault : 0;
+            m_timeoutFollowsAuthMode = true;
+        }
+        {
+            const QSignalBlocker blocker(m_ui->timeoutSpinBox);
+            m_ui->timeoutSpinBox->setValue(timeoutValue);
+        }
 
         // Username for portals that ask for credentials on the terminal
         m_ui->usernameLineEdit->setText(data.value(QLatin1String("username")));
@@ -238,6 +275,10 @@ QVariantMap GpclientWidget::setting() const
                 m_ui->hipCheckBox->isChecked() ? QLatin1String("true") : QLatin1String("false"));
 
     setting.setData(data);
+
+    // toMap() always writes the timeout, so leaving it out here would reset a
+    // value set with nmcli (vpn.timeout) to 0 on every save
+    setting.setTimeout(static_cast<uint>(m_ui->timeoutSpinBox->value()));
 
     return setting.toMap();
 }

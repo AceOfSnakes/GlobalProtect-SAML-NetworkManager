@@ -32,6 +32,9 @@ private:
      * keys this widget does not show (the cached gateway-list, dns-domains) are
      * not silently dropped on save. */
     NMStringMap m_originalData;
+    /* A new profile follows the authentication mode with its connect timeout
+     * (180 s for the browser, 0 otherwise) until the user sets a value. */
+    bool m_timeoutFollowsAuthMode = false;
 };
 
 #endif // PLASMA_NM_GPCLIENT_WIDGET_H

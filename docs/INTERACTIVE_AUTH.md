@@ -210,3 +210,10 @@ connection fails with `LOGIN_FAILED`.
 The browser window for SAML authentication has its own, separate timeout
 (`GP_AUTH_TIMEOUT`, 300 s by default) - see
 [EDGE_WRAPPER.md](EDGE_WRAPPER.md#environment-variables).
+
+NetworkManager also stops a VPN activation after its own connect timeout
+(`vpn.timeout`, 0 = default, usually 60 s). The login in the browser counts
+towards it, so a slow SAML login with MFA can fail with "connect timeout
+exceeded". Set it in the editor (**Connect timeout**) or with
+`nmcli connection modify "My VPN" vpn.timeout 180`; new connections with
+browser login start with 180 s.

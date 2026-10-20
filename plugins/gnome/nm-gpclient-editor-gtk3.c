@@ -20,6 +20,8 @@ struct _NMGpclientEditor {
     GtkComboBoxText *auth_mode_combo;
     GtkEntry *username_entry;
     GtkComboBoxText *browser_combo;
+    GtkSpinButton *timeout_spin;
+    gboolean timeout_follows_auth_mode;
     GtkEntry *dns_entry;
     GtkCheckButton *hip_check;
     GtkComboBoxText *fix_openssl_combo;
@@ -28,6 +30,11 @@ struct _NMGpclientEditor {
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * an empty vpn.data value, so existing profiles keep behaving the same. */
 #define GATEWAY_AUTO_LABEL "First proposed by portal (automatic)"
+
+/* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
+ * default, usually 60 s), which is too short for a SAML login with MFA. A new
+ * connection with browser authentication starts with this value (issue #46). */
+#define SAML_TIMEOUT_DEFAULT 180
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const char *browser_values[] = {
@@ -61,15 +68,45 @@ browser_combo_changed_cb (GtkComboBox *combo, gpointer user_data)
     g_signal_emit_by_name (G_OBJECT (user_data), "changed");
 }
 
+static void
+timeout_changed_cb (GtkSpinButton *spin, gpointer user_data)
+{
+    NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+
+    /* The user chose a value: keep it whatever the authentication mode */
+    self->timeout_follows_auth_mode = FALSE;
+    g_signal_emit_by_name (G_OBJECT (self), "changed");
+}
+
+static void
+auth_mode_changed_cb (GtkComboBox *combo, gpointer user_data)
+{
+    NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+
+    if (self->timeout_follows_auth_mode && self->timeout_spin) {
+        g_signal_handlers_block_by_func (self->timeout_spin, timeout_changed_cb, self);
+        gtk_spin_button_set_value (self->timeout_spin,
+                                   gtk_combo_box_get_active (combo) == 0 ? SAML_TIMEOUT_DEFAULT : 0);
+        g_signal_handlers_unblock_by_func (self->timeout_spin, timeout_changed_cb, self);
+    }
+    g_signal_emit_by_name (G_OBJECT (self), "changed");
+}
+
 static GtkWidget *
 build_ui (NMGpclientEditor *self)
 {
     NMSettingVpn *s_vpn;
-    GtkWidget *widget, *label;
+    GtkWidget *widget, *label, *timeout_box, *timeout_hint;
     const char *value;
+    gboolean is_new;
+    guint stored;
+    int auth_index;
     int row = 0;
 
     s_vpn = nm_connection_get_setting_vpn (self->connection);
+    /* A profile that exists has at least the gateway in vpn.data */
+    is_new = !s_vpn || nm_setting_vpn_get_num_data_items (s_vpn) == 0;
+    stored = s_vpn ? nm_setting_vpn_get_timeout (s_vpn) : 0;
 
     widget = gtk_grid_new ();
     gtk_grid_set_column_spacing (GTK_GRID (widget), 12);
@@ -168,7 +205,8 @@ build_ui (NMGpclientEditor *self)
     } else {
         gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_mode_combo), 0);
     }
-    g_signal_connect (G_OBJECT (self->auth_mode_combo), "changed", G_CALLBACK (stuff_changed_cb), self);
+    auth_index = gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo));
+    g_signal_connect (G_OBJECT (self->auth_mode_combo), "changed", G_CALLBACK (auth_mode_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->auth_mode_combo), 1, row++, 1, 1);
 
     /* Username */
@@ -242,6 +280,36 @@ build_ui (NMGpclientEditor *self)
     }
     g_signal_connect (G_OBJECT (self->browser_combo), "changed", G_CALLBACK (browser_combo_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->browser_combo), 1, row++, 1, 1);
+
+    /* Connect timeout (NetworkManager's vpn.timeout, not a vpn.data item) */
+    label = gtk_label_new ("Connect timeout:");
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (widget), label, 0, row, 1, 1);
+
+    timeout_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    self->timeout_spin = GTK_SPIN_BUTTON (gtk_spin_button_new_with_range (0, G_MAXINT32, 10));
+    gtk_spin_button_set_digits (self->timeout_spin, 0);
+    gtk_spin_button_set_numeric (self->timeout_spin, TRUE);
+    gtk_widget_set_hexpand (GTK_WIDGET (self->timeout_spin), TRUE);
+    gtk_widget_set_tooltip_text (GTK_WIDGET (self->timeout_spin),
+        "How long NetworkManager waits for the VPN to connect, including the "
+        "login in the browser (vpn.timeout).\n"
+        "0 uses the NetworkManager default, usually 60 s - often too short for a "
+        "SAML login with MFA. New connections with browser authentication start "
+        "with 180 s.");
+    if (is_new && stored == 0) {
+        gtk_spin_button_set_value (self->timeout_spin,
+                                   auth_index == 0 ? SAML_TIMEOUT_DEFAULT : 0);
+        self->timeout_follows_auth_mode = TRUE;
+    } else {
+        gtk_spin_button_set_value (self->timeout_spin, stored);
+        self->timeout_follows_auth_mode = FALSE;
+    }
+    g_signal_connect (G_OBJECT (self->timeout_spin), "value-changed", G_CALLBACK (timeout_changed_cb), self);
+    gtk_box_pack_start (GTK_BOX (timeout_box), GTK_WIDGET (self->timeout_spin), TRUE, TRUE, 0);
+    timeout_hint = gtk_label_new ("seconds (0 = NetworkManager default)");
+    gtk_box_pack_start (GTK_BOX (timeout_box), timeout_hint, FALSE, FALSE, 0);
+    gtk_grid_attach (GTK_GRID (widget), timeout_box, 1, row++, 1, 1);
 
     /* Legacy TLS renegotiation workaround */
     label = gtk_label_new ("Legacy TLS renegotiation:");
@@ -394,6 +462,14 @@ update_connection (NMVpnEditor *iface,
         g_free ((char *)str);
     }
 
+    if (self->timeout_spin) {
+        /* NetworkManager's own vpn.timeout; commit typed text first */
+        gtk_spin_button_update (self->timeout_spin);
+        g_object_set (s_vpn, NM_SETTING_VPN_TIMEOUT,
+                      (guint) gtk_spin_button_get_value_as_int (self->timeout_spin),
+                      NULL);
+    }
+
     if (self->dns_entry) {
         str = gtk_entry_get_text (self->dns_entry);
         if (str && strlen (str))
@@ -483,6 +559,8 @@ nm_gpclient_editor_init (NMGpclientEditor *self)
     self->auth_mode_combo = NULL;
     self->username_entry = NULL;
     self->browser_combo = NULL;
+    self->timeout_spin = NULL;
+    self->timeout_follows_auth_mode = FALSE;
     self->dns_entry = NULL;
     self->hip_check = NULL;
     self->fix_openssl_combo = NULL;
