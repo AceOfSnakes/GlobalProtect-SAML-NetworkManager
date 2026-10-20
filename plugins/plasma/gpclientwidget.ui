@@ -121,13 +121,43 @@ Select 'Custom...' to give the full path to your own executable.</string>
     </widget>
    </item>
    <item row="6" column="0">
+    <widget class="QLabel" name="timeoutLabel">
+     <property name="text">
+      <string>Connect timeout:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="6" column="1">
+    <widget class="QSpinBox" name="timeoutSpinBox">
+     <property name="toolTip">
+      <string>How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).
+0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. New connections with browser authentication start with 180 s.</string>
+     </property>
+     <property name="specialValueText">
+      <string>NetworkManager default (usually 60 s)</string>
+     </property>
+     <property name="suffix">
+      <string> s</string>
+     </property>
+     <property name="minimum">
+      <number>0</number>
+     </property>
+     <property name="maximum">
+      <number>2147483647</number>
+     </property>
+     <property name="singleStep">
+      <number>10</number>
+     </property>
+    </widget>
+   </item>
+   <item row="7" column="0">
     <widget class="QLabel" name="dnsLabel">
      <property name="text">
       <string>DNS Servers:</string>
      </property>
     </widget>
    </item>
-   <item row="6" column="1">
+   <item row="7" column="1">
     <widget class="QLineEdit" name="dnsLineEdit">
      <property name="toolTip">
       <string>Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.
@@ -139,21 +169,21 @@ Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use c
      </property>
     </widget>
    </item>
-   <item row="7" column="0">
+   <item row="8" column="0">
     <widget class="QLabel" name="hipLabel">
      <property name="text">
       <string>HIP:</string>
      </property>
     </widget>
    </item>
-   <item row="8" column="0">
+   <item row="9" column="0">
     <widget class="QLabel" name="fixOpensslLabel">
      <property name="text">
       <string>Legacy TLS renegotiation:</string>
      </property>
     </widget>
    </item>
-   <item row="8" column="1">
+   <item row="9" column="1">
     <widget class="QComboBox" name="fixOpensslComboBox">
      <property name="toolTip">
       <string>Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.
@@ -162,7 +192,7 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      <!-- Items are added programmatically (auto / true / false) -->
     </widget>
    </item>
-   <item row="7" column="1">
+   <item row="8" column="1">
     <widget class="QCheckBox" name="hipCheckBox">
      <property name="text">
       <string>Enable Host Integrity Protection (HIP)</string>

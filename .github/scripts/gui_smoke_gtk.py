@@ -37,8 +37,29 @@ def build_connection(NM, service):
     connection.add_setting(s_con)
     s_vpn = NM.SettingVpn.new()
     s_vpn.set_property("service-type", service)
+    s_vpn.set_property("timeout", lib.TIMEOUT)
     for key, value in lib.vpn_data().items():
         s_vpn.add_data_item(key, value)
+    connection.add_setting(s_vpn)
+    return connection
+
+
+def build_case_connection(NM, service, case):
+    """The connection of one lib.TIMEOUT_CASES entry: a new profile has only the
+    service type, an existing one has vpn.data (default: lib.vpn_data()) and a
+    stored vpn.timeout"""
+    connection = NM.SimpleConnection.new()
+    s_con = NM.SettingConnection.new()
+    s_con.set_property("id", "gui-smoke-timeout")
+    s_con.set_property("uuid", NM.utils_uuid_generate())
+    s_con.set_property("type", "vpn")
+    connection.add_setting(s_con)
+    s_vpn = NM.SettingVpn.new()
+    s_vpn.set_property("service-type", service)
+    if not case["new"]:
+        s_vpn.set_property("timeout", case["timeout"])
+        for key, value in case.get("vpn_data", lib.vpn_data()).items():
+            s_vpn.add_data_item(key, value)
     connection.add_setting(s_vpn)
     return connection
 
@@ -60,7 +81,9 @@ def to_node(widget, Gtk, major):
         items = [row[0] for row in widget.get_model()]
         return {"kind": "combo", "items": items, "text": widget.get_active_text() or ""}
     node = {"kind": "other", "children": []}
-    if isinstance(widget, Gtk.Entry):
+    if isinstance(widget, Gtk.SpinButton):  # before Entry: a GTK3 SpinButton is an Entry
+        node.update(kind="spin", value=widget.get_value_as_int())
+    elif isinstance(widget, Gtk.Entry):
         node.update(kind="entry", text=widget.get_text())
     elif isinstance(widget, Gtk.CheckButton):
         node.update(kind="check", text=widget.get_label() or "", active=bool(widget.get_active()))
@@ -68,6 +91,42 @@ def to_node(widget, Gtk, major):
         node.update(kind="label", text=widget.get_text())
     node["children"] = [to_node(c, Gtk, major) for c in children(widget, Gtk, major)]
     return node
+
+
+def find_widgets(widget, Gtk, major, wanted):
+    """All widgets in the tree of `widget` for which wanted(widget) is true"""
+    found = [widget] if wanted(widget) else []
+    for child in children(widget, Gtk, major):
+        found.extend(find_widgets(child, Gtk, major, wanted))
+    return found
+
+
+def run_timeout_case(NM, Gtk, major, plugin, service, case):
+    """Open the editor for one lib.TIMEOUT_CASES entry, apply its steps and
+    save; returns (spin value shown, vpn.timeout saved)"""
+    connection = build_case_connection(NM, service, case)
+    editor = plugin.get_editor(connection)
+    grid = editor.get_widget()
+
+    def is_auth_combo(w):
+        return isinstance(w, Gtk.ComboBoxText) and [r[0] for r in w.get_model()] == lib.AUTH_ITEMS
+
+    combos = find_widgets(grid, Gtk, major, is_auth_combo)
+    spins = find_widgets(grid, Gtk, major, lambda w: isinstance(w, Gtk.SpinButton))
+    if len(combos) != 1 or len(spins) != 1:
+        fail(f"GTK{major} editor: {len(combos)} authentication combos and {len(spins)} spin buttons, expected 1 each")
+    for kind, value in case["steps"]:
+        if kind == "auth":
+            combos[0].set_active(value)
+        else:
+            spins[0].set_value(value)
+    shown = spins[0].get_value_as_int()
+    if case["new"]:
+        # the GTK3 editor refuses to save without a gateway
+        gateway = grid.get_child_at(1, 0)
+        gateway.set_text(lib.GATEWAY)
+    editor.update_connection(connection)
+    return shown, connection.get_setting_vpn().get_timeout()
 
 
 def without_tooltips(widget, Gtk, major):
@@ -164,6 +223,17 @@ def main(argv=None):
     if problems:
         fail(f"GTK{major} editor: " + "; ".join(problems))
     print(f"OK: GTK{major} editor {width_of()}x{height_of()}, screenshot {args.screenshot}")
+
+    results = {}
+    for case in lib.TIMEOUT_CASES:
+        try:
+            results[case["name"]] = run_timeout_case(NM, Gtk, major, plugin, name["service"], case)
+        except GLib.Error as error:
+            fail(f"GTK{major} editor, case {case['name']!r}: {error.message}")
+    problems = lib.check_timeout_results(results)
+    if problems:
+        fail(f"GTK{major} editor: " + "; ".join(problems))
+    print(f"OK: GTK{major} editor connect timeout, {len(results)} save scenarios")
 
 
 if __name__ == "__main__":
