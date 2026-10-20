@@ -30,8 +30,8 @@ def fail(message):
 
 def build_connection(NM, service):
     """The connection the editor is opened with for the screenshot and
-    lib.check_editor(): an existing profile with lib.vpn_data() and lib.TIMEOUT"""
-    case = {"new": False, "timeout": lib.TIMEOUT}
+    lib.check_editor(): an existing profile with lib.vpn_data() and lib.VPN_TIMEOUT"""
+    case = {"new": False, "timeout": lib.VPN_TIMEOUT}
     return build_case_connection(NM, service, case, connection_id="gui-smoke")
 
 
@@ -73,7 +73,7 @@ def to_node(widget, Gtk, major):
         return {"kind": "combo", "items": items, "text": widget.get_active_text() or ""}
     node = {"kind": "other", "children": []}
     if isinstance(widget, Gtk.SpinButton):  # before Entry: a GTK3 SpinButton is an Entry
-        node.update(kind="spin", value=widget.get_value_as_int())
+        node.update(kind="spin", value=int(widget.get_value()))
     elif isinstance(widget, Gtk.Entry):
         node.update(kind="entry", text=widget.get_text())
     elif isinstance(widget, Gtk.CheckButton):
@@ -112,6 +112,10 @@ def run_timeout_case(NM, GLib, Gtk, major, plugin, service, case):
     """Open the editor for one lib.TIMEOUT_CASES entry in a window, apply its
     steps and save; returns {"shown", "saved", "silent_steps", "changed_on_save"}
     (see gui_smoke_lib.check_timeout_results)"""
+    for step in case["steps"]:
+        problems = lib.step_problems(step)
+        if problems:
+            fail(f"case {case['name']!r}: " + "; ".join(problems))
     connection = build_case_connection(NM, service, case)
     editor = plugin.get_editor(connection)
     grid = editor.get_widget()
@@ -221,14 +225,7 @@ def main(argv=None):
         fail("the editor has no widget")
 
     without_tooltips(widget, Gtk, major)
-    window = Gtk.Window()
-    window.set_default_size(760, 460)
-    if major == 3:
-        window.add(widget)
-        window.show_all()
-    else:
-        window.set_child(widget)
-        window.present()
+    show_in_window(widget, GLib, Gtk, major)
 
     def width_of():
         return widget.get_allocated_width() if major == 3 else widget.get_width()
@@ -236,7 +233,7 @@ def main(argv=None):
     def height_of():
         return widget.get_allocated_height() if major == 3 else widget.get_height()
 
-    if not pump(GLib, until=lambda: window.get_mapped() and width_of() > 0):
+    if not pump(GLib, until=lambda: width_of() > 0):
         fail(f"the editor window did not appear within {TIMEOUT} s")
     pump(GLib, seconds=1.0)  # let it draw
 

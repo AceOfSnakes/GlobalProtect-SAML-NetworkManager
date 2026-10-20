@@ -71,7 +71,7 @@ endif
 # by ctest (offscreen), so no display is needed. Skipped for nocheck.
 override_dh_auto_test:
 ifeq ($(filter nocheck,$(DEB_BUILD_OPTIONS)),)
-	cd plugins/plasma/build && ctest --output-on-failure
+	cd plugins/plasma/build && ctest --output-on-failure --no-tests=error
 else
 	@echo "nocheck: not running the Plasma widget test"
 endif

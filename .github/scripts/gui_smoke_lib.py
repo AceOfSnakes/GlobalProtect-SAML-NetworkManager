@@ -22,7 +22,7 @@ AUTH_ITEMS = ["Browser (SAML, passkey, 2FA)", "Username and password (RSA token)
 AUTH_ACTIVE = "Username and password (RSA token)"  # for auth-mode=credentials
 AS_GATEWAY_LABEL = "Address is a gateway (skip the portal)"
 # vpn.timeout of the test connection: a value "the user set" (not 0, not 360)
-TIMEOUT = 240
+VPN_TIMEOUT = 240
 # What browser authentication starts with (issue #46)
 SAML_TIMEOUT = 360
 
@@ -54,11 +54,34 @@ TIMEOUT_CASES = [
      "vpn_data": {"gateway": GATEWAY}, "shown": 0, "saved": 0},
     {"name": "existing credentials profile without timeout, browser", "new": False, "timeout": 0,
      "steps": [("auth", 0)], "shown": SAML_TIMEOUT, "saved": SAML_TIMEOUT},
-    {"name": "existing profile with timeout, browser", "new": False, "timeout": TIMEOUT,
-     "steps": [("auth", 0)], "shown": TIMEOUT, "saved": TIMEOUT},
-    {"name": "existing profile, typed value", "new": False, "timeout": TIMEOUT,
+    {"name": "existing profile with timeout, browser", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("auth", 0)], "shown": VPN_TIMEOUT, "saved": VPN_TIMEOUT},
+    {"name": "existing profile, typed value", "new": False, "timeout": VPN_TIMEOUT,
      "steps": [("type", "300")], "shown": 300, "saved": 300},
+    # vpn.timeout is a guint32: values above 2^31 must survive a save
+    {"name": "existing profile with a timeout above 2^31", "new": False, "timeout": 3000000000,
+     "steps": [], "shown": 3000000000, "saved": 3000000000},
+    {"name": "existing profile with the largest timeout", "new": False, "timeout": 4294967295,
+     "steps": [], "shown": 4294967295, "saved": 4294967295},
 ]
+
+
+def step_problems(step):
+    """The problems of one step of a TIMEOUT_CASES entry (empty list = fine)"""
+    if not isinstance(step, tuple) or len(step) != 2:
+        return [f"step {step!r} is not a (kind, value) pair"]
+    kind, value = step
+    if kind not in STEP_KINDS:
+        return [f"unknown step kind {kind!r}"]
+    if kind == "auth":
+        if isinstance(value, bool) or value not in (0, 1):
+            return [f"auth index {value!r} is not 0 or 1"]
+    elif kind == "spin":
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return [f"spin value {value!r} is not an int >= 0"]
+    elif not isinstance(value, str) or not value or not value.isascii() or not value.isdigit():
+        return [f"typed text {value!r} is not a non-empty digit string"]
+    return []
 
 
 def parse_name_file(text):
@@ -141,9 +164,9 @@ def check_editor(root, width, height):
     spins = [n for n in nodes if n.get("kind") == "spin"]
     if not spins:
         problems.append("no spin button for the connect timeout")
-    elif not any(n.get("value") == TIMEOUT for n in spins):
+    elif not any(n.get("value") == VPN_TIMEOUT for n in spins):
         shown = [n.get("value") for n in spins]
-        problems.append(f"the connect timeout is not {TIMEOUT} (shown: {shown})")
+        problems.append(f"the connect timeout is not {VPN_TIMEOUT} (shown: {shown})")
 
     checks = [n for n in nodes if n.get("kind") == "check" and n.get("text") == AS_GATEWAY_LABEL]
     if not checks:

@@ -247,11 +247,11 @@ class TestTimeoutCases:
         assert lib.check_timeout_results(good_results()) == []
 
     def test_the_constants(self):
-        assert lib.TIMEOUT == 240
+        assert lib.VPN_TIMEOUT == 240
         assert lib.SAML_TIMEOUT == 360
 
     def test_the_timeout_of_the_test_connection_is_neither_zero_nor_the_default(self):
-        assert lib.TIMEOUT not in (0, lib.SAML_TIMEOUT)
+        assert lib.VPN_TIMEOUT not in (0, lib.SAML_TIMEOUT)
 
     def test_the_table_has_the_shape_the_probe_needs(self):
         names = [case["name"] for case in lib.TIMEOUT_CASES]
@@ -263,24 +263,27 @@ class TestTimeoutCases:
             assert isinstance(case["shown"], int) and isinstance(case["saved"], int)
             if case["new"]:
                 assert "vpn_data" not in case  # a new profile has no vpn.data
-            for kind, value in case["steps"]:
-                assert kind in lib.STEP_KINDS
-                if kind == "auth":
-                    assert value in (0, 1)
-                elif kind == "spin":
-                    assert isinstance(value, int) and not isinstance(value, bool)
-                else:
-                    assert isinstance(value, str) and value.isascii() and value.isdigit()
+            for step in case["steps"]:
+                assert lib.step_problems(step) == []
 
-    @pytest.mark.parametrize("step", [("auth", 2), ("spin", "5"), ("type", ""), ("type", "5x"), ("click", 1)])
+    def test_the_table_has_values_above_two_to_the_31(self):
+        timeouts = [case["timeout"] for case in lib.TIMEOUT_CASES]
+
+        assert any(2**31 < t < 2**32 - 1 for t in timeouts)
+        assert 2**32 - 1 in timeouts
+
+    @pytest.mark.parametrize("step", [
+        ("auth", 0), ("auth", 1), ("spin", 0), ("spin", 300), ("type", "500")])
+    def test_a_good_step_has_no_problems(self, step):
+        assert lib.step_problems(step) == []
+
+    @pytest.mark.parametrize("step", [
+        ("auth", 2), ("auth", -1), ("auth", True), ("auth", "1"),
+        ("spin", "5"), ("spin", True), ("spin", -1), ("spin", 1.5),
+        ("type", ""), ("type", "5x"), ("type", "-5"), ("type", 5), ("type", "\u0665"),
+        ("click", 1), ("auth",), "auth", None])
     def test_the_shape_test_would_reject_a_bad_step(self, step):
-        kind, value = step
-        ok = kind in lib.STEP_KINDS and (
-            (kind == "auth" and value in (0, 1))
-            or (kind == "spin" and isinstance(value, int))
-            or (kind == "type" and isinstance(value, str) and value.isascii() and value.isdigit()))
-
-        assert not ok
+        assert lib.step_problems(step) != []
 
     @CASES
     @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
@@ -367,7 +370,8 @@ class TestEditorTextsMatchTheSources:
     @pytest.mark.parametrize("source, definition", [
         ("gnome/nm-gpclient-editor.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
         ("gnome/nm-gpclient-editor-gtk3.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
-        # The Plasma editor runs in no smoke test: this is its only check
+        # The Plasma editor is not in the GTK smoke test; its QtTest (plugins/plasma/tests)
+        # runs the widget, and this checks that the constant is the same
         ("plasma/gpclientwidget.cpp", "static const int samlTimeoutDefault = {};\n"),
     ])
     def test_the_saml_timeout_is_the_one_of_the_editor(self, source, definition):
@@ -716,9 +720,14 @@ class TestProbeNodes:
             pass
 
     def test_a_spin_button_becomes_a_spin_node(self):
-        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value_as_int": lambda self: 240, "get_text": lambda self: "240"})()
+        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value": lambda self: 240.0, "get_text": lambda self: "240"})()
 
         assert gui_smoke_gtk.to_node(spin_button, self.Gtk, 3) == {"kind": "spin", "value": 240, "children": []}
+
+    def test_a_spin_button_above_two_to_the_31_becomes_a_spin_node(self):
+        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value": lambda self: 4294967295.0})()
+
+        assert gui_smoke_gtk.to_node(spin_button, self.Gtk, 3)["value"] == 4294967295
 
     def test_an_entry_stays_an_entry(self):
         entry_widget = type("E", (self.Gtk.Entry,), {"get_text": lambda self: "x"})()
@@ -773,4 +782,4 @@ class TestTooltips:
             source = handle.read()
         main = source[source.index("def main("):]
 
-        assert main.index("without_tooltips(widget") < main.index("window = Gtk.Window()")
+        assert main.index("without_tooltips(widget") < main.index("show_in_window(widget")

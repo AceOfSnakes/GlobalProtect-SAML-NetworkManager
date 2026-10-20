@@ -28,11 +28,12 @@ struct _NMGpclientEditor {
 
 /* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
- * connection with browser authentication starts with this value, and choosing
- * browser authentication while the value is 0 sets it (issue #46). It is
- * longer than the limit of the browser login itself (GP_AUTH_TIMEOUT, 300 s,
- * scripts/browser-wrapper.sh) plus the time to connect after the login, so
- * that limit and its clearer error come first. */
+ * connection with browser authentication starts with this value. While the
+ * stored value is 0 and the user has not changed the field, choosing browser
+ * authentication sets it (issue #46). It is longer than the limit of the
+ * browser login itself (GP_AUTH_TIMEOUT, 300 s, scripts/browser-wrapper.sh)
+ * plus the time to connect after the login, so that limit and its clearer
+ * error come first. */
 #define SAML_TIMEOUT_DEFAULT 360
 
 /* Browser values understood by the service (see resolve_browser()) */
@@ -108,7 +109,7 @@ timeout_from_spin (GtkSpinButton *spin)
         return 0;
     if (g_ascii_string_to_unsigned (text, 10, 0, G_MAXUINT64, &v, NULL))
         return (guint) MIN (v, upper);
-    return (guint) gtk_spin_button_get_value_as_int (spin);
+    return (guint) gtk_spin_button_get_value (spin);
 }
 
 static void
@@ -311,7 +312,7 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     timeout_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    self->timeout_spin = gtk_spin_button_new_with_range (0, G_MAXINT32, 10);
+    self->timeout_spin = gtk_spin_button_new_with_range (0, G_MAXUINT32, 10);
     gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->timeout_spin), 0);
     gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (self->timeout_spin), TRUE);
     gtk_widget_set_hexpand (self->timeout_spin, TRUE);
@@ -319,9 +320,9 @@ build_ui (NMGpclientEditor *self)
         "How long NetworkManager waits for the VPN to connect, including the "
         "login in the browser (vpn.timeout).\n"
         "0 uses the NetworkManager default, usually 60 s - often too short for a "
-        "SAML login with MFA. New connections with browser authentication start "
-        "with 360 s; choosing browser authentication while the value is 0 also "
-        "sets 360 s.");
+        "SAML login with MFA. A new connection with browser authentication starts "
+        "with 360 s. While a connection has no timeout of its own (0) and you have "
+        "not changed this field, choosing browser authentication sets 360 s.");
     /* A new profile starts with 360 s for browser authentication. A stored 0
      * (new or existing) follows the authentication mode until the user sets a
      * value; an existing profile still opens with its 0. */
@@ -329,7 +330,7 @@ build_ui (NMGpclientEditor *self)
         gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin),
                                    auth_index == 0 ? SAML_TIMEOUT_DEFAULT : 0);
     else
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin), stored);
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->timeout_spin), (double) stored);
     self->timeout_follows_auth_mode = (stored == 0);
     /* Connect after the initial value is set */
     g_signal_connect (self->timeout_spin, "value-changed", G_CALLBACK (timeout_changed_cb), self);

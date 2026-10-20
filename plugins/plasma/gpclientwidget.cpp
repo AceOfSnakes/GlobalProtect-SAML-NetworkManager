@@ -12,11 +12,10 @@
 #include <QFileInfo>
 #include <QLineEdit>
 #include <QSignalBlocker>
-#include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QLocale>
 #include <QString>
 #include <QStringList>
-
-#include <climits>
 
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * no vpn.data value at all, so existing profiles keep behaving the same. */
@@ -58,6 +57,12 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     m_ui->fixOpensslComboBox->addItem(QStringLiteral("Always on"));
     m_ui->fixOpensslComboBox->addItem(QStringLiteral("Never"));
 
+    // vpn.timeout is a guint32, so the field is a QDoubleSpinBox without decimals
+    // (a QSpinBox stops at INT_MAX). No group separators: 3000000000, not 3,000,000,000.
+    QLocale numberLocale;
+    numberLocale.setNumberOptions(QLocale::OmitGroupSeparator);
+    m_ui->timeoutSpinBox->setLocale(numberLocale);
+
     // Load configuration if available
     loadConfig(setting);
 
@@ -70,12 +75,15 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
         if (m_timeoutFollowsAuthMode) {
             // Keep following: only the user's own choice stops it
             const QSignalBlocker blocker(m_ui->timeoutSpinBox);
-            m_ui->timeoutSpinBox->setValue(index == 0 ? samlTimeoutDefault : 0);
+            m_ui->timeoutSpinBox->setValue(index == 0 ? static_cast<double>(samlTimeoutDefault) : 0.0);
         }
     });
-    connect(m_ui->timeoutSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
-        // The user chose a value: keep it whatever the authentication mode
+    connect(m_ui->timeoutSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
+        // The user chose a value: keep it whatever the authentication mode.
         m_timeoutFollowsAuthMode = false;
+        // plasma-nm's watchChangedSetting() only watches QSpinBox::valueChanged(int)
+        // and a spin box line edit does not signal on setValue(), so a
+        // QDoubleSpinBox needs its own emit (checked by the timeout test).
         Q_EMIT settingChanged();
     });
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
@@ -108,6 +116,9 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
     if (vpnSetting) {
         const NMStringMap data = vpnSetting->data();
         m_originalData = data;
+        // toMap() always writes these, so a fresh setting() would reset them on save
+        m_persistent = vpnSetting->persistent();
+        m_userName = vpnSetting->username();
 
         // Load the portal / gateway address
         if (data.contains(QLatin1String("gateway"))) {
@@ -154,14 +165,14 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         // authentication mode until the user sets a value.
         const bool isNew = data.isEmpty();
         const uint stored = vpnSetting->timeout();
-        int timeoutValue = static_cast<int>(qMin<uint>(stored, INT_MAX));
+        uint timeoutValue = stored;
         m_timeoutFollowsAuthMode = (stored == 0);
         if (isNew && stored == 0) {
             timeoutValue = m_ui->authModeComboBox->currentIndex() == 0 ? samlTimeoutDefault : 0;
         }
         {
             const QSignalBlocker blocker(m_ui->timeoutSpinBox);
-            m_ui->timeoutSpinBox->setValue(timeoutValue);
+            m_ui->timeoutSpinBox->setValue(static_cast<double>(timeoutValue));
         }
 
         // Username for portals that ask for credentials on the terminal
@@ -279,6 +290,8 @@ QVariantMap GpclientWidget::setting() const
                 m_ui->hipCheckBox->isChecked() ? QLatin1String("true") : QLatin1String("false"));
 
     setting.setData(data);
+    setting.setPersistent(m_persistent);
+    setting.setUsername(m_userName);
 
     // toMap() always writes the timeout, so leaving it out here would reset a
     // value set with nmcli (vpn.timeout) to 0 on every save

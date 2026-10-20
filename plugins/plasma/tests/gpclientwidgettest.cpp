@@ -12,7 +12,7 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QSignalSpy>
-#include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QtTest>
 
 namespace
@@ -38,6 +38,10 @@ private Q_SLOTS:
     void timeout_data();
     void timeout();
     void keepsUnknownDataKeys();
+    void removesClearedKeys_data();
+    void removesClearedKeys();
+    void keepsPersistentAndUserName();
+    void doesNotInventPersistentAndUserName();
 };
 
 void GpclientWidgetTest::timeout_data()
@@ -46,7 +50,7 @@ void GpclientWidgetTest::timeout_data()
     QTest::addColumn<uint>("stored");
     // Steps: "auth:<index>", "spin:<value>", "type:<digits>"
     QTest::addColumn<QStringList>("steps");
-    QTest::addColumn<int>("expectedValue");
+    QTest::addColumn<uint>("expectedValue");
     QTest::addColumn<uint>("expectedTimeout");
 
     const NMStringMap none;
@@ -54,17 +58,20 @@ void GpclientWidgetTest::timeout_data()
     const NMStringMap credentials{{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")},
                                   {QStringLiteral("auth-mode"), QStringLiteral("credentials")}};
 
-    QTest::newRow("new, browser") << none << 0u << QStringList{} << 360 << 360u;
-    QTest::newRow("new, credentials") << none << 0u << QStringList{"auth:1"} << 0 << 0u;
-    QTest::newRow("new, credentials, browser again") << none << 0u << QStringList{"auth:1", "auth:0"} << 360 << 360u;
-    QTest::newRow("new, spin, credentials") << none << 0u << QStringList{"spin:300", "auth:1"} << 300 << 300u;
-    QTest::newRow("new, typed, credentials") << none << 0u << QStringList{"type:500", "auth:1"} << 500 << 500u;
-    QTest::newRow("new, stored 90, credentials") << none << 90u << QStringList{"auth:1"} << 90 << 90u;
-    QTest::newRow("existing 0 stays 0") << gateway << 0u << QStringList{} << 0 << 0u;
-    QTest::newRow("existing credentials 0, browser") << credentials << 0u << QStringList{"auth:0"} << 360 << 360u;
-    QTest::newRow("existing credentials 240, browser") << credentials << 240u << QStringList{"auth:0"} << 240 << 240u;
-    QTest::newRow("existing credentials 240 kept") << credentials << 240u << QStringList{} << 240 << 240u;
-    QTest::newRow("existing credentials 240, typed") << credentials << 240u << QStringList{"type:300"} << 300 << 300u;
+    QTest::newRow("new, browser") << none << 0u << QStringList{} << 360u << 360u;
+    QTest::newRow("new, credentials") << none << 0u << QStringList{"auth:1"} << 0u << 0u;
+    QTest::newRow("new, credentials, browser again") << none << 0u << QStringList{"auth:1", "auth:0"} << 360u << 360u;
+    QTest::newRow("new, spin, credentials") << none << 0u << QStringList{"spin:300", "auth:1"} << 300u << 300u;
+    QTest::newRow("new, typed, credentials") << none << 0u << QStringList{"type:500", "auth:1"} << 500u << 500u;
+    QTest::newRow("new, stored 90, credentials") << none << 90u << QStringList{"auth:1"} << 90u << 90u;
+    QTest::newRow("existing 0 stays 0") << gateway << 0u << QStringList{} << 0u << 0u;
+    QTest::newRow("existing credentials 0, browser") << credentials << 0u << QStringList{"auth:0"} << 360u << 360u;
+    QTest::newRow("existing credentials 240, browser") << credentials << 240u << QStringList{"auth:0"} << 240u << 240u;
+    QTest::newRow("existing credentials 240 kept") << credentials << 240u << QStringList{} << 240u << 240u;
+    QTest::newRow("existing credentials 240, typed") << credentials << 240u << QStringList{"type:300"} << 300u << 300u;
+    // Above INT_MAX: shown and saved unchanged (guint32)
+    QTest::newRow("existing 3000000000") << gateway << 3000000000u << QStringList{} << 3000000000u << 3000000000u;
+    QTest::newRow("existing 4294967295") << gateway << 4294967295u << QStringList{} << 4294967295u << 4294967295u;
 }
 
 void GpclientWidgetTest::timeout()
@@ -72,11 +79,11 @@ void GpclientWidgetTest::timeout()
     QFETCH(NMStringMap, data);
     QFETCH(uint, stored);
     QFETCH(QStringList, steps);
-    QFETCH(int, expectedValue);
+    QFETCH(uint, expectedValue);
     QFETCH(uint, expectedTimeout);
 
     GpclientWidget widget(makeSetting(data, stored));
-    auto *spin = widget.findChild<QSpinBox *>(QStringLiteral("timeoutSpinBox"));
+    auto *spin = widget.findChild<QDoubleSpinBox *>(QStringLiteral("timeoutSpinBox"));
     auto *authMode = widget.findChild<QComboBox *>(QStringLiteral("authModeComboBox"));
     QVERIFY(spin);
     QVERIFY(authMode);
@@ -92,7 +99,8 @@ void GpclientWidgetTest::timeout()
         if (kind == QLatin1String("auth")) {
             authMode->setCurrentIndex(arg.toInt());
         } else if (kind == QLatin1String("spin")) {
-            spin->setValue(arg.toInt());
+            spin->setValue(arg.toDouble());
+            QCOMPARE(changed.count(), before + 1); // one change, one signal
         } else if (kind == QLatin1String("type")) {
             spin->setFocus();
             edit->selectAll();
@@ -100,10 +108,15 @@ void GpclientWidgetTest::timeout()
         } else {
             QFAIL("unknown step");
         }
+        // Not covered by plasma-nm's watchChangedSetting() for a QDoubleSpinBox
         QVERIFY2(changed.count() > before, qPrintable(QStringLiteral("no settingChanged after ") + step));
     }
 
-    QCOMPARE(spin->value(), expectedValue);
+    QCOMPARE(static_cast<uint>(spin->value()), expectedValue);
+    // No group separators or decimals in the text
+    if (expectedValue > 1000u) {
+        QCOMPARE(edit->text(), QString::number(expectedValue) + QStringLiteral(" s"));
+    }
     const QVariantMap map = widget.setting();
     QVERIFY(map.contains(QStringLiteral("timeout")));
     QCOMPARE(map.value(QStringLiteral("timeout")).toUInt(), expectedTimeout);
@@ -120,6 +133,64 @@ void GpclientWidgetTest::keepsUnknownDataKeys()
     QCOMPARE(saved.data().value(QStringLiteral("gateway-list")), QStringLiteral("gw1;gw2"));
     QCOMPARE(saved.data().value(QStringLiteral("gateway")), QStringLiteral("vpn.example.com"));
     QCOMPARE(saved.serviceType(), serviceType);
+}
+
+void GpclientWidgetTest::removesClearedKeys_data()
+{
+    QTest::addColumn<QString>("key");
+    QTest::addColumn<QString>("editName");
+
+    QTest::newRow("username") << "username" << "usernameLineEdit";
+    QTest::newRow("dns") << "dns" << "dnsLineEdit";
+}
+
+void GpclientWidgetTest::removesClearedKeys()
+{
+    QFETCH(QString, key);
+    QFETCH(QString, editName);
+
+    NMStringMap data{{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}, {key, QStringLiteral("bob")}};
+    GpclientWidget widget(makeSetting(data, 0));
+    auto *edit = widget.findChild<QLineEdit *>(editName);
+    QVERIFY(edit);
+    QCOMPARE(edit->text(), QStringLiteral("bob"));
+
+    // Positive: untouched, the key is saved
+    NetworkManager::VpnSetting kept;
+    kept.fromMap(widget.setting());
+    QCOMPARE(kept.data().value(key), QStringLiteral("bob"));
+
+    // Negative: cleared by the user, the key is gone
+    edit->clear();
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+    QVERIFY(!saved.data().contains(key));
+    QCOMPARE(saved.data().value(QStringLiteral("gateway")), QStringLiteral("vpn.example.com"));
+}
+
+void GpclientWidgetTest::keepsPersistentAndUserName()
+{
+    auto setting = makeSetting({{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}}, 0);
+    setting->setPersistent(true);
+    setting->setUsername(QStringLiteral("alice"));
+    GpclientWidget widget(setting);
+
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+    QVERIFY(saved.persistent());
+    QCOMPARE(saved.username(), QStringLiteral("alice"));
+}
+
+void GpclientWidgetTest::doesNotInventPersistentAndUserName()
+{
+    NetworkManager::VpnSetting::Ptr setting(new NetworkManager::VpnSetting);
+    setting->setServiceType(serviceType);
+    GpclientWidget widget(setting);
+
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+    QVERIFY(!saved.persistent());
+    QVERIFY(saved.username().isEmpty());
 }
 
 QTEST_MAIN(GpclientWidgetTest)

@@ -219,6 +219,7 @@ exceeded". Set it in the editor (**Connect timeout**) or with
 
 The connect timeout must be longer than `GP_AUTH_TIMEOUT` plus the time to
 connect after the login. Then the limit of the browser login, with its clearer
-error, comes first. 360 s fits the 300 s default. New connections with browser
-login start with 360 s, and choosing browser login while the value is 0 sets
-360 s. If you raise `GP_AUTH_TIMEOUT`, raise `vpn.timeout` too.
+error, comes first. 360 s fits the 300 s default. A new connection with browser
+login starts with 360 s. While a connection has no timeout of its own (0) and
+you have not changed the field, choosing browser login sets 360 s. If you
+raise `GP_AUTH_TIMEOUT`, raise `vpn.timeout` too.
