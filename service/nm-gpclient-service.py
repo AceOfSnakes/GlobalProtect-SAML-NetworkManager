@@ -567,6 +567,34 @@ def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
     return words
 
 
+HIDDEN = "<hidden>"
+
+
+def redact_settings(obj: Any) -> Any:
+    """Copy of NM settings that is safe to log: every value under a "secrets"
+    key (at any depth, also inside sdbus (signature, value) tuples) becomes
+    "<hidden>". The keys stay, so the log still shows what was sent."""
+    if isinstance(obj, dict):
+        return {
+            key: HIDDEN if key == "secrets" else redact_settings(value)
+            for key, value in obj.items()
+        }
+    if isinstance(obj, tuple):
+        return tuple(redact_settings(item) for item in obj)
+    if isinstance(obj, list):
+        return [redact_settings(item) for item in obj]
+    return obj
+
+
+def mask_secrets(line: str, secrets: Sequence[str]) -> str:
+    """Replace every occurrence of a secret value in a line of output"""
+    # Longest first: a secret that contains another one is masked whole
+    for secret in sorted(secrets, key=len, reverse=True):
+        if secret:
+            line = line.replace(secret, HIDDEN)
+    return line
+
+
 def classify_prompt(label: str) -> str:
     """Classify a prompt label as 'username' or 'password' (any secret).
 
@@ -1199,6 +1227,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answering = False  # a prompt is currently being answered
         self._secret_future = None  # pending SecretsRequired -> NewSecrets
         self._last_answer = ""  # last answer written to the PTY
+        # Secret answers written to the PTY in this attempt: masked in the
+        # logged output (inquire echoes a typed answer). Never logged.
+        self._written_secrets: set = set()
         # Per-phase prompt state (a "phase" is one Portal/Gateway auth round,
         # delimited by the auth banner). gpclient asks username then password;
         # any prompt after the password is a follow-up challenge (MFA).
@@ -1221,7 +1252,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             String with setting name that needs secrets, or empty string if none needed
         """
         logger.debug("=== NeedSecrets() called ===")
-        logger.debug(f"Settings data: {settings}")
+        logger.debug(f"Settings data: {redact_settings(settings)}")
 
         # SAML (default): authentication happens in the browser via gpauth,
         # no secrets needed upfront.
@@ -1280,12 +1311,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         interactive: bool,
     ) -> None:
         """Shared implementation for Connect() and ConnectInteractive()"""
-        logger.debug(f"Full connection data: {connection}")
+        logger.debug(f"Full connection data: {redact_settings(connection)}")
         self._interactive = interactive
         self._auth_banner = None
         self._answering = False
         self._secret_future = None
         self._last_answer = ""
+        self._written_secrets = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
@@ -1313,7 +1345,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 else:
                     vpn_data[key] = value
 
-            logger.debug(f"Parsed VPN data: {vpn_data}")
+            logger.debug(f"Parsed VPN data: {redact_settings(vpn_data)}")
 
             # Parse IPv4 routing configuration
             ipv4_section = connection.get("ipv4", {})
@@ -1573,6 +1605,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._auth_banner = None
         self._answering = False
         self._last_answer = ""
+        self._written_secrets = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
@@ -2137,7 +2170,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     if line == last_logged_line:
                         continue
                     last_logged_line = line
-                    logger.info(f"gpclient output: {line}")
+                    logger.info(
+                        f"gpclient output: {mask_secrets(line, self._written_secrets)}"
+                    )
 
                     found = parse_gateway_count(line)
                     if found is not None:
@@ -2555,7 +2590,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-        self._write_answer(answer)
+        self._write_answer(answer, secret=kind != "username")
 
     @staticmethod
     def _gateway_entry(option: str) -> str:
@@ -3094,9 +3129,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         return value
 
-    def _write_answer(self, answer: str) -> None:
-        """Type an answer into gpclient's PTY"""
+    def _write_answer(self, answer: str, secret: bool = False) -> None:
+        """Type an answer into gpclient's PTY (never logs the answer)"""
         self._last_answer = answer
+        if secret and answer:
+            self._written_secrets.add(answer)
         # inquire (crossterm raw mode) treats \r as Enter
         self._write_keys(answer.encode("utf-8") + KEY_ENTER, "answer")
 
