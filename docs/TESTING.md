@@ -92,11 +92,16 @@ connection editor starts:
   shows the gateway, the preferred gateway and the two gateways of the list, the
   username, the authentication mode, the "Address is a gateway" check button
   and the connect timeout (a spin button showing the `vpn.timeout` of the test
-  connection). It then runs the save scenarios of `TIMEOUT_CASES` in
-  `gui_smoke_lib.py`: a new profile starts with 180 s for browser login and 0
-  for username and password (until the user sets a value), an existing profile
-  keeps its value, and `update_connection()` writes the shown value to
-  `vpn.timeout`.
+  connection). It then runs the 10 save scenarios of `TIMEOUT_CASES` in
+  `gui_smoke_lib.py`. Each one shows the editor in its own window and applies
+  steps: choose an authentication mode, set the spin button value, or type text
+  into it without committing it. A new profile starts with 360 s for browser
+  login and 0 for username and password (until the user sets a value). An
+  existing profile keeps its value, and a stored 0 changes to 360 s when the
+  user chooses browser login. The checks are: the number shown, the
+  `vpn.timeout` that `update_connection()` writes (also for typed text), a
+  "changed" signal after every user action (GNOME Settings enables Apply only
+  on it), and no "changed" signal during `update_connection()`.
   It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
   for GTK4 in a second process.
 - **KDE neon** (`neon`): installs `network-manager-gpclient-plasma-6` in an

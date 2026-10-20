@@ -207,7 +207,7 @@ to the address in the connection.
 The user has 300 s to answer an interactive secrets request; afterwards the
 connection fails with `LOGIN_FAILED`.
 
-The browser window for SAML authentication has its own, separate timeout
+The browser window for SAML authentication has its own timeout
 (`GP_AUTH_TIMEOUT`, 300 s by default) - see
 [EDGE_WRAPPER.md](EDGE_WRAPPER.md#environment-variables).
 
@@ -215,5 +215,10 @@ NetworkManager also stops a VPN activation after its own connect timeout
 (`vpn.timeout`, 0 = default, usually 60 s). The login in the browser counts
 towards it, so a slow SAML login with MFA can fail with "connect timeout
 exceeded". Set it in the editor (**Connect timeout**) or with
-`nmcli connection modify "My VPN" vpn.timeout 180`; new connections with
-browser login start with 180 s.
+`nmcli connection modify "My VPN" vpn.timeout 360`.
+
+The connect timeout must be longer than `GP_AUTH_TIMEOUT` plus the time to
+connect after the login. Then the limit of the browser login, with its clearer
+error, comes first. 360 s fits the 300 s default. New connections with browser
+login start with 360 s, and choosing browser login while the value is 0 sets
+360 s. If you raise `GP_AUTH_TIMEOUT`, raise `vpn.timeout` too.

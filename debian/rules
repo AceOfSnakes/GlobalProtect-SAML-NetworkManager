@@ -66,6 +66,16 @@ ifneq ($(HAS_CORE),)
 	cd external/GlobalProtect-openconnect && cargo build --release --bin gpclient --bin gpauth --bin gpservice
 endif
 
+# Run the QtTest of the Plasma settings widget (plugins/plasma/tests) in the
+# build made above; there is no other test in this build. QT_QPA_PLATFORM is set
+# by ctest (offscreen), so no display is needed. Skipped for nocheck.
+override_dh_auto_test:
+ifeq ($(filter nocheck,$(DEB_BUILD_OPTIONS)),)
+	cd plugins/plasma/build && ctest --output-on-failure
+else
+	@echo "nocheck: not running the Plasma widget test"
+endif
+
 override_dh_auto_install:
 	@test -n "$(PLASMA_PACKAGE)" || { \
 		echo "debian/control must have exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6"; exit 1; }

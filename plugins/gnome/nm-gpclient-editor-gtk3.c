@@ -33,8 +33,12 @@ struct _NMGpclientEditor {
 
 /* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
- * connection with browser authentication starts with this value (issue #46). */
-#define SAML_TIMEOUT_DEFAULT 180
+ * connection with browser authentication starts with this value, and choosing
+ * browser authentication while the value is 0 sets it (issue #46). It is
+ * longer than the limit of the browser login itself (GP_AUTH_TIMEOUT, 300 s,
+ * scripts/browser-wrapper.sh) plus the time to connect after the login, so
+ * that limit and its clearer error come first. */
+#define SAML_TIMEOUT_DEFAULT 360
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const char *browser_values[] = {
@@ -69,13 +73,31 @@ browser_combo_changed_cb (GtkComboBox *combo, gpointer user_data)
 }
 
 static void
-timeout_changed_cb (GtkSpinButton *spin, gpointer user_data)
+timeout_changed_cb (gpointer widget, gpointer user_data)
 {
     NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
 
-    /* The user chose a value: keep it whatever the authentication mode */
+    /* The user set a value (+/-, typing): keep it whatever the authentication
+     * mode. Connected to "value-changed" and to the text "changed" of the
+     * spin button: GNOME Settings enables Apply only on the editor's "changed". */
     self->timeout_follows_auth_mode = FALSE;
     g_signal_emit_by_name (G_OBJECT (self), "changed");
+}
+
+/* The value the user sees. Typed text is committed to the adjustment only on
+ * focus-out or Enter, so read the text; this never changes the widget. */
+static guint
+timeout_from_spin (GtkSpinButton *spin)
+{
+    const char *text = gtk_entry_get_text (GTK_ENTRY (spin));
+    guint64 v;
+    guint64 upper = (guint64) gtk_adjustment_get_upper (gtk_spin_button_get_adjustment (spin));
+
+    if (!text || !*text)
+        return 0;
+    if (g_ascii_string_to_unsigned (text, 10, 0, G_MAXUINT64, &v, NULL))
+        return (guint) MIN (v, upper);
+    return (guint) gtk_spin_button_get_value_as_int (spin);
 }
 
 static void
@@ -296,16 +318,20 @@ build_ui (NMGpclientEditor *self)
         "login in the browser (vpn.timeout).\n"
         "0 uses the NetworkManager default, usually 60 s - often too short for a "
         "SAML login with MFA. New connections with browser authentication start "
-        "with 180 s.");
-    if (is_new && stored == 0) {
+        "with 360 s; choosing browser authentication while the value is 0 also "
+        "sets 360 s.");
+    /* A new profile starts with 360 s for browser authentication. A stored 0
+     * (new or existing) follows the authentication mode until the user sets a
+     * value; an existing profile still opens with its 0. */
+    if (is_new && stored == 0)
         gtk_spin_button_set_value (self->timeout_spin,
                                    auth_index == 0 ? SAML_TIMEOUT_DEFAULT : 0);
-        self->timeout_follows_auth_mode = TRUE;
-    } else {
+    else
         gtk_spin_button_set_value (self->timeout_spin, stored);
-        self->timeout_follows_auth_mode = FALSE;
-    }
+    self->timeout_follows_auth_mode = (stored == 0);
+    /* Connect after the initial value is set */
     g_signal_connect (G_OBJECT (self->timeout_spin), "value-changed", G_CALLBACK (timeout_changed_cb), self);
+    g_signal_connect (G_OBJECT (self->timeout_spin), "changed", G_CALLBACK (timeout_changed_cb), self);
     gtk_box_pack_start (GTK_BOX (timeout_box), GTK_WIDGET (self->timeout_spin), TRUE, TRUE, 0);
     timeout_hint = gtk_label_new ("seconds (0 = NetworkManager default)");
     gtk_box_pack_start (GTK_BOX (timeout_box), timeout_hint, FALSE, FALSE, 0);
@@ -463,10 +489,9 @@ update_connection (NMVpnEditor *iface,
     }
 
     if (self->timeout_spin) {
-        /* NetworkManager's own vpn.timeout; commit typed text first */
-        gtk_spin_button_update (self->timeout_spin);
+        /* NetworkManager's own vpn.timeout; read what the user sees */
         g_object_set (s_vpn, NM_SETTING_VPN_TIMEOUT,
-                      (guint) gtk_spin_button_get_value_as_int (self->timeout_spin),
+                      timeout_from_spin (self->timeout_spin),
                       NULL);
     }
 

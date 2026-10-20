@@ -200,7 +200,7 @@ class TestEditorCheck:
 
         assert lib.check_editor(tree, 700, 300) == ["no spin button for the connect timeout"]
 
-    @pytest.mark.parametrize("value", [0, 180, 239, 241, None])
+    @pytest.mark.parametrize("value", [0, 180, 360, 239, 241, None])
     def test_wrong_connect_timeout(self, value):
         tree = good_tree()
         tree["children"][6]["children"][0] = spin(value)
@@ -230,8 +230,16 @@ class TestEditorCheck:
         assert tree == before
 
 
+def good_result(case):
+    return {"shown": case["shown"], "saved": case["saved"], "silent_steps": 0, "changed_on_save": 0}
+
+
 def good_results():
-    return {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+    return {case["name"]: good_result(case) for case in lib.TIMEOUT_CASES}
+
+
+CASE_IDS = [case["name"] for case in lib.TIMEOUT_CASES]
+CASES = pytest.mark.parametrize("case", lib.TIMEOUT_CASES, ids=CASE_IDS)
 
 
 class TestTimeoutCases:
@@ -240,57 +248,84 @@ class TestTimeoutCases:
 
     def test_the_constants(self):
         assert lib.TIMEOUT == 240
-        assert lib.SAML_TIMEOUT == 180
+        assert lib.SAML_TIMEOUT == 360
 
     def test_the_timeout_of_the_test_connection_is_neither_zero_nor_the_default(self):
         assert lib.TIMEOUT not in (0, lib.SAML_TIMEOUT)
 
-    def test_case_names_are_unique_and_steps_are_known(self):
+    def test_the_table_has_the_shape_the_probe_needs(self):
         names = [case["name"] for case in lib.TIMEOUT_CASES]
 
         assert len(names) == len(set(names))
         for case in lib.TIMEOUT_CASES:
-            assert all(kind in ("auth", "spin") for kind, _ in case["steps"])
+            assert isinstance(case["new"], bool)
+            assert isinstance(case["timeout"], int) and case["timeout"] >= 0
+            assert isinstance(case["shown"], int) and isinstance(case["saved"], int)
+            if case["new"]:
+                assert "vpn_data" not in case  # a new profile has no vpn.data
+            for kind, value in case["steps"]:
+                assert kind in lib.STEP_KINDS
+                if kind == "auth":
+                    assert value in (0, 1)
+                elif kind == "spin":
+                    assert isinstance(value, int) and not isinstance(value, bool)
+                else:
+                    assert isinstance(value, str) and value.isascii() and value.isdigit()
 
-    def test_a_new_profile_follows_the_authentication_mode_until_the_user_sets_a_value(self):
-        expected = {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+    @pytest.mark.parametrize("step", [("auth", 2), ("spin", "5"), ("type", ""), ("type", "5x"), ("click", 1)])
+    def test_the_shape_test_would_reject_a_bad_step(self, step):
+        kind, value = step
+        ok = kind in lib.STEP_KINDS and (
+            (kind == "auth" and value in (0, 1))
+            or (kind == "spin" and isinstance(value, int))
+            or (kind == "type" and isinstance(value, str) and value.isascii() and value.isdigit()))
 
-        assert expected["new profile"] == (180, 180)
-        assert expected["new profile, credentials"] == (0, 0)
-        assert expected["new profile, credentials, browser"] == (180, 180)
-        assert expected["new profile, own value, credentials"] == (300, 300)
+        assert not ok
 
-    def test_an_existing_profile_is_not_changed(self):
-        expected = {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
-
-        assert expected["existing SAML profile without timeout"] == (0, 0)
-        assert expected["existing profile with timeout, browser"] == (240, 240)
-
-    @pytest.mark.parametrize("index", range(6))
+    @CASES
     @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
-    def test_a_wrong_shown_value_is_reported(self, index, wrong):
-        case = lib.TIMEOUT_CASES[index]
+    def test_a_wrong_shown_value_is_reported(self, case, wrong):
         results = good_results()
-        results[case["name"]] = (wrong, case["saved"])
+        results[case["name"]]["shown"] = wrong
 
         problems = lib.check_timeout_results(results)
 
         assert len(problems) == 1 and case["name"] in problems[0] and "shown" in problems[0]
 
-    @pytest.mark.parametrize("index", range(6))
+    @CASES
     @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
-    def test_a_wrong_saved_value_is_reported(self, index, wrong):
-        case = lib.TIMEOUT_CASES[index]
+    def test_a_wrong_saved_value_is_reported(self, case, wrong):
         results = good_results()
-        results[case["name"]] = (case["shown"], wrong)
+        results[case["name"]]["saved"] = wrong
 
         problems = lib.check_timeout_results(results)
 
         assert len(problems) == 1 and case["name"] in problems[0] and "saved" in problems[0]
 
-    @pytest.mark.parametrize("index", range(6))
-    def test_a_missing_case_is_reported(self, index):
-        case = lib.TIMEOUT_CASES[index]
+    @CASES
+    @pytest.mark.parametrize("count", [1, 2])
+    def test_a_step_without_changed_is_reported(self, case, count):
+        results = good_results()
+        results[case["name"]]["silent_steps"] = count
+
+        problems = lib.check_timeout_results(results)
+
+        assert len(problems) == 1 and case["name"] in problems[0]
+        assert "a user action did not emit changed" in problems[0]
+
+    @CASES
+    @pytest.mark.parametrize("count", [1, 3])
+    def test_changed_during_update_connection_is_reported(self, case, count):
+        results = good_results()
+        results[case["name"]]["changed_on_save"] = count
+
+        problems = lib.check_timeout_results(results)
+
+        assert len(problems) == 1 and case["name"] in problems[0]
+        assert "update_connection emitted changed" in problems[0]
+
+    @CASES
+    def test_a_missing_case_is_reported(self, case):
         results = good_results()
         del results[case["name"]]
 

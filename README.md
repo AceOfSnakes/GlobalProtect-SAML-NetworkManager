@@ -133,11 +133,12 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |
 
 The **Connect timeout** field is NetworkManager's own `vpn.timeout`, not a
-`vpn.data` item: set it with `nmcli connection modify "My VPN" vpn.timeout 180`.
+`vpn.data` item: set it with `nmcli connection modify "My VPN" vpn.timeout 360`.
 NetworkManager stops the connection after that many seconds, and the login in
 the browser counts towards it. `0` means the NetworkManager default, usually
 60 s, which is often too short for a SAML login with MFA. New connections with
-browser login start with 180 s; existing connections keep their value
+browser login start with 360 s, and choosing browser login while the value
+is 0 sets 360 s; otherwise an existing connection keeps its value
 ([#46](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/46)).
 
 The DNS servers and search domains the gateway pushes are reported to

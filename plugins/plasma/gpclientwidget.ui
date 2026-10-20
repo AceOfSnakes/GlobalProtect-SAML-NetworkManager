@@ -131,7 +131,7 @@ Select 'Custom...' to give the full path to your own executable.</string>
     <widget class="QSpinBox" name="timeoutSpinBox">
      <property name="toolTip">
       <string>How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).
-0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. New connections with browser authentication start with 180 s.</string>
+0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. New connections with browser authentication start with 360 s; choosing browser authentication while the value is 0 also sets 360 s.</string>
      </property>
      <property name="specialValueText">
       <string>NetworkManager default (usually 60 s)</string>
