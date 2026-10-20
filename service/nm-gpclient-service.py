@@ -3318,32 +3318,39 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                     # Add IP address if found
                     if ip_addr:
-                        # Convert IP to 32-bit integer (network byte order)
-                        ip_int = struct.unpack("!I", socket.inet_aton(ip_addr))[0]
-                        config["address"] = ("u", ip_int)
-                        config["prefix"] = ("u", prefix)
-                        logger.info(f"Added address: {ip_addr}/{prefix}")
+                        # Convert IP to the uint32 NetworkManager expects
+                        try:
+                            ip_int = ipv4_to_nm_uint32(ip_addr)
+                        except ValueError as e:
+                            logger.warning(f"Not adding address {ip_addr}: {e}")
+                        else:
+                            config["address"] = ("u", ip_int)
+                            config["prefix"] = ("u", prefix)
+                            logger.info(f"Added address: {ip_addr}/{prefix}")
 
                     # Add gateway (required by NetworkManager, even with never-default)
                     # NetworkManager uses never-default to control routing, not plugin
                     if gateway:
-                        gateway_int = struct.unpack("!I", socket.inet_aton(gateway))[0]
-                        config["gateway"] = ("u", gateway_int)
-                        if self.never_default:
-                            logger.info(
-                                f"Added gateway (but never-default is set): {gateway}"
-                            )
+                        try:
+                            gateway_int = ipv4_to_nm_uint32(gateway)
+                        except ValueError as e:
+                            logger.warning(f"Not adding gateway {gateway}: {e}")
                         else:
-                            logger.info(f"Added gateway: {gateway}")
+                            config["gateway"] = ("u", gateway_int)
+                            if self.never_default:
+                                logger.info(
+                                    f"Added gateway (but never-default is set): "
+                                    f"{gateway}"
+                                )
+                            else:
+                                logger.info(f"Added gateway: {gateway}")
 
                     # Add custom routes if specified
                     if self.custom_routes:
                         routes = []
                         for dest, dest_prefix in self.custom_routes:
                             try:
-                                dest_int = struct.unpack("!I", socket.inet_aton(dest))[
-                                    0
-                                ]
+                                dest_int = ipv4_to_nm_uint32(dest)
                                 # Route format: (dest_ip, prefix, next_hop, metric)
                                 # For VPN, next_hop is usually 0 (direct route)
                                 routes.append((dest_int, dest_prefix, 0, 0))
