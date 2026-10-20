@@ -1163,6 +1163,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.as_gateway = False
         self.preferred_gateway = ""
         self._connection_uuid = ""
+        self._permission_user = ""  # sole user of connection.permissions
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
         self._stored_gateway_count: Optional[int] = None  # gateway-list-count
@@ -1391,6 +1392,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._connection_uuid = (
                 uuid_raw[1] if isinstance(uuid_raw, tuple) else uuid_raw
             ) or ""
+            # A connection limited to one user tells us the desktop user (#51)
+            self._permission_user = self._parse_permission_user(
+                connection_section.get("permissions", [])
+            )
 
             # Get the server address (required). This is the portal address, or
             # a gateway address when as-gateway is set.
@@ -1557,6 +1562,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.as_gateway = False
         self.preferred_gateway = ""
         self._connection_uuid = ""
+        self._permission_user = ""
         self._gateway_list = []
         self._stored_gateway_list = ""
         self._stored_gateway_count = None
@@ -1674,8 +1680,90 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Property: Current VPN state"""
         return self._state
 
+    @staticmethod
+    def _parse_permission_user(permissions: Any) -> str:
+        """Return the user name when `connection.permissions` names exactly one
+
+        NetworkManager stores entries as "user:<name>:" (the trailing colon is
+        optional here). Values arrive as an `as` array, possibly wrapped in an
+        sdbus (signature, value) tuple. Returns "" for none or several users.
+        """
+        if isinstance(permissions, tuple) and len(permissions) == 2:
+            permissions = permissions[1]
+        if not isinstance(permissions, (list, tuple)):
+            return ""
+        users = set()
+        for entry in permissions:
+            if not isinstance(entry, str):
+                continue
+            parts = entry.split(":")
+            if len(parts) >= 2 and parts[0] == "user" and parts[1]:
+                users.add(parts[1])
+        return users.pop() if len(users) == 1 else ""
+
+    @staticmethod
+    def _seat0_active_user() -> Optional[int]:
+        """UID of the active local graphical user session on seat0, or None"""
+
+        def loginctl(*args: str) -> str:
+            result = subprocess.run(
+                ["loginctl", *args],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            return result.stdout if result.returncode == 0 else ""
+
+        try:
+            session_id = loginctl(
+                "show-seat", "seat0", "-p", "ActiveSession", "--value"
+            ).strip()
+            if not session_id:
+                return None
+            props = {}
+            output = loginctl(
+                "show-session",
+                session_id,
+                "-p",
+                "User",
+                "-p",
+                "Name",
+                "-p",
+                "Class",
+                "-p",
+                "Remote",
+                "-p",
+                "State",
+            )
+            for line in output.splitlines():
+                key, sep, value = line.partition("=")
+                if sep:
+                    props[key.strip()] = value.strip()
+            if (
+                props.get("Class") != "user"
+                or props.get("Remote") != "no"
+                or props.get("State") != "active"
+            ):
+                return None
+            uid = int(props.get("User", ""))
+            return uid if uid != 0 else None
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            logger.debug(f"loginctl failed: {e}")
+            return None
+
     def _get_real_user(self) -> Tuple[int, str, str]:
-        """Get real user info when running as root"""
+        """Find the desktop user whose session gets the authentication browser
+
+        Order:
+        1. SUDO_UID/SUDO_USER (manual runs).
+        2. The single user in the connection's `connection.permissions`.
+        3. The active local session on seat0, from logind.
+        4. The current user, with a warning.
+
+        We never pick "some other logged-in user" (issue #51): with fast user
+        switching, a lingering user or a gdm greeter user, the browser would
+        open in the wrong session.
+        """
         import pwd
 
         # First try SUDO_UID/SUDO_USER
@@ -1688,38 +1776,35 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             try:
                 pw = pwd.getpwuid(uid)
                 home = pw.pw_dir
-            except:
+            except KeyError:
                 home = f"/home/{username}"
             return uid, username, home
 
-        # Try to find logged-in user from loginctl
-        try:
-            result = subprocess.run(
-                ["loginctl", "list-users", "--no-legend"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                # Parse first non-root user
-                for line in result.stdout.strip().split("\n"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        uid_str = parts[0]
-                        username = parts[1]
-                        if username != "root":
-                            uid = int(uid_str)
-                            try:
-                                pw = pwd.getpwuid(uid)
-                                home = pw.pw_dir
-                                logger.debug(
-                                    f"Found user via loginctl: {username} (UID: {uid})"
-                                )
-                                return uid, username, home
-                            except:
-                                pass
-        except Exception as e:
-            logger.debug(f"loginctl failed: {e}")
+        # The connection is limited to one user: that is the desktop user
+        permission_user = getattr(self, "_permission_user", "")
+        if permission_user:
+            try:
+                pw = pwd.getpwnam(permission_user)
+                if pw.pw_uid != 0:
+                    logger.debug(f"Using the user of the connection: {pw.pw_name}")
+                    return pw.pw_uid, pw.pw_name, pw.pw_dir
+            except KeyError:
+                logger.debug(f"Connection user {permission_user} does not exist")
+
+        # The active local session on seat0
+        uid = self._seat0_active_user()
+        if uid is not None:
+            try:
+                pw = pwd.getpwuid(uid)
+                logger.debug(f"Found active seat0 user: {pw.pw_name} (UID: {uid})")
+                return uid, pw.pw_name, pw.pw_dir
+            except KeyError:
+                logger.debug(f"Seat0 user with UID {uid} does not exist")
+
+        logger.warning(
+            "no active local session on seat0 - the authentication browser "
+            "cannot be opened"
+        )
 
         # Fallback to current user
         uid = os.getuid()
