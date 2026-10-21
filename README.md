@@ -353,7 +353,10 @@ this matches it and nothing else), and set **Size** to *Apply Initially*.
 
 ```bash
 # The wrapper logs every launch and always says why it finished
-# (path: <base>/wrapper.log, <base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u), or the mktemp directory)
+# Messages written as root and before the private directory exists are in the journal
+journalctl -t gpclient-browser-wrapper | grep -E "done:|WARNING|ERROR"
+# The part that runs as the desktop user writes <base>/wrapper.log
+# (<base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u), or the mktemp directory)
 grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u)/wrapper.log
 
 # Try the browser on its own - the window must open and stay open

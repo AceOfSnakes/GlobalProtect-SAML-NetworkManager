@@ -41,7 +41,7 @@ def fake_loginctl(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
 
     def install(active="c1", session=None, fail=False, sessions=None, vanished=()):
-        """sessions: {id: {"User": uid, "Class": ..., "State": ...}} for
+        """sessions: {id: {"User": uid, "Class": ..., "State": ..., "Type": ...}} for
         `list-sessions` (the seat0 session c1 is only listed when given);
         vanished: ids that are listed but make `show-session` fail"""
         session = session or {}
@@ -52,6 +52,7 @@ def fake_loginctl(monkeypatch, tmp_path):
             "Class": "user",
             "Remote": "no",
             "State": "active",
+            "Type": "x11",
         }
         props.update(session)
         lines = "\n".join(f"{k}={v}" for k, v in props.items())
@@ -80,7 +81,7 @@ def fake_loginctl(monkeypatch, tmp_path):
                 f"  {sid}) cat <<'EOT'\n"
                 + "\n".join(
                     f"{k}={v}"
-                    for k, v in {"Class": "user", "State": "active", **p}.items()
+                    for k, v in {"Class": "user", "State": "active", "Type": "x11", **p}.items()
                 )
                 + "\nEOT\n ;;\n"
                 for sid, p in sessions.items()
@@ -249,7 +250,7 @@ class TestOtherActiveSession:
         assert plugin._get_real_user() == other_user()
         calls = (tmp_path / "loginctl_calls").read_text().splitlines()
         shows = [c for c in calls if c.startswith("show-session c5")]
-        assert shows == ["show-session c5 c6 c7 -p User -p Class -p State"]
+        assert shows == ["show-session c5 c6 c7 -p User -p Class -p State -p Type"]
         assert not any(c.startswith(("show-session c6", "show-session c7")) for c in calls)
 
     def test_a_session_that_closed_in_between_does_not_hide_the_user(
@@ -264,9 +265,9 @@ class TestOtherActiveSession:
 
         assert plugin._get_real_user() == other_user()
         calls = (tmp_path / "loginctl_calls").read_text().splitlines()
-        assert "show-session c5 c6 c7 -p User -p Class -p State" in calls
-        assert "show-session c5 -p User -p Class -p State" in calls
-        assert "show-session c6 -p User -p Class -p State" in calls
+        assert "show-session c5 c6 c7 -p User -p Class -p State -p Type" in calls
+        assert "show-session c5 -p User -p Class -p State -p Type" in calls
+        assert "show-session c6 -p User -p Class -p State -p Type" in calls
 
     def test_two_users_stay_ambiguous_after_a_session_closed(
         self, plugin, fake_loginctl
@@ -326,16 +327,58 @@ class TestOtherActiveSession:
             {"c5": {"User": OTHER_UID, "Class": "greeter"}},
             {"c5": {"User": OTHER_UID, "State": "closing"}},
             {"c5": {"User": OTHER_UID, "State": "online"}},
+            {"c5": {"User": OTHER_UID, "Type": "tty"}},
+            {"c5": {"User": OTHER_UID, "Type": "unspecified"}},
             {"c5": {"User": 0}},
             {"c5": {"User": "not-a-number"}},
             {},
         ],
-        ids=["greeter", "closing", "online", "root", "bad-uid", "no-sessions"],
+        ids=["greeter", "closing", "online", "ssh", "no-type", "root", "bad-uid", "no-sessions"],
     )
     def test_no_usable_session_gives_current_user(
         self, plugin, fake_loginctl, sessions
     ):
         fake_loginctl(active="", sessions=sessions)
+
+        assert plugin._get_real_user() == current_user()
+
+    def test_remote_desktop_user_wins_over_an_ssh_admin(self, plugin, fake_loginctl):
+        # An xrdp-like x11 session of one user and an SSH login of an admin:
+        # the admin has no display, so there is nothing to confuse
+        fake_loginctl(
+            active="",
+            sessions={
+                "c5": {"User": OTHER_UID, "Remote": "yes", "Type": "x11"},
+                "c6": {"User": NOBODY_UID, "Remote": "yes", "Type": "tty"},
+            },
+        )
+
+        assert plugin._get_real_user() == other_user()
+
+    def test_wayland_and_mir_sessions_count(self, plugin, fake_loginctl):
+        fake_loginctl(
+            active="",
+            sessions={"c5": {"User": OTHER_UID, "Type": "wayland"}},
+        )
+        assert plugin._get_real_user() == other_user()
+
+        fake_loginctl(
+            active="",
+            sessions={"c5": {"User": OTHER_UID, "Type": "mir"}},
+        )
+        assert plugin._get_real_user() == other_user()
+
+    def test_ssh_only_user_is_not_chosen_in_the_per_session_fallback(
+        self, plugin, fake_loginctl
+    ):
+        fake_loginctl(
+            active="",
+            sessions={
+                "c5": {"User": OTHER_UID, "Type": "tty"},
+                "c6": {"User": 0},
+            },
+            vanished=["c6"],
+        )
 
         assert plugin._get_real_user() == current_user()
 

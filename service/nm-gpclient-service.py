@@ -11,6 +11,7 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 import asyncio
 import codecs
 import fcntl
+import functools
 import ipaddress
 import logging
 import os
@@ -595,22 +596,28 @@ def redact_settings(obj: Any) -> Any:
     return obj
 
 
-def mask_secrets(line: str, secrets: Sequence[str]) -> str:
-    """Replace every occurrence of a secret value in a line of output"""
+@functools.lru_cache(maxsize=64)
+def _secrets_pattern(secrets: frozenset) -> Optional["re.Pattern[str]"]:
+    """One compiled pattern for a set of secrets, or None when there is none"""
+    parts = []
     # Longest first: a secret that contains another one is masked whole. Only
     # whole occurrences count, so a short answer ("1", "y") does not garble
     # every word that happens to contain it.
     # A guard applies only on a side where the secret has a word character: a
     # secret that starts or ends with a symbol ("#Hunter2", "abc!") is also
     # masked when a word character touches it ("x#Hunter2", "abc!def").
-    for secret in sorted(secrets, key=len, reverse=True):
+    for secret in sorted(secrets, key=lambda x: (-len(x), x)):
         if secret:
             before = r"(?<!\w)" if re.match(r"\w", secret[0]) else ""
             after = r"(?!\w)" if re.match(r"\w", secret[-1]) else ""
-            line = re.sub(
-                f"{before}{re.escape(secret)}{after}", lambda _: HIDDEN, line
-            )
-    return line
+            parts.append(f"{before}{re.escape(secret)}{after}")
+    return re.compile("|".join(parts)) if parts else None
+
+
+def mask_secrets(line: str, secrets: Sequence[str]) -> str:
+    """Replace every occurrence of a secret value in a line of output"""
+    pattern = _secrets_pattern(frozenset(secrets))
+    return pattern.sub(lambda _: HIDDEN, line) if pattern else line
 
 
 def mask_secret_prompts(line: str, labels: Sequence[str]) -> str:
@@ -1856,7 +1863,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         For xrdp, remote desktops and VMs, where seat0 has no session. Remote
         sessions count. With no such user or with several, None: we do not
-        guess between users.
+        guess between users. Only sessions with a display (x11, wayland, mir)
+        count: a user on SSH or on a text console has no desktop for the
+        browser, and must not make the choice ambiguous.
         """
         loginctl = GpclientVPNPlugin._loginctl
         uids = set()
@@ -1870,7 +1879,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 return None
             # One call for all sessions: the output has one block per session,
             # separated by a blank line
-            props_args = ("-p", "User", "-p", "Class", "-p", "State")
+            props_args = ("-p", "User", "-p", "Class", "-p", "State", "-p", "Type")
             output = loginctl("show-session", *session_ids, *props_args)
             if not output.strip():
                 # A session that closed in between fails the whole call: ask
@@ -1882,6 +1891,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             for block in re.split(r"\n\s*\n", output):
                 props = GpclientVPNPlugin._session_props(block)
                 if props.get("Class") != "user" or props.get("State") != "active":
+                    continue
+                if props.get("Type") not in ("x11", "wayland", "mir"):
                     continue
                 try:
                     uid = int(props.get("User", ""))
@@ -2091,7 +2102,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Start gpclient process"""
         try:
             # Get real user first (needed for pkill filter)
-            real_uid, real_user, real_home = self._get_real_user()
+            # (blocking loginctl calls: off the event loop)
+            real_uid, real_user, real_home = await asyncio.to_thread(
+                self._get_real_user
+            )
             logger.info(f"Will run gpclient as user: {real_user}")
 
             # Kill any hanging gpauth processes first (filtered by user for security)

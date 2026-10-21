@@ -23,17 +23,36 @@ LOG_FILE=""
 redact_urls() {
     # Usage: redact_urls -v VAR text... (no subshell: log() and redact_stream call
     # it for every line, and $(...) would fork each time)
-    # The auth URL's query or fragment can carry the SAML request or a one-time
-    # token, and the messages may end up in the system journal: never log them
-    # (pure bash: this must work with an almost empty PATH)
-    local _ru_var="$2" _ru_rest _ru_msg="" _ru_hit
+    # The auth URL can carry the SAML request or a one-time token in its path,
+    # query or fragment, and the messages may end up in the system journal: of a
+    # scheme://host URL only scheme://host[:port] is logged, and everything after
+    # a globalprotectcallback: is hidden (pure bash: this must work with an
+    # almost empty PATH)
+    local _ru_var="$2" _ru_rest _ru_msg="" _ru_hit _ru_arg _ru_host
     shift 2
     _ru_rest="$*"
-    while [[ $_ru_rest =~ ://[^[:space:]?#]*[?#] ]]; do
+    # Pass 1: globalprotectcallback:<data> (no "//"; the data is the secret)
+    while [[ $_ru_rest =~ globalprotectcallback:([^[:space:]]*) ]]; do
         _ru_hit=${BASH_REMATCH[0]}
-        _ru_msg+="${_ru_rest%%"$_ru_hit"*}$_ru_hit<hidden>"
+        _ru_arg=${BASH_REMATCH[1]}
+        _ru_msg+=${_ru_rest%%"$_ru_hit"*}
+        if [[ -z $_ru_arg || $_ru_arg == //* ]]; then
+            _ru_msg+=$_ru_hit # a scheme://host URL: pass 2 handles it
+        else
+            _ru_msg+="globalprotectcallback:<hidden>"
+        fi
         _ru_rest=${_ru_rest#*"$_ru_hit"}
-        _ru_rest=${_ru_rest#"${_ru_rest%%[[:space:]]*}"}
+    done
+    _ru_rest=$_ru_msg$_ru_rest
+    _ru_msg=""
+    # Pass 2: scheme://host[:port] stays, path, query and fragment are hidden
+    while [[ $_ru_rest =~ ://([^[:space:]/?#]*)([^[:space:]]*) ]]; do
+        _ru_hit=${BASH_REMATCH[0]}
+        _ru_host=${BASH_REMATCH[1]##*@} # never log user:password@
+        _ru_arg=${BASH_REMATCH[2]}
+        _ru_msg+="${_ru_rest%%"$_ru_hit"*}://$_ru_host"
+        [[ -n $_ru_arg ]] && _ru_msg+="/<hidden>"
+        _ru_rest=${_ru_rest#*"$_ru_hit"}
     done
     _ru_msg+=$_ru_rest
     printf -v "$_ru_var" '%s' "$_ru_msg"

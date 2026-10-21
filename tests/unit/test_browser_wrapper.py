@@ -954,10 +954,10 @@ def test_log_file_is_in_the_private_base_and_not_readable_by_others(tmp_path):
 @pytest.mark.parametrize(
     "suffix, shown",
     [
-        ("?SAMLRequest=topsecret&x=1", "/saml?<hidden>"),
-        ("#access_token=topsecret", "/saml#<hidden>"),
-        ("?a=1#b=topsecret", "/saml?<hidden>"),
-        ("#b=topsecret?a=1", "/saml#<hidden>"),
+        ("?SAMLRequest=topsecret&x=1", "https://portal.example.com/<hidden>"),
+        ("#access_token=topsecret", "https://portal.example.com/<hidden>"),
+        ("?a=1#b=topsecret", "https://portal.example.com/<hidden>"),
+        ("#b=topsecret?a=1", "https://portal.example.com/<hidden>"),
     ],
     ids=["query", "fragment", "query-and-fragment", "fragment-and-query"],
 )
@@ -974,12 +974,62 @@ def test_auth_url_query_and_fragment_are_never_logged(
     assert shown in logged
 
 
-def test_url_without_query_or_fragment_is_logged_unchanged(tmp_path):
+def test_auth_url_path_is_never_logged(tmp_path, monkeypatch):
+    # The path can carry a token too: only scheme://host stays
+    monkeypatch.setattr(sys.modules[__name__], "URL", URL + "/topsecret/more")
     text = _run_with_log(tmp_path)
 
     logged = text + (tmp_path / "syslog").read_text()
-    assert URL in logged
-    assert "<hidden>" not in logged
+    assert "topsecret" not in logged
+    assert "https://portal.example.com/<hidden>" in logged
+
+
+def _redact(text):
+    """Run redact_urls from the wrapper on a text; return the result."""
+    with open(WRAPPER) as handle:
+        script = handle.read()
+    start = script.index("redact_urls() {")
+    func = script[start : script.index("\n}\n", start) + 3]
+    out = subprocess.run(
+        ["bash", "-c", func + '\nredact_urls -v out "$1"; printf %s "$out"', "x", text],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return out.stdout
+
+
+@pytest.mark.parametrize(
+    "text, secret, kept",
+    [
+        ("globalprotectcallback:PGh0bWw+secret", "secret", "globalprotectcallback:<hidden>"),
+        ("got globalprotectcallback:PGh0secret now", "secret", "got globalprotectcallback:<hidden> now"),
+        ("http://127.0.0.1:4567/randomtoken", "randomtoken", "http://127.0.0.1:4567/<hidden>"),
+        ("https://user:secret@host.example/x", "secret", "https://host.example/<hidden>"),
+        ("a https://h.example/secret1 b https://h2.example/?secret2", "secret", "https://h2.example/<hidden>"),
+    ],
+    ids=["callback", "callback-in-text", "loopback", "userinfo", "two-urls"],
+)
+def test_redact_urls_hides_everything_after_the_host(text, secret, kept):
+    result = _redact(text)
+
+    assert secret not in result
+    assert kept in result
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "plain text without a link",
+        "https://portal.example.com",
+        "https://portal.example.com:8443",
+        "globalprotectcallback:",
+        "",
+    ],
+    ids=["plain", "host-only", "host-and-port", "empty-callback", "empty"],
+)
+def test_redact_urls_keeps_text_without_anything_to_hide(text):
+    assert _redact(text) == text
 
 
 def _plant_log_symlink(tmp_path, path):
@@ -1186,9 +1236,9 @@ def test_root_hands_the_browser_a_hostile_url_unchanged(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "suffix, shown",
     [
-        ("?SAMLRequest=topsecret&x=1", "/saml?<hidden>"),
-        ("#access_token=topsecret", "/saml#<hidden>"),
-        ("", "/saml"),
+        ("?SAMLRequest=topsecret&x=1", "/<hidden>"),
+        ("#access_token=topsecret", "/<hidden>"),
+        ("", "/<hidden>"),
     ],
     ids=["query", "fragment", "no-query"],
 )

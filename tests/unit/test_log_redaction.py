@@ -125,6 +125,20 @@ class TestMaskSecrets:
     ):
         assert service_module.mask_secrets(line, {secret}) == line
 
+    def test_longest_secret_wins_when_one_contains_another(self, service_module):
+        masked = service_module.mask_secrets("pw: abc abcdef", ["abc", "abcdef"])
+
+        assert masked == "pw: <hidden> <hidden>"
+
+    def test_the_pattern_is_built_once_for_the_same_secrets(self, service_module):
+        service_module.mask_secrets("a", ["cache-check-1", "cache-check-2"])
+        before = service_module._secrets_pattern.cache_info()
+
+        service_module.mask_secrets("b", ["cache-check-2", "cache-check-1"])
+        after = service_module._secrets_pattern.cache_info()
+
+        assert (after.hits, after.misses) == (before.hits + 1, before.misses)
+
     @pytest.mark.parametrize("secret", ["1", "y"])
     def test_short_secret_is_masked_as_a_whole_word(self, service_module, secret):
         masked = service_module.mask_secrets(f"? Answer: {secret}", {secret})

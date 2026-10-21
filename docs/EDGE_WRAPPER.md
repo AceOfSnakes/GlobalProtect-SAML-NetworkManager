@@ -227,7 +227,11 @@ The last line always starts with `done:` and says why the wrapper finished:
 
 ```bash
 # Check log file
-cat /tmp/edge-wrapper-$(id -u)/wrapper.log   # or <base>/wrapper.log; early errors: journalctl -t gpclient-browser-wrapper
+# Messages of the part that runs as the desktop user (browser start and stop)
+cat /tmp/edge-wrapper-$(id -u)/wrapper.log   # or <base>/wrapper.log
+# Messages from before the base directory exists, and all messages written as
+# root (the normal case with NetworkManager): in the journal, not in wrapper.log
+journalctl -t gpclient-browser-wrapper
 
 # Test manually (any browser, without a VPN connection involved)
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
@@ -240,6 +244,8 @@ close it.
 Check the reason in the log:
 ```bash
 grep "done:" /tmp/edge-wrapper-$(id -u)/wrapper.log
+# if wrapper.log has no "done:" line, look in the journal too
+journalctl -t gpclient-browser-wrapper | grep "done:"
 ```
 `timeout after 300s` means the login took longer than the safety timeout. Raise
 it for the whole service:
@@ -268,7 +274,9 @@ cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 
 Check detected display:
 ```bash
-grep "detected DISPLAY" /tmp/edge-wrapper-$(id -u)/wrapper.log
+# The wrapper writes this message before the base directory exists (and as root),
+# so it is in the journal, not in wrapper.log
+journalctl -t gpclient-browser-wrapper | grep "detected DISPLAY"
 ```
 
 For Wayland, ensure `WAYLAND_DISPLAY` is correct:
