@@ -200,6 +200,12 @@ test-ui: install-dev restart-nm $(ARTIFACTS_DIR)
 test-unit:
 	python3 -m pytest tests/unit -v
 
+# Run unit tests with the service's line coverage (fails below .coveragerc's
+# fail_under, as the unit test workflow does)
+.PHONY: test-coverage
+test-coverage:
+	python3 -m pytest tests/unit -q --cov
+
 # Run the upstream contract tests (see docs/UPSTREAM.md)
 .PHONY: test-upstream
 test-upstream:
