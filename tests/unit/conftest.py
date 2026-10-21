@@ -8,6 +8,7 @@ A minimal stub is injected before the service module is loaded.
 
 import importlib.util
 import os
+import subprocess
 
 import pytest
 from sdbus_stub import sdbus_stubbed
@@ -48,6 +49,22 @@ def dbus_signals(service_module):
     calls.clear()
     yield calls
     calls.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_real_pkill(service_module, monkeypatch):
+    """_start_gpclient first runs `pkill -9 -u <real uid> gpauth`: the tests
+    that start a stand-in gpclient must not kill the gpauth of the user who
+    runs them. A test that wants to see the call patches subprocess.run itself.
+    """
+    real_run = service_module.subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "pkill":
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(service_module.subprocess, "run", run)
 
 
 @pytest.fixture(autouse=True)

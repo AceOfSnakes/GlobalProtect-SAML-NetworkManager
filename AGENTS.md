@@ -101,6 +101,9 @@ Rules for tests:
   `getent`, `pgrep`, `logger`, the browser) through `PATH`, and clean up
   everything they create in `/tmp`.
 - Never skip, disable or loosen a test to get green.
+- CI measures the line coverage of `service/` (`make test-coverage`) and fails
+  below `fail_under` in `.coveragerc`. New service code comes with tests; raise
+  the limit when coverage goes up, never lower it.
 
 ## Pull requests
 

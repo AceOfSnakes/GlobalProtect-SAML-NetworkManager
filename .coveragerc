@@ -1,0 +1,12 @@
+# Line coverage of the D-Bus service by the unit tests (issue #55). Used by
+# `pytest --cov` in `make test-coverage` and in the unit test workflow.
+
+[run]
+source = service
+
+[report]
+show_missing = true
+# 99.6% when this was set, as root and as non-root. The lines left are dead
+# code, the forked child of _start_gpclient and the __main__ guard. Raise this
+# when coverage goes up; never lower it to get green.
+fail_under = 98
