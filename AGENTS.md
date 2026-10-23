@@ -47,6 +47,11 @@ and `arm64`, and published as a signed apt repository on GitHub Pages.
 - `scripts/browser-wrapper.sh` identifies the real user by **UID only**. Never
   pass a user name taken from the environment into a command, and never start
   the browser as root.
+- Every connection setting a user can set with `nmcli` (a `vpn.data` key in the
+  README settings table) is also in the GNOME editors (GTK3 and GTK4) and in the
+  Plasma editor (`plugins/plasma/`). Add a new setting to all of them in the
+  same PR. Only keys the service writes itself (`gateway-list`,
+  `gateway-list-count`) are not edited by hand.
 - Code, comments, commit messages and docs are in English.
 - Keep changes minimal and match the style of the surrounding code.
 
