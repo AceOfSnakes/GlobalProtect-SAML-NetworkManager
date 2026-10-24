@@ -185,9 +185,14 @@ class TestOpensslRetry:
         assert plugin._openssl_retried is False
         assert plugin._openssl_error_seen is False
         assert any("--fix-openssl" in line for line in plugin._recent_lines)
-        # The stand-in asserts the flag comes before the subcommand and exits 0,
-        # so a clean run (no Failure) also proves the flag position
-        assert dbus_signals == []
+        # The stand-in asserts the flag comes before the subcommand and prints
+        # the "Connecting" line only after that, so the line proves the flag
+        # position. It then exits 0 unasked: the monitor reports that (#52).
+        assert any("Connecting to the only available" in l for l in plugin._recent_lines)
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
 
 
     def test_retry_is_not_repeated_when_flag_does_not_help(
