@@ -106,6 +106,17 @@
       ]
     },
     {
+      "function": "service/nm-gpclient-service.py::detect_screen_prompt",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_text_prompt_screen.py::TestDetectScreenPrompt::test_rows_below_the_cursor_are_ignored",
+        "tests/unit/test_text_prompt_screen.py::TestDetectScreenPrompt::test_no_prompt"
+      ]
+    },
+    {
       "function": "service/nm-gpclient-service.py::resolve_browser",
       "kind": "runs-upstream",
       "upstream": [

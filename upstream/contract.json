@@ -586,7 +586,7 @@
       "kind": "cargo-lock",
       "package": "inquire",
       "version": "0.9.4",
-      "used_by": "service/nm-gpclient-service.py: ScreenBuffer, EscapeTokenizer, OutputScanner, SELECT_HELP_RE (model the inquire rendering)"
+      "used_by": "service/nm-gpclient-service.py: ScreenBuffer, EscapeTokenizer, OutputScanner, SELECT_HELP_RE, detect_screen_prompt (model the inquire rendering)"
     },
     {
       "id": "cargo-crossterm",

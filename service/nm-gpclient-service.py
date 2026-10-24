@@ -561,6 +561,30 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
     return label or None
 
 
+def detect_screen_prompt(
+    lines: Sequence[str], cursor_row: int, last_answer: str = ""
+) -> Optional[Tuple[int, str]]:
+    """Detect a pending inquire text prompt on the screen rows.
+
+    inquire parks the cursor on the prompt row, so the prompt is the row at the
+    cursor. Rows below it (an error message, the help line) are never looked at.
+    When the cursor row is empty - the prompt line was terminated with a newline
+    and the cursor moved on - the nearest non-empty row above it is the
+    candidate. Rows are looked at one by one: a label above the cursor row is
+    not joined to it.
+
+    Returns (row index, label) or None. The label is classified by
+    detect_prompt().
+    """
+    if not 0 <= cursor_row < len(lines):
+        return None
+    for index in range(cursor_row, -1, -1):
+        if lines[index].strip():
+            label = detect_prompt(lines[index], last_answer)
+            return None if label is None else (index, label)
+    return None
+
+
 def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
     """Split a label into words and each word into sub-words.
 
@@ -1313,8 +1337,19 @@ class ScreenBuffer:
         self._col = 0
         self._tokenizer = EscapeTokenizer()  # for feed(); apply() takes tokens
         self.version = 0
+        self.dropped = 0  # rows trimmed from the top: row_id() stays stable
         self._lines_cache: Tuple[str, ...] = ()
         self._lines_version = -1
+
+    @property
+    def cursor_row(self) -> int:
+        """Index (in lines()) of the row the cursor is on"""
+        return self._row
+
+    def row_id(self, index: int) -> int:
+        """A number for the row at `index` that stays the same when the buffer
+        is trimmed at the top"""
+        return self.dropped + index
 
     def lines(self) -> Tuple[str, ...]:
         """The screen rows (a tuple, cached until the next feed)"""
@@ -1407,6 +1442,7 @@ class ScreenBuffer:
         excess = len(self._rows) - self.MAX_ROWS
         if excess > 0:
             del self._rows[:excess]
+            self.dropped += excess
             self._row = max(0, self._row - excess)
 
     def _csi(self, params: str, intermediates: str, final: str) -> None:
@@ -1518,8 +1554,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
-        # Recent complete output lines, used for logging, text prompts that
-        # inquire has already terminated with a newline, and _last_output_line
+        # Recent complete output lines, used for logging only
         self._recent_lines: deque = deque(maxlen=96)
         self._reset_output_state()
         self._auth_banner = None  # last "message (Portal: server)" banner
@@ -2449,10 +2484,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._last_answer = ""
 
                 for raw_line in lines:
-                    # Raw, not stripped: _recent_lines only feeds logging and
-                    # the text prompt checks (a Select is read from _screen)
+                    # Raw, not stripped: _recent_lines only feeds logging (the
+                    # prompts are read from _screen)
                     self._recent_lines.append(raw_line)
-                    self._line_counter += 1
 
                     line = raw_line.strip()
                     # inquire redraws lines on every keystroke; skip repeats
@@ -2571,8 +2605,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # incrementally redrawn Select frame (issue #25)
         self._screen = ScreenBuffer()
         self._tunnel_up = False  # STARTED emitted: stop watching for a Select
-        self._line_counter = 0  # monotonic count of complete lines seen
-        self._answered_at_line = -1  # line count when we last answered a prompt
+        # (screen row id, label) of the text prompt we answered last
+        self._answered_prompt: Optional[Tuple[int, str]] = None
         self._answered_select = None  # message of the Select we answered
         # "Found N gateways in portal config" of this attempt, and the entries
         # of the whole list when this attempt saw all of it (read page by
@@ -2830,42 +2864,50 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
             return
 
-        label = detect_prompt(self._output_scanner.tail, self._last_answer)
-        from_tail = label is not None
-
-        if label is None:
-            # inquire terminates the line it renders a prompt on (every backend
-            # ends with new_line()), so with a real gpclient the pending prompt
-            # is the last COMPLETE line and the tail is empty. Only act on a
-            # line that appeared after our last answer, otherwise the redraw of
-            # an answered prompt would be answered again.
-            if self._line_counter > self._answered_at_line:
-                label = detect_prompt(self._last_output_line(), self._last_answer)
-
-        if label is None:
+        found = self._screen_prompt()
+        if found is None:
             self._prompt_task = None
             return
+        label = found[1]
 
-        async def _debounced(tail_snapshot: str, line_snapshot: int):
+        async def _debounced(version: int):
             await asyncio.sleep(PROMPT_DEBOUNCE_SECONDS)
-            # Only act if the output has not moved on since we saw the prompt
-            if self._output_scanner.tail != tail_snapshot:
+            # Only act if the screen has not changed since we saw the prompt
+            if self._screen.version != version:
                 return
-            if not from_tail and self._line_counter != line_snapshot:
-                return
+            self._answered_prompt = found
             await self._handle_prompt(label)
 
-        self._prompt_task = asyncio.create_task(
-            _debounced(self._output_scanner.tail, self._line_counter)
-        )
+        self._prompt_task = asyncio.create_task(_debounced(self._screen.version))
 
-    def _last_output_line(self) -> str:
-        """Last non-empty line gpclient printed (stripped), or an empty string"""
-        for raw_line in reversed(self._recent_lines):
-            stripped = raw_line.strip()
-            if stripped:
-                return stripped
-        return ""
+    def _screen_prompt(self) -> Optional[Tuple[int, str]]:
+        """The text prompt gpclient waits at, as (row id, label), or None.
+
+        Read from the screen model: inquire redraws incrementally, so the line
+        stream holds stale rows and only some of the new ones (issue #27). The
+        line stream is used for logging only. Once the tunnel is up the screen
+        is no longer fed, and no prompt is expected.
+
+        A prompt that was already answered is skipped for as long as its row
+        and label have not changed. They change when inquire finalises the
+        answer or draws another prompt there; a prompt that comes back later is
+        a new one.
+        """
+        if self._tunnel_up:
+            return None
+        found = detect_screen_prompt(
+            self._screen.lines(), self._screen.cursor_row, self._last_answer
+        )
+        prompt = None if found is None else (self._screen.row_id(found[0]), found[1])
+        if prompt is None or prompt != self._answered_prompt:
+            self._answered_prompt = None  # the answered row has moved on
+        if prompt is None or prompt == self._answered_prompt:
+            return None
+        # The final line of an answered list ("? Which gateway ... gw-a") is
+        # not a prompt either
+        if self._answered_select and prompt[1].startswith(self._answered_select):
+            return None
+        return prompt
 
     def _reset_phase_state(self) -> None:
         """Reset per-phase prompt tracking at the start of an auth round.
@@ -2922,8 +2964,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         banner_msg = self._auth_banner["message"] if self._auth_banner else ""
         kind = self._classify_prompt_kind(label, banner_msg)
 
-        # Anything already printed must not be taken for a new prompt again
-        self._answered_at_line = self._line_counter
         self._answering = True
         try:
             if kind == "username":
@@ -3020,7 +3060,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         options = frame["options"]
         self._answered_select = frame["message"]
-        self._answered_at_line = self._line_counter
         self._answering = True
         try:
             self._record_gateways(options)
