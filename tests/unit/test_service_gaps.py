@@ -518,9 +518,15 @@ async def _monitor(plugin, chunks, process):
     os.close(write_fd)
     plugin._pty_master = read_fd
     plugin.gpclient_process = process
-    await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
-    if plugin._prompt_task:
-        plugin._prompt_task.cancel()
+    try:
+        await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
+    finally:
+        if plugin._prompt_task:
+            plugin._prompt_task.cancel()
+        # Close the read end now, while this loop runs. Left to the garbage
+        # collector, the transport closes its fd number later, when a later
+        # test may already have got the same number from os.pipe() (EBADF).
+        plugin._close_pty()
 
 
 class TestMonitorGpclientOutput:

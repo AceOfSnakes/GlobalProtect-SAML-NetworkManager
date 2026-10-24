@@ -61,8 +61,14 @@
       "version": "3.1.0",
       "section": "Added",
       "text": "Added a Connection Details panel showing VPN information and live upload and download activity.",
-      "status": "not-applicable",
-      "reason": "GUI only: the service does not run gpgui. The matching CLI log lines are tracked in issue 37."
+      "status": "tested",
+      "reason": "The panel is GUI only. The service reads the matching CLI log lines (VPN interface, DNS, search domains, split DNS, MTU) as a cross-check and a fallback for the DNS state of the vpnc hook, never for routing (issue 37).",
+      "tests": [
+        "tests/unit/test_tunnel_settings_log.py::TestParseLines::test_each_line_kind",
+        "tests/unit/test_tunnel_settings_log.py::TestRejectedValues::test_dns_that_cannot_be_trusted_is_not_used",
+        "tests/unit/test_tunnel_settings_log.py::TestFallbackAndCrossCheck::test_log_dns_is_used_when_the_hook_wrote_none",
+        "tests/unit/test_tunnel_settings_log.py::TestFallbackAndCrossCheck::test_the_hook_wins_on_a_mismatch_with_one_warning"
+      ]
     },
     {
       "version": "3.1.0",
