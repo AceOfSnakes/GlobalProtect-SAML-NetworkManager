@@ -238,3 +238,30 @@ class TestLintianRunsInTheContainerScript:
         assert result.returncode != 0
         assert "built" in log
         assert not any(l.startswith("cp /build/") for l in log)
+
+
+# --- merged /usr (lintian aliased-location, an error on Ubuntu 26.04) ---------
+
+ALIASED_RE = re.compile(r"\$\(CURDIR\)/debian/[a-z0-9.+-]+/(lib|bin|sbin|lib64)/")
+
+
+def aliased_locations(rules_text):
+    """Install targets in debian/rules that use /lib, /bin or /sbin (aliases of /usr)"""
+    return ALIASED_RE.findall(rules_text)
+
+
+class TestNoAliasedLocations:
+    def test_rules_install_nothing_into_an_aliased_directory(self):
+        assert aliased_locations(read("debian", "rules")) == []
+
+    def test_the_systemd_unit_is_in_usr_lib(self):
+        assert "debian/network-manager-gpclient/usr/lib/systemd/system/nm-gpclient.service" in read(
+            "debian", "rules")
+
+    @pytest.mark.parametrize("target", [
+        "$(CURDIR)/debian/network-manager-gpclient/lib/systemd/system/nm-gpclient.service",
+        "$(CURDIR)/debian/network-manager-gpclient/bin/x",
+        "$(CURDIR)/debian/network-manager-gpclient-gnome/sbin/x",
+    ])
+    def test_an_aliased_target_is_reported(self, target):
+        assert aliased_locations("\tinstall -D -m 644 f \\\n\t\t%s\n" % target) != []

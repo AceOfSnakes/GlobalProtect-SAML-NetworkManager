@@ -143,7 +143,7 @@ ifneq ($(HAS_CORE),)
 
 	# Install systemd service file
 	install -D -m 644 config/nm-gpclient.service \
-		$(CURDIR)/debian/network-manager-gpclient/lib/systemd/system/nm-gpclient.service
+		$(CURDIR)/debian/network-manager-gpclient/usr/lib/systemd/system/nm-gpclient.service
 
 	# Install D-Bus service file for automatic activation
 	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service \
