@@ -167,6 +167,8 @@ ifneq ($(HAS_CORE),)
 	# Install .desktop file for URL handler registration (globalprotectcallback://)
 	install -D -m 644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
 		$(CURDIR)/debian/network-manager-gpclient/usr/share/applications/gpgui.desktop
+	# Keep the MIME handler, hide the "GP Connect" menu entry (gpgui is not shipped)
+	scripts/hide-desktop-entry.sh $(CURDIR)/debian/network-manager-gpclient/usr/share/applications/gpgui.desktop
 
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing \
