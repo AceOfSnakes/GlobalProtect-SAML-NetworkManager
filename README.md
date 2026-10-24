@@ -151,8 +151,15 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path (or command name) of your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
+| `hip-script` | (empty) | Absolute path to a custom HIP executable, passed as `--hip=<path>`; ignored when `hip=false`. The service runs it as root, so it must be a root-owned regular file, not group- or world-writable, in directories that are root-owned and not group- or world-writable; otherwise the connection fails |
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
 | `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |
+
+To use a custom HIP script:
+
+```bash
+nmcli connection modify "My VPN" +vpn.data hip-script=/usr/local/bin/gp-hip-report.sh
+```
 
 The **Connect timeout** field is NetworkManager's own `vpn.timeout`, not a
 `vpn.data` item: set it with `nmcli connection modify "My VPN" vpn.timeout 180`.
