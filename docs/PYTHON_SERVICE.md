@@ -156,6 +156,25 @@ After finding interface:
 3. Emits `StateChanged(STARTED)` signal
 4. Stops timer
 
+### Tunnel Settings in the gpclient Log
+Since GlobalProtect-openconnect 3.1.0 gpclient logs the negotiated tunnel
+settings (`VPN interface:`, `VPN IPv4:`, `VPN DNS:`, `VPN search domains:`,
+`VPN split DNS:`, `VPN MTU:`;
+[#37](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/37)).
+The service keeps them in one immutable record (`TunnelSettings`, read by
+`parse_tunnel_settings_line`). The record is reset when a connection starts,
+when gpclient is started again and on disconnect. Upstream says these are
+negotiated settings, not proof that the system was configured, so the vpnc
+hook stays the source and the record is only a cross-check:
+
+- The hook has no DNS servers or no search domains, and the log has a complete
+  list for the same interface: the log values go into `Ip4Config`.
+- Both have values and they differ: the hook values stay and one warning shows
+  both.
+- The interface, the address and the routes are never taken from the log.
+- A list that gpclient cut (`(N of M shown; truncated)`), an escaped value or
+  an invalid address or domain is not used.
+
 ## Installation
 
 ### Requirements
