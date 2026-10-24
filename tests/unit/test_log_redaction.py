@@ -225,9 +225,14 @@ async def _monitor(plugin, text):
     os.close(slave)
     plugin._pty_master = master
     plugin.gpclient_process = FakeProcess()
-    await asyncio.wait_for(plugin._monitor_gpclient_output(), timeout=10)
-    if plugin._prompt_task and not plugin._prompt_task.done():
-        plugin._prompt_task.cancel()
+    try:
+        await asyncio.wait_for(plugin._monitor_gpclient_output(), timeout=10)
+    finally:
+        if plugin._prompt_task and not plugin._prompt_task.done():
+            plugin._prompt_task.cancel()
+        # Close the PTY now: left to the garbage collector, the transport
+        # closes its fd number later, maybe after a later test reused it
+        plugin._close_pty()
 
 
 class TestEchoedAnswers:
