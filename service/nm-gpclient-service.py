@@ -10,6 +10,7 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 
 import asyncio
 import codecs
+import dataclasses
 import fcntl
 import functools
 import ipaddress
@@ -1028,6 +1029,103 @@ def vpn_gateway_from_state(
 def parse_dns_servers(text: str) -> List[str]:
     """The profile's `dns` entries: separated by commas, semicolons or blanks"""
     return [entry for entry in re.split(r"[;,\s]+", text) if entry]
+
+
+# gpclient (3.1.0+) logs the tunnel settings it negotiated, one INFO line each,
+# in every foreground mode (gptunnel log_configuration). They are what the
+# gateway pushed, not proof that the system was configured, so they are only
+# a cross-check and a fallback for the vpnc hook's DNS state. The line starts
+# with the log prefix ("[2026-01-01T00:00:00Z INFO  target] ").
+TUNNEL_SETTINGS_RE = re.compile(
+    r"^\[(?:\S+\s+)?INFO\s+[A-Za-z0-9_:]+\]\s+VPN "
+    r"(?P<key>interface|IPv4|DNS|search domains|split DNS|MTU): (?P<value>.*?)\s*$"
+)
+# values() ends a cut list with " (N of M shown; truncated)"
+TUNNEL_LIST_TRUNCATED_RE = re.compile(r"\s\([0-9]+ of [0-9]+ shown; truncated\)$")
+TUNNEL_DOMAIN_RE = re.compile(
+    r"(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+    r"(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*"
+)
+TUNNEL_LOGGED_INTERFACE_RE = re.compile(r"[A-Za-z0-9_.:@-]{1,15}")
+
+
+@dataclasses.dataclass(frozen=True)
+class TunnelSettings:
+    """The tunnel settings gpclient logged. None: not seen, "none"/"unavailable"
+    where the value does not exist, or not usable (malformed, escaped,
+    truncated). A list that gpclient reported as empty is ()."""
+
+    interface: Optional[str] = None
+    ipv4: Optional[str] = None  # the address only
+    prefix: Optional[int] = None
+    dns: Optional[Tuple[str, ...]] = None  # IPv4 and IPv6 servers
+    search_domains: Optional[Tuple[str, ...]] = None
+    split_dns: Optional[Tuple[str, ...]] = None
+    mtu: Optional[int] = None
+
+
+def _tunnel_list(value: str, valid: Any) -> Optional[Tuple[str, ...]]:
+    """The items of a list value of gpclient's values(); None when the list is
+    not complete or an item cannot be trusted.
+
+    Items are told apart by ", ", so each one is validated: an item that
+    holds ", " fails there, and so does one that upstream escaped
+    (escape_debug adds a backslash, which no address or domain holds): the
+    escaping is not reversed.
+    """
+    if TUNNEL_LIST_TRUNCATED_RE.search(value):
+        return None
+    if value == "none":
+        return ()
+    items = value.split(", ")
+    if not all(item and valid(item) for item in items):
+        return None
+    return tuple(_dedupe(items))
+
+
+def _dns_key(server: str) -> Any:
+    """A DNS server as it compares: the same address in any spelling is equal"""
+    return parse_ip_address(server) or server
+
+
+def parse_tunnel_settings_line(line: str, settings: TunnelSettings) -> TunnelSettings:
+    """`settings` updated with one gpclient output line; the same object when
+    the line is no tunnel settings line.
+
+    "VPN interface" is the first line of a block, so it starts a new record
+    (gpclient logs the block again when the settings change).
+    """
+    match = TUNNEL_SETTINGS_RE.match(line)
+    if not match:
+        return settings
+    key, value = match.group("key"), match.group("value")
+    if key == "interface":
+        usable = TUNNEL_LOGGED_INTERFACE_RE.fullmatch(value) and value != "none"
+        return TunnelSettings(interface=value if usable else None)
+    if key == "IPv4":
+        address, _, rest = value.partition("/")
+        if "(" in address:  # "10.0.0.2 (mask 255.0.255.0)": no prefix
+            address, rest = address.split(" (", 1)[0], ""
+        parsed = parse_ip_address(address)
+        if not isinstance(parsed, ipaddress.IPv4Address) or str(parsed) != address:
+            return dataclasses.replace(settings, ipv4=None, prefix=None)
+        prefix = int(rest) if rest.isascii() and rest.isdigit() else None
+        if prefix is not None and prefix > 32:
+            prefix = None
+        return dataclasses.replace(settings, ipv4=address, prefix=prefix)
+    if key == "MTU":
+        mtu = int(value) if value.isascii() and value.isdigit() else None
+        if mtu is not None and not 0 < mtu <= 65535:
+            mtu = None
+        return dataclasses.replace(settings, mtu=mtu)
+    if key == "DNS":
+        items = _tunnel_list(
+            value, lambda item: parse_ip_address(item) is not None and "%" not in item
+        )
+        return dataclasses.replace(settings, dns=items)
+    items = _tunnel_list(value, TUNNEL_DOMAIN_RE.fullmatch)
+    field = "search_domains" if key == "search domains" else "split_dns"
+    return dataclasses.replace(settings, **{field: items})
 
 
 def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
@@ -2451,6 +2549,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                                 self._lap_entries, [chosen.group("gateway")]
                             )
 
+                    self._tunnel_settings = parse_tunnel_settings_line(
+                        line, self._tunnel_settings
+                    )
+
                     if "--as-gateway" in line:
                         logger.warning(
                             "gpclient reports the server may be a gateway rather "
@@ -2533,6 +2635,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # page, or a list that is not paged); empty otherwise
         self._gateway_count: Optional[int] = None
         self._lap_entries: List[str] = []
+        # The tunnel settings gpclient logged in this attempt (issue #37)
+        self._tunnel_settings = TunnelSettings()
 
     def _decode_output(self, chunk: bytes) -> str:
         """Decode a PTY read; a character split across reads stays whole.
@@ -3566,6 +3670,69 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
         return learned
 
+    def _cross_check_logged_dns(
+        self,
+        iface: str,
+        learned: Optional[Tuple[List[str], List[str], List[str]]],
+    ) -> Optional[Tuple[List[str], List[str], List[str]]]:
+        """Compare the vpnc hook's DNS with the settings gpclient logged (#37).
+
+        The hook stays the source: its values are never replaced. What the
+        hook lacks (no servers, or no search domains) is taken from the log
+        when gpclient logged a complete list for this very interface. When
+        both exist and differ, one warning shows both. The interface and the
+        address used for routing are never taken from the log.
+        """
+        settings = self._tunnel_settings
+        if settings.interface != iface:
+            return learned
+        servers, domains, servers6 = learned or ([], [], [])
+
+        logged_servers: Optional[List[str]] = None
+        if settings.dns is not None:
+            logged_servers = list(settings.dns)
+        logged_domains: Optional[List[str]] = None
+        if settings.search_domains is not None and settings.split_dns is not None:
+            logged_domains = _dedupe(
+                list(settings.search_domains) + list(settings.split_dns)
+            )
+
+        hook_servers = servers + servers6
+        mismatches = []
+        if logged_servers:
+            if not hook_servers:
+                servers = [s for s in logged_servers if ":" not in s]
+                servers6 = [s for s in logged_servers if ":" in s]
+                logger.info(
+                    f"No DNS servers from the vpnc hook - using the ones "
+                    f"gpclient logged for {iface}: {logged_servers}"
+                )
+            elif {_dns_key(s) for s in hook_servers} != {
+                _dns_key(s) for s in logged_servers
+            }:
+                mismatches.append(
+                    f"DNS servers: hook {hook_servers}, gpclient {logged_servers}"
+                )
+        if logged_domains:
+            if not domains:
+                domains = logged_domains
+                logger.info(
+                    f"No search domains from the vpnc hook - using the ones "
+                    f"gpclient logged for {iface}: {logged_domains}"
+                )
+            elif {d.lower() for d in domains} != {d.lower() for d in logged_domains}:
+                mismatches.append(
+                    f"search domains: hook {domains}, gpclient {logged_domains}"
+                )
+        if mismatches:
+            logger.warning(
+                f"The vpnc hook and gpclient's log disagree for {iface} "
+                f"(keeping the hook's values): " + "; ".join(mismatches)
+            )
+        if learned is None and not (servers or domains or servers6):
+            return None
+        return servers, domains, servers6
+
     @staticmethod
     def _dns_to_nm(
         entries: List[Tuple[str, Optional[Any]]],
@@ -3788,6 +3955,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                             "will not know the VPN DNS servers (is "
                             "/etc/vpnc/connect.d/90-gpclient-routing installed?)"
                         )
+                    learned_dns = self._cross_check_logged_dns(iface, learned_dns)
 
                     logger.info(
                         f"VPN connected - tunnel interface {iface} detected with IP {ip_addr}!"
