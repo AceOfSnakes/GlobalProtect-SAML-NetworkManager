@@ -134,9 +134,14 @@ Rules for tests:
   current head: the unit tests (root and non-root) and the build of all Ubuntu
   versions × {amd64, arm64}. A docs-only PR skips the build; if the PR changes
   anything else, the build must have run.
-- Before merging, merge `main` into the branch if `main` moved since the checks
-  ran, and wait for the checks on that head: `pull_request` checks run against
-  the merge ref as it was when they ran.
+- Before merging a green PR, when `main` moved since its checks ran:
+  - merge `main` into the branch again and wait for the checks on that head if
+    git reports a conflict, or if `main` changed a file that the PR also
+    changes (other than `*.md` and `docs/`);
+  - otherwise run the unit tests on a local merge with `main`, and merge the
+    PR as it is when they pass.
+  Every package build takes long. A build that breaks only in combination
+  shows up on the next pull request; fix `main` at once when it does.
 - Do not make the build jobs required checks in branch protection: docs-only PRs
   (`**.md`, `docs/**`) skip the build, so a required build check would never
   report.
