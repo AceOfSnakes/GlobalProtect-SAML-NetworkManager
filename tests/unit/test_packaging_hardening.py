@@ -62,7 +62,9 @@ def python3_problems(text):
         return []
     depends = re.search(r"^Depends:((?:.*\n)(?:[ \t].*\n?)*)", stanza.group(0), re.M)
     names = {d.split("(")[0].split("|")[0].strip() for d in (depends.group(1) if depends else "").split(",")}
-    return [] if "python3" in names else ["%s does not depend on python3" % GNOME]
+    # The auth dialog imports gi and Gtk 3.0 too
+    return ["%s does not depend on %s" % (GNOME, name)
+            for name in ("python3", "python3-gi", "gir1.2-gtk-3.0") if name not in names]
 
 
 def lintian_problems(step):
@@ -135,6 +137,15 @@ class TestControlFields:
         broken = re.sub(r"^ +python3,?\n", "", text, flags=re.M)
         assert broken != text
         broken = broken.replace("network-manager-gnome\nDescription", "network-manager-gnome,\nDescription")
+        assert python3_problems(broken) != []
+
+    @pytest.mark.parametrize("dep", ["python3-gi", "gir1.2-gtk-3.0"])
+    @pytest.mark.parametrize("name", ["control.ubuntu22.04", "control.ubuntu24.04", "control.ubuntu24.10",
+                                      "control.ubuntu26.04"])
+    def test_a_gnome_package_without_the_gtk_bindings_is_reported(self, name, dep):
+        text = read("debian", name)
+        broken = re.sub(r"(?<=[ ,])%s,?(?=\n)" % re.escape(dep), "", text)
+        assert broken != text
         assert python3_problems(broken) != []
 
     def test_python3_in_another_package_does_not_count(self):
