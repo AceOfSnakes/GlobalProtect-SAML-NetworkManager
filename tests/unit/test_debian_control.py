@@ -27,6 +27,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import glob
 import os
+import pwd
 import re
 import subprocess
 
@@ -1127,6 +1128,80 @@ class TestMaintainerScripts:
         scripts = [s for s in MAINTAINER_SCRIPTS if os.path.exists(os.path.join(DEBIAN, first + "." + s))]
         assert scripts == ([] if first != CORE else ["postinst", "postrm"])
         assert (first == CORE) == (name != NEON)
+
+
+class TestPostinstLegacyWrapperFiles:
+    """The postinst removes root-owned /tmp/edge-wrapper-<uid> leftovers of old wrappers"""
+
+    def run_cleanup(self, tmp_path, *args):
+        text = read(CORE + ".postinst")
+        start = text.index("remove_legacy_edge_wrapper() {")
+        func = text[start:text.index("\n}\n", start) + 3]
+        subprocess.run(["sh", "-c", func + '\nremove_legacy_edge_wrapper "$@"', "sh", str(tmp_path), *args],
+                       check=True)
+
+    def make(self, tmp_path, names):
+        for name in names:
+            if name.endswith("/"):
+                (tmp_path / name).mkdir()
+                (tmp_path / name / "wrapper.log").write_text("x")
+            else:
+                (tmp_path / name).write_text("x")
+
+    LEGACY = ["edge-wrapper-1000/", "edge-wrapper-1000.log", "edge-wrapper-0/"]
+    OTHER = ["edge-wrapper-1000.XXXX/", "edge-wrapper-abc/", "edge-wrapper-10x.log", "edge-wrapper-/",
+             "edge-wrapper-1000.log.old", "edge-wrapper-1000.txt", "other-1000/", "edge-wrapper-.log"]
+
+    def test_entries_of_the_owner_are_removed(self, tmp_path):
+        # The owner is the current user here, so that this runs without root
+        self.make(tmp_path, self.LEGACY)
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert os.listdir(tmp_path) == []
+
+    def test_entries_of_another_owner_are_kept(self, tmp_path):
+        # Without an argument the owner is root: as root, a file of "nobody" stays; as a user, none is root's
+        self.make(tmp_path, self.LEGACY)
+        if os.getuid() == 0:
+            for path in [*tmp_path.iterdir(), *tmp_path.glob("*/*")]:
+                os.chown(path, 65534, 65534)
+        self.run_cleanup(tmp_path)
+        assert sorted(os.listdir(tmp_path)) == sorted(n.rstrip("/") for n in self.LEGACY)
+
+    @pytest.mark.skipif(os.getuid() != 0, reason="needs root to create root-owned entries")
+    def test_root_owned_entries_are_removed_by_default(self, tmp_path):
+        self.make(tmp_path, self.LEGACY)
+        self.run_cleanup(tmp_path)
+        assert os.listdir(tmp_path) == []
+
+    @pytest.mark.parametrize("name", OTHER)
+    def test_other_names_are_kept(self, tmp_path, name):
+        self.make(tmp_path, [name])
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert os.listdir(tmp_path) == [name.rstrip("/")]
+
+    def test_the_wrong_type_is_kept(self, tmp_path):
+        self.make(tmp_path, ["edge-wrapper-1000", "edge-wrapper-1001.log/"])
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert sorted(os.listdir(tmp_path)) == ["edge-wrapper-1000", "edge-wrapper-1001.log"]
+
+    def test_a_symlink_is_kept_and_its_target_too(self, tmp_path):
+        target = tmp_path / "target"
+        target.mkdir()
+        (target / "precious").write_text("x")
+        os.symlink(target, tmp_path / "edge-wrapper-1000")
+        os.symlink(target / "precious", tmp_path / "edge-wrapper-1000.log")
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert (target / "precious").exists()
+        assert (tmp_path / "edge-wrapper-1000").is_symlink()
+        assert (tmp_path / "edge-wrapper-1000.log").is_symlink()
+
+    def test_an_empty_directory_is_fine(self, tmp_path):
+        self.run_cleanup(tmp_path)
+        assert os.listdir(tmp_path) == []
+
+    def test_the_postinst_runs_the_cleanup_when_configuring(self):
+        text = read(CORE + ".postinst")
+        assert text.index("configure|reconfigure)") < text.index("\n        remove_legacy_edge_wrapper /tmp\n")
 
 
 class TestChangelog:

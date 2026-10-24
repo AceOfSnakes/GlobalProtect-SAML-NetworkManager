@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -105,10 +106,9 @@ def test_start_gpclient_passes_flags_and_environment(start_env):
         "connect",
         "--hip",
         "--as-gateway",
-        "--user",
-        "alice",
-        "--browser",
-        "default",
+        "--user=alice",
+        "--browser=default",
+        "--",
         "portal.example.com",
     ]
     env = dumped["env"]
@@ -136,7 +136,8 @@ def test_start_gpclient_passes_the_mtu_before_the_browser(start_env):
 
     argv = json.loads(start_env.dump.read_text())["argv"]
     assert argv[argv.index("--mtu") + 1] == "1300"
-    assert argv.index("connect") < argv.index("--mtu") < argv.index("--browser")
+    browser = next(a for a in argv if a.startswith("--browser="))
+    assert argv.index("connect") < argv.index("--mtu") < argv.index(browser)
 
 
 @pytest.mark.parametrize("mtu", [None, 0])
@@ -157,6 +158,22 @@ def test_start_gpclient_without_a_real_user_sets_no_session_env(start_env):
     env = json.loads(start_env.dump.read_text())["env"]
     for name in ("SUDO_UID", "SUDO_USER", "DISPLAY"):
         assert name not in env
+
+
+def test_start_gpclient_looks_up_the_user_off_the_event_loop(start_env):
+    # _get_real_user runs blocking loginctl calls: they must not stall the loop
+    threads = []
+
+    def real_user():
+        threads.append(threading.current_thread())
+        return (4321, "alice", "/home/alice")
+
+    start_env.plugin._get_real_user = real_user
+
+    assert start_env.start() is True  # _start_gpclient
+
+    assert len(threads) == 1
+    assert threads[0] is not threading.main_thread()
 
 
 def test_start_gpclient_fails_cleanly_when_the_binary_is_missing(

@@ -249,6 +249,28 @@
       ]
     },
     {
+      "function": "service/nm-gpclient-service.py::mask_secrets",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::test_value_is_replaced_everywhere_in_the_line",
+        "tests/unit/test_log_redaction.py::test_line_stays_without_a_matching_non_empty_secret"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::mask_secret_prompts",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_everything_after_the_label_is_hidden",
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_line_stays_without_a_matching_label_or_text"
+      ]
+    },
+    {
       "function": "scripts/browser-wrapper.sh",
       "kind": "runs-upstream",
       "upstream": [

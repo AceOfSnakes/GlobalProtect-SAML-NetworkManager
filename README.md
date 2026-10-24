@@ -126,7 +126,7 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `gateway-list-count` | (written by the service) | gpclient's `Found N gateways in portal config` count when the list was last read completely. It marks `gateway-list` as complete; the list is read again when the portal reports another number, and never without that line |
 | `auth-mode` | `saml` | `saml` = browser login, `credentials` = username/password collected upfront |
 | `username` | (empty) | Username for portals that ask on the terminal |
-| `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or a path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
+| `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path (or command name) of your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
 | `mtu` | (empty) | MTU of the tunnel, 576-1500 (smaller values are raised to 576); empty or `0` is automatic. A value that is not a plain number up to 1500 is ignored with a warning in the log. openconnect uses it only when the gateway sends no MTU (its log then says "No MTU received. Calculated N ..."); a gateway MTU wins. Lowering it (`nmcli connection modify "My VPN" +vpn.data mtu=1300`) may help when the tunnel falls back from ESP to HTTPS with "ESP receive error: Message too long", as seen on mobile hotspots. The editors show a stored value they cannot show as 0 and keep it on save while the field is untouched |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
@@ -272,7 +272,7 @@ The included `edge-wrapper` script handles:
 - Auto-closing Edge window after successful authentication
 - Setting up Edge policies for automatic protocol handling
 
-**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper creates a temporary profile in `/tmp/edge-wrapper-$UID/` to work around this. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication - each session starts fresh. While `/tmp` is world-readable, the wrapper creates per-user directories with restricted permissions.
+**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
 
 Firefox and Chrome also work but may require manual credential entry for Intune-protected portals.
 
@@ -354,7 +354,11 @@ this matches it and nothing else), and set **Size** to *Apply Initially*.
 
 ```bash
 # The wrapper logs every launch and always says why it finished
-grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u).log
+# Messages written as root and before the private directory exists are in the journal
+journalctl -t gpclient-browser-wrapper | grep -E "done:|WARNING|ERROR"
+# The part that runs as the desktop user writes <base>/wrapper.log
+# (<base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u), or the mktemp directory)
+grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u)/wrapper.log
 
 # Try the browser on its own - the window must open and stay open
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
