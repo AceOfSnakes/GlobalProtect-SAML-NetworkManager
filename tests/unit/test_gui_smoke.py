@@ -609,6 +609,110 @@ class TestScreenshot:
             lib.screenshot_command("import", ":99", out)
 
 
+def good_edit_results():
+    return {case["name"]: {"error": "gateway is required" if case["error"] else None,
+                           "data": {**case["saved"], "hip": "false"}}
+            for case in lib.EDIT_CASES}
+
+
+class TestEditCases:
+    """Cleared fields remove their keys, the gateway is required (issue #61)"""
+
+    def by_name(self, name):
+        return next(case for case in lib.EDIT_CASES if case["name"] == "edit: " + name)
+
+    def test_the_expected_results_pass(self):
+        assert lib.check_edit_results(good_edit_results()) == []
+
+    def test_case_names_are_unique(self):
+        names = [case["name"] for case in lib.EDIT_CASES]
+
+        assert len(names) == len(set(names))
+
+    def test_every_step_names_a_row_and_a_known_kind(self):
+        for case in lib.EDIT_CASES:
+            for kind, key, text in case["steps"]:
+                assert kind in ("type", "choose") and key in lib.EDIT_LABELS and isinstance(text, str)
+
+    def test_clearing_a_field_removes_only_its_key(self):
+        saved = self.by_name("clearing DNS removes dns")["saved"]
+
+        assert "dns" not in saved
+        assert saved["browser"] == "firefox" and saved["gateway"] == lib.GATEWAY
+
+    def test_custom_browser_with_an_empty_entry_removes_the_browser(self):
+        case = self.by_name("Custom browser with an empty entry removes browser")
+
+        assert case["steps"] == [("choose", "browser", "Custom...")]
+        assert "browser" not in case["saved"] and "dns" in case["saved"]
+
+    def test_an_empty_gateway_is_an_error_and_the_data_stays(self):
+        case = self.by_name("an empty gateway is refused and nothing is saved")
+
+        assert case["error"] and case["saved"] == case["vpn_data"]
+
+    def test_the_negative_counterparts_keep_or_save_the_value(self):
+        assert self.by_name("untouched fields keep their values")["saved"] == lib.EDIT_STORED
+        assert self.by_name("a changed gateway is saved")["error"] is False
+        assert self.by_name("a changed DNS is saved")["saved"]["dns"] == "9.9.9.9"
+
+    @pytest.mark.parametrize("index", range(len(lib.EDIT_CASES)))
+    def test_a_wrong_value_is_reported(self, index):
+        case = lib.EDIT_CASES[index]
+        results = good_edit_results()
+        results[case["name"]]["data"]["dns"] = "wrong" if "dns" not in case["saved"] else None
+        results[case["name"]]["data"]["gateway"] = "wrong"
+
+        problems = lib.check_edit_results(results)
+
+        assert len(problems) == 2 and all(case["name"] in p for p in problems)
+
+    def test_the_old_gtk3_behaviour_is_reported(self):
+        """a cleared DNS or browser that stays in vpn.data (the bug)"""
+        for name, key in (("clearing DNS removes dns", "dns"),
+                          ("Custom browser with an empty entry removes browser", "browser")):
+            case = self.by_name(name)
+            results = good_edit_results()
+            results[case["name"]]["data"][key] = case["vpn_data"][key]
+
+            problems = lib.check_edit_results(results)
+
+            assert len(problems) == 1 and key in problems[0]
+
+    def test_a_save_without_a_gateway_is_reported(self):
+        """the old GTK4 behaviour: no error, the gateway key removed"""
+        case = self.by_name("an empty gateway is refused and nothing is saved")
+        results = good_edit_results()
+        results[case["name"]] = {"error": None, "data": {"hip": "false"}}
+
+        problems = lib.check_edit_results(results)
+
+        assert any("did not fail" in p for p in problems) and any("gateway" in p for p in problems)
+
+    def test_an_error_on_a_good_gateway_is_reported(self):
+        case = self.by_name("a changed gateway is saved")
+        results = good_edit_results()
+        results[case["name"]]["error"] = "gateway is required"
+
+        assert len(lib.check_edit_results(results)) == 1
+
+    def test_a_case_that_did_not_run_is_reported(self):
+        results = good_edit_results()
+        case = lib.EDIT_CASES[0]
+        del results[case["name"]]
+
+        assert lib.check_edit_results(results) == [f"edit case {case['name']!r} did not run"]
+
+    def test_the_editors_have_the_labels_and_the_error_text(self):
+        for name in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
+            with open(os.path.join(ROOT, "plugins", "gnome", name), encoding="utf-8") as handle:
+                text = handle.read()
+            for label in lib.EDIT_LABELS.values():
+                assert f'gtk_label_new ("{label}")' in text
+            assert f'"{lib.MISSING_GATEWAY_ERROR}"' in text
+            assert "NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS" in text
+
+
 class TestProbes:
     def run(self, module, argv, capsys):
         with pytest.raises(SystemExit) as stop:

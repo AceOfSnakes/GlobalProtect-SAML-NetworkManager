@@ -113,6 +113,99 @@ MTU_CASES = [
 ]
 
 
+# Save scenarios of the fields that a cleared entry must remove from vpn.data
+# (issue #61), and of the required gateway. Each case opens the editor for an
+# existing profile with "vpn_data", applies the "steps" and calls
+# update_connection(). A step is (kind, key, text): "type" sets the entry (the
+# text of the combo for "browser") of that vpn.data key, text "" clears it;
+# "choose" selects that item of the browser combo. "error": update_connection() must fail
+# (and leave vpn.data as it was); otherwise vpn.data must be "saved" (the stored
+# values with "changes" applied, None = key removed).
+EDIT_LABELS = {
+    "gateway": "Portal or gateway address:",
+    "username": "Username:",
+    "browser": "Browser:",
+    "dns": "DNS Servers:",
+    "hip-script": "HIP script:",
+}
+EDIT_STORED = {
+    "gateway": GATEWAY,
+    "username": USERNAME,
+    "browser": "firefox",
+    "dns": "10.0.0.1;10.0.0.2",
+    "hip-script": "/opt/hip/check.sh",
+}
+CUSTOM_BROWSER = "Custom..."
+MISSING_GATEWAY_ERROR = "gateway is required"
+
+
+def _edit_case(name, steps, changes=None, error=False, stored=None):
+    data = dict(EDIT_STORED if stored is None else stored)
+    expected = dict(data)
+    for key, value in (changes or {}).items():
+        if value is None:
+            expected.pop(key, None)
+        else:
+            expected[key] = value
+    return {
+        "name": "edit: " + name,
+        "vpn_data": data,
+        "steps": steps,
+        "error": error,
+        "saved": data if error else expected,
+    }
+
+
+EDIT_CASES = [
+    # a cleared field removes its key, the others stay
+    _edit_case("clearing DNS removes dns", [("type", "dns", "")], {"dns": None}),
+    _edit_case("clearing the username removes username", [("type", "username", "")], {"username": None}),
+    _edit_case("clearing the HIP script removes hip-script", [("type", "hip-script", "")], {"hip-script": None}),
+    _edit_case("Custom browser with an empty entry removes browser", [("choose", "browser", CUSTOM_BROWSER)],
+               {"browser": None}),
+    _edit_case("clearing a custom browser entry removes browser", [("type", "browser", "")], {"browser": None},
+               stored={**EDIT_STORED, "browser": "/opt/mybrowser/bin/browser"}),
+    # the negative counterparts: a field that is not cleared keeps its value
+    _edit_case("untouched fields keep their values", []),
+    _edit_case("untouched custom browser keeps its value", [],
+               stored={**EDIT_STORED, "browser": "/opt/mybrowser/bin/browser"}),
+    _edit_case("a changed DNS is saved", [("type", "dns", "9.9.9.9")], {"dns": "9.9.9.9"}),
+    _edit_case("a typed custom browser is saved", [("type", "browser", "/opt/mybrowser/bin/browser")],
+               {"browser": "/opt/mybrowser/bin/browser"}),
+    _edit_case("a listed browser is saved", [("choose", "browser", "chrome")], {"browser": "chrome"}),
+    # the gateway is required
+    _edit_case("an empty gateway is refused and nothing is saved", [("type", "gateway", "")], error=True),
+    _edit_case("a changed gateway is saved", [("type", "gateway", "other.example.com")],
+               {"gateway": "other.example.com"}),
+]
+
+
+def check_edit_results(results):
+    """The problems of the EDIT_CASES (empty list = fine): `results` maps the
+    name of a case to {"error": message or None, "data": vpn.data after the
+    save as a dict}."""
+    problems = []
+    for case in EDIT_CASES:
+        name = case["name"]
+        if name not in results:
+            problems.append(f"edit case {name!r} did not run")
+            continue
+        error, data = results[name]["error"], results[name]["data"]
+        if case["error"] and (error is None or MISSING_GATEWAY_ERROR not in error):
+            problems.append(f"{name}: update_connection did not fail with {MISSING_GATEWAY_ERROR!r} (got {error!r})")
+        elif not case["error"] and error is not None:
+            problems.append(f"{name}: update_connection failed: {error}")
+        for key in sorted(set(case["saved"]) | set(data)):
+            if key in EXTRA_SAVED_KEYS or data.get(key) == case["saved"].get(key):
+                continue
+            problems.append(f"{name}: vpn.data {key} is {data.get(key)!r}, expected {case['saved'].get(key)!r}")
+    return problems
+
+
+# keys the editor adds on every save ("hip" is written whatever the fields are)
+EXTRA_SAVED_KEYS = ("hip",)
+
+
 def step_problems(step):
     """The problems of one step of a TIMEOUT_CASES entry (empty list = fine)"""
     if not isinstance(step, tuple) or len(step) != 2:
