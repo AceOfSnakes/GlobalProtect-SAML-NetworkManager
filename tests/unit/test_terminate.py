@@ -60,11 +60,6 @@ class FakeGpclient:
         return self.returncode
 
 
-class FakeDisconnect:
-    async def wait(self):
-        return 0
-
-
 @pytest.fixture
 def fast_clock(monkeypatch):
     real_wait_for = asyncio.wait_for
@@ -72,12 +67,7 @@ def fast_clock(monkeypatch):
     async def wait_for(awaitable, timeout):
         return await real_wait_for(awaitable, timeout / SCALE)
 
-    async def no_disconnect(*_args, **_kwargs):
-        return FakeDisconnect()
-
     monkeypatch.setattr(asyncio, "wait_for", wait_for)
-    # `gpclient disconnect` after the stop must not run the real binary
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", no_disconnect)
 
 
 def _disconnect(service_module, process):
@@ -187,9 +177,6 @@ def test_gpclient_on_a_real_pty_is_stopped_by_sigterm_not_by_sighup(
     launcher.chmod(0o755)
     monkeypatch.setattr(service_module, "GPCLIENT_BINARY", str(launcher))
 
-    async def no_disconnect(*_args, **_kwargs):
-        return FakeDisconnect()
-
     async def run():
         plugin = service_module.GpclientVPNPlugin()
         plugin.gateway = "portal.example.com"
@@ -202,7 +189,6 @@ def test_gpclient_on_a_real_pty_is_stopped_by_sigterm_not_by_sighup(
                     break
                 await asyncio.sleep(0.05)
             assert ready.exists()
-            monkeypatch.setattr(asyncio, "create_subprocess_exec", no_disconnect)
             await plugin.Disconnect()
             return process.returncode
         finally:

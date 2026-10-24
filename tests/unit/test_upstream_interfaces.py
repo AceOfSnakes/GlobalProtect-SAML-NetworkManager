@@ -46,7 +46,7 @@ def start_env(service_module, monkeypatch, tmp_path):
     monkeypatch.setattr(service_module, "GPCLIENT_BINARY", str(binary))
     for name in ("SUDO_UID", "SUDO_USER", "GP_BROWSER", "DISPLAY"):
         monkeypatch.delenv(name, raising=False)
-    # The pkill of old gpauth processes must not run
+    # Nothing may run a real tool (there is no pkill of gpauth any more)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
 
     plugin = service_module.GpclientVPNPlugin()
@@ -307,6 +307,9 @@ def fake_exec(monkeypatch):
         async def __call__(self, *argv, **_kwargs):
             self.commands.append(list(argv))
             key = argv[1] if len(argv) > 1 else argv[0]
+            full = " ".join(argv)
+            if full in self.codes or full in self.raises:
+                key = full
             if key in self.raises:
                 raise self.raises[key]
             return FakeProc(self.codes.get(key, 0))
@@ -357,38 +360,29 @@ def _assert_cleaned(plugin):
     assert plugin.browser_target is None
 
 
-def test_disconnect_terminates_gpclient_and_runs_gpclient_disconnect(
+def test_disconnect_terminates_gpclient_and_runs_no_gpclient_disconnect(
     service_module, fake_exec, dbus_signals
 ):
+    # `gpclient disconnect` signals the PID of the shared lock file: after our
+    # own gpclient is stopped that can only be a session that is not ours
     plugin = _dirty_plugin(service_module)
     process = plugin.gpclient_process
 
     asyncio.run(plugin.Disconnect())  # Disconnect
 
     assert process.terminated
-    assert fake_exec.commands == [["/usr/bin/gpclient", "disconnect"]]
+    assert fake_exec.commands == []
     _assert_cleaned(plugin)
 
 
-@pytest.mark.parametrize(
-    "failure",
-    ["exit-code", "cannot-start", "hangs"],
-)
-def test_disconnect_survives_a_failing_gpclient_disconnect(
-    service_module, fake_exec, dbus_signals, failure
+def test_disconnect_without_gpclient_runs_nothing_either(
+    service_module, fake_exec, dbus_signals
 ):
-    if failure == "exit-code":
-        fake_exec.codes["disconnect"] = 1
-    elif failure == "cannot-start":
-        fake_exec.raises["disconnect"] = FileNotFoundError("gpclient")
-    else:
-        fake_exec.codes["disconnect"] = None  # never exits: the timeout hits
-    plugin = _dirty_plugin(service_module)
+    plugin = service_module.GpclientVPNPlugin()
 
-    asyncio.run(plugin.Disconnect())  # Disconnect: must not raise
+    asyncio.run(plugin.Disconnect())  # Disconnect
 
-    assert fake_exec.commands == [["/usr/bin/gpclient", "disconnect"]]
-    _assert_cleaned(plugin)
+    assert fake_exec.commands == []
 
 
 # ---------------------------------------------------------------------------
@@ -406,18 +400,18 @@ def net_sysfs(service_module, monkeypatch, tmp_path):
     return net
 
 
-def test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient(
+def test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient_and_gpservice(
     service_module, fake_exec, net_sysfs
 ):
     (net_sysfs / "gpd0").mkdir()
-    fake_exec.codes["-x"] = 1  # pgrep -x gpclient: no process
+    fake_exec.codes["-x"] = 1  # pgrep -x: no process
 
     plugin = service_module.GpclientVPNPlugin()
     asyncio.run(plugin._cleanup_stale_gpd0())
 
     assert fake_exec.commands == [
         ["pgrep", "-x", "gpclient"],
-        ["/usr/bin/gpclient", "disconnect"],
+        ["pgrep", "-x", "gpservice"],
         ["ip", "link", "del", "gpd0"],  # the fake does not remove gpd0
     ]
 
@@ -432,6 +426,23 @@ def test_cleanup_stale_gpd0_does_nothing_while_gpclient_runs(
     asyncio.run(plugin._cleanup_stale_gpd0())
 
     assert fake_exec.commands == [["pgrep", "-x", "gpclient"]]
+
+
+def test_cleanup_stale_gpd0_does_nothing_while_gpservice_runs(
+    service_module, fake_exec, net_sysfs
+):
+    # The GUI client's gpservice owns gpd0 and no gpclient runs
+    (net_sysfs / "gpd0").mkdir()
+    fake_exec.codes["pgrep -x gpclient"] = 1
+    fake_exec.codes["pgrep -x gpservice"] = 0
+
+    plugin = service_module.GpclientVPNPlugin()
+    asyncio.run(plugin._cleanup_stale_gpd0())
+
+    assert fake_exec.commands == [
+        ["pgrep", "-x", "gpclient"],
+        ["pgrep", "-x", "gpservice"],
+    ]
 
 
 def test_cleanup_stale_gpd0_does_nothing_without_gpd0(
@@ -453,6 +464,22 @@ def test_cleanup_stale_gpd0_does_nothing_when_pgrep_cannot_run(
     asyncio.run(plugin._cleanup_stale_gpd0())
 
     assert fake_exec.commands == [["pgrep", "-x", "gpclient"]]
+
+
+def test_cleanup_stale_gpd0_does_nothing_when_the_gpservice_check_fails(
+    service_module, fake_exec, net_sysfs
+):
+    (net_sysfs / "gpd0").mkdir()
+    fake_exec.codes["pgrep -x gpclient"] = 1
+    fake_exec.raises["pgrep -x gpservice"] = FileNotFoundError("pgrep")
+
+    plugin = service_module.GpclientVPNPlugin()
+    asyncio.run(plugin._cleanup_stale_gpd0())
+
+    assert fake_exec.commands == [
+        ["pgrep", "-x", "gpclient"],
+        ["pgrep", "-x", "gpservice"],
+    ]
 
 
 # ---------------------------------------------------------------------------

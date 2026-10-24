@@ -218,24 +218,23 @@
       "function": "service/nm-gpclient-service.py::GpclientVPNPlugin.Disconnect",
       "kind": "runs-upstream",
       "upstream": [
-        "cli-disconnect-subcommand",
         "lock-file"
       ],
       "tests": [
-        "tests/unit/test_upstream_interfaces.py::test_disconnect_terminates_gpclient_and_runs_gpclient_disconnect",
-        "tests/unit/test_upstream_interfaces.py::test_disconnect_survives_a_failing_gpclient_disconnect"
+        "tests/unit/test_upstream_interfaces.py::test_disconnect_terminates_gpclient_and_runs_no_gpclient_disconnect",
+        "tests/unit/test_upstream_interfaces.py::test_disconnect_without_gpclient_runs_nothing_either"
       ]
     },
     {
       "function": "service/nm-gpclient-service.py::GpclientVPNPlugin._cleanup_stale_gpd0",
       "kind": "runs-upstream",
       "upstream": [
-        "cli-disconnect-subcommand",
         "lock-file"
       ],
       "tests": [
-        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient",
+        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient_and_gpservice",
         "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_while_gpclient_runs",
+        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_while_gpservice_runs",
         "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_without_gpd0"
       ]
     },

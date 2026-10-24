@@ -43,9 +43,17 @@ Disconnects VPN.
 
 **Process:**
 1. Stops interface monitoring
-2. Terminates gpclient process (SIGTERM, then SIGKILL if needed)
-3. Runs `gpclient disconnect`
-4. Clears internal state
+2. Notes the `gpauth` processes below our own gpclient (name and start time)
+3. Terminates gpclient process (SIGTERM, then SIGKILL if needed)
+4. Stops the noted `gpauth` processes (SIGTERM, then SIGKILL after 2 s). A PID
+   whose start time changed is never signalled
+5. Clears internal state
+
+The service does not run `gpclient disconnect` and does not run `pkill gpauth`.
+Both act on processes the service does not own: a `gpclient` the user started
+from a terminal, or the `gpservice` of the GUI. gpclient keeps its default
+lock file (`/var/run/gpclient.lock`): this is what limits it to one session,
+so the service passes no private `--lock-file`.
 
 #### `SetConfig(a{sv})`
 Optional method for compatibility (not used).
