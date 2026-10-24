@@ -132,9 +132,10 @@ changelog_path() {
 # real error. A candidate that is not a regular file (a symlink could point
 # anywhere) is not used.
 extract_changelog() {
-    local deb="$1" package="$2" dest="$3" name="$(basename "$1")" member found="" statuses
+    local deb="$1" package="$2" dest="$3" name member found="" statuses
     local dir="$tmpdir/unpacked" errors="$tmpdir/errors" out="$tmpdir/changelog"
     local doc="usr/share/doc/$package" ignored='^tar: (.*: Not found in archive|Exiting with failure status due to previous errors)$'
+    name="$(basename "$1")"
 
     rm -rf "$dir"
     mkdir -p "$dir"

@@ -24,7 +24,7 @@ cmake .. \
     -DCMAKE_BUILD_TYPE=Release
 
 # Build
-make -j$(nproc)
+make -j"$(nproc)"
 
 echo ""
 echo "Build complete!"

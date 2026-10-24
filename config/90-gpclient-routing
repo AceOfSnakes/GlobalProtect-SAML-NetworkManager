@@ -32,6 +32,7 @@ unset_indexed() {
   done
 
   eval "${_count_var}=0"
+  # shellcheck disable=SC2163 # exports the variable named by _count_var, on purpose
   export "$_count_var"
 }
 
@@ -46,6 +47,7 @@ compact_split_inc_remove_default() {
     eval "_mask=\${CISCO_SPLIT_INC_${_i}_MASK-}"
 
     # treat 0.0.0.0 mask as invalid/default
+    # shellcheck disable=SC2154 # _mask is set by the eval above
     if [ "$_mask" = "0.0.0.0" ]; then
       for _f in $fields; do
         unset "CISCO_SPLIT_INC_${_i}_${_f}"
