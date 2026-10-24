@@ -12,6 +12,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import asyncio
 import os
+import stat
 
 import pytest
 
@@ -22,8 +23,31 @@ TRUSTED = (0, os.getuid())
 
 
 @pytest.fixture
-def script(tmp_path):
-    """A HIP script that passes every check, in a directory that does too"""
+def script(tmp_path, monkeypatch, service_module):
+    """A HIP script that passes every check, in a directory that does too
+
+    The directories above tmp_path (like /tmp) belong to the host and are often
+    world-writable, so they are shown as not writable by group or others.
+    """
+    real_stat = os.stat
+    above = set()
+    parent = os.path.dirname(os.path.realpath(tmp_path))
+    while parent not in above:
+        above.add(parent)
+        parent = os.path.dirname(parent)
+
+    class Closed:
+        def __init__(self, info):
+            self.st_mode = info.st_mode & ~(stat.S_IWGRP | stat.S_IWOTH)
+            self.st_uid = info.st_uid
+
+    def fake_stat(path, *args, **kwargs):
+        info = real_stat(path, *args, **kwargs)
+        if isinstance(path, str) and path in above:
+            return Closed(info)
+        return info
+
+    monkeypatch.setattr(service_module.os, "stat", fake_stat)
     directory = tmp_path / "bin"
     directory.mkdir()
     directory.chmod(0o755)
@@ -52,12 +76,13 @@ def test_symlink_resolves_to_the_target(service_module, script, tmp_path):
     assert result != str(link)
 
 
-def test_sticky_world_writable_directory_is_accepted(service_module, script):
-    script.parent.chmod(0o1777)
+@pytest.mark.parametrize("mode", [0o1777, 0o1775, 0o1757])
+def test_sticky_writable_directory_is_rejected(service_module, script, mode):
+    # The sticky bit does not make a group or world-writable directory safe
+    script.parent.chmod(mode)
 
-    result = service_module.validate_hip_script(str(script), trusted_uids=TRUSTED)
-
-    assert result == os.path.realpath(script)
+    with pytest.raises(ValueError, match="directory .* writable by group or others"):
+        service_module.validate_hip_script(str(script), trusted_uids=TRUSTED)
 
 
 def test_default_trusted_user_is_root_only(service_module, script):

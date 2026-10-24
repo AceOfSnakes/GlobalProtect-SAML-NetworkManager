@@ -998,9 +998,8 @@ def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
     # The service runs gpclient, and so the script, as root. Without these
     # checks "can edit the NetworkManager profile" would become "can run code
     # as root": the script and every directory above it must be changeable by
-    # a trusted user only. A sticky directory (like /tmp) may be world-writable:
-    # only the owner of an entry can rename or delete it there, so an entry of
-    # a trusted user cannot be swapped.
+    # a trusted user only. A sticky directory (like /tmp) does not count as
+    # safe: the script must not be in a group or world-writable directory.
     if not os.path.isabs(path):
         raise ValueError("the path is not absolute")
     resolved = os.path.realpath(path)
@@ -1024,8 +1023,7 @@ def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
             raise ValueError(
                 f"directory {directory} has an untrusted owner (uid {dir_info.st_uid})"
             )
-        writable = dir_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-        if writable and not dir_info.st_mode & stat.S_ISVTX:
+        if dir_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
             raise ValueError(f"directory {directory} is writable by group or others")
         parent = os.path.dirname(directory)
         if parent == directory:
