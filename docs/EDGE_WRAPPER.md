@@ -69,30 +69,51 @@ NetworkManager uses systemd's `ProtectHome=read-only` for security, making the u
 - Cache
 - Crash reports
 
-The wrapper creates temporary directories:
+The wrapper creates temporary directories in a private base directory:
 ```
-/tmp/edge-wrapper-$UID/
-├── profile/     # Edge user data
+<base>/
+├── profile/     # Edge user data (profile-firefox/ for Firefox)
 ├── home/        # Fake HOME
 ├── cache/       # XDG_CACHE_HOME
-└── data/        # XDG_DATA_HOME
+├── data/        # XDG_DATA_HOME
+└── wrapper.log  # log file (mode 600)
 ```
+
+`<base>` is `/tmp/edge-wrapper-$UID`. The wrapper creates it with mode 700 and
+uses it only if it is a real directory, owned by the user, with mode 700. A
+directory from an older wrapper that is owned by the user (mode 755) gets
+`chmod 700` and is then used: only its owner could have written in it. The older
+wrapper ran `mkdir` as root, so on many systems the leftover directory is owned
+by root. The wrapper cannot fix it: it logs "left by an older version of the
+wrapper (owned by root)", uses a new directory, and you can remove the old one
+with `sudo rm -rf /tmp/edge-wrapper-$UID`. If someone else created it first (a
+symlink, a directory with other owner, a file), the wrapper does not use it: it
+logs a "planted by another user?" warning and takes a new directory from
+`mktemp` (`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). After the run, the
+wrapper empties such a `mktemp` directory but keeps `wrapper.log`, so you can
+read the log of a failed login. If a file cannot be removed (the browser may
+still write for a moment), it tries 3 times, 1 second apart. When the wrapper
+runs as root, it creates the directories and checks that the home is writable as
+the desktop user (through `sudo -u "#$UID"`), so they never belong to root and
+root never follows a symlink.
+The Chromium policy file and the `Crash Reports` directories are also written
+after the privilege drop, as the desktop user.
 
 #### Security Considerations
 
 **Why temporary profile?**
 - NetworkManager's `ProtectHome=read-only` is a security feature that prevents VPN services from reading/writing user's home directory
 - Edge cannot function without a writable profile directory
-- The wrapper creates a fresh profile in `/tmp` for each authentication session
+- The wrapper uses a separate profile in a private directory (see above), not your normal one. It is reused until you delete it
 
 **Implications:**
 - Your main Edge profile (`~/.config/microsoft-edge`) with saved passwords, cookies, and browsing history is **not used**
-- Each VPN authentication starts with a clean browser profile
+- The browser profile does not contain your normal browsing data
 - Intune/Entra authentication still works because it uses device certificates (stored in system keychain, not browser profile)
 
 **Security tradeoffs:**
-- `/tmp` is typically world-readable on Linux systems
-- The wrapper creates directories with user-only permissions (`/tmp/edge-wrapper-$UID/`)
+- `/tmp` is shared between all users, so the wrapper never trusts a directory there that it did not create with mode 700 for the right user
+- All directories have user-only permissions (mode 700)
 - Temporary profile may contain session cookies during authentication
 - Profile is not automatically cleaned up after use
 
@@ -172,10 +193,18 @@ waits for the browser to exit or for the safety timeout (`GP_AUTH_TIMEOUT`,
 
 ## Log Files
 
-Debug logs are written to:
+Debug logs are written to the private base directory (see above):
 ```
-/tmp/edge-wrapper-$UID.log
+<base>/wrapper.log        # /tmp/edge-wrapper-$UID/wrapper.log (or the mktemp directory)
 ```
+The file has mode 600 and is created by the desktop user, never by root. The
+messages from before the base directory exists (user lookup, browser and session
+detection) go to stderr and syslog (`logger -t gpclient-browser-wrapper`). As
+root, the wrapper itself never opens the log file: all its own messages go to
+syslog, and only the part that runs as the desktop user (the browser start and
+stop) writes `wrapper.log`. A log file in
+the shared `/tmp` is not used, because another user could replace it with a
+symlink or read it.
 
 Example log:
 ```
@@ -198,7 +227,11 @@ The last line always starts with `done:` and says why the wrapper finished:
 
 ```bash
 # Check log file
-cat /tmp/edge-wrapper-$(id -u).log
+# Messages of the part that runs as the desktop user (browser start and stop)
+cat /tmp/edge-wrapper-$(id -u)/wrapper.log   # or <base>/wrapper.log
+# Messages from before the base directory exists, and all messages written as
+# root (the normal case with NetworkManager): in the journal, not in wrapper.log
+journalctl -t gpclient-browser-wrapper
 
 # Test manually (any browser, without a VPN connection involved)
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
@@ -210,7 +243,9 @@ close it.
 
 Check the reason in the log:
 ```bash
-grep "done:" /tmp/edge-wrapper-$(id -u).log
+grep "done:" /tmp/edge-wrapper-$(id -u)/wrapper.log
+# if wrapper.log has no "done:" line, look in the journal too
+journalctl -t gpclient-browser-wrapper | grep "done:"
 ```
 `timeout after 300s` means the login took longer than the safety timeout. Raise
 it for the whole service:
@@ -231,14 +266,17 @@ the VPN is unaffected.
 
 Edge policy may not be applied. Check:
 ```bash
-cat /tmp/edge-wrapper-$(id -u)/home/.config/microsoft-edge/policies/managed/globalprotect.json
+# <base> is /tmp/edge-wrapper-$(id -u)
+cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 ```
 
 ### Wrong display / window doesn't appear
 
 Check detected display:
 ```bash
-grep "detected DISPLAY" /tmp/edge-wrapper-$(id -u).log
+# The wrapper writes this message before the base directory exists (and as root),
+# so it is in the journal, not in wrapper.log
+journalctl -t gpclient-browser-wrapper | grep "detected DISPLAY"
 ```
 
 For Wayland, ensure `WAYLAND_DISPLAY` is correct:
@@ -256,8 +294,13 @@ nmcli connection modify "My VPN" +vpn.data "browser=firefox"    # or chrome, chr
 
 The service maps these names (and the old `/usr/bin/firefox`-style paths) to
 `browser-wrapper` and passes the binary in `GP_BROWSER`, so every browser gets
-the session-environment fixup that used to be Edge-only. A value that is not a
-known browser - your own wrapper script - is passed to gpclient untouched.
+the session-environment fixup that used to be Edge-only. Your own wrapper
+script can be given as an absolute path (for example `/opt/me/my-wrapper`) or as
+a plain command name (for example `brave-browser` or `opera`: letters, digits,
+`.`, `_`, `+` and `-`, not starting with `-`). Both are passed to gpclient
+untouched. Any other unknown value (a relative path, a value that starts with
+`-`, a value with spaces) is logged and falls back to the desktop's default
+browser.
 
 | Value | Launched as |
 |-------|-------------|
