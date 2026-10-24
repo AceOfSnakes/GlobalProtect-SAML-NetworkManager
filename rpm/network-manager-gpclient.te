@@ -1,0 +1,18 @@
+module network-manager-gpclient 1.0;
+
+require {
+    type NetworkManager_t;
+    type devpts_t;
+    type ptmx_t;
+    type session_dbusd_tmp_t;
+    class chr_file { getattr open read write ioctl };
+    class sock_file getattr;
+}
+
+# The VPN service is D-Bus activated by NetworkManager and therefore runs in
+# NetworkManager_t.  It starts gpclient under a PTY for interactive portal
+# authentication and inspects the user's session bus before launching a
+# browser.
+allow NetworkManager_t devpts_t:chr_file { getattr open read write ioctl };
+allow NetworkManager_t ptmx_t:chr_file { getattr open read write ioctl };
+allow NetworkManager_t session_dbusd_tmp_t:sock_file getattr;
