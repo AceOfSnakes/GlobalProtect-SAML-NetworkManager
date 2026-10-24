@@ -29,6 +29,7 @@ GitHub Pages.
 | `scripts/upstream_contract.py` | `check`, `update`, `features`, `interfaces`, `gate` for `upstream/` |
 | `tests/unit/` | Unit tests (pytest), run anywhere |
 | `tests/upstream/` | Tests of the pinned submodule (need `external/`) |
+| `tests/e2e/` | End-to-end tests on a real desktop in Docker (`run.sh`, checks, animations of the README) |
 | `tests/test_*.py` | GUI tests (dogtail, needs an X11 session): see `CLAUDE_INSTRUCTIONS.md` |
 
 ## Ground rules
@@ -100,6 +101,12 @@ tar --exclude=./.git --exclude=./external --exclude=./.claude -cf - . | tar -xf 
 (cd "$T" && runuser -u nobody -- env HOME="$T" python3 -m pytest tests/unit -q -p no:cacheprovider)
 rm -rf "$T"
 ```
+
+End-to-end tests (`tests/e2e/run.sh <gnome|kde|routing|auth-cancel|all> [--webp]`)
+need Docker and are run by hand or with the pull request label `e2e`
+(`.github/workflows/e2e.yml`), not on every push. Run them when you change the
+service, the editors, the wrapper or the vpnc hook; `tests/e2e/checks.py` is
+covered by `tests/unit/test_e2e_checks.py`.
 
 Rules for tests:
 
