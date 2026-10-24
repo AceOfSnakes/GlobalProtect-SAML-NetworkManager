@@ -101,7 +101,7 @@ Requires:       selinux-policy-targeted
 %description
 NetworkManager VPN service and command-line tools for GlobalProtect VPN
 connections with SAML/SSO authentication support. The package contains the
-service, the NetworkManager plugin, gpclient, gpauth and gpservice.
+service, the NetworkManager plugin, gpclient and gpauth.
 
 The GUI packages add the connection editors.
 
@@ -162,7 +162,7 @@ mkdir -p plugins/plasma/build
 # With upstream's release profile (strip, opt-level "z"), as the Debian build: Fedora's
 # rpmbuild exports RUSTFLAGS with -Cstrip=none -Cdebuginfo=2, which would override it
 (cd external/GlobalProtect-openconnect && \
-  env -u RUSTFLAGS cargo build --release --bin gpclient --bin gpauth --bin gpservice)
+  env -u RUSTFLAGS cargo build --locked --release --bin gpclient --bin gpauth)
 
 %install
 %if 0%{?fedora} || 0%{?rhel}
@@ -222,8 +222,6 @@ install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpclient \
   %{buildroot}%{_bindir}/gpclient
 install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpauth \
   %{buildroot}%{_bindir}/gpauth
-install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpservice \
-  %{buildroot}%{_bindir}/gpservice
 # URL handler for globalprotectcallback://
 install -D -m 0644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
   %{buildroot}%{_datadir}/applications/gpgui.desktop
@@ -283,7 +281,6 @@ fi
 %doc README.md
 %{_bindir}/gpclient
 %{_bindir}/gpauth
-%{_bindir}/gpservice
 %{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
 %{_prefix}/lib/NetworkManager/nm-gpclient-service
 %{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
