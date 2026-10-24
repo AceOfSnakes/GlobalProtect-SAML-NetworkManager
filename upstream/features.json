@@ -2,6 +2,62 @@
   "baseline": "2.6.5",
   "entries": [
     {
+      "version": "3.2.0",
+      "section": "Added",
+      "text": "Added Local Proxy mode with configurable SOCKS5 and HTTP listeners, so selected apps can use the VPN without changing system routes or DNS.",
+      "status": "not-applicable",
+      "reason": "The service runs gpclient in tunnel mode; NetworkManager owns routes and DNS. Local Proxy mode is a gpservice/GUI flow that we do not use."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Added",
+      "text": "Added a gateway IP preference for trying IPv4 or IPv6 first, available in Settings and through `gpclient connect --ip-preference`.",
+      "status": "no-action",
+      "reason": "The default of --ip-preference is auto, which keeps the previous address resolution. The service does not pass the flag. The help text of --disable-ipv6 changed too; the service does not pass that flag either."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Improved",
+      "text": "Enabled switching between the macOS main window and menu bar popover without restarting the app.",
+      "status": "not-applicable",
+      "reason": "GUI only, macOS only."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Improved",
+      "text": "Refined gateway selection, connection status, and proxy listener details.",
+      "status": "no-action",
+      "reason": "The gateway list, the Select prompt and the chosen-gateway lines that the service reads are unchanged: contract items gateway-count, gateway-chosen-*, gateway-select-prompt and code-connect-portal are OK on v3.2.0."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Improved",
+      "text": "Made numeric settings validation clearer before saving.",
+      "status": "not-applicable",
+      "reason": "GUI only: settings of gpgui."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Fixed",
+      "text": "Fixed VPN shutdown waiting too long when a gateway stops responding to logout.",
+      "status": "no-action",
+      "reason": "The fix is in the bundled openconnect (logout watchdog). gpclient disconnect and the exit on SIGTERM are unchanged; the service still waits for the logout and kills after its own timeout."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Fixed",
+      "text": "Fixed segmented controls sometimes losing the selected option when clicked.",
+      "status": "not-applicable",
+      "reason": "GUI only."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Fixed",
+      "text": "Fixed app shortcuts failing to open with some Linux and BSD desktop launchers.",
+      "status": "not-applicable",
+      "reason": "GUI shortcuts of gpgui. The desktop file that we install is unchanged (contract item desktop-exec is OK)."
+    },
+    {
       "version": "3.1.0",
       "section": "Added",
       "text": "Added a Connection Details panel showing VPN information and live upload and download activity.",
