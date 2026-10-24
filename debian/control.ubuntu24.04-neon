@@ -1,7 +1,7 @@
 Source: network-manager-gpclient
 Section: net
 Priority: optional
-Maintainer: WMP <example@example.org>
+Maintainer: WMP <45381+WMP@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13),
                cmake,
                extra-cmake-modules,
