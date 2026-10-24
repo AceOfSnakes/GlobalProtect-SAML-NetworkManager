@@ -26,6 +26,7 @@ All components have been implemented and are ready for testing:
      - Gateway (QLineEdit)
      - Browser (QLineEdit)
      - Connect timeout (QDoubleSpinBox for the full `guint32` range, NetworkManager's `vpn.timeout`)
+     - MTU (QSpinBox, `mtu` in `vpn.data`, 0 = automatic; used only when the gateway sends no MTU)
      - DNS Servers (QLineEdit)
    - Tooltips and placeholders for user guidance
 

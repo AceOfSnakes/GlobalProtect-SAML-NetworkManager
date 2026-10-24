@@ -62,10 +62,12 @@ add_library(gpclientwidget STATIC gpclientwidget.cpp ${gpclientwidget_UI_SRCS})
 set_target_properties(gpclientwidget PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Add local include directory for plasma-nm headers
+# nm-gpclient-mtu.h (the MTU rule) is shared with the GTK editors
 target_include_directories(gpclientwidget PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../gnome
 )
 
 target_link_libraries(gpclientwidget PUBLIC

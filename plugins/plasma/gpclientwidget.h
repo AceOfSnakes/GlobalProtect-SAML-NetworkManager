@@ -40,6 +40,9 @@ private:
      * timeout follows the authentication mode (360 s for the browser, 0
      * otherwise) until the user sets a value. */
     bool m_timeoutFollowsAuthMode = false;
+    /* The user changed the MTU spin box after load: until then an invalid
+     * stored value (the box shows 0) is kept on save. */
+    bool m_mtuTouched = false;
 };
 
 #endif // PLASMA_NM_GPCLIENT_WIDGET_H

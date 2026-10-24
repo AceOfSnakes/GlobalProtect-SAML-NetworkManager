@@ -60,9 +60,13 @@ sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with
 Supported: Ubuntu 22.04, 24.04, 24.10 and 26.04, `amd64` and `arm64`. Details, deb822 format and
 removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
 
-**Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first:
+**Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first.
+NetworkManager runs the service as root, so install it system-wide with `sudo`
+(a plain `pip3 install` as your user puts it in `~/.local`, where root's Python
+does not look):
 ```bash
-pip3 install sdbus
+sudo apt install python3-pip
+sudo pip3 install sdbus
 ```
 
 <details>
@@ -120,8 +124,8 @@ sudo apt autoremove
 
 Installing from the apt repository pulls the runtime prerequisites
 (`openconnect`, `python3-sdbus`, `vpnc-scripts`) in by itself. On Ubuntu 22.04
-`python3-sdbus` is not in apt — use the `pip3 install sdbus` step shown above
-instead.
+`python3-sdbus` is not in apt — use the `sudo pip3 install sdbus` step shown
+above instead.
 
 Thanks to @ottuzzi for the writeup
 ([#3](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/3)).
@@ -167,6 +171,7 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `username` | (empty) | Username for portals that ask on the terminal |
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path (or command name) of your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
+| `mtu` | (empty) | MTU of the tunnel, 576-1500 (smaller values are raised to 576); empty or `0` is automatic. A value that is not a plain number up to 1500 is ignored with a warning in the log. openconnect uses it only when the gateway sends no MTU (its log then says "No MTU received. Calculated N ..."); a gateway MTU wins. Lowering it (`nmcli connection modify "My VPN" +vpn.data mtu=1300`) may help when the tunnel falls back from ESP to HTTPS with "ESP receive error: Message too long", as seen on mobile hotspots. The editors show a stored value they cannot show as 0 and keep it on save while the field is untouched |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
 | `hip-script` | (empty) | Absolute path to a custom HIP executable, passed as `--hip=<path>`; ignored when `hip=false`. The service runs it as root, so it must be a root-owned regular file, not group- or world-writable, in directories that are root-owned and not group- or world-writable; otherwise the connection fails |
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
