@@ -1,6 +1,35 @@
 #!/bin/sh
 set -e
 
+# Older wrappers ran as root and left /tmp/edge-wrapper-<uid> (a directory) and
+# /tmp/edge-wrapper-<uid>.log (a file) owned by root. The wrapper refuses a
+# directory it does not own and takes a new one on every login, so remove these.
+# Only the exact names with digits, only root-owned, never through a symlink
+# (find does not follow them; rm -rf does not either). /tmp has the sticky bit:
+# only root could have replaced or renamed a root-owned entry, so no other user
+# can swap it between the check and the removal.
+# Usage: remove_legacy_edge_wrapper directory [owner] (the owner is root; a test sets another)
+remove_legacy_edge_wrapper() {
+    legacy_dir=$1
+    legacy_owner=${2:-root}
+    for legacy_entry in "$legacy_dir"/edge-wrapper-[0-9]*; do
+        legacy_rest=${legacy_entry##*/edge-wrapper-}
+        legacy_id=${legacy_rest%.log}
+        case $legacy_id in
+            ''|*[!0-9]*) continue ;;
+        esac
+        if [ "$legacy_id" = "$legacy_rest" ]; then
+            legacy_type=d
+        else
+            legacy_type=f
+        fi
+        if [ -n "$(find "$legacy_entry" -maxdepth 0 -type "$legacy_type" \
+                -user "$legacy_owner" 2>/dev/null)" ]; then
+            rm -rf -- "$legacy_entry" || true
+        fi
+    done
+}
+
 case "$1" in
     configure|reconfigure)
         # Reload D-Bus configuration to pick up new service files
@@ -20,6 +49,8 @@ case "$1" in
             echo "Killing old gpclient-nm-service process..."
             pkill -f "gpclient-nm-service" || true
         fi
+
+        remove_legacy_edge_wrapper /tmp
 
         # Ensure systemd-resolved is enabled in /etc/nsswitch.conf for split DNS
         if [ -f /etc/nsswitch.conf ]; then
