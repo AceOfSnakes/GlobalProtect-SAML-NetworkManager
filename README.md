@@ -68,6 +68,28 @@ sudo apt install ./network-manager-gpclient_*.deb ./network-manager-gpclient-gno
 (or the repository above).
 </details>
 
+### Fedora, RHEL 10 and openSUSE (RPM)
+
+RPM repositories for Fedora 43, 44 and 45, RHEL/AlmaLinux/Rocky Linux 10 (with
+EPEL) and openSUSE Leap 16.0 and Tumbleweed, `x86_64` and `aarch64`. Fedora:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/fedora$(rpm -E %fedora)/network-manager-gpclient.repo
+sudo dnf install network-manager-gpclient-gnome    # or network-manager-gpclient-plasma (Plasma 6)
+```
+
+openSUSE Tumbleweed (Leap 16.0: `.../rpm/leap16.0/...`):
+
+```bash
+sudo zypper addrepo https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/tumbleweed/network-manager-gpclient.repo
+sudo zypper refresh
+sudo zypper install network-manager-gpclient-gnome # or network-manager-gpclient-plasma
+```
+
+RHEL 10 and its rebuilds, removal, and what differs from the Ubuntu packages:
+[docs/RPM_REPO.md](docs/RPM_REPO.md). The packages contain the Python module
+`sdbus`; do not install it with pip.
+
 ### Migrating from `globalprotect-openconnect`
 
 If you previously had the `globalprotect-openconnect` package installed,
@@ -388,6 +410,7 @@ Debug logs are written to `/tmp/vpnc-script2.log`.
 
 - [docs/README.md](docs/README.md) - Full documentation
 - [docs/APT_REPO.md](docs/APT_REPO.md) - apt repository: using it, releasing, key rotation
+- [docs/RPM_REPO.md](docs/RPM_REPO.md) - RPM packages and repositories (Fedora, RHEL 10, openSUSE)
 - [docs/EDGE_WRAPPER.md](docs/EDGE_WRAPPER.md) - Browser wrapper and browser integration
 - [docs/PYTHON_SERVICE.md](docs/PYTHON_SERVICE.md) - Service implementation details
 - [docs/INTERACTIVE_AUTH.md](docs/INTERACTIVE_AUTH.md) - Standard login / RSA token / OTP authentication, gateway selection

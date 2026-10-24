@@ -1,9 +1,10 @@
 name: Publish APT repository
 
-# Publishes the apt repository to GitHub Pages.
+# Publishes the apt repository and the RPM repositories (under /rpm) to GitHub
+# Pages. The file keeps its name: build-release.yml and the docs call it.
 #
 # GitHub Releases are the source of truth: every run rebuilds the whole
-# repository from the .deb assets of all published releases, so the run is
+# repositories from the .deb and .rpm assets of all published releases, so the run is
 # idempotent and the repository can be recreated from scratch at any time
 # (after a key rotation, for example). Nothing is committed to the repo.
 #
@@ -36,7 +37,7 @@ jobs:
       - name: Install repository tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y dpkg-dev apt-utils
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
 
       - name: Import signing key
         env:
@@ -78,6 +79,9 @@ jobs:
             echo "::group::$tag"
             gh release download "$tag" -D incoming --pattern '*.deb' --clobber \
               || echo "::warning::$tag has no .deb assets"
+            # Releases before the RPM packages have none
+            gh release download "$tag" -D incoming --pattern '*.rpm' --clobber \
+              || echo "::warning::$tag has no .rpm assets"
             echo "::endgroup::"
           done < tags.txt
           ls -la incoming
@@ -90,6 +94,13 @@ jobs:
         env:
           APT_REPO_URL: ${{ steps.pages.outputs.base_url }}
         run: bash .github/scripts/build-apt-repo.sh incoming site "$APT_GPG_KEY"
+
+      # After the apt repository: it writes the landing page, which gets the RPM
+      # part here (or loses it when no release has RPMs). The signing key is
+      # the one imported above, found through GNUPGHOME and never passed as an
+      # argument.
+      - name: Build the RPM repositories
+        run: bash .github/scripts/build-rpm-repo.sh --index site/index.html --allow-empty incoming site/rpm "$APT_GPG_KEY"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
