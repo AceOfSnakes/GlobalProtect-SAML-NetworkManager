@@ -226,6 +226,7 @@ SHELL_SCRIPTS := \
 	rpm/install-test.sh \
 	scripts/browser-wrapper.sh \
 	scripts/edge-wrapper.sh \
+	scripts/hide-desktop-entry.sh \
 	scripts/install-pr-build.sh \
 	tests/e2e/files/loginctl \
 	tests/e2e/files/make-certs.sh \
