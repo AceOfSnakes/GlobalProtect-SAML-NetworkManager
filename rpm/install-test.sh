@@ -144,6 +144,12 @@ for path in \
     [ -e "$path" ] || fail "missing file $path"
 done
 
+# gpgui is not shipped: the entry is hidden, the callback handler stays
+grep -qx 'NoDisplay=true' /usr/share/applications/gpgui.desktop \
+    || fail "gpgui.desktop has no NoDisplay=true"
+grep -qx 'MimeType=x-scheme-handler/globalprotectcallback;' /usr/share/applications/gpgui.desktop \
+    || fail "gpgui.desktop does not handle globalprotectcallback"
+
 [ -L /usr/lib/libnm-gpclient-properties ] \
     || fail "/usr/lib/libnm-gpclient-properties is not a symlink"
 [ -e /usr/lib/libnm-gpclient-properties ] \
