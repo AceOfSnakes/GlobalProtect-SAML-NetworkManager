@@ -177,6 +177,8 @@ INTERNAL_NETWORK_RE = re.compile(
 # timeout, so it needs more than 5 s before we may SIGKILL it (a cut logout
 # leaves a stale lock on the gateway)
 GPCLIENT_TERMINATE_TIMEOUT = 10
+# How long our own gpauth processes get to exit after SIGTERM before SIGKILL
+GPAUTH_TERMINATE_TIMEOUT = 2
 
 # How long we wait for the user to answer an interactive secrets request
 # (NewSecrets from NetworkManager) before giving up.
@@ -591,6 +593,30 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
     return label or None
 
 
+def detect_screen_prompt(
+    lines: Sequence[str], cursor_row: int, last_answer: str = ""
+) -> Optional[Tuple[int, str]]:
+    """Detect a pending inquire text prompt on the screen rows.
+
+    inquire parks the cursor on the prompt row, so the prompt is the row at the
+    cursor. Rows below it (an error message, the help line) are never looked at.
+    When the cursor row is empty - the prompt line was terminated with a newline
+    and the cursor moved on - the nearest non-empty row above it is the
+    candidate. Rows are looked at one by one: a label above the cursor row is
+    not joined to it.
+
+    Returns (row index, label) or None. The label is classified by
+    detect_prompt().
+    """
+    if not 0 <= cursor_row < len(lines):
+        return None
+    for index in range(cursor_row, -1, -1):
+        if lines[index].strip():
+            label = detect_prompt(lines[index], last_answer)
+            return None if label is None else (index, label)
+    return None
+
+
 def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
     """Split a label into words and each word into sub-words.
 
@@ -969,6 +995,102 @@ def process_tree(root_pid: int) -> List[int]:
     return tree
 
 
+def parse_proc_stat(text: str) -> Optional[Tuple[str, str, int, int]]:
+    """(comm, state, ppid, starttime) from the text of /proc/PID/stat, or None.
+
+    Field 2 (comm) is in parentheses and may itself contain spaces and
+    parentheses, so everything after the LAST ')' is split into fields:
+    state is field 3, ppid field 4, starttime field 22.
+    """
+    close = text.rfind(")")
+    open_ = text.find("(")
+    if open_ < 0 or close < open_:
+        return None
+    fields = text[close + 1 :].split()
+    if len(fields) < 20:
+        return None
+    try:
+        return text[open_ + 1 : close], fields[0], int(fields[1]), int(fields[19])
+    except ValueError:
+        return None
+
+
+def read_proc_stat(pid: int) -> Optional[Tuple[str, str, int, int]]:
+    """parse_proc_stat() of one process; None when it is gone or unreadable"""
+    try:
+        with open(f"{PROC_PATH}/{pid}/stat", "r") as handle:
+            return parse_proc_stat(handle.read())
+    except OSError:
+        return None
+
+
+def gpauth_descendants(root_pid: int) -> List[Tuple[int, int]]:
+    """(pid, starttime) of every gpauth below `root_pid` in the process tree.
+
+    These are the gpauth processes that belong to our own gpclient. The
+    starttime tells a later signal sender whether the PID is still the same
+    process. Blocking /proc I/O: call it off the event loop.
+    """
+    try:
+        pids = [int(entry) for entry in os.listdir(PROC_PATH) if entry.isdigit()]
+    except OSError:
+        return []
+
+    children: Dict[int, List[int]] = {}
+    info: Dict[int, Tuple[str, int]] = {}
+    for pid in pids:
+        stat_fields = read_proc_stat(pid)
+        if stat_fields is None:
+            continue
+        comm, _state, ppid, starttime = stat_fields
+        children.setdefault(ppid, []).append(pid)
+        info[pid] = (comm, starttime)
+
+    found: List[Tuple[int, int]] = []
+    seen = {root_pid}
+    queue = [root_pid]
+    while queue:
+        for child in children.get(queue.pop(), []):
+            if child in seen:
+                continue
+            seen.add(child)
+            queue.append(child)
+            comm, starttime = info[child]
+            if comm == "gpauth":
+                found.append((child, starttime))
+    return found
+
+
+def is_same_process(pid: int, starttime: int) -> bool:
+    """True while `pid` is a live process that started at `starttime`.
+
+    A zombie counts as gone. A PID that was reused has another starttime.
+    """
+    stat_fields = read_proc_stat(pid)
+    return (
+        stat_fields is not None
+        and stat_fields[1] not in ("Z", "X")
+        and stat_fields[3] == starttime
+    )
+
+
+def send_signal(pid: int, sig: int) -> None:
+    """The only place that signals a process we did not start ourselves"""
+    os.kill(pid, sig)
+
+
+def signal_if_same(pid: int, starttime: int, sig: int) -> bool:
+    """Send `sig` only when `pid` still is the process that started at
+    `starttime`. Returns True when a signal was sent."""
+    if not is_same_process(pid, starttime):
+        return False
+    try:
+        send_signal(pid, sig)
+    except OSError:
+        return False
+    return True
+
+
 def parse_dns_state(text: str) -> Dict[str, str]:
     """Parse the KEY=value lines the vpnc hook writes to DNS_STATE_FILE."""
     state: Dict[str, str] = {}
@@ -1247,8 +1369,19 @@ class ScreenBuffer:
         self._col = 0
         self._tokenizer = EscapeTokenizer()  # for feed(); apply() takes tokens
         self.version = 0
+        self.dropped = 0  # rows trimmed from the top: row_id() stays stable
         self._lines_cache: Tuple[str, ...] = ()
         self._lines_version = -1
+
+    @property
+    def cursor_row(self) -> int:
+        """Index (in lines()) of the row the cursor is on"""
+        return self._row
+
+    def row_id(self, index: int) -> int:
+        """A number for the row at `index` that stays the same when the buffer
+        is trimmed at the top"""
+        return self.dropped + index
 
     def lines(self) -> Tuple[str, ...]:
         """The screen rows (a tuple, cached until the next feed)"""
@@ -1341,6 +1474,7 @@ class ScreenBuffer:
         excess = len(self._rows) - self.MAX_ROWS
         if excess > 0:
             del self._rows[:excess]
+            self.dropped += excess
             self._row = max(0, self._row - excess)
 
     def _csi(self, params: str, intermediates: str, final: str) -> None:
@@ -1397,6 +1531,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     def __init__(self):
         super().__init__()
         self.gpclient_process = None
+        # (pid, starttime) of the gpauth processes of our own gpclient that
+        # may still run; see _remember_gpauth()
+        self._gpauth_leftovers: List[Tuple[int, int]] = []
         self.tunnel_check_task = None
         self.stdout_monitor_task = None
         self.dns_servers = []
@@ -1449,8 +1586,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
-        # Recent complete output lines, used for logging, text prompts that
-        # inquire has already terminated with a newline, and _last_output_line
+        # Recent complete output lines, used for logging only
         self._recent_lines: deque = deque(maxlen=96)
         self._reset_output_state()
         self._auth_banner = None  # last "message (Portal: server)" banner
@@ -1826,19 +1962,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # does not handle (only SIGINT and SIGTERM), so it would die at once and
         # skip the gateway logout. It does not block on the PTY while it waits:
         # it writes a few log lines at most, and the PTY buffer holds them.
+        #
+        # There is no `gpclient disconnect` after it: that command signals the
+        # PID in the shared lock file, which is our gpclient (already stopped
+        # here) or, if someone else holds the lock, a gpclient or gpservice
+        # that is not ours (issue #52). The gpauth of our gpclient is noted
+        # first (it is a child of gpclient) and stopped after it.
+        await self._remember_gpauth()
         await self._stop_gpclient()
 
         # Close the PTY
         self._close_pty()
 
-        # Also run gpclient disconnect command
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "/usr/bin/gpclient", "disconnect"
-            )
-            await asyncio.wait_for(proc.wait(), timeout=10)
-        except Exception as e:
-            logger.error(f"Error running 'gpclient disconnect': {e}")
+        await self._stop_remembered_gpauth()
 
         # Clean up
         self._clear_dns_state()
@@ -2310,23 +2446,17 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     async def _start_gpclient(self) -> bool:
         """Start gpclient process"""
         try:
-            # Get real user first (needed for pkill filter)
+            # Get real user first
             # (blocking loginctl calls: off the event loop)
             real_uid, real_user, real_home = await asyncio.to_thread(
                 self._get_real_user
             )
             logger.info(f"Will run gpclient as user: {real_user}")
 
-            # Kill any hanging gpauth processes first (filtered by user for security)
-            try:
-                subprocess.run(
-                    ["pkill", "-9", "-u", str(real_uid), "gpauth"], timeout=2
-                )
-                logger.debug(
-                    f"Killed any hanging gpauth processes for user {real_user}"
-                )
-            except Exception as e:
-                logger.debug(f"No gpauth processes to kill: {e}")
+            # gpauth left over from an earlier run of OUR gpclient. Never
+            # `pkill gpauth`: it would also kill the gpauth of a gpclient the
+            # user started from a terminal or of the GUI (issue #52).
+            await self._stop_remembered_gpauth()
 
             # Build command.
             #
@@ -2512,10 +2642,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._last_answer = ""
 
                 for raw_line in lines:
-                    # Raw, not stripped: _recent_lines only feeds logging and
-                    # the text prompt checks (a Select is read from _screen)
+                    # Raw, not stripped: _recent_lines only feeds logging (the
+                    # prompts are read from _screen)
                     self._recent_lines.append(raw_line)
-                    self._line_counter += 1
 
                     line = raw_line.strip()
                     # inquire redraws lines on every keystroke; skip repeats
@@ -2597,7 +2726,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                 self._schedule_prompt_check()
 
-            # Process ended
+            # Process ended. Note its gpauth children now: once gpclient is
+            # reaped they belong to init and cannot be told from other gpauth
+            await self._remember_gpauth()
             returncode = await self.gpclient_process.wait()
             logger.info(f"gpclient process exited with status {returncode}")
 
@@ -2632,8 +2763,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # incrementally redrawn Select frame (issue #25)
         self._screen = ScreenBuffer()
         self._tunnel_up = False  # STARTED emitted: stop watching for a Select
-        self._line_counter = 0  # monotonic count of complete lines seen
-        self._answered_at_line = -1  # line count when we last answered a prompt
+        # (screen row id, label) of the text prompt we answered last
+        self._answered_prompt: Optional[Tuple[int, str]] = None
         self._answered_select = None  # message of the Select we answered
         # "Found N gateways in portal config" of this attempt, and the entries
         # of the whole list when this attempt saw all of it (read page by
@@ -2725,6 +2856,62 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         logger.error("Failed to restart gpclient with --fix-openssl")
         return False
+
+    async def _remember_gpauth(self) -> None:
+        """Note the gpauth processes below our gpclient, for later cleanup.
+
+        Only descendants of the gpclient this service started are noted, each
+        with its start time. Never raises.
+        """
+        process = self.gpclient_process
+        pid = getattr(process, "pid", None)
+        if not isinstance(pid, int) or getattr(process, "returncode", None) is not None:
+            return
+        try:
+            found = await asyncio.to_thread(gpauth_descendants, pid)
+        except Exception as e:
+            logger.debug(f"Could not look for the gpauth of gpclient: {e}")
+            return
+        for entry in found:
+            if entry not in self._gpauth_leftovers:
+                self._gpauth_leftovers.append(entry)
+
+    async def _stop_remembered_gpauth(self) -> None:
+        """SIGTERM, then SIGKILL, the gpauth processes noted by
+        _remember_gpauth() that still run.
+
+        A process is signalled only while its PID still has the start time we
+        noted, so a reused PID is never hit. Nothing else is signalled. Never
+        raises.
+        """
+        leftovers, self._gpauth_leftovers = self._gpauth_leftovers, []
+        if not leftovers:
+            return
+        try:
+            async def signal_all(sig: int) -> List[Tuple[int, int]]:
+                sent = []
+                for pid, starttime in leftovers:
+                    if await asyncio.to_thread(signal_if_same, pid, starttime, sig):
+                        sent.append((pid, starttime))
+                return sent
+
+            if not await signal_all(signal.SIGTERM):
+                return
+            logger.info("Stopped gpauth of our gpclient (SIGTERM)")
+            deadline = asyncio.get_running_loop().time() + GPAUTH_TERMINATE_TIMEOUT
+            while asyncio.get_running_loop().time() < deadline:
+                alive = [
+                    entry
+                    for entry in leftovers
+                    if await asyncio.to_thread(is_same_process, *entry)
+                ]
+                if not alive:
+                    return
+                await asyncio.sleep(0.1)
+            if await signal_all(signal.SIGKILL):
+                logger.warning("gpauth of our gpclient did not exit, killed it")
+        except Exception as e:
+            logger.error(f"Error stopping gpauth: {e}")
 
     async def _stop_gpclient(self) -> None:
         """Stop gpclient with SIGTERM, so it logs out of the gateways.
@@ -2835,42 +3022,50 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
             return
 
-        label = detect_prompt(self._output_scanner.tail, self._last_answer)
-        from_tail = label is not None
-
-        if label is None:
-            # inquire terminates the line it renders a prompt on (every backend
-            # ends with new_line()), so with a real gpclient the pending prompt
-            # is the last COMPLETE line and the tail is empty. Only act on a
-            # line that appeared after our last answer, otherwise the redraw of
-            # an answered prompt would be answered again.
-            if self._line_counter > self._answered_at_line:
-                label = detect_prompt(self._last_output_line(), self._last_answer)
-
-        if label is None:
+        found = self._screen_prompt()
+        if found is None:
             self._prompt_task = None
             return
+        label = found[1]
 
-        async def _debounced(tail_snapshot: str, line_snapshot: int):
+        async def _debounced(version: int):
             await asyncio.sleep(PROMPT_DEBOUNCE_SECONDS)
-            # Only act if the output has not moved on since we saw the prompt
-            if self._output_scanner.tail != tail_snapshot:
+            # Only act if the screen has not changed since we saw the prompt
+            if self._screen.version != version:
                 return
-            if not from_tail and self._line_counter != line_snapshot:
-                return
+            self._answered_prompt = found
             await self._handle_prompt(label)
 
-        self._prompt_task = asyncio.create_task(
-            _debounced(self._output_scanner.tail, self._line_counter)
-        )
+        self._prompt_task = asyncio.create_task(_debounced(self._screen.version))
 
-    def _last_output_line(self) -> str:
-        """Last non-empty line gpclient printed (stripped), or an empty string"""
-        for raw_line in reversed(self._recent_lines):
-            stripped = raw_line.strip()
-            if stripped:
-                return stripped
-        return ""
+    def _screen_prompt(self) -> Optional[Tuple[int, str]]:
+        """The text prompt gpclient waits at, as (row id, label), or None.
+
+        Read from the screen model: inquire redraws incrementally, so the line
+        stream holds stale rows and only some of the new ones (issue #27). The
+        line stream is used for logging only. Once the tunnel is up the screen
+        is no longer fed, and no prompt is expected.
+
+        A prompt that was already answered is skipped for as long as its row
+        and label have not changed. They change when inquire finalises the
+        answer or draws another prompt there; a prompt that comes back later is
+        a new one.
+        """
+        if self._tunnel_up:
+            return None
+        found = detect_screen_prompt(
+            self._screen.lines(), self._screen.cursor_row, self._last_answer
+        )
+        prompt = None if found is None else (self._screen.row_id(found[0]), found[1])
+        if prompt is None or prompt != self._answered_prompt:
+            self._answered_prompt = None  # the answered row has moved on
+        if prompt is None or prompt == self._answered_prompt:
+            return None
+        # The final line of an answered list ("? Which gateway ... gw-a") is
+        # not a prompt either
+        if self._answered_select and prompt[1].startswith(self._answered_select):
+            return None
+        return prompt
 
     def _reset_phase_state(self) -> None:
         """Reset per-phase prompt tracking at the start of an auth round.
@@ -2927,8 +3122,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         banner_msg = self._auth_banner["message"] if self._auth_banner else ""
         kind = self._classify_prompt_kind(label, banner_msg)
 
-        # Anything already printed must not be taken for a new prompt again
-        self._answered_at_line = self._line_counter
         self._answering = True
         try:
             if kind == "username":
@@ -3025,7 +3218,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         options = frame["options"]
         self._answered_select = frame["message"]
-        self._answered_at_line = self._line_counter
         self._answering = True
         try:
             self._record_gateways(options)
@@ -3841,49 +4033,41 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     async def _cleanup_stale_gpd0(self) -> None:
         """Remove a leftover gpd0 interface from a previous session.
 
-        gpd0 is created exclusively by gpclient and gpclient enforces a
-        single session via its lock file, so a gpd0 with no running gpclient
-        process is always stale. A stale gpd0 blackholes routing (the portal
-        becomes unreachable) and used to be picked up by tunnel detection as
-        a live connection (issue #7). tunN devices may belong to other VPN
-        clients and are never touched.
+        gpd0 is created by gpclient, and by gpservice for the GUI client. A
+        gpd0 while neither runs is stale. A stale gpd0 blackholes routing (the
+        portal becomes unreachable) and used to be picked up by tunnel
+        detection as a live connection (issue #7). When one of them runs, gpd0
+        may belong to a session of the user that is not ours (CLI or GUI), so
+        it is kept (issue #52). tunN devices may belong to other VPN clients
+        and are never touched. No `gpclient disconnect` runs here: it would
+        signal that other session.
         """
         if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
             return
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pgrep",
-                "-x",
-                "gpclient",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            if await proc.wait() == 0:
-                logger.warning(
-                    "gpd0 exists and a gpclient process is running - "
-                    "not cleaning up"
+        for name in ("gpclient", "gpservice"):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "pgrep",
+                    "-x",
+                    name,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
+                if await proc.wait() == 0:
+                    logger.warning(
+                        f"gpd0 exists and a {name} process is running - "
+                        "not cleaning up"
+                    )
+                    return
+            except Exception as e:
+                logger.warning(f"Could not check for a running {name}: {e}")
                 return
-        except Exception as e:
-            logger.warning(f"Could not check for a running gpclient: {e}")
-            return
 
         logger.warning(
-            "Found stale gpd0 interface with no gpclient process - cleaning up"
+            "Found stale gpd0 interface with no gpclient or gpservice process "
+            "- cleaning up"
         )
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "/usr/bin/gpclient", "disconnect"
-            )
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                logger.warning("'gpclient disconnect' timed out, killing it")
-                proc.kill()
-                await proc.wait()
-        except Exception as e:
-            logger.debug(f"'gpclient disconnect' during cleanup failed: {e}")
 
         if os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
             try:

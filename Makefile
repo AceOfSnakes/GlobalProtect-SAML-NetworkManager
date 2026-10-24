@@ -206,6 +206,51 @@ test-unit:
 test-coverage:
 	python3 -m pytest tests/unit -q --cov
 
+# Shell scripts of the repository: every file with a sh/bash shebang outside external/
+# (tests/unit/test_shellcheck.py checks the list). The vendored vpnc-script files
+# come from the vpnc-scripts project and are checked at error level only.
+SHELL_SCRIPTS := \
+	.github/scripts/build-apt-repo.sh \
+	.github/scripts/build-rpm-repo.sh \
+	.github/scripts/gui-smoke.sh \
+	.github/scripts/neon-repo.sh \
+	.github/scripts/upgrade-test.sh \
+	build-all.sh \
+	clean-cache.sh \
+	config/90-gpclient-routing \
+	debian/network-manager-gpclient.postinst \
+	debian/network-manager-gpclient.postrm \
+	plugins/plasma/build.sh \
+	rpm/build.sh \
+	rpm/container-build.sh \
+	rpm/install-test.sh \
+	scripts/browser-wrapper.sh \
+	scripts/edge-wrapper.sh \
+	scripts/hide-desktop-entry.sh \
+	scripts/install-pr-build.sh \
+	tests/e2e/files/loginctl \
+	tests/e2e/files/make-certs.sh \
+	tests/e2e/install-edge.sh \
+	tests/e2e/install-plugin.sh \
+	tests/e2e/lib.sh \
+	tests/e2e/run.sh \
+	tests/e2e/scenario-auth-cancel.sh \
+	tests/e2e/scenario-gnome.sh \
+	tests/e2e/scenario-kde.sh \
+	tests/e2e/scenario-routing.sh \
+	tests/e2e/session/desktop.sh \
+	tests/e2e/session/start.sh
+SHELL_SCRIPTS_VENDORED := \
+	scripts/vpnc-script-debug \
+	vpnc-script
+
+# Lint the shell scripts with shellcheck (the dialect comes from the shebang);
+# fails on any finding at warning level
+.PHONY: shellcheck
+shellcheck:
+	shellcheck --severity=warning $(SHELL_SCRIPTS)
+	shellcheck --severity=error $(SHELL_SCRIPTS_VENDORED)
+
 # Run the upstream contract tests (see docs/UPSTREAM.md)
 .PHONY: test-upstream
 test-upstream:
