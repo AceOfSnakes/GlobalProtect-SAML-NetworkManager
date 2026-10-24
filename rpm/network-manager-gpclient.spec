@@ -50,6 +50,8 @@ BuildRequires:  pkgconfig(libsystemd)
 BuildRequires:  pkgconfig(libxml-2.0)
 BuildRequires:  pkgconfig(webkit2gtk-4.1)
 BuildRequires:  cmake(Qt6Widgets)
+# The Plasma widget test (plugins/plasma/tests, BUILD_TESTING) needs QtTest at configure time
+BuildRequires:  cmake(Qt6Test)
 BuildRequires:  cmake(KF6I18n)
 BuildRequires:  cmake(KF6NetworkManagerQt)
 BuildRequires:  cmake(KF6Service)
