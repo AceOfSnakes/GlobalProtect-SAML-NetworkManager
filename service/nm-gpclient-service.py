@@ -20,6 +20,7 @@ import re
 import shutil
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -989,6 +990,48 @@ def parse_dns_servers(text: str) -> List[str]:
     return [entry for entry in re.split(r"[;,\s]+", text) if entry]
 
 
+def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
+    """The resolved path of the custom HIP executable `path`, safe to run.
+
+    Raises ValueError with the reason when it is not safe.
+    """
+    # The service runs gpclient, and so the script, as root. Without these
+    # checks "can edit the NetworkManager profile" would become "can run code
+    # as root": the script and every directory above it must be changeable by
+    # a trusted user only. A sticky directory (like /tmp) does not count as
+    # safe: the script must not be in a group or world-writable directory.
+    if not os.path.isabs(path):
+        raise ValueError("the path is not absolute")
+    resolved = os.path.realpath(path)
+    try:
+        info = os.stat(resolved)
+    except OSError as e:
+        raise ValueError(f"cannot read the file: {e.strerror or e}")
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"{resolved} is not a regular file")
+    if info.st_uid not in trusted_uids:
+        raise ValueError(f"{resolved} has an untrusted owner (uid {info.st_uid})")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValueError(f"{resolved} is writable by group or others")
+    if not info.st_mode & stat.S_IXUSR:
+        raise ValueError(f"{resolved} is not executable by its owner")
+
+    directory = os.path.dirname(resolved)
+    while True:
+        dir_info = os.stat(directory)
+        if dir_info.st_uid not in trusted_uids:
+            raise ValueError(
+                f"directory {directory} has an untrusted owner (uid {dir_info.st_uid})"
+            )
+        if dir_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise ValueError(f"directory {directory} is writable by group or others")
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return resolved
+
+
 def parse_ip_address(
     text: str,
 ) -> Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]]:
@@ -1224,6 +1267,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.browser = None
         self.browser_target = None  # GP_BROWSER passed to the wrapper
         self.hip_enabled = True  # HIP enabled by default
+        self.hip_script = None  # validated path of a custom HIP executable
         self._state = NM_VPN_SERVICE_STATE_INIT
 
         # Legacy TLS renegotiation workaround (issue #2)
@@ -1542,6 +1586,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.hip_enabled = hip_str.lower() == "true"
             logger.info(f"HIP enabled: {self.hip_enabled}")
 
+            # Custom HIP executable (optional, issue #65)
+            self.hip_script = None
+            hip_script_str = data_dict.get("hip-script", "").strip()
+            if hip_script_str and not self.hip_enabled:
+                logger.info("hip-script is ignored because hip=false")
+            elif hip_script_str:
+                try:
+                    self.hip_script = validate_hip_script(hip_script_str)
+                except ValueError as e:
+                    logger.error(f"Rejected hip-script {hip_script_str!r}: {e}")
+                    raise Exception(f"Invalid hip-script {hip_script_str!r}: {e}")
+                logger.info(f"HIP script: {self.hip_script}")
+
             # Emit state change: preparing
             self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTING)
 
@@ -1632,6 +1689,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.dns_servers = []
         self.dns_domains = []
         self.hip_enabled = True
+        self.hip_script = None
         self.never_default = False
         self.custom_routes = []
         self.browser_target = None
@@ -2137,7 +2195,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             # Add --hip flag if enabled
             if self.hip_enabled:
-                cmd.append("--hip")
+                # One argv item: gpclient's --hip takes an optional value, and
+                # a separate path could be read as the positional server
+                cmd.append(f"--hip={self.hip_script}" if self.hip_script else "--hip")
 
             # The server is a gateway, not a portal: skip the portal workflow
             # so the user is not authenticated twice

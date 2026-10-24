@@ -19,6 +19,8 @@ struct _NMGpclientEditor {
     gboolean timeout_follows_auth_mode;
     GtkWidget *dns_entry;
     GtkWidget *hip_check;
+    GtkWidget *hip_script_label;
+    GtkWidget *hip_script_entry;
     GtkWidget *fix_openssl_combo;
 };
 
@@ -70,6 +72,18 @@ browser_combo_changed_cb (GtkComboBox *combo, gpointer user_data)
 static void
 check_toggled_cb (GtkCheckButton *check, gpointer user_data)
 {
+    g_signal_emit_by_name (user_data, "changed");
+}
+
+static void
+hip_toggled_cb (GtkCheckButton *check, gpointer user_data)
+{
+    NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+    gboolean active = gtk_check_button_get_active (check);
+
+    /* The HIP script only matters while HIP is on */
+    gtk_widget_set_sensitive (self->hip_script_label, active);
+    gtk_widget_set_sensitive (self->hip_script_entry, active);
     g_signal_emit_by_name (user_data, "changed");
 }
 
@@ -379,8 +393,31 @@ build_ui (NMGpclientEditor *self)
             hip_enabled = (g_strcmp0(value, "true") == 0);
     }
     gtk_check_button_set_active (GTK_CHECK_BUTTON (self->hip_check), hip_enabled);
-    g_signal_connect (self->hip_check, "toggled", G_CALLBACK (check_toggled_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->hip_check, 1, row++, 1, 1);
+
+    /* HIP script field */
+    self->hip_script_label = gtk_label_new ("HIP script:");
+    gtk_widget_set_halign (self->hip_script_label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), self->hip_script_label, 0, row, 1, 1);
+
+    self->hip_script_entry = gtk_entry_new ();
+    gtk_widget_set_hexpand (self->hip_script_entry, TRUE);
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->hip_script_entry), "Empty: built-in HIP report");
+    gtk_widget_set_tooltip_text (self->hip_script_entry,
+        "Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+        "The service runs it as root: it must be a root-owned file that is not writable by group or others, "
+        "in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+        "Ignored when HIP is off.");
+    if (s_vpn) {
+        value = nm_setting_vpn_get_data_item (s_vpn, "hip-script");
+        if (value && *value)
+            gtk_editable_set_text (GTK_EDITABLE (self->hip_script_entry), value);
+    }
+    gtk_widget_set_sensitive (self->hip_script_label, hip_enabled);
+    gtk_widget_set_sensitive (self->hip_script_entry, hip_enabled);
+    g_signal_connect (self->hip_script_entry, "changed", G_CALLBACK (entry_changed_cb), self);
+    g_signal_connect (self->hip_check, "toggled", G_CALLBACK (hip_toggled_cb), self);
+    gtk_grid_attach (GTK_GRID (grid), self->hip_script_entry, 1, row++, 1, 1);
 
     return grid;
 }
@@ -491,6 +528,14 @@ update_connection (NMVpnEditor *editor,
         nm_setting_vpn_add_data_item (s_vpn, "hip", "true");
     else
         nm_setting_vpn_add_data_item (s_vpn, "hip", "false");
+
+    /* Save HIP script (also when HIP is off: the service ignores it then) */
+    gchar *script = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->hip_script_entry))));
+    if (*script)
+        nm_setting_vpn_add_data_item (s_vpn, "hip-script", script);
+    else
+        nm_setting_vpn_remove_data_item (s_vpn, "hip-script");
+    g_free (script);
 
     return TRUE;
 }
