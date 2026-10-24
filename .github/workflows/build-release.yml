@@ -131,6 +131,9 @@ jobs:
                 sed -i "1s/(\([^)]*\))/(\1~${VERSION_CODENAME}1${PR_SUFFIX})/" debian/changelog
                 echo "Building version $(dpkg-parsechangelog -S Version) for $VERSION_CODENAME"
                 dpkg-buildpackage -us -uc -b
+                # Fail the build on a lintian error (warnings only get printed).
+                # Intentional errors go into debian/lintian-overrides files, each with a comment.
+                lintian --fail-on error --display-info /build/*.deb
                 cp /build/*.deb /build/*.ddeb /output/ 2>/dev/null || cp /build/*.deb /output/
               '
           }

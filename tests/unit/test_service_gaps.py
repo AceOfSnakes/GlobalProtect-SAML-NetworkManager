@@ -12,6 +12,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import gc
 import json
 import logging
 import os
@@ -512,6 +513,10 @@ class TestStartGpclient:
 
 async def _monitor(plugin, chunks, process):
     """Run the monitor on a pipe that carries `chunks` and then ends"""
+    # An object an earlier test leaked (a PTY transport, a file) closes its fd
+    # when it is collected; collect now, before this test takes fd numbers,
+    # so that it cannot close one of ours later (EBADF)
+    gc.collect()
     read_fd, write_fd = os.pipe()
     for chunk in chunks:
         os.write(write_fd, chunk)
