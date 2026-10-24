@@ -11,6 +11,7 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 import asyncio
 import codecs
 import fcntl
+import functools
 import ipaddress
 import logging
 import os
@@ -247,6 +248,22 @@ GPCLIENT_BROWSER_MODES = ("auto", "manual", "remote")
 WRAPPED_BROWSER_PATH_RE = re.compile(
     r"^/usr/bin/(?:microsoft-edge\S*|google-chrome\S*|chromium\S*|firefox\S*)$"
 )
+
+# A user's own wrapper: an absolute path without whitespace or control chars
+CUSTOM_BROWSER_PATH_RE = re.compile(r"^/[^\s\x00-\x1f\x7f]*$")
+
+# A browser command on PATH (brave-browser, opera): one plain word, no slash
+# and no leading dash, so it can never become a gpclient option
+BARE_BROWSER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+# Profile values that must not reach the gpclient command line
+UNSAFE_GATEWAY_RE = re.compile(r"[\s\x00-\x1f\x7f]")
+UNSAFE_USERNAME_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def is_unsafe_username(username: str) -> bool:
+    """A username must not look like a gpclient option or hold control chars"""
+    return username.startswith("-") or bool(UNSAFE_USERNAME_RE.search(username))
 
 # Fallback when the wrapper is missing (service upgraded, wrapper not yet
 # installed): let gpclient launch the browser directly
@@ -560,6 +577,71 @@ def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
     return words
 
 
+HIDDEN = "<hidden>"
+
+
+def redact_settings(obj: Any) -> Any:
+    """Copy of NM settings that is safe to log: every value under a "secrets"
+    key (at any depth, also inside sdbus (signature, value) tuples) becomes
+    "<hidden>". The keys stay, so the log still shows what was sent."""
+    if isinstance(obj, dict):
+        return {
+            key: HIDDEN if key == "secrets" else redact_settings(value)
+            for key, value in obj.items()
+        }
+    if isinstance(obj, tuple):
+        return tuple(redact_settings(item) for item in obj)
+    if isinstance(obj, list):
+        return [redact_settings(item) for item in obj]
+    return obj
+
+
+@functools.lru_cache(maxsize=64)
+def _secrets_pattern(secrets: frozenset) -> Optional["re.Pattern[str]"]:
+    """One compiled pattern for a set of secrets, or None when there is none"""
+    parts = []
+    # Longest first: a secret that contains another one is masked whole. Only
+    # whole occurrences count, so a short answer ("1", "y") does not garble
+    # every word that happens to contain it.
+    # A guard applies only on a side where the secret has a word character: a
+    # secret that starts or ends with a symbol ("#Hunter2", "abc!") is also
+    # masked when a word character touches it ("x#Hunter2", "abc!def").
+    for secret in sorted(secrets, key=lambda x: (-len(x), x)):
+        if secret:
+            before = r"(?<!\w)" if re.match(r"\w", secret[0]) else ""
+            after = r"(?!\w)" if re.match(r"\w", secret[-1]) else ""
+            parts.append(f"{before}{re.escape(secret)}{after}")
+    return re.compile("|".join(parts)) if parts else None
+
+
+def mask_secrets(line: str, secrets: Sequence[str]) -> str:
+    """Replace every occurrence of a secret value in a line of output"""
+    pattern = _secrets_pattern(frozenset(secrets))
+    return pattern.sub(lambda _: HIDDEN, line) if pattern else line
+
+
+def mask_secret_prompts(line: str, labels: Sequence[str]) -> str:
+    """Hide whatever follows the label of a prompt that was answered with a secret
+
+    inquire redraws a text prompt after every keystroke, so the output holds
+    partial echoes ("? Code: h", "? Code: hu", ...) that mask_secrets cannot
+    know. A colon right after the label is kept; a line that ends there stays.
+    """
+    # Longest first: a label that contains another one wins
+    for label in sorted(labels, key=len, reverse=True):
+        if not label:
+            continue
+        start = line.find(label)
+        if start < 0:
+            continue
+        end = start + len(label)
+        if line.startswith(":", end):
+            end += 1
+        if line[end:].strip():
+            line = f"{line[:end]} {HIDDEN}"
+    return line
+
+
 def classify_prompt(label: str) -> str:
     """Classify a prompt label as 'username' or 'password' (any secret).
 
@@ -712,8 +794,9 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
 
     Returns (argument for gpclient --browser, GP_BROWSER for the wrapper).
     Friendly names and the browser binaries our editors used to offer go
-    through the wrapper; anything else (a user's own wrapper script) is passed
-    through untouched.
+    through the wrapper. A user's own wrapper script is passed through when it
+    is an absolute path or a bare command name; any other value falls back to
+    "default", so a profile value can never become an extra gpclient option.
     """
     value = (value or "").strip()
 
@@ -733,8 +816,14 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
         target = "default"
     elif WRAPPED_BROWSER_PATH_RE.match(value):
         target = value
-    else:
+    elif CUSTOM_BROWSER_PATH_RE.match(value) or BARE_BROWSER_NAME_RE.fullmatch(value):
         return value, None
+    else:
+        logger.warning(
+            f"browser={value!r} is not a known name, a command name or an absolute path - "
+            "using the desktop's default browser"
+        )
+        target = "default"
 
     if os.path.exists(BROWSER_WRAPPER):
         return BROWSER_WRAPPER, target
@@ -1161,6 +1250,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.as_gateway = False
         self.preferred_gateway = ""
         self._connection_uuid = ""
+        self._permission_user = ""  # sole user of connection.permissions
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
         self._stored_gateway_count: Optional[int] = None  # gateway-list-count
@@ -1197,6 +1287,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answering = False  # a prompt is currently being answered
         self._secret_future = None  # pending SecretsRequired -> NewSecrets
         self._last_answer = ""  # last answer written to the PTY
+        # Secret answers written to the PTY in this attempt: masked in the
+        # logged output (inquire echoes a typed answer). Never logged.
+        self._written_secrets: set = set()
+        self._secret_prompt_labels: set = set()
         # Per-phase prompt state (a "phase" is one Portal/Gateway auth round,
         # delimited by the auth banner). gpclient asks username then password;
         # any prompt after the password is a follow-up challenge (MFA).
@@ -1219,7 +1313,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             String with setting name that needs secrets, or empty string if none needed
         """
         logger.debug("=== NeedSecrets() called ===")
-        logger.debug(f"Settings data: {settings}")
+        logger.debug(f"Settings data: {redact_settings(settings)}")
 
         # SAML (default): authentication happens in the browser via gpauth,
         # no secrets needed upfront.
@@ -1278,12 +1372,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         interactive: bool,
     ) -> None:
         """Shared implementation for Connect() and ConnectInteractive()"""
-        logger.debug(f"Full connection data: {connection}")
+        logger.debug(f"Full connection data: {redact_settings(connection)}")
         self._interactive = interactive
         self._auth_banner = None
         self._answering = False
         self._secret_future = None
         self._last_answer = ""
+        self._written_secrets = set()
+        self._secret_prompt_labels = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
@@ -1311,7 +1407,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 else:
                     vpn_data[key] = value
 
-            logger.debug(f"Parsed VPN data: {vpn_data}")
+            logger.debug(f"Parsed VPN data: {redact_settings(vpn_data)}")
 
             # Parse IPv4 routing configuration
             ipv4_section = connection.get("ipv4", {})
@@ -1368,7 +1464,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             # Username lives in vpn.data, password in vpn.secrets.
             secrets_dict = vpn_data.get("secrets", {}) or {}
             self.vpn_username = data_dict.get("username", "")
+            if is_unsafe_username(self.vpn_username):
+                self.vpn_username = ""
+                raise Exception("Invalid username specified")
             self.vpn_password = secrets_dict.get("password", "")
+            if self.vpn_password:
+                # Masked in the output even if no prompt is ever answered with it
+                self._written_secrets.add(self.vpn_password)
             # When a username is stored we pass it as gpclient --user, so
             # gpclient does not prompt for it - treat username as already
             # answered in every auth phase.
@@ -1385,12 +1487,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._connection_uuid = (
                 uuid_raw[1] if isinstance(uuid_raw, tuple) else uuid_raw
             ) or ""
+            # A connection limited to one user tells us the desktop user (#51)
+            self._permission_user = self._parse_permission_user(
+                connection_section.get("permissions", [])
+            )
 
             # Get the server address (required). This is the portal address, or
             # a gateway address when as-gateway is set.
-            self.gateway = data_dict.get("gateway", "")
+            self.gateway = data_dict.get("gateway", "").strip()
             if not self.gateway:
                 raise Exception("No gateway specified")
+            # The server goes to gpclient as an argument, never as an option
+            if self.gateway.startswith("-") or UNSAFE_GATEWAY_RE.search(self.gateway):
+                raise Exception("Invalid gateway specified")
             logger.info(f"Server: {self.gateway}")
 
             # Legacy TLS renegotiation workaround (issue #2): auto retries once
@@ -1548,6 +1657,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self.as_gateway = False
         self.preferred_gateway = ""
         self._connection_uuid = ""
+        self._permission_user = ""
         self._gateway_list = []
         self._stored_gateway_list = ""
         self._stored_gateway_count = None
@@ -1558,6 +1668,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._auth_banner = None
         self._answering = False
         self._last_answer = ""
+        self._written_secrets = set()
+        self._secret_prompt_labels = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
@@ -1615,7 +1727,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         # Refresh stored credentials in case the user (re)entered them
         if data.get("username"):
-            self.vpn_username = data["username"]
+            if is_unsafe_username(data["username"]):
+                # Same rule as in _do_connect; never log the value
+                logger.warning("NewSecrets(): ignoring an invalid username")
+            else:
+                self.vpn_username = data["username"]
 
         if self._secret_future and not self._secret_future.done():
             self._secret_future.set_result(secrets)
@@ -1665,8 +1781,159 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Property: Current VPN state"""
         return self._state
 
+    @staticmethod
+    def _parse_permission_user(permissions: Any) -> str:
+        """Return the user name when `connection.permissions` names exactly one
+
+        NetworkManager stores entries as "user:<name>:" (the trailing colon is
+        optional here). Values arrive as an `as` array, possibly wrapped in an
+        sdbus (signature, value) tuple. Returns "" for none or several users.
+        """
+        if isinstance(permissions, tuple) and len(permissions) == 2:
+            permissions = permissions[1]
+        if not isinstance(permissions, (list, tuple)):
+            return ""
+        users = set()
+        for entry in permissions:
+            if not isinstance(entry, str):
+                continue
+            parts = entry.split(":")
+            if len(parts) >= 2 and parts[0] == "user" and parts[1]:
+                users.add(parts[1])
+        return users.pop() if len(users) == 1 else ""
+
+    @staticmethod
+    def _loginctl(*args: str) -> str:
+        """Output of `loginctl <args>` ("" when it fails)"""
+        result = subprocess.run(
+            ["loginctl", *args],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return result.stdout if result.returncode == 0 else ""
+
+    @staticmethod
+    def _session_props(output: str) -> Dict[str, str]:
+        """Parse the Key=Value lines of `loginctl show-session`"""
+        props = {}
+        for line in output.splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                props[key.strip()] = value.strip()
+        return props
+
+    @staticmethod
+    def _user_entry(pw_lookup: Any, key: Any) -> Optional[Tuple[int, str, str]]:
+        """(uid, name, home) from pwd.getpwuid/getpwnam, None for root or unknown"""
+        try:
+            pw = pw_lookup(key)
+        except KeyError:
+            return None
+        if pw.pw_uid == 0:
+            return None
+        return pw.pw_uid, pw.pw_name, pw.pw_dir
+
+    @staticmethod
+    def _seat0_active_user() -> Optional[int]:
+        """UID of the active local graphical user session on seat0, or None"""
+        loginctl = GpclientVPNPlugin._loginctl
+        try:
+            session_id = loginctl(
+                "show-seat", "seat0", "-p", "ActiveSession", "--value"
+            ).strip()
+            if not session_id:
+                return None
+            props = GpclientVPNPlugin._session_props(
+                loginctl(
+                    "show-session",
+                    session_id,
+                    "-p",
+                    "User",
+                    "-p",
+                    "Class",
+                    "-p",
+                    "Remote",
+                    "-p",
+                    "State",
+                )
+            )
+            if (
+                props.get("Class") != "user"
+                or props.get("Remote") != "no"
+                or props.get("State") != "active"
+            ):
+                return None
+            uid = int(props.get("User", ""))
+            return uid if uid != 0 else None
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            logger.debug(f"loginctl failed: {e}")
+            return None
+
+    @staticmethod
+    def _single_active_session_user() -> Optional[int]:
+        """UID of the one non-root user with an active session, or None
+
+        For xrdp, remote desktops and VMs, where seat0 has no session. Remote
+        sessions count. With no such user or with several, None: we do not
+        guess between users. Only sessions with a display (x11, wayland, mir)
+        count: a user on SSH or on a text console has no desktop for the
+        browser, and must not make the choice ambiguous.
+        """
+        loginctl = GpclientVPNPlugin._loginctl
+        uids = set()
+        try:
+            session_ids = [
+                line.split()[0]
+                for line in loginctl("list-sessions", "--no-legend").splitlines()
+                if line.split()
+            ]
+            if not session_ids:
+                return None
+            # One call for all sessions: the output has one block per session,
+            # separated by a blank line
+            props_args = ("-p", "User", "-p", "Class", "-p", "State", "-p", "Type")
+            output = loginctl("show-session", *session_ids, *props_args)
+            if not output.strip():
+                # A session that closed in between fails the whole call: ask
+                # for each one, and skip the ones that are gone
+                output = "\n\n".join(
+                    loginctl("show-session", session_id, *props_args)
+                    for session_id in session_ids
+                )
+            for block in re.split(r"\n\s*\n", output):
+                props = GpclientVPNPlugin._session_props(block)
+                if props.get("Class") != "user" or props.get("State") != "active":
+                    continue
+                if props.get("Type") not in ("x11", "wayland", "mir"):
+                    continue
+                try:
+                    uid = int(props.get("User", ""))
+                except ValueError:
+                    continue
+                if uid != 0:
+                    uids.add(uid)
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug(f"loginctl failed: {e}")
+            return None
+        return uids.pop() if len(uids) == 1 else None
+
     def _get_real_user(self) -> Tuple[int, str, str]:
-        """Get real user info when running as root"""
+        """Find the desktop user whose session gets the authentication browser
+
+        Order:
+        1. SUDO_UID/SUDO_USER (manual runs).
+        2. The single user in the connection's `connection.permissions`.
+        3. The active local session on seat0, from logind.
+        4. The only non-root user with an active session of any kind (also a
+           remote one: xrdp, remote desktop, VM), when seat0 has none.
+        5. The current user, with a warning.
+
+        We never pick "some other logged-in user" (issue #51): with fast user
+        switching, a lingering user or a gdm greeter user, the browser would
+        open in the wrong session. Step 4 is used only when exactly one user
+        has an active session, so there is nothing to confuse.
+        """
         import pwd
 
         # First try SUDO_UID/SUDO_USER
@@ -1679,38 +1946,44 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             try:
                 pw = pwd.getpwuid(uid)
                 home = pw.pw_dir
-            except:
+            except KeyError:
                 home = f"/home/{username}"
             return uid, username, home
 
-        # Try to find logged-in user from loginctl
-        try:
-            result = subprocess.run(
-                ["loginctl", "list-users", "--no-legend"],
-                capture_output=True,
-                text=True,
-                timeout=2,
+        # The connection is limited to one user: that is the desktop user
+        if self._permission_user:
+            entry = self._user_entry(pwd.getpwnam, self._permission_user)
+            if entry:
+                logger.debug(f"Using the user of the connection: {entry[1]}")
+                return entry
+            logger.debug(
+                f"Connection user {self._permission_user} does not exist or is root"
             )
-            if result.returncode == 0 and result.stdout.strip():
-                # Parse first non-root user
-                for line in result.stdout.strip().split("\n"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        uid_str = parts[0]
-                        username = parts[1]
-                        if username != "root":
-                            uid = int(uid_str)
-                            try:
-                                pw = pwd.getpwuid(uid)
-                                home = pw.pw_dir
-                                logger.debug(
-                                    f"Found user via loginctl: {username} (UID: {uid})"
-                                )
-                                return uid, username, home
-                            except:
-                                pass
-        except Exception as e:
-            logger.debug(f"loginctl failed: {e}")
+
+        # The active local session on seat0
+        uid = self._seat0_active_user()
+        if uid is not None:
+            entry = self._user_entry(pwd.getpwuid, uid)
+            if entry:
+                logger.debug(f"Found active seat0 user: {entry[1]} (UID: {uid})")
+                return entry
+            logger.debug(f"Seat0 user with UID {uid} does not exist")
+
+        # No seat0 session (xrdp, remote desktop, VM): one active user is clear
+        uid = self._single_active_session_user()
+        if uid is not None:
+            entry = self._user_entry(pwd.getpwuid, uid)
+            if entry:
+                logger.info(
+                    f"Using the active non-seat0 session of {entry[1]} (UID: {uid})"
+                )
+                return entry
+            logger.debug(f"Session user with UID {uid} does not exist")
+
+        logger.warning(
+            "no active local session on seat0 and not exactly one other user "
+            "with an active session - the authentication browser cannot be opened"
+        )
 
         # Fallback to current user
         uid = os.getuid()
@@ -1842,7 +2115,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Start gpclient process"""
         try:
             # Get real user first (needed for pkill filter)
-            real_uid, real_user, real_home = self._get_real_user()
+            # (blocking loginctl calls: off the event loop)
+            real_uid, real_user, real_home = await asyncio.to_thread(
+                self._get_real_user
+            )
             logger.info(f"Will run gpclient as user: {real_user}")
 
             # Kill any hanging gpauth processes first (filtered by user for security)
@@ -1883,9 +2159,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:
-                cmd.extend(["--user", self.vpn_username])
+                cmd.append(f"--user={self.vpn_username}")
 
-            cmd.extend(["--browser", self.browser, self.gateway])
+            # Single-token options and "--" keep profile values from being
+            # parsed as options of their own (--browser takes an optional value)
+            cmd.extend([f"--browser={self.browser}", "--", self.gateway])
 
             logger.info(f"Spawning: {' '.join(cmd)}")
 
@@ -2041,7 +2319,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     if line == last_logged_line:
                         continue
                     last_logged_line = line
-                    logger.info(f"gpclient output: {line}")
+                    shown = mask_secret_prompts(line, self._secret_prompt_labels)
+                    logger.info(
+                        f"gpclient output: {mask_secrets(shown, self._written_secrets)}"
+                    )
 
                     found = parse_gateway_count(line)
                     if found is not None:
@@ -2459,7 +2740,14 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-        self._write_answer(answer)
+        # Only the username stored in the profile may show up in the log. A
+        # prompt that was classified as "username" (also by position, for a
+        # label we do not know) can still ask for a secret; a password that
+        # equals the stored username is still a password.
+        secret = not (
+            kind == "username" and self.vpn_username and answer == self.vpn_username
+        )
+        self._write_answer(answer, secret=secret, label=label)
 
     @staticmethod
     def _gateway_entry(option: str) -> str:
@@ -2998,9 +3286,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         return value
 
-    def _write_answer(self, answer: str) -> None:
-        """Type an answer into gpclient's PTY"""
+    def _write_answer(
+        self, answer: str, secret: bool = False, label: str = ""
+    ) -> None:
+        """Type an answer into gpclient's PTY (never logs the answer)
+
+        `label` is the prompt that is answered: the echo of a secret after that
+        label is hidden in the log, also while it is still being typed.
+        """
         self._last_answer = answer
+        if secret and answer:
+            self._written_secrets.add(answer)
+            if label.strip():
+                self._secret_prompt_labels.add(label.strip())
         # inquire (crossterm raw mode) treats \r as Enter
         self._write_keys(answer.encode("utf-8") + KEY_ENTER, "answer")
 

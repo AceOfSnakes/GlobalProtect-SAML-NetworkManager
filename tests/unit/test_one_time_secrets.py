@@ -434,3 +434,43 @@ class TestUtf8SplitAcrossReads:
         plugin._reset_output_state()
 
         assert plugin._decode_output(b"b") == "b"
+
+
+class TestNewSecretsUsername:
+    """NewSecrets() takes a username with the rules of _do_connect"""
+
+    def _new_secrets(self, service_module, username):
+        plugin = service_module.GpclientVPNPlugin()
+        connection = {"vpn": {"data": ("a{ss}", {"username": username}), "secrets": {}}}
+        asyncio.run(plugin.NewSecrets(connection))
+        return plugin
+
+    def test_valid_username_is_stored(self, service_module):
+        plugin = self._new_secrets(service_module, "jdoe@corp.example")
+
+        assert plugin.vpn_username == "jdoe@corp.example"
+
+    @pytest.mark.parametrize(
+        "username",
+        ["-x", "--script=/tmp/x", "bob\nhunter2", "a\x00b"],
+        ids=["dash", "option", "newline", "nul"],
+    )
+    def test_unsafe_username_is_ignored_and_not_logged(
+        self, service_module, caplog, username
+    ):
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            plugin = self._new_secrets(service_module, username)
+
+        assert plugin.vpn_username == ""
+        assert "ignoring an invalid username" in caplog.text
+        assert "hunter2" not in caplog.text
+        assert "--script" not in caplog.text
+
+    def test_unsafe_username_keeps_the_stored_one(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin.vpn_username = "jdoe"
+        connection = {"vpn": {"data": ("a{ss}", {"username": "-x"}), "secrets": {}}}
+
+        asyncio.run(plugin.NewSecrets(connection))
+
+        assert plugin.vpn_username == "jdoe"
