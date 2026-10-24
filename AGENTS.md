@@ -136,14 +136,12 @@ Rules for tests:
   anything else, the build must have run.
 - Before merging a green PR, when `main` moved since its checks ran:
   - merge `main` into the branch again and wait for the checks on that head if
-    git reports a conflict, if `main` changed a file that the PR also changes
-    (other than `*.md` and `docs/`), or if both `main` and the PR changed
-    packaging or CI (`debian/`, `rpm/`, `.github/`, `Makefile`, `Dockerfile*`);
-  - otherwise merge it as it is. If `main` changed `*.md` the PR also changes,
-    or changed packaging, CI or test helpers (`tests/unit/conftest.py`,
-    `tests/helpers/`), first run the unit tests on a local merge with `main`.
-  Every package build takes long; the unit tests on `push` to `main` catch a
-  broken combination. When they fail after a merge, fix `main` at once.
+    git reports a conflict, or if `main` changed a file that the PR also
+    changes (other than `*.md` and `docs/`);
+  - otherwise run the unit tests on a local merge with `main`, and merge the
+    PR as it is when they pass.
+  Every package build takes long. A build that breaks only in combination
+  shows up on the next pull request; fix `main` at once when it does.
 - Do not make the build jobs required checks in branch protection: docs-only PRs
   (`**.md`, `docs/**`) skip the build, so a required build check would never
   report.
