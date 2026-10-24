@@ -361,9 +361,14 @@
       "version": "3.0.0",
       "section": "Added",
       "text": "More control over device compliance reports (HIP), including generated reports and custom scripts.",
-      "status": "follow-up",
-      "reason": "The service passes only --hip and cannot use generated reports or custom scripts yet.",
-      "issue": 38
+      "status": "tested",
+      "reason": "The profile setting hip-script passes a custom script as one --hip=<path> argument, after the service checks that only root can change it. gpclient generates reports itself when the service passes a bare --hip.",
+      "tests": [
+        "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item",
+        "tests/unit/test_hip_script.py::test_hip_script_is_not_passed_when_hip_is_off",
+        "tests/unit/test_hip_script.py::test_valid_script_is_accepted",
+        "tests/unit/test_hip_script.py::test_connect_with_an_invalid_hip_script_fails"
+      ]
     },
     {
       "version": "3.0.0",
