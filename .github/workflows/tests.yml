@@ -92,3 +92,20 @@ jobs:
           path: junit.xml
           if-no-files-found: ignore
           retention-days: 14
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # The list of scripts is SHELL_SCRIPTS in the Makefile: run the same
+      # command locally with `make shellcheck`.
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: make shellcheck

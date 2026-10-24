@@ -4,6 +4,7 @@
 # the VPN is not active, routes and DNS stay as they were. The fake gpauth
 # gives up after GP_DEMO_AUTH_TIMEOUT seconds (run.sh sets 15).
 # Not recorded for an animation. Runs as user demo; see lib.sh.
+# shellcheck disable=SC2034 # the EDGE_* settings are read by lib.sh
 source /opt/gp-demo/lib.sh
 EDGE_LEFT=66 # the dock
 EDGE_TOP=40  # the top bar
@@ -30,7 +31,7 @@ wait_window_gone "Sign in|GlobalProtect Portal" 15 || fail "the sign-in window d
 shot step-2-closed
 
 # The connection attempt ends by itself (fake gpauth timeout)
-for _ in $(seq $(scaled 60)); do
+for _ in $(seq "$(scaled 60)"); do
     kill -0 "$UP_PID" 2> /dev/null || break
     sleep 1
 done
