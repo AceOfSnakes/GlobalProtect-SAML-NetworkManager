@@ -515,6 +515,18 @@ update_connection (NMVpnEditor *editor,
     NMSettingVpn *s_vpn;
     const char *str;
 
+    /* Check gateway is set (the same error as the GTK3 editor) */
+    str = gtk_editable_get_text (GTK_EDITABLE (self->gateway_entry));
+    if (!str || !*str) {
+        if (error) {
+            g_set_error (error,
+                         NM_VPN_PLUGIN_ERROR,
+                         NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
+                         "gateway is required");
+        }
+        return FALSE;
+    }
+
     s_vpn = nm_connection_get_setting_vpn (connection);
     if (!s_vpn) {
         s_vpn = (NMSettingVpn *) nm_setting_vpn_new ();
@@ -526,10 +538,7 @@ update_connection (NMVpnEditor *editor,
 
     /* Save Gateway */
     str = gtk_editable_get_text (GTK_EDITABLE (self->gateway_entry));
-    if (str && *str)
-        nm_setting_vpn_add_data_item (s_vpn, "gateway", str);
-    else
-        nm_setting_vpn_remove_data_item (s_vpn, "gateway");
+    nm_setting_vpn_add_data_item (s_vpn, "gateway", str);
 
     /* Save "address is a gateway" */
     if (gtk_check_button_get_active (GTK_CHECK_BUTTON (self->as_gateway_check)))
