@@ -743,7 +743,7 @@ class TestNeonDockerfile:
         return dockerfile_packages(text[text.index("bash /usr/local/sbin/neon-repo.sh"):])
 
     def test_it_installs_the_build_depends_of_the_neon_control_file_and_the_build_tools(self):
-        tools = {"build-essential", "debhelper", "fakeroot"}
+        tools = {"build-essential", "debhelper", "fakeroot", "lintian"}
         assert self.packages() - tools == build_depends_of(read(NEON)) - {"debhelper-compat"}
         assert tools <= self.packages()
 
@@ -1007,6 +1007,10 @@ class TestRulesPlasmaOnly:
         result, log = run_rules(tmp_path, read(name), "override_dh_auto_build")
 
         assert result.returncode == 0, result.stderr
+        # the GNOME make gets the dpkg build flags (hardening) on its command line
+        assert log[1].startswith("fakemake gnome-plugins CPPFLAGS=")
+        assert " CFLAGS=" in log[1] and " LDFLAGS=" in log[1] and "-Wl,-z,relro" in log[1]
+        log[1] = "fakemake gnome-plugins"
         assert log == ["fakemake init-submodules", "fakemake gnome-plugins",
                        "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ",
                        "cargo build --release --bin gpclient --bin gpauth"]
@@ -1016,7 +1020,7 @@ class TestRulesPlasmaOnly:
         result, log = run_rules(tmp_path, read("control.ubuntu24.04"), "override_dh_auto_build")
 
         assert result.returncode == 0, result.stderr
-        assert not any("gpservice" in line for line in log)
+        assert not any("gpservice" in line.split(" CPPFLAGS=")[0] for line in log)  # the flags hold the test path
         assert "gpservice" not in RULES
 
     @pytest.mark.parametrize("name", [NEON, "control.ubuntu24.04", "control.ubuntu26.04"])
