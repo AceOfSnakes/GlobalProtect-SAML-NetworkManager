@@ -1,7 +1,7 @@
 {
-  "tag": "v3.1.0",
-  "commit": "4faa2ecb0d136ea5cf2eec27d067219cb1f0fb6b",
-  "version": "3.1.0",
+  "tag": "v3.2.0",
+  "commit": "915c130c708582a61bbd5ccf747f94347d732364",
+  "version": "3.2.0",
   "items": [
     {
       "id": "gateway-count",

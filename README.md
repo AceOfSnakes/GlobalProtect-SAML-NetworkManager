@@ -235,7 +235,7 @@ cd plugins/plasma && ./build.sh  # Build only Plasma plugin
 
 ## GlobalProtect-openconnect version
 
-Upstream version: [`v3.1.0`](https://github.com/yuezk/GlobalProtect-openconnect/releases/tag/v3.1.0)
+Upstream version: [`v3.2.0`](https://github.com/yuezk/GlobalProtect-openconnect/releases/tag/v3.2.0)
 
 The `external/GlobalProtect-openconnect` submodule is pinned to a release tag,
 never to upstream `main`.
