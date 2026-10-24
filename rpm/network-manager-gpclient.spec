@@ -153,7 +153,7 @@ mkdir -p plugins/plasma/build
 # With upstream's release profile (strip, opt-level "z"), as the Debian build: Fedora's
 # rpmbuild exports RUSTFLAGS with -Cstrip=none -Cdebuginfo=2, which would override it
 (cd external/GlobalProtect-openconnect && \
-  env -u RUSTFLAGS cargo build --release --bin gpclient --bin gpauth --bin gpservice)
+  env -u RUSTFLAGS cargo build --locked --release --bin gpclient --bin gpauth --bin gpservice)
 
 %install
 install -D -m 0644 plugins/gnome/libnm-vpn-plugin-gpclient.so \

@@ -576,8 +576,30 @@ def test_spec_strips_the_rust_binaries():
     # Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
     # upstream's release profile (strip = true)
     spec = read("rpm/network-manager-gpclient.spec")
-    assert "env -u RUSTFLAGS cargo build --release" in spec
+    assert "env -u RUSTFLAGS cargo build --locked --release" in spec
     assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
+
+
+CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
+
+
+def cargo_build_lines_without_locked(text):
+    return [line.strip() for line in text.splitlines()
+            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I) and "--locked" not in line]
+
+
+@pytest.mark.parametrize("path", CARGO_BUILD_FILES)
+def test_every_cargo_build_is_locked(path):
+    # the build must use the dependency versions of upstream's Cargo.lock, or fail
+    text = read(path)
+    assert re.search(r"\bcargo\b\S* build\b", text, re.I)
+    assert cargo_build_lines_without_locked(text) == []
+
+
+@pytest.mark.parametrize("path", CARGO_BUILD_FILES)
+def test_a_cargo_build_without_locked_is_reported(path):
+    text = read(path).replace(" --locked", "")
+    assert cargo_build_lines_without_locked(text)
 
 
 def provides_exclude_pattern():
