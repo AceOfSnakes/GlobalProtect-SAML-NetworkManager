@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+# End-to-end test image: real GNOME 46 desktop (Ubuntu 24.04, X11) with the plugins
+# built from this repository. Build from the repository root with tests/e2e/run.sh
+# (or: docker build -f tests/e2e/Dockerfile.gnome -t gpclient-demo-gnome .).
+# amd64 only (Microsoft Edge).
+
+FROM ubuntu:24.04 AS builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential pkg-config dpkg-dev libglib2.0-dev libnm-dev \
+        libgtk-3-dev libgtk-4-dev libnma-dev libnma-gtk4-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY plugins/gnome plugins/gnome
+COPY service service
+COPY scripts scripts
+COPY auth-dialog auth-dialog
+COPY config config
+COPY tests/e2e/install-plugin.sh tests/e2e/install-plugin.sh
+RUN tests/e2e/install-plugin.sh gnome /src /stage
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg sudo iproute2 procps openssl libnss3-tools udev \
+        vpnc-scripts systemd-resolved \
+        network-manager python3 python3-sdbus python3-gi gir1.2-gtk-3.0 \
+        libnma0 libnma-gtk4-0 \
+        dbus dbus-x11 xvfb xdotool ffmpeg x11-utils xauth libgl1-mesa-dri \
+        fonts-noto-core fonts-noto-color-emoji fonts-ubuntu librsvg2-common \
+        gnome-shell nautilus gnome-terminal gnome-control-center network-manager-gnome \
+        ubuntu-settings gnome-settings-daemon ubuntu-wallpapers-noble \
+        yaru-theme-gtk yaru-theme-icon yaru-theme-gnome-shell \
+        gnome-shell-extension-ubuntu-dock gnome-shell-extension-appindicator ubuntu-session \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY tests/e2e/edge-policy.json tests/e2e/install-edge.sh /tmp/demo-edge/
+RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
+    /tmp/demo-edge/install-edge.sh /tmp/demo-edge/edge-policy.json \
+    && rm -rf /tmp/demo-edge /var/lib/apt/lists/*
+
+# Desktop user (the base image has "ubuntu" with uid 1000)
+RUN userdel -r ubuntu \
+    && useradd -m -u 1000 -s /bin/bash -c "Alex Morgan" demo
+
+COPY --from=builder /stage/ /
+COPY tests/e2e/files/gpclient tests/e2e/files/gpauth /usr/bin/
+COPY tests/e2e/files/loginctl /usr/local/bin/loginctl
+COPY tests/e2e/files/sso-server.py tests/e2e/files/make-certs.sh /opt/gp-demo/
+COPY tests/e2e/files/www /opt/gp-demo/www
+COPY tests/e2e/lib.sh /opt/gp-demo/lib.sh
+COPY tests/e2e/session /opt/gp-demo/session
+COPY tests/e2e/scenario-*.sh /opt/gp-demo/scenarios/
+COPY tests/e2e/checks.py /opt/gp-demo/checks.py
+COPY tests/e2e/99-demo.conf /etc/NetworkManager/conf.d/99-demo.conf
+
+# Fictional CA and server certificate; the CA goes into the system store and
+# into the NSS database of the desktop user (Edge reads it)
+RUN /opt/gp-demo/make-certs.sh /opt/gp-demo/certs \
+    && cp /opt/gp-demo/certs/ca.crt /usr/local/share/ca-certificates/contoso-demo-ca.crt \
+    && update-ca-certificates \
+    && install -d -o demo -g demo -m 700 /home/demo/.pki/nssdb \
+    && runuser -u demo -- certutil -N -d sql:/home/demo/.pki/nssdb --empty-password \
+    && runuser -u demo -- certutil -A -d sql:/home/demo/.pki/nssdb -n "Contoso Demo Root CA" -t "C,," -i /opt/gp-demo/certs/ca.crt \
+    && chmod +x /opt/gp-demo/*.sh /opt/gp-demo/scenarios/*.sh /opt/gp-demo/checks.py /opt/gp-demo/session/*.sh /usr/bin/gpclient /usr/bin/gpauth /usr/local/bin/loginctl
+
+ENTRYPOINT ["/opt/gp-demo/session/start.sh", "gnome"]

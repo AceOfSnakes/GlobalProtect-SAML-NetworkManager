@@ -81,10 +81,17 @@ The gateway's DNS reaches the service through the vpnc hook
 openconnect's environment (`INTERNAL_IP4_DNS`, `CISCO_DEF_DOMAIN`,
 `CISCO_SPLIT_DNS`, ...) and, when `GPCLIENT_NM_DNS_STATE` names a file (the
 service sets it to `/run/nm-gpclient/dns-state`), the hook writes those
-variables there. Tunnel detection reads the file and reports the values in
-`Ip4Config`. Without this, NetworkManager only knows about an assumed tunnel
-device with an empty DNS configuration and wipes vpnc-script's resolver
-settings from systemd-resolved on its next DNS recalculation (issue #15).
+variables there, plus `VPNGATEWAY` (the VPN server's address). Tunnel
+detection reads the file and reports the values in `Ip4Config`. The `gateway`
+of `Ip4Config` is the VPN server's IPv4 address from `VPNGATEWAY`
+(NetworkManager routes it via the physical interface). If the state is
+missing, is for another tunnel or has no IPv4 `VPNGATEWAY`, the service uses
+the `via` address of the tunnel's routes, then the tunnel's own address.
+Without this, NetworkManager only knows about an assumed tunnel device with
+an empty DNS configuration and wipes vpnc-script's resolver settings from
+systemd-resolved on its next DNS recalculation (issue #15). The internal
+gateway is a separate key (`internal-gateway`) that the service does not
+send.
 
 #### `Failure(u)`
 Reports connection failure.

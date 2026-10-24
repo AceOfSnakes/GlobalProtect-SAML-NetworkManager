@@ -78,3 +78,6 @@ artifacts/
 
 # Claude Code
 .claude/
+
+# End-to-end test output
+tests/e2e/out/
