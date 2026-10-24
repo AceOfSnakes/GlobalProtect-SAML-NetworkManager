@@ -1,0 +1,314 @@
+#!/usr/bin/python3
+"""Fake gpclient for the README demo (installed as /usr/bin/gpclient, root).
+
+Only what nm-gpclient-service.py uses is implemented:
+
+  gpclient [--fix-openssl] connect [--hip] [--as-gateway] [--user U]
+           --browser <path> <server>
+  gpclient disconnect
+
+`connect` prints log lines in the style of the real tool (nothing the service
+would take for a prompt or a gateway list), runs the fake gpauth as the desktop
+user (uid from SUDO_UID) and waits for it, then does what the real tool and
+real openconnect does: create the tun device gpd0 and keep its file
+descriptor open (the service reads /proc/PID/fdinfo "iff:"), then run the real
+/usr/share/vpnc-scripts/vpnc-script with reason pre-init and connect and the
+environment openconnect sets (address, DNS, a full-tunnel split-include list).
+The vpnc hook of the plugin and vpnc-script itself set up addresses, routes
+and DNS; nothing is faked there. SIGTERM/SIGINT/SIGHUP run vpnc-script with
+reason disconnect, close the descriptor (which removes the interface) and
+exit 0.
+
+Environment: GPCLIENT_NM_* (set by the service, passed on to vpnc-script),
+SUDO_UID (desktop user). Runtime files live in /run/gp-demo/ (gpclient.pid, auth-done).
+"""
+
+import argparse
+import datetime
+import fcntl
+import os
+import signal
+import struct
+import subprocess
+import sys
+import time
+
+STATE_DIR = "/run/gp-demo"
+PID_FILE = f"{STATE_DIR}/gpclient.pid"
+AUTH_DONE_FILE = f"{STATE_DIR}/auth-done"
+
+GPAUTH = "/usr/bin/gpauth"
+SAML_URL = "https://vpn.contoso.example/global-protect/prelogin.esp?saml=1"
+AUTH_TIMEOUT = 300
+
+
+def auth_timeout(default):
+    """Seconds to wait for the sign-in: GP_DEMO_AUTH_TIMEOUT, or the file
+    /run/gp-demo/auth-timeout (the environment does not reach us through
+    NetworkManager and sudo), or the default."""
+    value = os.environ.get("GP_DEMO_AUTH_TIMEOUT", "")
+    if not value:
+        try:
+            with open("/run/gp-demo/auth-timeout", encoding="utf-8") as handle:
+                value = handle.read().strip()
+        except OSError:
+            pass
+    return int(value) if value.isdigit() and int(value) > 0 else default
+
+TUN_NAME = "gpd0"
+VPNC_SCRIPT = "/usr/share/vpnc-scripts/vpnc-script"
+VPN_GATEWAY_IP = "198.51.100.10"  # TEST-NET-2: vpnc-script adds a host route to it
+GATEWAY = "Contoso HQ (gw-hq.contoso.example)"
+
+# <linux/if_tun.h>
+TUNSETIFF = 0x400454CA
+IFF_TUN = 0x0001
+IFF_NO_PI = 0x1000
+
+# Environment the desktop user's gpauth (and the wrapper behind it) needs
+PRESERVED_ENV = (
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_TYPE",
+    "KDE_FULL_SESSION",
+    "KDE_SESSION_VERSION",
+    "GP_BROWSER",
+)
+
+stop_requested = False
+
+
+def log(level, module, message):
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        print(f"[{now} {level:<5} {module}] {message}", flush=True)
+    except OSError:
+        pass  # the terminal is gone (service closed the PTY)
+
+
+def on_signal(signum, frame):
+    global stop_requested
+    stop_requested = True
+
+
+def sleep(seconds):
+    """Sleep, but wake up early on a stop request."""
+    end = time.monotonic() + seconds
+    while not stop_requested and time.monotonic() < end:
+        time.sleep(0.05)
+
+
+def remove(path):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def run_gpauth(browser):
+    """Run gpauth as the desktop user. Returns its stdout, or None on failure."""
+    uid = os.environ.get("SUDO_UID", "")
+    if not uid.isdigit() or int(uid) == 0:
+        log("ERROR", "gpclient::cli::connect", "Non-root user not found")
+        return None
+
+    preserved = [name for name in PRESERVED_ENV if name in os.environ]
+    cmd = ["sudo", "-u", f"#{uid}"]
+    if preserved:
+        cmd.append("--preserve-env=" + ",".join(preserved))
+    cmd += [GPAUTH, "--browser", browser, SAML_URL]
+
+    remove(AUTH_DONE_FILE)
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + auth_timeout(AUTH_TIMEOUT) + 10
+    output = ""
+    while True:
+        if stop_requested or time.monotonic() > deadline:
+            proc.terminate()
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            if not stop_requested:
+                log("ERROR", "gpauth", f"SAML authentication timed out after {auth_timeout(AUTH_TIMEOUT)}s")
+            return None
+        try:
+            output, _ = proc.communicate(timeout=0.2)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    if proc.returncode != 0:
+        log("ERROR", "gpauth", f"gpauth exited with status {proc.returncode}")
+        return None
+    return output
+
+
+def vpnc_env(reason):
+    """Environment openconnect gives vpnc-script, on top of ours (GPCLIENT_NM_*)."""
+    env = dict(os.environ)
+    env.update(
+        {
+            "reason": reason,
+            "TUNDEV": TUN_NAME,
+            "VPNGATEWAY": VPN_GATEWAY_IP,
+            "VPNPID": str(os.getpid()),
+            "INTERNAL_IP4_ADDRESS": "10.20.30.45",
+            "INTERNAL_IP4_NETMASK": "255.255.255.255",
+            "INTERNAL_IP4_NETMASKLEN": "32",
+            "INTERNAL_IP4_NETADDR": "10.20.30.45",
+            "INTERNAL_IP4_MTU": "1400",
+            "INTERNAL_IP4_DNS": "10.20.0.53 10.20.0.54",
+            "CISCO_DEF_DOMAIN": "contoso.example",
+            "CISCO_BANNER": "",
+            "CISCO_SPLIT_INC": "3",
+        }
+    )
+    # A full-tunnel gateway also pushes its internal networks
+    routes = (
+        ("0.0.0.0", "0.0.0.0", "0"),
+        ("10.20.0.0", "255.255.0.0", "16"),
+        ("172.16.0.0", "255.240.0.0", "12"),
+    )
+    for index, (addr, mask, masklen) in enumerate(routes):
+        prefix = f"CISCO_SPLIT_INC_{index}_"
+        env[prefix + "ADDR"] = addr
+        env[prefix + "MASK"] = mask
+        env[prefix + "MASKLEN"] = masklen
+        env[prefix + "PROTOCOL"] = "0"
+        env[prefix + "SPORT"] = "0"
+        env[prefix + "DPORT"] = "0"
+    return env
+
+
+def run_vpnc_script(reason):
+    """Run vpnc-script like openconnect does and pass its output on."""
+    result = subprocess.run(
+        [VPNC_SCRIPT],
+        env=vpnc_env(reason),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+    for line in result.stdout.splitlines():
+        log("INFO", "vpnc-script", f"[{reason}] {line}")
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, VPNC_SCRIPT)
+
+
+def open_tun(name):
+    fd = os.open("/dev/net/tun", os.O_RDWR)
+    try:
+        request = struct.pack("16sH22x", name.encode(), IFF_TUN | IFF_NO_PI)
+        fcntl.ioctl(fd, TUNSETIFF, request)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def connect(args):
+    try:
+        return run_connect(args)
+    finally:
+        remove(PID_FILE)
+
+
+def run_connect(args):
+    os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
+    os.chmod(STATE_DIR, 0o755)
+    with open(PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(f"{os.getpid()}\n")
+
+    mod = "gpclient::cli::connect"
+    log("INFO", "gpclient::cli", f"gpclient started (GlobalProtect VPN client) pid={os.getpid()}")
+    log("INFO", mod, f"Connecting to portal: {args.server}")
+    sleep(0.6)
+    log("INFO", "gpapi::portal::prelogin", "Portal prelogin request, SAML authentication required")
+    log("INFO", mod, "Launching the SAML authentication helper")
+
+    result = run_gpauth(args.browser)
+    if result is None:
+        if not stop_requested:
+            log("ERROR", mod, "Failed to authenticate with the portal")
+        return 0 if stop_requested else 1
+
+    log("INFO", "gpauth", "SAML authentication completed")
+    sleep(0.5)
+    log("INFO", "gpapi::portal::config", "Retrieving the portal configuration")
+    sleep(0.6)
+    log("INFO", "gpapi::portal::config", "Found 1 gateways in portal config")
+    log("INFO", mod, f"Connecting to the only available gateway: {GATEWAY}")
+    sleep(0.6)
+    log("INFO", "gpapi::gateway::login", "Gateway login succeeded")
+    log("INFO", "gpclient::connect", "Retrieving tunnel configuration")
+    sleep(0.4)
+
+    fd = None
+    try:
+        fd = open_tun(TUN_NAME)
+        run_vpnc_script("pre-init")
+        run_vpnc_script("connect")
+        log("INFO", "gpclient::connect", f"Tunnel interface {TUN_NAME} is up")
+        log("INFO", "gpclient::connect", "Connected to VPN")
+        while not stop_requested:
+            time.sleep(0.2)
+    except (OSError, subprocess.CalledProcessError) as error:
+        log("ERROR", "gpclient::connect", f"Failed to set up the tunnel: {error}")
+        return 1
+    finally:
+        if fd is not None:
+            try:
+                run_vpnc_script("disconnect")
+            except (OSError, subprocess.CalledProcessError):
+                pass
+            os.close(fd)  # removes the non-persistent interface
+
+    log("INFO", "gpclient::connect", "Received signal, disconnecting")
+    log("INFO", "gpclient::connect", "Disconnected")
+    return 0
+
+
+def disconnect(_args):
+    try:
+        with open(PID_FILE, encoding="utf-8") as handle:
+            pid = int(handle.read().strip())
+        os.kill(pid, signal.SIGTERM)
+    except (OSError, ValueError):
+        return 0  # nothing running (stale pid file, or none)
+    for _ in range(100):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.05)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="gpclient")
+    parser.add_argument("--fix-openssl", action="store_true")
+    sub = parser.add_subparsers(dest="command", required=True)
+    conn = sub.add_parser("connect")
+    conn.add_argument("--hip", action="store_true")
+    conn.add_argument("--as-gateway", action="store_true")
+    conn.add_argument("--user")
+    conn.add_argument("--browser", default="/usr/libexec/gpclient/browser-wrapper")
+    conn.add_argument("server")
+    conn.set_defaults(func=connect)
+    sub.add_parser("disconnect").set_defaults(func=disconnect)
+    args, _unknown = parser.parse_known_args()
+
+    if args.command == "connect":
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, on_signal)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
