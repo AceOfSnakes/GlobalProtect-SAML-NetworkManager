@@ -126,7 +126,7 @@ for pkg in network-manager-gpclient network-manager-gpclient-gnome network-manag
 done
 
 for path in \
-    /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
+    /usr/bin/gpclient /usr/bin/gpauth \
     /usr/lib/NetworkManager/nm-gpclient-service \
     /usr/lib/NetworkManager/VPN/nm-gpclient-service.name \
     /usr/libexec/gpclient/browser-wrapper /usr/libexec/gpclient/edge-wrapper \
@@ -152,7 +152,7 @@ rpm -qf --qf '%{NAME}\n' /usr/lib/libnm-gpclient-properties | grep -qx network-m
     || fail "libnm-gpclient-properties is not in network-manager-gpclient-gnome"
 
 # Every program and plugin finds its shared libraries
-for exe in /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
+for exe in /usr/bin/gpclient /usr/bin/gpauth \
     "$(rpm --eval '%{_libdir}')"/NetworkManager/libnm-*gpclient*.so \
     "$(rpm --eval '%{_libdir}')"/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; do
     if missing=$(ldd "$exe" 2>&1 | grep 'not found'); then
@@ -160,8 +160,8 @@ for exe in /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
     fi
 done
 
-check_openssl /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
-check_stripped /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
+check_openssl /usr/bin/gpclient /usr/bin/gpauth
+check_stripped /usr/bin/gpclient /usr/bin/gpauth
 check_vpnc_script
 
 /usr/bin/gpclient --version >/dev/null || fail "gpclient --version"

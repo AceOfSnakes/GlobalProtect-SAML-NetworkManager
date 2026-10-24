@@ -22,7 +22,7 @@ Not supported:
 The packages are the same three as on Ubuntu:
 
 - `network-manager-gpclient`: the service, the NetworkManager plugin, `gpclient`,
-  `gpauth`, `gpservice` (enough for `nmcli`)
+  `gpauth` (enough for `nmcli`)
 - `network-manager-gpclient-gnome`: GTK3/GTK4 connection editors and the
   authentication dialog (GNOME, MATE, Cinnamon, XFCE)
 - `network-manager-gpclient-plasma`: KDE Plasma 6 connection editor

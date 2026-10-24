@@ -602,6 +602,12 @@ def test_a_cargo_build_without_locked_is_reported(path):
     assert cargo_build_lines_without_locked(text)
 
 
+def test_spec_neither_builds_nor_installs_nor_packages_gpservice():
+    # nothing in this project starts gpservice: the callback path is gpclient launch-gui -> gpauth
+    assert "gpservice" not in read("rpm/network-manager-gpclient.spec")
+    assert "gpservice" not in read("rpm/install-test.sh")
+
+
 def provides_exclude_pattern():
     spec = read("rpm/network-manager-gpclient.spec")
     match = re.search(r"^%global __provides_exclude (\S+)$", spec, re.M)
