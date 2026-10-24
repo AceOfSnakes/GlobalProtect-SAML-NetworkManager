@@ -51,6 +51,10 @@ echo "built" >> "$FAKE_DIR/buildpackage"
 """
 
 # cp of the packages from /build has nothing to copy here
+FAKE_LINTIAN = r"""#!/bin/bash
+echo "$*" >> "$FAKE_DIR/lintian"
+"""
+
 FAKE_CP = r"""#!/bin/bash
 for arg in "$@"; do
     case "$arg" in /build/*|/output/*) exit 0 ;; esac
@@ -75,7 +79,7 @@ class Box:
             directory.mkdir()
         for name, body in (
             ("docker", FAKE_DOCKER), ("dpkg-parsechangelog", FAKE_PARSECHANGELOG),
-            ("dpkg-buildpackage", FAKE_BUILDPACKAGE), ("cp", FAKE_CP), ("dpkg-deb", FAKE_DPKG_DEB),
+            ("dpkg-buildpackage", FAKE_BUILDPACKAGE), ("lintian", FAKE_LINTIAN), ("cp", FAKE_CP), ("dpkg-deb", FAKE_DPKG_DEB),
         ):
             path = self.bin / name
             path.write_text(body)
