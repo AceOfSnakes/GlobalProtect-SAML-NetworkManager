@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     debhelper \
     fakeroot \
+    lintian \
     cmake \
     extra-cmake-modules \
     qt6-base-dev \
