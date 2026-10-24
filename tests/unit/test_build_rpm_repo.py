@@ -87,7 +87,8 @@ class Box:
         with open(TEMPLATE, encoding="utf-8") as handle:
             text = handle.read()
         text = (text.replace("__VERSION_ROWS__", "<tr><td>noble</td><td>1.5.0-1~noble1</td></tr>")
-                .replace("__FINGERPRINT__", KEY).replace("__UPDATED__", "now"))
+                .replace("__FINGERPRINT__", KEY).replace("__UPDATED__", "now")
+                .replace("__REPO_URL__", "https://wmp.github.io/GlobalProtect-SAML-NetworkManager"))
         self.index.write_text(text)
 
     def add(self, *names):

@@ -76,17 +76,17 @@ distribution in the table below (<code>fedora43</code>, <code>fedora44</code>,
 
 <pre><code># Fedora
 sudo curl -fsSL -o /etc/yum.repos.d/network-manager-gpclient.repo \
-  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/fedora$(rpm -E %fedora)/network-manager-gpclient.repo
+  __REPO_URL__/rpm/fedora$(rpm -E %fedora)/network-manager-gpclient.repo
 sudo dnf install network-manager-gpclient-gnome    # or network-manager-gpclient-plasma (KDE Plasma 6)
 
 # AlmaLinux, Rocky Linux, RHEL 10: EPEL and CRB are needed for the dependencies
 sudo dnf install epel-release &amp;&amp; sudo /usr/bin/crb enable
 sudo curl -fsSL -o /etc/yum.repos.d/network-manager-gpclient.repo \
-  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/el10/network-manager-gpclient.repo
+  __REPO_URL__/rpm/el10/network-manager-gpclient.repo
 sudo dnf install network-manager-gpclient-gnome
 
 # openSUSE Leap 16.0 (leap16.0) or Tumbleweed (tumbleweed)
-sudo zypper addrepo https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/tumbleweed/network-manager-gpclient.repo
+sudo zypper addrepo __REPO_URL__/rpm/tumbleweed/network-manager-gpclient.repo
 sudo zypper refresh
 sudo zypper install network-manager-gpclient-gnome</code></pre>
 
