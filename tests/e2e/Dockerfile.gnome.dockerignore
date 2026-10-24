@@ -1,0 +1,11 @@
+.git
+external
+docs
+tests/unit
+tests/upstream
+upstream
+debian
+tests/e2e/out
+output
+build
+*.deb
