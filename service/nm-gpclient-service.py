@@ -1755,6 +1755,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.info(f"Browser: {self.browser} (target: {self.browser_target})")
 
             # Get DNS servers (optional)
+            self.dns_servers = []
+            self.dns_domains = []
             dns_str = data_dict.get("dns", "")
             if dns_str:
                 self.dns_servers = parse_dns_servers(dns_str)
@@ -1787,7 +1789,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 logger.info(f"HIP script: {self.hip_script}")
 
             # Emit state change: preparing
-            self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTING)
+            self._set_state(NM_VPN_SERVICE_STATE_STARTING)
 
             # Clean up a stale gpd0 left by a crashed previous session and
             # snapshot the tunnel-candidate interfaces that exist BEFORE
@@ -1829,6 +1831,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 await self.tunnel_check_task
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                logger.exception("Tunnel monitor task had failed")
             self.tunnel_check_task = None
 
         # Stop pending prompt handling
@@ -1848,6 +1852,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 await self.stdout_monitor_task
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                logger.exception("gpclient output monitor task had failed")
             self.stdout_monitor_task = None
 
         # Stop gpclient first, close the PTY after. gpclient is the session
@@ -1911,7 +1917,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._preexisting_ifaces = {}
 
         # Emit state change
-        self.StateChanged.emit(NM_VPN_SERVICE_STATE_STOPPED)
+        self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
 
         logger.info("Disconnected from VPN")
 
@@ -1974,39 +1980,31 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     # Signals
     @dbus_signal_async("u")
     def StateChanged(self, state: int) -> None:
-        """Signal: VPN state changed"""
-        logger.info(f"StateChanged signal: {state}")
-        self._state = state
+        """Signal: VPN state changed (emit it through _set_state)"""
 
     @dbus_signal_async("sas")
     def SecretsRequired(self, message: str, secrets: List[str]) -> None:
         """Signal: Secrets required"""
-        logger.info(f"SecretsRequired signal: {message}, {secrets}")
 
     @dbus_signal_async("a{sv}")
     def Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Signal: Configuration ready"""
-        logger.info(f"Config signal: {config}")
 
     @dbus_signal_async("a{sv}")
     def Ip4Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Signal: IPv4 configuration ready"""
-        logger.info(f"Ip4Config signal: {config}")
 
     @dbus_signal_async("a{sv}")
     def Ip6Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Signal: IPv6 configuration ready"""
-        logger.info(f"Ip6Config signal: {config}")
 
     @dbus_signal_async("s")
     def LoginBanner(self, banner: str) -> None:
         """Signal: Login banner"""
-        logger.info(f"LoginBanner signal: {banner}")
 
     @dbus_signal_async("u")
     def Failure(self, reason: int) -> None:
         """Signal: VPN connection failed"""
-        logger.error(f"Failure signal: {reason}")
 
     # Properties
     @dbus_property_async("u")
@@ -2643,6 +2641,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     return
                 logger.error(f"gpclient failed with exit code {returncode}")
                 self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
+            elif returncode == 0 and not self._login_failed:
+                # Disconnect() cancels this task before it stops gpclient, so
+                # an exit seen here was not asked for. Upstream returns Ok(())
+                # on some failures; without a Failure NetworkManager waits for
+                # vpn.timeout.
+                logger.error("gpclient exited (status 0) without being asked to")
+                self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
 
         except asyncio.CancelledError:
             raise
@@ -2811,8 +2816,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         a failure, and without it the activation sits there until its own
         connect timeout expires, which reads as a hang (issue #2).
         """
+        logger.error(f"Reporting failure to NetworkManager: reason {reason}")
         self.Failure.emit(reason)
-        self.StateChanged.emit(NM_VPN_SERVICE_STATE_STOPPED)
+        self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
+
+    def _set_state(self, state: int) -> None:
+        """Record the VPN state, log it and tell NetworkManager.
+
+        python-sdbus does not run the body of a signal method on emit(), so the
+        State property must be set here.
+        """
+        self._state = state
+        logger.info(f"StateChanged: {state}")
+        self.StateChanged.emit(state)
 
     def _schedule_prompt_check(self) -> None:
         """(Re)schedule the debounced check for a pending interactive prompt.
@@ -3514,6 +3530,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._secret_future = loop.create_future()
 
         hints = [f"x-vpn-message:{message}", secret_key]
+        logger.info(f"SecretsRequired: {message}, {hints}")
         self.SecretsRequired.emit((message, hints))
 
         try:
@@ -4101,10 +4118,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._build_dns_config(config, learned_dns)
 
                     # Emit Ip4Config signal
+                    logger.info(f"Ip4Config: {config}")
                     self.Ip4Config.emit(config)
 
                     # Emit state change: activated
-                    self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTED)
+                    self._set_state(NM_VPN_SERVICE_STATE_STARTED)
                     self._tunnel_up = True
 
                     # The login succeeded, so what we learned along the way is

@@ -12,6 +12,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import gc
 import json
 import logging
 import os
@@ -503,15 +504,25 @@ class TestStartGpclient:
 
 async def _monitor(plugin, chunks, process):
     """Run the monitor on a pipe that carries `chunks` and then ends"""
+    # An object an earlier test leaked (a PTY transport, a file) closes its fd
+    # when it is collected; collect now, before this test takes fd numbers,
+    # so that it cannot close one of ours later (EBADF)
+    gc.collect()
     read_fd, write_fd = os.pipe()
     for chunk in chunks:
         os.write(write_fd, chunk)
     os.close(write_fd)
     plugin._pty_master = read_fd
     plugin.gpclient_process = process
-    await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
-    if plugin._prompt_task:
-        plugin._prompt_task.cancel()
+    try:
+        await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
+    finally:
+        if plugin._prompt_task:
+            plugin._prompt_task.cancel()
+        # Close the read end now, while this loop runs. Left to the garbage
+        # collector, the transport closes its fd number later, when a later
+        # test may already have got the same number from os.pipe() (EBADF).
+        plugin._close_pty()
 
 
 class TestMonitorGpclientOutput:
@@ -550,12 +561,65 @@ class TestMonitorGpclientOutput:
             service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED,
         ) in dbus_signals
 
-    def test_end_of_output_with_exit_zero_reports_nothing(
+    def test_unrequested_exit_zero_reports_connect_failed(
+        self, service_module, dbus_signals, caplog
+    ):
+        plugin = _plugin(service_module)
+        with caplog.at_level("ERROR", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
+        assert list(plugin._recent_lines) == ["hello"]
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
+        assert "gpclient exited (status 0) without being asked to" in caplog.text
+
+    def test_exit_zero_after_the_tunnel_is_up_reports_connect_failed(
         self, service_module, dbus_signals
     ):
         plugin = _plugin(service_module)
+        plugin._set_state(service_module.NM_VPN_SERVICE_STATE_STARTED)
+        plugin._tunnel_up = True
+        dbus_signals.clear()
         asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
-        assert list(plugin._recent_lines) == ["hello"]
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+
+    def test_exit_zero_after_a_reported_failure_is_not_reported_again(
+        self, service_module, dbus_signals
+    ):
+        plugin = _plugin(service_module)
+        plugin._login_failed = True
+        asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
+        assert dbus_signals == []
+
+    def test_exit_requested_by_disconnect_is_not_reported(
+        self, service_module, dbus_signals
+    ):
+        # Disconnect cancels the monitor before it stops gpclient, so the
+        # monitor never gets to see the exit
+        plugin = _plugin(service_module)
+
+        async def go():
+            read_fd, write_fd = os.pipe()
+            plugin._pty_master = read_fd
+            plugin.gpclient_process = FakeProcess(returncode=0)
+            task = asyncio.create_task(plugin._monitor_gpclient_output())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            os.close(write_fd)
+            if plugin._pty_master is not None:
+                try:
+                    os.close(plugin._pty_master)
+                except OSError:
+                    pass
+
+        asyncio.run(go())
         assert dbus_signals == []
 
     def test_non_zero_exit_reports_connect_failed(self, service_module, dbus_signals):

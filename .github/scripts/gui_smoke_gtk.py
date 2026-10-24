@@ -182,6 +182,51 @@ def run_mtu_case(NM, Gtk, major, plugin, service, case):
     return shown, connection.get_setting_vpn().get_data_item("mtu")
 
 
+def row_widget(grid, Gtk, major, label_text):
+    """The widget in column 1 of the row whose label (column 0) is `label_text`"""
+    for child in children(grid, Gtk, major):
+        if isinstance(child, Gtk.Label) and child.get_text() == label_text:
+            if major == 3:
+                row = grid.child_get_property(child, "top-attach")
+            else:
+                row = grid.query_child(child)[1]
+            return grid.get_child_at(1, row)
+    fail(f"GTK{major} editor: no row labelled {label_text!r}")
+
+
+def set_entry_text(widget, Gtk, major, text):
+    entry = widget.get_child() if isinstance(widget, Gtk.ComboBoxText) else widget
+    if major == 3:
+        Gtk.Entry.set_text(entry, text)
+    else:
+        Gtk.Editable.set_text(entry, text)
+
+
+def run_edit_case(NM, GLib, Gtk, major, plugin, service, case):
+    """Open the editor for one lib.EDIT_CASES entry, apply its steps and save;
+    returns {"error": message or None, "data": vpn.data after the save}"""
+    connection = build_case_connection(NM, service, {"new": False, "vpn_data": case["vpn_data"]})
+    editor = plugin.get_editor(connection)
+    grid = editor.get_widget()
+    for kind, key, text in case["steps"]:
+        widget = row_widget(grid, Gtk, major, lib.EDIT_LABELS[key])
+        if kind == "choose":
+            items = [row[0] for row in widget.get_model()]
+            if text not in items:
+                fail(f"case {case['name']!r}: {text!r} is not in the combo {items!r}")
+            widget.set_active(items.index(text))
+        else:
+            set_entry_text(widget, Gtk, major, text)
+    error = None
+    try:
+        editor.update_connection(connection)
+    except GLib.Error as exc:
+        error = exc.message
+    s_vpn = connection.get_setting_vpn()
+    data = {key: s_vpn.get_data_item(key) for key in s_vpn.get_data_keys()}
+    return {"error": error, "data": data}
+
+
 def without_tooltips(widget, Gtk, major):
     """Switch off the tooltips of `widget` and everything in it: Xvfb's pointer
     sits in the middle of the screen, over the editor, and a tooltip would
@@ -291,6 +336,14 @@ def main(argv=None):
     if problems:
         fail(f"GTK{major} editor: " + "; ".join(problems))
     print(f"OK: GTK{major} editor MTU, {len(results)} save scenarios")
+
+    results = {}
+    for case in lib.EDIT_CASES:
+        results[case["name"]] = run_edit_case(NM, GLib, Gtk, major, plugin, name["service"], case)
+    problems = lib.check_edit_results(results)
+    if problems:
+        fail(f"GTK{major} editor: " + "; ".join(problems))
+    print(f"OK: GTK{major} editor cleared fields and required gateway, {len(results)} save scenarios")
 
 
 if __name__ == "__main__":

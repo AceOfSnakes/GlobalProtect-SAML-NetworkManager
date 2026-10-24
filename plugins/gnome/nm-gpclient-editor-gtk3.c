@@ -567,6 +567,8 @@ update_connection (NMVpnEditor *iface,
         str = gtk_combo_box_text_get_active_text (self->browser_combo);
         if (str && strlen (str) && g_strcmp0(str, "Custom...") != 0)
             nm_setting_vpn_add_data_item (s_vpn, "browser", str);
+        else
+            nm_setting_vpn_remove_data_item (s_vpn, "browser");
         g_free ((char *)str);
     }
 
@@ -602,6 +604,8 @@ update_connection (NMVpnEditor *iface,
         str = gtk_entry_get_text (self->dns_entry);
         if (str && strlen (str))
             nm_setting_vpn_add_data_item (s_vpn, "dns", str);
+        else
+            nm_setting_vpn_remove_data_item (s_vpn, "dns");
     }
 
     if (self->fix_openssl_combo) {
