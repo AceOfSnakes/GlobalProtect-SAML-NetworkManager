@@ -9,8 +9,10 @@ grows past that limit. Keep it short and move details into `docs/`.
 ## What this project is
 
 A NetworkManager VPN plugin for GlobalProtect with SAML/SSO authentication,
-packaged as `.deb` files for Ubuntu 22.04, 24.04, 24.10 and 26.04 on `amd64`
-and `arm64`, and published as a signed apt repository on GitHub Pages.
+packaged as `.deb` files for Ubuntu 22.04, 24.04, 24.10 and 26.04 and as RPM
+files for Fedora 43-45, EL 10 and openSUSE Leap 16.0/Tumbleweed (`rpm/targets`),
+on `amd64` and `arm64`, and published as signed apt and RPM repositories on
+GitHub Pages.
 
 | Path | Contents |
 |---|---|
@@ -19,8 +21,9 @@ and `arm64`, and published as a signed apt repository on GitHub Pages.
 | `auth-dialog/` | GTK dialog for credentials and one-time passwords |
 | `plugins/gnome/`, `plugins/plasma/` | Connection editor plugins (GTK3/GTK4, Plasma 5/6) |
 | `debian/` | Packaging; `debian/control.ubuntu<version>` is copied to `debian/control` per build |
-| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (matrix Ubuntu × arch), `publish-apt.yml` |
-| `.github/scripts/build-apt-repo.sh` | Builds the apt repository from release `.deb` files |
+| `rpm/` | RPM packaging: `targets`, the spec, `build.sh` (build in a container), `install-test.sh` |
+| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (Ubuntu × arch, RPM target × arch), `publish-apt.yml` (apt + RPM repositories) |
+| `.github/scripts/build-apt-repo.sh`, `build-rpm-repo.sh` | Build the apt and RPM repositories from release assets |
 | `external/GlobalProtect-openconnect` | Git submodule (upstream `gpclient`/`gpauth`) |
 | `upstream/` | Contract with upstream: `contract.json`, `features.json`, `interfaces.json`, `verification.json` |
 | `scripts/upstream_contract.py` | `check`, `update`, `features`, `interfaces`, `gate` for `upstream/` |
@@ -69,7 +72,9 @@ CI builds every Ubuntu version for `amd64` (`ubuntu-latest`) and `arm64`
 request, except for changes to docs only (`**.md`, `docs/**`). A release can also
 have variants (`Dockerfile.ubuntu<version>-<variant>` with
 `debian/control.ubuntu<version>-<variant>`): `24.04-neon` builds
-`network-manager-gpclient-plasma-6` for KDE neon, `amd64` only. To build a branch
+`network-manager-gpclient-plasma-6` for KDE neon, `amd64` only. Job `build-rpm`
+builds every target of `rpm/targets` × {amd64, arm64} with `rpm/build.sh` and
+installs the result in a fresh container (`docs/RPM_REPO.md`). To build a branch
 that has no PR, run the workflow by hand:
 
 ```bash
