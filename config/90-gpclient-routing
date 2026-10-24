@@ -144,6 +144,7 @@ if [ -n "$dns_state" ]; then
       echo "INTERNAL_IP6_DNS=$INTERNAL_IP6_DNS"
       echo "CISCO_DEF_DOMAIN=$CISCO_DEF_DOMAIN"
       echo "CISCO_SPLIT_DNS=$CISCO_SPLIT_DNS"
+      echo "VPNGATEWAY=$VPNGATEWAY"
     } > "$_dns_tmp" 2>/dev/null && mv -f "$_dns_tmp" "$dns_state" 2>/dev/null; then
     echo "vpnc hook: DNS state for $TUNDEV written to $dns_state" >&2
   else

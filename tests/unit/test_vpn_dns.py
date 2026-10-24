@@ -193,6 +193,119 @@ class TestProfileDnsParsing:
         assert service_module.parse_dns_servers("fd00::53") == ["fd00::53"]
 
 
+class TestVpnGatewayFromState:
+    @pytest.mark.parametrize(
+        "state, expected",
+        [
+            ({"TUNDEV": "tun0", "VPNGATEWAY": "203.0.113.9"}, "203.0.113.9"),
+            ({"VPNGATEWAY": "203.0.113.9"}, "203.0.113.9"),
+        ],
+    )
+    def test_ipv4_gateway_of_this_tunnel(self, service_module, state, expected):
+        got = service_module.vpn_gateway_from_state(state, "tun0")
+        assert str(got) == expected
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            {"TUNDEV": "tun1", "VPNGATEWAY": "203.0.113.9"},
+            {"TUNDEV": "tun0"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": ""},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "2001:db8::1"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "vpn.example.com"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "203.0.113"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "203.0.113.9 1.2.3.4"},
+        ],
+    )
+    def test_anything_else_is_none(self, service_module, state):
+        assert service_module.vpn_gateway_from_state(state, "tun0") is None
+
+
+class TestDetectionSendsVpnGateway:
+    def test_gateway_is_the_vpn_server_address(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(
+            dns_state_sandbox, TUNDEV="tun0", VPNGATEWAY="203.0.113.9"
+        )
+        config = _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+        assert config["gateway"] == ("u", _nm_u32("203.0.113.9"))
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"TUNDEV": "tun7", "VPNGATEWAY": "203.0.113.9"},
+            {"TUNDEV": "tun0"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": ""},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "2001:db8::1"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "garbage"},
+            None,  # no state file
+        ],
+    )
+    def test_fallback_is_the_tunnel_address(
+        self,
+        service_module,
+        monkeypatch,
+        tmp_path,
+        dbus_signals,
+        dns_state_sandbox,
+        fields,
+    ):
+        if fields is not None:
+            _write_state(dns_state_sandbox, **fields)
+        config = _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+        assert config["gateway"] == ("u", _nm_u32("10.100.7.42"))
+
+    @staticmethod
+    def _fake_ip_with_via_route(monkeypatch, tmp_path):
+        """Put an `ip` on PATH that shows a route with a `via` address."""
+        bindir = tmp_path / "fakebin"
+        bindir.mkdir()
+        fake = bindir / "ip"
+        fake.write_text(
+            "#!/bin/sh\n"
+            'echo "10.100.7.0/24 via 10.100.7.1 dev tun0"\n'
+        )
+        fake.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    def test_hook_gateway_wins_over_a_via_route(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        self._fake_ip_with_via_route(monkeypatch, tmp_path)
+        _write_state(
+            dns_state_sandbox, TUNDEV="tun0", VPNGATEWAY="203.0.113.9"
+        )
+        config = _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+        assert config["gateway"] == ("u", _nm_u32("203.0.113.9"))
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"TUNDEV": "tun0"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": ""},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "2001:db8::1"},
+            {"TUNDEV": "tun0", "VPNGATEWAY": "garbage"},
+            {"TUNDEV": "tun7", "VPNGATEWAY": "203.0.113.9"},
+            None,  # no state file
+        ],
+    )
+    def test_via_route_is_used_without_a_valid_hook_gateway(
+        self,
+        service_module,
+        monkeypatch,
+        tmp_path,
+        dbus_signals,
+        dns_state_sandbox,
+        fields,
+    ):
+        self._fake_ip_with_via_route(monkeypatch, tmp_path)
+        if fields is not None:
+            _write_state(dns_state_sandbox, **fields)
+        config = _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+        assert config["gateway"] == ("u", _nm_u32("10.100.7.1"))
+
+
 class TestDetectionReportsDns:
     def test_gateway_dns_lands_in_ip4config(
         self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
@@ -636,6 +749,7 @@ class TestVpncHook:
                 "INTERNAL_IP4_DNS": "10.0.0.1 10.0.0.2",
                 "CISCO_DEF_DOMAIN": "corp.example",
                 "CISCO_SPLIT_DNS": "corp.example,lab.example",
+                "VPNGATEWAY": "203.0.113.9",
             },
         )
 
@@ -647,6 +761,7 @@ class TestVpncHook:
         # The profile's dns-domains are merged in before the file is written
         assert "CISCO_DEF_DOMAIN=corp.example extra.example" in lines
         assert "CISCO_SPLIT_DNS=corp.example,lab.example" in lines
+        assert "VPNGATEWAY=203.0.113.9" in lines
         assert not list((tmp_path / "run").glob("*.tmp.*"))
 
     def test_leaves_nothing_behind_for_a_manual_gpclient(self, tmp_path):
