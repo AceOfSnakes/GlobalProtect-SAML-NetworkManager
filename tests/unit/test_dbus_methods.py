@@ -331,7 +331,7 @@ class TestConnectSuccess:
         plugin._openssl_retried = True
         plugin._otp_flags_written = True
         plugin._otp_flag_attempts = 3
-        plugin._line_counter = 9
+        plugin._answered_prompt = (9, "x")
         plugin._tunnel_up = True
 
         connect(plugin, _conn())
@@ -349,7 +349,7 @@ class TestConnectSuccess:
         assert plugin._openssl_retried is False
         assert plugin._otp_flags_written is False
         assert plugin._otp_flag_attempts == 0
-        assert plugin._line_counter == 0
+        assert plugin._answered_prompt is None
         assert plugin._tunnel_up is False
 
 
@@ -885,7 +885,7 @@ def _dirty(plugin):
     plugin._answered_password = True
     plugin._login_failed = True
     plugin._preexisting_ifaces = {"gpd0": []}
-    plugin._line_counter = 5
+    plugin._answered_prompt = (5, "x")
     plugin._tunnel_up = True
 
 
@@ -1031,7 +1031,7 @@ class TestDisconnect:
             "_answered_password",
             "_login_failed",
             "_preexisting_ifaces",
-            "_line_counter",
+            "_answered_prompt",
             "_tunnel_up",
         ):
             assert getattr(plugin, name) == getattr(fresh, name), name

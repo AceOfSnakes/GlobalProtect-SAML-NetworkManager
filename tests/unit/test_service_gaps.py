@@ -97,21 +97,7 @@ class TestGatewayMatchesEdges:
         assert not service_module.gateway_matches("gw-b", option, substring=True)
 
 
-# --- _last_output_line and _reset_phase_state --------------------------------
-
-
-class TestLastOutputLine:
-    def test_returns_the_last_non_empty_line_stripped(self, service_module):
-        plugin = _plugin(service_module)
-        plugin._recent_lines.extend(["first", "  second  ", "   ", ""])
-        assert plugin._last_output_line() == "second"
-
-    @pytest.mark.parametrize("lines", [[], [""], ["  ", "\t"]])
-    def test_empty_when_nothing_was_printed(self, service_module, lines):
-        plugin = _plugin(service_module)
-        plugin._recent_lines.clear()
-        plugin._recent_lines.extend(lines)
-        assert plugin._last_output_line() == ""
+# --- _reset_phase_state ------------------------------------------------------
 
 
 class TestResetPhaseState:
@@ -884,25 +870,24 @@ class TestDebouncedPromptChecks:
 
         assert handled == ([] if more_output else [("prompt", "Password")])
 
-    @pytest.mark.parametrize("more_lines", [False, True])
-    def test_prompt_from_the_last_line_waits_for_no_new_lines(
-        self, service_module, quick_debounce, more_lines
+    @pytest.mark.parametrize("more_output", [False, True])
+    def test_prompt_on_a_terminated_row_waits_for_the_screen_to_settle(
+        self, service_module, quick_debounce, more_output
     ):
         handled = []
         plugin = self._watched(service_module, handled)
 
         async def go():
-            # inquire ends the prompt line: the tail is empty
-            plugin._recent_lines.append("? Password:")
-            plugin._line_counter = 1
+            # inquire ends the prompt line: the cursor is on the next row
+            plugin._consume_output("? Password:\r\n")
             plugin._schedule_prompt_check()
-            if more_lines:
-                plugin._line_counter = 2
+            if more_output:
+                plugin._consume_output("more\r\n")
             await _settle()
 
         asyncio.run(go())
 
-        assert handled == ([] if more_lines else [("prompt", "Password")])
+        assert handled == ([] if more_output else [("prompt", "Password")])
 
 
 class TestPendingPromptCheck:
