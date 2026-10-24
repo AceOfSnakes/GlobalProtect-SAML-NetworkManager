@@ -41,11 +41,11 @@ and RPM repository for Fedora, EL&nbsp;10 and openSUSE
 
 <h2>Install on Ubuntu</h2>
 
-<pre><code>curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
+<pre><code>curl -fsSL __REPO_URL__/gpclient-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg &gt; /dev/null
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] \
-https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
+__REPO_URL__ $(lsb_release -cs) main" \
   | sudo tee /etc/apt/sources.list.d/gpclient.list
 
 sudo apt update

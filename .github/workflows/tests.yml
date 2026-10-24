@@ -41,7 +41,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Install pytest
-        run: python -m pip install pytest
+        run: python -m pip install pytest pytest-cov
 
       # The tests fake these tools through PATH; the ones they do not fake
       # must exist on the runner.
@@ -54,14 +54,14 @@ jobs:
 
       - name: Run unit tests (non-root)
         if: matrix.mode == 'non-root'
-        run: python -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml
+        run: python -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
 
       # The setup-python interpreter lives outside sudo's secure_path, so it is
       # called by absolute path. PATH itself needs no care: the tests put their
       # fake tools first in the PATH they pass to the scripts.
       - name: Run unit tests (root)
         if: matrix.mode == 'root'
-        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml
+        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
 
       # The counts of this job, shown when it is opened from the checks of a
       # pull request. Runs after a failure too, and never fails the job itself.
@@ -70,6 +70,14 @@ jobs:
         env:
           TITLE: ${{ matrix.mode }} (Python ${{ matrix.python }})
         run: python .github/scripts/junit_summary.py --title "$TITLE" junit.xml >> "$GITHUB_STEP_SUMMARY"
+
+      # The service's line coverage (.coveragerc; the run above fails below its
+      # fail_under). Never fails the job itself.
+      - name: Summarize coverage
+        if: always()
+        run: |
+          [ -f .coverage ] || exit 0
+          python -m coverage report --format=markdown --fail-under=0 >> "$GITHUB_STEP_SUMMARY" || true
 
       # The raw report, for anyone who wants more than the summary. Uploaded
       # even when the tests fail. The name is junit-<mode>-py<python>, e.g.
