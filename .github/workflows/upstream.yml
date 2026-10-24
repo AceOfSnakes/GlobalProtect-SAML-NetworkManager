@@ -27,6 +27,7 @@ jobs:
   upstream:
     name: Upstream contract
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       # The top-level submodule only: the checks read upstream sources, they

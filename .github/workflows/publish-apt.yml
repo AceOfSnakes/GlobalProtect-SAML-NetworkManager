@@ -26,6 +26,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -69,8 +70,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p incoming
-          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
-            -q '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' > tags.txt
+          # --paginate: no fixed limit, so an old release is never dropped from
+          # the repository when there are many releases.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            -q '.[] | select(.draft == false and .prerelease == false) | .tag_name' > tags.txt
           if [ ! -s tags.txt ]; then
             echo "::error::No published releases to build the repository from"
             exit 1
