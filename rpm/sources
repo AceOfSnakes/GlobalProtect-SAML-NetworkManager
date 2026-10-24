@@ -1,0 +1,6 @@
+# Python module sdbus (python-sdbus), bundled into network-manager-gpclient because no
+# target ships it as a package (Debian/Ubuntu have python3-sdbus). rpm/build.sh downloads
+# the source archive from PyPI and checks the sha256; it is sourced by sh, so keep to NAME=value.
+SDBUS_VERSION=0.14.3
+SDBUS_SHA256=4ec4fa4108629bae5ab2775e5575b0251fdb555d4a3613c9ddb37fc73f882983
+SDBUS_URL=https://files.pythonhosted.org/packages/source/s/sdbus/sdbus-${SDBUS_VERSION}.tar.gz
