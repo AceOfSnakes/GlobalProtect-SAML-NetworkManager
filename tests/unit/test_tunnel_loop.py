@@ -292,7 +292,39 @@ class TestCleanupStaleGpd0:
         assert "Could not check for a running gpclient" in caplog.text
         assert (net / "gpd0").exists()
 
-    def test_gpclient_disconnect_that_removes_gpd0_needs_no_ip(
+    def test_running_gpservice_keeps_gpd0(
+        self, service_module, monkeypatch, net, caplog
+    ):
+        # The GUI client's gpservice owns gpd0; pgrep -x gpclient does not see it
+        (net / "gpd0").mkdir()
+        fake = _install_exec(
+            service_module,
+            monkeypatch,
+            {"pgrep": lambda a: _FakeProc(0 if a[2] == "gpservice" else 1)},
+        )
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            self._run(service_module)
+        assert fake.calls == [("pgrep", "-x", "gpclient"), ("pgrep", "-x", "gpservice")]
+        assert "a gpservice process is running" in caplog.text
+        assert (net / "gpd0").exists()
+
+    def test_gpservice_check_failure_keeps_gpd0(
+        self, service_module, monkeypatch, net, caplog
+    ):
+        (net / "gpd0").mkdir()
+
+        def pgrep(args):
+            if args[2] == "gpservice":
+                raise OSError("no pgrep")
+            return _FakeProc(1)
+
+        fake = _install_exec(service_module, monkeypatch, {"pgrep": pgrep})
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            self._run(service_module)
+        assert [c[0] for c in fake.calls] == ["pgrep", "pgrep"]
+        assert "Could not check for a running gpservice" in caplog.text
+
+    def test_stale_gpd0_is_deleted_without_gpclient_disconnect(
         self, service_module, monkeypatch, net, caplog
     ):
         gpd0 = net / "gpd0"
@@ -302,12 +334,16 @@ class TestCleanupStaleGpd0:
             monkeypatch,
             {
                 "pgrep": lambda a: _FakeProc(1),
-                "/usr/bin/gpclient": lambda a: _FakeProc(0, on_wait=gpd0.rmdir),
+                "ip": lambda a: _FakeProc(0, on_wait=gpd0.rmdir),
             },
         )
         with caplog.at_level("INFO", logger=service_module.logger.name):
             self._run(service_module)
-        assert [c[0] for c in fake.calls] == ["pgrep", "/usr/bin/gpclient"]
+        assert fake.calls == [
+            ("pgrep", "-x", "gpclient"),
+            ("pgrep", "-x", "gpservice"),
+            ("ip", "link", "del", "gpd0"),
+        ]
         assert "Stale gpd0 interface removed" in caplog.text
 
     def test_ip_link_del_removes_gpd0(
@@ -320,7 +356,6 @@ class TestCleanupStaleGpd0:
             monkeypatch,
             {
                 "pgrep": lambda a: _FakeProc(1),
-                "/usr/bin/gpclient": lambda a: _FakeProc(0),
                 "ip": lambda a: _FakeProc(0, on_wait=gpd0.rmdir),
             },
         )
@@ -328,50 +363,6 @@ class TestCleanupStaleGpd0:
             self._run(service_module)
         assert ("ip", "link", "del", "gpd0") in fake.calls
         assert "Stale gpd0 interface removed" in caplog.text
-
-    def test_gpclient_disconnect_error_is_not_fatal(
-        self, service_module, monkeypatch, net, caplog
-    ):
-        gpd0 = net / "gpd0"
-        gpd0.mkdir()
-
-        def missing(_args):
-            raise FileNotFoundError("/usr/bin/gpclient")
-
-        fake = _install_exec(
-            service_module,
-            monkeypatch,
-            {
-                "pgrep": lambda a: _FakeProc(1),
-                "/usr/bin/gpclient": missing,
-                "ip": lambda a: _FakeProc(0, on_wait=gpd0.rmdir),
-            },
-        )
-        with caplog.at_level("DEBUG", logger=service_module.logger.name):
-            self._run(service_module)
-        assert "'gpclient disconnect' during cleanup failed" in caplog.text
-        assert ("ip", "link", "del", "gpd0") in fake.calls
-
-    def test_gpclient_disconnect_timeout_kills_it(
-        self, service_module, monkeypatch, net, caplog
-    ):
-        gpd0 = net / "gpd0"
-        gpd0.mkdir()
-        hung = _FakeProc(0, hang=True)
-        _install_exec(
-            service_module,
-            monkeypatch,
-            {
-                "pgrep": lambda a: _FakeProc(1),
-                "/usr/bin/gpclient": lambda a: hung,
-                "ip": lambda a: _FakeProc(0, on_wait=gpd0.rmdir),
-            },
-        )
-        _fast_wait_for(monkeypatch, service_module)
-        with caplog.at_level("WARNING", logger=service_module.logger.name):
-            self._run(service_module)
-        assert hung.killed
-        assert "'gpclient disconnect' timed out" in caplog.text
 
     def test_ip_link_del_timeout_kills_it_and_gpd0_stays(
         self, service_module, monkeypatch, net, caplog
@@ -383,7 +374,6 @@ class TestCleanupStaleGpd0:
             monkeypatch,
             {
                 "pgrep": lambda a: _FakeProc(1),
-                "/usr/bin/gpclient": lambda a: _FakeProc(0),
                 "ip": lambda a: hung,
             },
         )
@@ -407,7 +397,6 @@ class TestCleanupStaleGpd0:
             monkeypatch,
             {
                 "pgrep": lambda a: _FakeProc(1),
-                "/usr/bin/gpclient": lambda a: _FakeProc(0),
                 "ip": boom,
             },
         )
