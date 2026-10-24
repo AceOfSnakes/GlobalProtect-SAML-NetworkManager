@@ -87,6 +87,10 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->hipCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
+    connect(m_ui->hipScriptLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    // The HIP script only matters while HIP is on
+    connect(m_ui->hipCheckBox, &QCheckBox::toggled, m_ui->hipScriptLabel, &QWidget::setEnabled);
+    connect(m_ui->hipCheckBox, &QCheckBox::toggled, m_ui->hipScriptLineEdit, &QWidget::setEnabled);
     connect(m_ui->fixOpensslComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
 
     auto update_valid = [this]() {
@@ -204,6 +208,13 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         // Load HIP (default: enabled)
         const QString hipValue = data.value(QLatin1String("hip"), QLatin1String("true"));
         m_ui->hipCheckBox->setChecked(hipValue.toLower() == QLatin1String("true"));
+
+        // Load HIP script
+        if (data.contains(QLatin1String("hip-script")) && !data.value(QLatin1String("hip-script")).isEmpty()) {
+            m_ui->hipScriptLineEdit->setText(data.value(QLatin1String("hip-script")));
+        }
+        m_ui->hipScriptLabel->setEnabled(m_ui->hipCheckBox->isChecked());
+        m_ui->hipScriptLineEdit->setEnabled(m_ui->hipCheckBox->isChecked());
     }
 }
 
@@ -285,6 +296,14 @@ QVariantMap GpclientWidget::setting() const
     // Save HIP
     data.insert(QLatin1String("hip"),
                 m_ui->hipCheckBox->isChecked() ? QLatin1String("true") : QLatin1String("false"));
+
+    // Save HIP script (also when HIP is off: the service ignores it then)
+    const QString hipScript = m_ui->hipScriptLineEdit->text().trimmed();
+    if (!hipScript.isEmpty()) {
+        data.insert(QLatin1String("hip-script"), hipScript);
+    } else {
+        data.remove(QLatin1String("hip-script"));
+    }
 
     setting.setData(data);
     setting.setPersistent(m_persistent);

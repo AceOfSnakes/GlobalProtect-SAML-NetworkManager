@@ -181,7 +181,8 @@
       "tests": [
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_passes_flags_and_environment",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_leaves_out_optional_flags_by_default",
-        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_fails_cleanly_when_the_binary_is_missing"
+        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_fails_cleanly_when_the_binary_is_missing",
+        "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item"
       ]
     },
     {
@@ -243,6 +244,28 @@
       "tests": [
         "tests/unit/test_upstream_interfaces.py::test_tokens_text_joins_the_text_tokens",
         "tests/unit/test_upstream_interfaces.py::test_tokens_text_removes_control_characters_and_escape_tokens"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::mask_secrets",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::test_value_is_replaced_everywhere_in_the_line",
+        "tests/unit/test_log_redaction.py::test_line_stays_without_a_matching_non_empty_secret"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::mask_secret_prompts",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_everything_after_the_label_is_hidden",
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_line_stays_without_a_matching_label_or_text"
       ]
     },
     {

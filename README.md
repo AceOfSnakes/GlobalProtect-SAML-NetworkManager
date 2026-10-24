@@ -68,6 +68,28 @@ sudo apt install ./network-manager-gpclient_*.deb ./network-manager-gpclient-gno
 (or the repository above).
 </details>
 
+### Fedora, RHEL 10 and openSUSE (RPM)
+
+RPM repositories for Fedora 43, 44 and 45, RHEL/AlmaLinux/Rocky Linux 10 (with
+EPEL) and openSUSE Leap 16.0 and Tumbleweed, `x86_64` and `aarch64`. Fedora:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/fedora$(rpm -E %fedora)/network-manager-gpclient.repo
+sudo dnf install network-manager-gpclient-gnome    # or network-manager-gpclient-plasma (Plasma 6)
+```
+
+openSUSE Tumbleweed (Leap 16.0: `.../rpm/leap16.0/...`):
+
+```bash
+sudo zypper addrepo https://wmp.github.io/GlobalProtect-SAML-NetworkManager/rpm/tumbleweed/network-manager-gpclient.repo
+sudo zypper refresh
+sudo zypper install network-manager-gpclient-gnome # or network-manager-gpclient-plasma
+```
+
+RHEL 10 and its rebuilds, removal, and what differs from the Ubuntu packages:
+[docs/RPM_REPO.md](docs/RPM_REPO.md). The packages contain the Python module
+`sdbus`; do not install it with pip.
+
 ### Migrating from `globalprotect-openconnect`
 
 If you previously had the `globalprotect-openconnect` package installed,
@@ -126,11 +148,18 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `gateway-list-count` | (written by the service) | gpclient's `Found N gateways in portal config` count when the list was last read completely. It marks `gateway-list` as complete; the list is read again when the portal reports another number, and never without that line |
 | `auth-mode` | `saml` | `saml` = browser login, `credentials` = username/password collected upfront |
 | `username` | (empty) | Username for portals that ask on the terminal |
-| `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or a path to your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
+| `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path (or command name) of your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
 | `hip` | `true` | Send the HIP (Host Integrity Protection) report |
+| `hip-script` | (empty) | Absolute path to a custom HIP executable, passed as `--hip=<path>`; ignored when `hip=false`. The service runs it as root, so it must be a root-owned regular file, not group- or world-writable, in directories that are root-owned and not group- or world-writable; otherwise the connection fails |
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
 | `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |
+
+To use a custom HIP script:
+
+```bash
+nmcli connection modify "My VPN" +vpn.data hip-script=/usr/local/bin/gp-hip-report.sh
+```
 
 The **Connect timeout** field is NetworkManager's own `vpn.timeout`, not a
 `vpn.data` item: set it with `nmcli connection modify "My VPN" vpn.timeout 360`.
@@ -244,7 +273,7 @@ cd plugins/plasma && ./build.sh  # Build only Plasma plugin
 
 ## GlobalProtect-openconnect version
 
-Upstream version: [`v3.1.0`](https://github.com/yuezk/GlobalProtect-openconnect/releases/tag/v3.1.0)
+Upstream version: [`v3.2.0`](https://github.com/yuezk/GlobalProtect-openconnect/releases/tag/v3.2.0)
 
 The `external/GlobalProtect-openconnect` submodule is pinned to a release tag,
 never to upstream `main`.
@@ -280,7 +309,7 @@ The included `edge-wrapper` script handles:
 - Auto-closing Edge window after successful authentication
 - Setting up Edge policies for automatic protocol handling
 
-**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper creates a temporary profile in `/tmp/edge-wrapper-$UID/` to work around this. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication - each session starts fresh. While `/tmp` is world-readable, the wrapper creates per-user directories with restricted permissions.
+**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
 
 Firefox and Chrome also work but may require manual credential entry for Intune-protected portals.
 
@@ -362,7 +391,11 @@ this matches it and nothing else), and set **Size** to *Apply Initially*.
 
 ```bash
 # The wrapper logs every launch and always says why it finished
-grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u).log
+# Messages written as root and before the private directory exists are in the journal
+journalctl -t gpclient-browser-wrapper | grep -E "done:|WARNING|ERROR"
+# The part that runs as the desktop user writes <base>/wrapper.log
+# (<base> as in docs/EDGE_WRAPPER.md; /tmp/edge-wrapper-$(id -u), or the mktemp directory)
+grep -E "done:|WARNING|ERROR" /tmp/edge-wrapper-$(id -u)/wrapper.log
 
 # Try the browser on its own - the window must open and stay open
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
@@ -392,6 +425,7 @@ Debug logs are written to `/tmp/vpnc-script2.log`.
 
 - [docs/README.md](docs/README.md) - Full documentation
 - [docs/APT_REPO.md](docs/APT_REPO.md) - apt repository: using it, releasing, key rotation
+- [docs/RPM_REPO.md](docs/RPM_REPO.md) - RPM packages and repositories (Fedora, RHEL 10, openSUSE)
 - [docs/EDGE_WRAPPER.md](docs/EDGE_WRAPPER.md) - Browser wrapper and browser integration
 - [docs/PYTHON_SERVICE.md](docs/PYTHON_SERVICE.md) - Service implementation details
 - [docs/INTERACTIVE_AUTH.md](docs/INTERACTIVE_AUTH.md) - Standard login / RSA token / OTP authentication, gateway selection

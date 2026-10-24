@@ -32,6 +32,11 @@ DEBS = [
     "network-manager-gpclient-gnome_1.4.2-1~noble1+pr24.57_amd64.deb",
 ]
 
+RPMS = [
+    "network-manager-gpclient-1.4.2-1.fc44.pr24.57.x86_64.rpm",
+    "network-manager-gpclient-gnome-1.4.2-1.fc44.pr24.57.x86_64.rpm",
+]
+
 FAKE_GH = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/gh_calls"
 case "$1 $2" in
@@ -117,6 +122,19 @@ class TestRenderTheCheck:
         assert check["conclusion"] == "success"
         assert check["output"]["title"].startswith("Install: bash <(curl -fsSL ")
         assert "--repo" not in check["output"]["title"]
+
+    def test_the_rpms_of_the_upload_directory_are_part_of_the_check(self, box):
+        check = self.render(box, "publish", "success", "true", debs=DEBS + RPMS)
+
+        assert check["conclusion"] == "success"
+        assert f"Published packages ({len(DEBS) + len(RPMS)} files" in check["output"]["summary"]
+        assert f"- `{RPMS[0]}`" in check["output"]["summary"]
+
+    def test_an_upload_directory_of_rpms_only_is_published_too(self, box):
+        check = self.render(box, "publish", "success", "true", debs=RPMS)
+
+        assert check["conclusion"] == "success"
+        assert f"Published packages ({len(RPMS)} files, network-manager-gpclient" in check["output"]["summary"]
 
     def test_another_repository_is_named_in_the_command(self, box):
         (box.work / "upload").mkdir()
@@ -232,6 +250,30 @@ class TestDownload:
         assert result.returncode == 0, result.stdout + result.stderr
         assert sorted(os.listdir(box.work / "upload")) == sorted(DEBS)
         assert result.stderr.count("skipping a package with an unexpected file name") == 3
+
+    def test_the_rpm_artifacts_are_downloaded_and_only_plain_rpm_names_are_uploaded(self, box):
+        self.artifacts(box, {
+            "debs-ubuntu-24.04-amd64": DEBS,
+            "rpms-fedora44-x86_64": RPMS + ["network-manager-gpclient-1.4.2-1.fc44.src.rpm"],
+            "rpms-x": ["a b.rpm", "x.rpm", "network-manager-gpclient-debuginfo-1.4.2-1.fc44.x86_64.rpm", "evil;rm.rpm"],
+        })
+
+        result = box.run(self.STEP)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert sorted(os.listdir(box.work / "upload")) == sorted(DEBS + RPMS)
+        assert result.stderr.count("skipping a package with an unexpected file name") == 4
+        gh_calls = (box.fake / "gh_calls").read_text()
+        assert "--pattern debs-*" in gh_calls and "--pattern rpms-*" in gh_calls
+
+    def test_rpms_that_are_not_plain_are_not_enough(self, box):
+        self.artifacts(box, {"rpms-x": ["a b.rpm", "x.rpm", "network-manager-gpclient-1.4.2-1.fc44.src.rpm"]})
+
+        result = box.run(self.STEP)
+
+        assert result.returncode != 0
+        assert "no packages found" in result.stderr
+        assert not (box.work / "upload").exists()
 
     def test_no_acceptable_package_fails_the_step_and_uploads_nothing(self, box):
         self.artifacts(box, {"debs-x": ["a b.deb", "x.deb"]})
