@@ -118,7 +118,12 @@ def test_tunnel_log_lines_do_not_count_as_internal_network(
     process = asyncio.run(_run(plugin))
 
     assert process.returncode == 0
-    assert dbus_signals == []
+    # The line is no login failure. The stand-in exits 0 unasked, which the
+    # monitor reports as a failed connect (#52) - and only that.
+    assert dbus_signals == [
+        ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+        ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+    ]
     assert plugin._login_failed is False
 
 
