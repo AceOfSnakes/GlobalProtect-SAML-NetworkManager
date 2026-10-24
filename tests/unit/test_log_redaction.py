@@ -7,6 +7,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import gc
 import os
 import pty
 
@@ -220,6 +221,7 @@ class FakeProcess:
 
 async def _monitor(plugin, text):
     """Run the output monitor over `text` as gpclient would print it"""
+    gc.collect()  # see test_service_gaps._monitor: no earlier leak may close our fds
     master, slave = pty.openpty()
     os.write(slave, text.encode())
     os.close(slave)
