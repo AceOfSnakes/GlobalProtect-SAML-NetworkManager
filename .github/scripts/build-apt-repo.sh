@@ -354,7 +354,13 @@ for suite in "${SUITES[@]}"; do
     done
     rm -f "$all_packages"
 
+    # SHA256 and SHA512 only (no MD5Sum, no SHA1), and by-hash: DoByHash writes
+    # "Acquire-By-Hash: yes" and a copy of every index file under by-hash/SHA256/
+    # (and SHA512) next to it, so a client never gets a mix of old and new files.
     apt-ftparchive \
+        -o APT::FTPArchive::Release::MD5=false \
+        -o APT::FTPArchive::Release::SHA1=false \
+        -o APT::FTPArchive::DoByHash=true \
         -o APT::FTPArchive::Release::Origin="$ORIGIN" \
         -o APT::FTPArchive::Release::Label="$LABEL" \
         -o APT::FTPArchive::Release::Suite="$suite" \

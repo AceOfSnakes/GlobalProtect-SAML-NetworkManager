@@ -59,6 +59,7 @@ jobs:
       && github.event.workflow_run.event == 'pull_request'
       && contains(fromJSON('["success", "failure", "timed_out"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read # download the build artifacts
       checks: write # the "Test packages" check run
@@ -235,6 +236,7 @@ jobs:
     name: Remove test packages
     if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write # release pr-<N> and its tag
     env:

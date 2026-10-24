@@ -12,7 +12,7 @@ never could ([#5](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issue
 curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg > /dev/null
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(lsb_release -cs) main" \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") main" \
   | sudo tee /etc/apt/sources.list.d/gpclient.list
 
 sudo apt update
@@ -209,7 +209,7 @@ Their version carries the PR and run number after the codename
 (`1.4.2-1~noble1+pr24.57`), which sorts above the release's `1.4.2-1~noble1`, so
 installing one over the released version is an upgrade for apt. Going back to the
 release is a downgrade:
-`sudo apt install --allow-downgrades <package>/$(lsb_release -cs) ...`.
+`sudo apt install --allow-downgrades <package>/$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") ...`.
 Name the suite after each package (`network-manager-gpclient/noble`): the
 installed test build is newer than the release, so apt's own candidate is that
 build, which no repository has, and `--reinstall` fails with "it cannot be
