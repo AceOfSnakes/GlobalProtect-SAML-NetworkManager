@@ -6,7 +6,9 @@
 Used by .github/workflows/build-release.yml. The release has one .deb per package,
 Ubuntu release and architecture, so the notes start with a table: a row per
 Ubuntu release, a column per architecture, the packages of that pair in the
-cell. The links are those of the assets the release has and has finished
+cell. Its binary .rpm files (one per package, RPM target of rpm/targets and
+architecture) get a second table in the same form, a row per target and a column
+per RPM architecture; source RPMs are not listed. The links are those of the assets the release has and has finished
 uploading. The table is wrapped in markers and merged into the body of the
 release (GitHub's generated notes): it replaces the block between the markers,
 or, with no block yet, goes to the top. The rest of the body is kept byte for
@@ -30,11 +32,19 @@ NAME_RE = re.compile(
     r"(?P<package>[a-z0-9][a-z0-9+.-]*)_(?P<version>[0-9][A-Za-z0-9.+~-]*?)"
     r"[.~](?P<codename>[a-z]+)1_(?P<arch>[a-z0-9]+)\.deb"
 )
+# <package>-<version>-<revision>.<dist>.<rpm arch>.rpm with the dist tags of rpm/targets:
+# fc<N> (Fedora), el<N>, lp<NN0> (openSUSE Leap) and tw (Tumbleweed)
+RPM_NAME_RE = re.compile(
+    r"(?P<package>network-manager-gpclient(?:-gnome|-plasma)?)-"
+    r"(?P<version>[0-9][A-Za-z0-9.+~_]*)-[0-9]+\."
+    r"(?P<dist>fc[0-9]+|el[0-9]+|lp[0-9]+|tw)\.(?P<arch>x86_64|aarch64)\.rpm"
+)
 CORE = "network-manager-gpclient"
 # Short names in the order of a cell; any other package follows alphabetically
 ORDER = ["gpclient", "gnome", "plasma", "plasma-6"]
 UBUNTU = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
 EMPTY = "—"
+RPM_FAMILIES = {"fc": (0, "Fedora %s"), "el": (1, "EL %s"), "lp": (2, "openSUSE Leap %s"), "tw": (3, "openSUSE Tumbleweed")}
 
 
 class NotesError(Exception):
@@ -55,6 +65,14 @@ def parse(name):
     if not match:
         raise NotesError("unexpected name of a .deb asset: %r" % (name,))
     return match.group("codename"), match.group("arch"), short_name(match.group("package"))
+
+
+def parse_rpm(name):
+    """(dist tag, rpm arch, short package name) of a binary RPM asset name"""
+    match = RPM_NAME_RE.fullmatch(name)
+    if not match:
+        raise NotesError("unexpected name of a .rpm asset: %r" % (name,))
+    return match.group("dist"), match.group("arch"), short_name(match.group("package"))
 
 
 def check_url(repo, name, url):
@@ -79,6 +97,21 @@ def row_label(codename):
     return codename
 
 
+def rpm_target_key(dist):
+    """RPM targets: Fedora, EL, Leap, Tumbleweed, each by version"""
+    family, digits = dist[:2], dist[2:]
+    return (RPM_FAMILIES[family][0], int(digits) if digits else 0)
+
+
+def rpm_row_label(dist):
+    family, digits = dist[:2], dist[2:]
+    if family == "tw":
+        return RPM_FAMILIES[family][1]
+    if family == "lp":  # lp160 is Leap 16.0
+        digits = "%s.%s" % (digits[:-1], digits[-1:])
+    return RPM_FAMILIES[family][1] % digits
+
+
 def cell_key(item):
     short = item[0]
     return (ORDER.index(short), "") if short in ORDER else (len(ORDER), short)
@@ -91,6 +124,7 @@ def render(repo, tag, assets):
     if not tag:
         raise NotesError("the tag is empty")
     debs = []
+    rpms = []
     for asset in assets:
         name = asset.get("name") if isinstance(asset, dict) else None
         if not isinstance(name, str):
@@ -98,9 +132,25 @@ def render(repo, tag, assets):
         # only an asset that is "uploaded" has a download link that works
         if name.endswith(".deb") and asset.get("state") == "uploaded":
             debs.append((name, asset.get("url")))
-    if not debs:
-        raise NotesError("no .deb assets: refusing to write a release without downloads")
+        elif name.endswith(".rpm") and not name.endswith(".src.rpm") and asset.get("state") == "uploaded":
+            rpms.append((name, asset.get("url")))
+    if not debs and not rpms:
+        raise NotesError("no .deb or binary .rpm assets: refusing to write a release without downloads")
 
+    base = "https://github.com/%s" % repo
+    blob = "%s/blob/%s" % (base, urllib.parse.quote(tag, safe="/"))
+    lines = [START, "## Downloads", ""]
+    if debs:
+        lines += deb_table(repo, blob, debs)
+    if rpms:
+        if debs:
+            lines.append("")
+        lines += rpm_table(repo, blob, rpms)
+    lines.append(END)
+    return "\n".join(lines)
+
+
+def deb_table(repo, blob, debs):
     cells = {}
     seen = {}
     for name, url in debs:
@@ -114,12 +164,7 @@ def render(repo, tag, assets):
     arches = sorted({arch for _codename, arch in cells}, key=lambda a: (a != "amd64", a))
     codenames = sorted({codename for codename, _arch in cells}, key=release_key)
 
-    base = "https://github.com/%s" % repo
-    blob = "%s/blob/%s" % (base, urllib.parse.quote(tag, safe="/"))
     lines = [
-        START,
-        "## Downloads",
-        "",
         "The recommended way to install is the apt repository: see "
         "[docs/APT_REPO.md](%s/docs/APT_REPO.md). With single files, take "
         "`network-manager-gpclient` and one desktop package (`-gnome`, `-plasma` or, "
@@ -140,8 +185,48 @@ def render(repo, tag, assets):
             ]
             row.append("<br>".join(links) or EMPTY)
         lines.append("| %s | %s |" % (row_label(codename), " | ".join(row)))
-    lines.append(END)
-    return "\n".join(lines)
+    return lines
+
+
+def rpm_table(repo, blob, rpms):
+    cells = {}
+    seen = {}
+    for name, url in rpms:
+        dist, arch, short = parse_rpm(name)
+        check_url(repo, name, url)
+        if (dist, arch, short) in seen:
+            raise NotesError("two assets for the same package, RPM target and architecture: %r and %r"
+                             % (seen[dist, arch, short], name))
+        seen[dist, arch, short] = name
+        cells.setdefault((dist, arch), []).append((short, url))
+    arches = sorted({arch for _dist, arch in cells}, key=lambda a: (a != "x86_64", a))
+    dists = sorted({dist for dist, _arch in cells}, key=rpm_target_key)
+
+    lines = [
+        "The RPM packages are also in the signed RPM repository: see "
+        "[docs/RPM_REPO.md](%s/docs/RPM_REPO.md). With single files, take "
+        "`network-manager-gpclient` and one desktop package (`-gnome` or `-plasma`) from the "
+        "same row and architecture and install them together, e.g. "
+        "`sudo dnf install ./network-manager-gpclient-[0-9]*.<dist>.<arch>.rpm "
+        "./network-manager-gpclient-gnome-[0-9]*.<dist>.<arch>.rpm`, with the dist tag of the row "
+        "(`fc44` for Fedora 44, `el10`, `lp160` for Leap 16.0, `tw`) and its architecture, so that "
+        "the pattern matches one target only. On openSUSE use "
+        "`sudo zypper install --allow-unsigned-rpm` with the same files: the release files are "
+        "not signed." % blob,
+        "",
+        "| RPM target | " + " | ".join(arches) + " |",
+        "|---|" + "---|" * len(arches),
+    ]
+    for dist in dists:
+        row = []
+        for arch in arches:
+            links = [
+                "[%s](%s)" % (short, url)
+                for short, url in sorted(cells.get((dist, arch), []), key=cell_key)
+            ]
+            row.append("<br>".join(links) or EMPTY)
+        lines.append("| %s | %s |" % (rpm_row_label(dist), " | ".join(row)))
+    return lines
 
 
 def find_block(text, what):

@@ -1,0 +1,14 @@
+# RPM build targets: the single source of truth for rpm/build.sh, the CI matrix and
+# the documentation. One target per line, whitespace separated, "#" starts a comment.
+#
+# target      image                                              dist    family
+fedora43      registry.fedoraproject.org/fedora:43               .fc43   fedora
+fedora44      registry.fedoraproject.org/fedora:44               .fc44   fedora
+fedora45      registry.fedoraproject.org/fedora:45               .fc45   fedora
+el10          quay.io/almalinuxorg/almalinux:10                  .el10   el
+leap16.0      registry.opensuse.org/opensuse/leap:16.0           .lp160  suse
+tumbleweed    registry.opensuse.org/opensuse/tumbleweed:latest   .tw     suse
+#
+# Every target builds for amd64 (rpm x86_64) and arm64 (rpm aarch64).
+# Not supported: EL9 (no webkit2gtk-4.1 and libsoup3, which gpauth needs; Plasma 5 only)
+# and openSUSE Leap 15.6 (end of life).
