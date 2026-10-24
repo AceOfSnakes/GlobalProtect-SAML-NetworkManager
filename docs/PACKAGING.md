@@ -115,6 +115,9 @@ Packages will be in:
 - `output/ubuntu24.04/*.deb`
 - `output/ubuntu22.04/*.deb`
 
+RPM packages (Fedora, EL 10, openSUSE; the same three packages, Plasma 6 only)
+are built with `rpm/build.sh <target> <amd64|arm64>`: see [RPM_REPO.md](RPM_REPO.md).
+
 ### Local build:
 
 ```bash

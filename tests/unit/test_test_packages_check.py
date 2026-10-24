@@ -564,3 +564,200 @@ class TestFilter:
         assert "test_packages_check.py --filter artifacts --copy-to upload" in text
         assert ".deb$" not in text
         assert "A-Za-z0-9._+~-" not in text
+
+
+# --- RPM packages --------------------------------------------------------------------------------
+
+RPMS = [
+    "network-manager-gpclient-1.4.2-1.fc44.x86_64.rpm",
+    "network-manager-gpclient-gnome-1.4.2-1.fc44.x86_64.rpm",
+    "network-manager-gpclient-plasma-1.4.2-1.fc44.x86_64.rpm",
+    "network-manager-gpclient-1.4.2-1.el10.aarch64.rpm",
+    "network-manager-gpclient-gnome-1.4.2-1.lp160.aarch64.rpm",
+    "network-manager-gpclient-plasma-1.4.2-1.tw.aarch64.rpm",
+]
+PR_RPMS = [name.replace(".x86_64", ".pr24.57.x86_64").replace(".aarch64", ".pr24.57.aarch64") for name in RPMS]
+BAD_RPMS = [
+    "network-manager-gpclient-1.4.2-1.fc44.src.rpm",
+    "network-manager-gpclient-debuginfo-1.4.2-1.fc44.x86_64.rpm",
+    "network-manager-gpclient-debugsource-1.4.2-1.fc44.x86_64.rpm",
+    "network-manager-gpclient-plasma-6-1.4.2-1.fc44.x86_64.rpm",
+    "network-manager-gpclient-1.4.2-1.fc44.i686.rpm",
+    "network-manager-gpclient-1.4.2-1.fc44.noarch.rpm",
+    "network-manager-gpclient-1.4.2-1.xx44.x86_64.rpm",
+    "network-manager-gpclient-1.4.2-1.x86_64.rpm",
+    "network-manager-gpclient-1.4.2-1.fc44.pr24.x86_64.rpm",
+    "network-manager-gpclient-1.4.2-1.fc44.x86_64.rpm ",
+    "network-manager-gpclient-1.4.2-1.fc44.x86_64.rpm\n",
+    "network-manager-gpclient-1.4.2-1.fc44.x86_64.rpm;rm",
+    "Network-manager-gpclient-1.4.2-1.fc44.x86_64.rpm",
+    "../network-manager-gpclient-1.4.2-1.fc44.x86_64.rpm",
+    "other-1.4.2-1.fc44.x86_64.rpm",
+    "$(x)-1.4.2-1.fc44.x86_64.rpm",
+]
+
+
+class TestRpm:
+    def test_an_rpm_only_release_is_announced(self):
+        result = published(debs=[], rpms=PR_RPMS)
+
+        assert result["conclusion"] == "success"
+        assert result["output"]["title"] == f"Install: {COMMAND}"
+
+    def test_the_summary_counts_and_names_the_rpms_too(self):
+        summary = published(debs=PR_DEBS, rpms=PR_RPMS)["output"]["summary"]
+
+        assert f"Published packages ({len(PR_DEBS) + len(PR_RPMS)} files" in summary
+        assert "network-manager-gpclient-gnome, network-manager-gpclient-plasma" in summary
+        listed = [line[3:-1] for line in summary.splitlines() if line.startswith("- `")]
+        assert sorted(listed) == sorted([on_github(n) for n in PR_DEBS] + PR_RPMS)
+
+    def test_the_packages_shown_come_from_the_rpms_when_there_are_no_debs(self):
+        summary = published(debs=[], rpms=PR_RPMS[:1])["output"]["summary"]
+
+        assert "(1 files, network-manager-gpclient)" in summary
+
+    def test_the_way_back_has_the_dnf_and_the_zypper_command(self):
+        summary = published(debs=[], rpms=PR_RPMS)["output"]["summary"]
+
+        assert "sudo dnf downgrade network-manager-gpclient" in summary
+        assert "sudo zypper install --oldpackage network-manager-gpclient=<released version>" in summary
+
+    def test_a_deb_only_summary_has_no_zypper_command(self):
+        assert "oldpackage" not in published(debs=PR_DEBS)["output"]["summary"]
+
+    def test_the_summary_says_how_the_script_treats_rpm_systems(self):
+        summary = published(debs=[], rpms=PR_RPMS)["output"]["summary"]
+
+        for text in ("Fedora 43 to 45", "EL 10", "uname -m", "dnf", "zypper", ".pr24.<run>", "docs/RPM_REPO.md",
+                     "EL 9 is not supported"):
+            assert text in summary
+
+    def test_an_rpm_only_summary_is_not_about_apt(self):
+        summary = published(debs=[], rpms=PR_RPMS)["output"]["summary"]
+
+        for text in ("apt", "dpkg", "Ubuntu", "APT_REPO"):
+            assert text not in summary
+
+    def test_a_deb_only_summary_has_nothing_about_rpm(self):
+        summary = published(debs=PR_DEBS)["output"]["summary"]
+
+        for text in ("rpm", "dnf", "zypper", "RPM_REPO", "Fedora"):
+            assert text not in summary
+
+    def test_the_summary_of_both_formats_has_both_instructions(self):
+        summary = published(debs=PR_DEBS, rpms=PR_RPMS)["output"]["summary"]
+
+        assert "apt installs" not in summary and "apt, dnf and zypper install it over the release" in summary
+        assert "docs/APT_REPO.md" in summary and "docs/RPM_REPO.md" in summary
+
+    @pytest.mark.parametrize("name", RPMS + PR_RPMS)
+    def test_the_rpms_of_the_build_are_plain_names(self, name):
+        assert check.RPM_RE.fullmatch(name)
+        assert published(debs=[], rpms=[name])["conclusion"] == "success"
+
+    @pytest.mark.parametrize("name", BAD_RPMS)
+    def test_other_rpm_names_are_refused(self, name):
+        assert not check.RPM_RE.fullmatch(name)
+        with pytest.raises(check.CheckError, match="unexpected package file name"):
+            published(debs=DEBS, rpms=RPMS[:1] + [name])
+
+    def test_a_deb_name_is_no_rpm_name_and_the_other_way_round(self):
+        with pytest.raises(check.CheckError, match="unexpected package file name"):
+            published(debs=[], rpms=DEBS[:1])
+        with pytest.raises(check.CheckError, match="unexpected package file name"):
+            published(debs=RPMS[:1])
+
+    def test_nothing_at_all_is_still_not_announced(self):
+        with pytest.raises(check.CheckError, match="no packages"):
+            published(debs=[], rpms=[])
+
+    def test_the_command_line_reads_the_rpms_directory_and_ignores_source_rpms(self, tmp_path):
+        for name in RPMS + ["network-manager-gpclient-1.4.2-1.fc44.src.rpm", "README.txt"]:
+            (tmp_path / name).write_text("x")
+
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "--state", "published", "--pr", PR, "--sha", SHA, "--repo", REPO,
+             "--rpms-dir", str(tmp_path)], capture_output=True, text=True)
+
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)["output"]["summary"]
+        assert f"Published packages ({len(RPMS)} files" in summary
+        assert "src.rpm" not in summary
+
+    def test_the_command_line_refuses_an_rpms_directory_that_does_not_exist(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "--state", "published", "--pr", PR, "--sha", SHA, "--repo", REPO,
+             "--rpms-dir", str(tmp_path / "nope")], capture_output=True, text=True)
+
+        assert result.returncode == 1 and result.stdout == ""
+        assert "Traceback" not in result.stderr
+
+
+class TestFilterRpm:
+    def artifacts(self, tmp_path, names_by_dir):
+        return TestFilter().artifacts(tmp_path, names_by_dir)
+
+    def run(self, *args):
+        return subprocess.run([sys.executable, SCRIPT, *args], capture_output=True, text=True)
+
+    def test_debs_and_rpms_of_the_artifacts_are_printed_and_copied_together(self, tmp_path):
+        root = self.artifacts(tmp_path, {"debs-a": PR_DEBS[:2], "rpms-fedora44-x86_64": PR_RPMS[:3],
+                                         "rpms-el10-aarch64": PR_RPMS[3:4]})
+
+        result = self.run("--filter", str(root), "--copy-to", str(tmp_path / "upload"))
+
+        assert result.returncode == 0, result.stderr
+        expected = sorted(PR_DEBS[:2] + PR_RPMS[:4])
+        assert result.stdout.splitlines() == expected
+        assert sorted(os.listdir(tmp_path / "upload")) == expected
+        assert result.stderr == ""
+
+    @pytest.mark.parametrize("bad", [n for n in BAD_RPMS if n.endswith(".rpm") and not n.endswith(".src.rpm")
+                                     and "/" not in n and "\n" not in n])
+    def test_other_rpm_names_are_neither_printed_nor_copied(self, tmp_path, bad):
+        root = self.artifacts(tmp_path, {"rpms-x": [RPMS[0], bad]})
+
+        result = self.run("--filter", str(root), "--copy-to", str(tmp_path / "upload"))
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [RPMS[0]]
+        assert os.listdir(tmp_path / "upload") == [RPMS[0]]
+        assert "skipping a package with an unexpected file name" in result.stderr
+
+    def test_source_rpms_are_ignored_silently(self, tmp_path):
+        root = self.artifacts(tmp_path, {"rpms-x": [RPMS[0], "network-manager-gpclient-1.4.2-1.fc44.src.rpm"]})
+
+        result = self.run("--filter", str(root))
+
+        assert result.stdout.splitlines() == [RPMS[0]]
+        assert result.stderr == ""
+
+    def test_a_link_to_an_rpm_is_not_followed(self, tmp_path):
+        root = self.artifacts(tmp_path, {"rpms-x": [RPMS[0]]})
+        secret = tmp_path / "secret"
+        secret.write_text("not a package")
+        (root / "rpms-x" / RPMS[1]).symlink_to(secret)
+
+        result = self.run("--filter", str(root), "--copy-to", str(tmp_path / "upload"))
+
+        assert result.stdout.splitlines() == [RPMS[0]]
+        assert os.listdir(tmp_path / "upload") == [RPMS[0]]
+
+    def test_the_same_rpm_twice_is_an_error_and_copies_nothing(self, tmp_path):
+        root = self.artifacts(tmp_path, {"one": [RPMS[0]], "two": [RPMS[0]]})
+
+        result = self.run("--filter", str(root), "--copy-to", str(tmp_path / "upload"))
+
+        assert result.returncode == 1 and result.stdout == ""
+        assert not (tmp_path / "upload").exists()
+
+    @pytest.mark.parametrize("name", RPMS + PR_RPMS + BAD_RPMS)
+    def test_filter_and_check_agree_on_what_a_plain_rpm_name_is(self, name):
+        try:
+            check.render("published", PR, SHA, REPO, rpms=[name])
+            rendered = True
+        except check.CheckError:
+            rendered = False
+
+        assert rendered == bool(check.RPM_RE.fullmatch(name))

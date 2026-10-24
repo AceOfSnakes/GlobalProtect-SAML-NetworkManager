@@ -1,8 +1,8 @@
 """
 Tests for scripts/install-pr-build.sh, which installs the test packages of a
-pull request (release "pr-<N>") with apt.
+pull request (release "pr-<N>") with apt, dnf or zypper.
 
-curl, dpkg, dpkg-query, id, sudo and apt are fakes found through PATH, the os-release file
+curl, dpkg, dpkg-query, uname, id, sudo, apt, dnf and zypper are fakes found through PATH, the os-release file
 is a fixture and the release API is a file: nothing touches the network, apt or
 the real system. Every positive test has negative counterparts: whatever is
 rejected exits non-zero with a message and never reaches apt.
@@ -47,6 +47,33 @@ def deb(suffix, codename, arch, tilde=False, build=""):
     `build` is the suffix of a pull request's build (BUILD), none for a release's."""
     sep = "~" if tilde else "."
     return f"{CORE}{suffix}_{VERSION}{sep}{codename}1{build}_{arch}.deb"
+
+
+TARGETS_FILE = os.path.join(os.path.dirname(SCRIPT), "..", "rpm", "targets")
+# What the script has to recognise for each target of rpm/targets: the os-release file of such a machine
+RPM_OS = {
+    "fedora43": 'ID=fedora\nVERSION_ID=43\n',
+    "fedora44": 'ID=fedora\nVERSION_ID=44\n',
+    "fedora45": 'ID=fedora\nVERSION_ID=45\n',
+    "el10": 'ID="almalinux"\nID_LIKE="rhel centos fedora"\nVERSION_ID="10.0"\n',
+    "leap16.0": 'ID="opensuse-leap"\nID_LIKE="suse opensuse"\nVERSION_ID="16.0"\n',
+    "tumbleweed": 'ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\nVERSION_ID="20261020"\n',
+}
+RPM_DIST = {"fedora43": ".fc43", "fedora44": ".fc44", "fedora45": ".fc45", "el10": ".el10",
+            "leap16.0": ".lp160", "tumbleweed": ".tw"}
+RPM_ZYPPER = ("leap16.0", "tumbleweed")
+
+
+def rpm(suffix, target="fedora44", arch="x86_64", build="", version="1.4.2", revision="1"):
+    """File name of an RPM release asset; `build` is BUILD_RPM for a pull request's build"""
+    return f"{CORE}{suffix}-{version}-{revision}{RPM_DIST[target]}{build}.{arch}.rpm"
+
+
+def all_rpm_assets(target="fedora44", arch="x86_64", build=""):
+    return [rpm(suffix, target, arch, build) for suffix in ("", "-gnome", "-plasma")]
+
+
+BUILD_RPM = ".pr24.57"
 
 
 def all_assets(tilde=False, build=""):
@@ -128,6 +155,24 @@ echo "$*" >> "$FAKE_DIR/sudo_calls"
 exec "$@"
 """
 
+# uname -m is the machine of the test, not of the host running it
+FAKE_UNAME = r"""#!/bin/bash
+[ "$1" = "-m" ] && [ $# -eq 1 ] || exit 2
+echo "$FAKE_MACHINE"
+"""
+
+# dnf and zypper: record the name and the arguments; the packages have to exist while they run
+FAKE_RPM_MANAGER = r"""#!/bin/bash
+echo "$(basename "$0")" > "$FAKE_DIR/rpm_manager"
+printf '%s\n' "$@" > "$FAKE_DIR/rpm_manager_args"
+for arg in "$@"; do
+    case "$arg" in
+        /*.rpm) cat "$arg" >> "$FAKE_DIR/rpm_payloads"; stat -c '%a' "$arg" >> "$FAKE_DIR/rpm_modes" ;;
+    esac
+done
+exit "${FAKE_RPM_EXIT:-0}"
+"""
+
 FAKE_APT = r"""#!/bin/bash
 {
     printf '%s\n' "$@"
@@ -160,7 +205,8 @@ class Sandbox:
             directory.mkdir()
         for name, body in (
             ("curl", FAKE_CURL), ("dpkg", FAKE_DPKG), ("dpkg-query", FAKE_DPKG_QUERY),
-            ("id", FAKE_ID), ("sudo", FAKE_SUDO), ("apt", FAKE_APT),
+            ("id", FAKE_ID), ("sudo", FAKE_SUDO), ("apt", FAKE_APT), ("uname", FAKE_UNAME),
+            ("dnf", FAKE_RPM_MANAGER), ("zypper", FAKE_RPM_MANAGER),
         ):
             path = self.bin / name
             path.write_text(body)
@@ -195,7 +241,8 @@ class Sandbox:
     def set_api_status(self, status):
         (self.fake / "api_status").write_text(str(status))
 
-    def run(self, *args, arch="amd64", desktop="ubuntu:GNOME", uid=1000, api=True, stdin="", **extra_env):
+    def run(self, *args, arch="amd64", desktop="ubuntu:GNOME", uid=1000, api=True, stdin="",
+            machine="x86_64", **extra_env):
         env = {
             "PATH": f"{self.bin}:{os.path.dirname(sys.executable)}:/usr/bin:/bin",
             "HOME": str(self.root),
@@ -203,6 +250,7 @@ class Sandbox:
             "OS_RELEASE_FILE": str(self.os_release),
             "FAKE_DIR": str(self.fake),
             "FAKE_ARCH": arch,
+            "FAKE_MACHINE": machine,
             "FAKE_UID": str(uid),
             "FAKE_APT_READ": "",
             "XDG_CURRENT_DESKTOP": desktop,
@@ -228,6 +276,23 @@ class Sandbox:
         """File names handed to apt (None when apt was not called)"""
         args = self.apt_args()
         return None if args is None else [os.path.basename(a) for a in args if a.endswith(".deb")]
+
+    def set_rpm_target(self, target, build=""):
+        """This machine is a `target` of rpm/targets, the release has its packages"""
+        self.set_os(target, RPM_OS[target])
+        self.set_assets(all_rpm_assets(target, "x86_64", build) + all_rpm_assets(target, "aarch64", build))
+
+    def rpm_manager(self):
+        """(tool, arguments) of the dnf or zypper call, None when neither was called"""
+        name = self.read("rpm_manager")
+        if name is None:
+            return None
+        return name.strip(), self.read("rpm_manager_args").splitlines()
+
+    def installed_rpms(self):
+        """File names handed to dnf or zypper (None when neither was called)"""
+        call = self.rpm_manager()
+        return None if call is None else [os.path.basename(a) for a in call[1] if a.endswith(".rpm")]
 
     def curl_urls(self):
         return (self.read("curl_urls") or "").splitlines()
@@ -502,7 +567,6 @@ class TestRejected:
             ('ID=debian\nVERSION_ID="12"\nVERSION_CODENAME=bookworm\n', "not Ubuntu"),
             ('ID=linuxmint\nID_LIKE="ubuntu debian"\nVERSION_ID="21"\nVERSION_CODENAME=vanessa\n', "not Ubuntu"),
             ("", "not Ubuntu"),
-            ("ID=fedora\nVERSION_ID=40\n", "not Ubuntu"),
             ('ID=neonlike\nID_LIKE="ubuntu debian"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n', "not Ubuntu or KDE neon"),
             ('ID="neon;x"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n', "not Ubuntu or KDE neon"),
         ],
@@ -999,3 +1063,239 @@ class TestRepository:
         result = box.run("24", "--repo")
 
         assert_rejected(box, result, "--repo needs a value", network=False)
+
+
+def assert_rpm_rejected(box, result, message, network=True):
+    """Like assert_rejected for an RPM machine: no package manager, no sudo, nothing left behind."""
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert message in result.stderr, result.stderr
+    assert box.rpm_manager() is None, "dnf or zypper was called"
+    assert box.apt_args() is None, "apt was called"
+    assert box.read("sudo_calls") is None, "sudo was called"
+    assert list(box.tmp.iterdir()) == [], "the temp dir was not removed"
+    if not network:
+        assert box.curl_urls() == [], "the network was used"
+
+
+def rpm_targets_file():
+    """(target, image, dist, family) of every line of rpm/targets"""
+    assert os.path.exists(TARGETS_FILE), "rpm/targets is missing"
+    with open(TARGETS_FILE, encoding="utf-8") as handle:
+        lines = [l.split("#")[0].split() for l in handle]
+    return [fields for fields in lines if fields]
+
+
+class TestRpmInstall:
+    @pytest.mark.parametrize("target", sorted(RPM_OS))
+    @pytest.mark.parametrize("machine", ["x86_64", "aarch64"])
+    @pytest.mark.parametrize("desktop, suffix", [("GNOME", "-gnome"), ("KDE", "-plasma")])
+    def test_the_core_and_the_desktop_package_of_this_target_and_machine_are_installed(
+        self, box, target, machine, desktop, suffix
+    ):
+        box.set_rpm_target(target)
+
+        result = box.run("24", machine=machine, desktop=desktop)
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed_rpms() == [rpm(s, target, machine) for s in ("", suffix)]
+        tool, args = box.rpm_manager()
+        assert tool == ("zypper" if target in RPM_ZYPPER else "dnf")
+        assert box.apt_args() is None
+        assert list(box.tmp.iterdir()) == []
+
+    def test_the_packages_exist_and_are_readable_while_the_tool_runs(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert box.read("rpm_payloads") == f"deb:{rpm('')}\ndeb:{rpm('-gnome')}\n"
+        assert set(box.read("rpm_modes").split()) == {"644"}
+
+    @pytest.mark.parametrize("target", sorted(RPM_OS))
+    def test_a_pull_request_build_is_picked_with_its_suffix(self, box, target):
+        box.set_rpm_target(target, BUILD_RPM)
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed_rpms() == [rpm(s, target, "x86_64", BUILD_RPM) for s in ("", "-gnome")]
+
+    def test_dnf_asks_unless_yes_is_given(self, box):
+        box.set_rpm_target("fedora44")
+
+        assert box.run("24").returncode == 0
+        asking = box.rpm_manager()[1]
+        (box.fake / "rpm_manager").unlink()
+        assert box.run("24", "--yes").returncode == 0
+        assumed = box.rpm_manager()[1]
+
+        assert asking[0] == "install" and "-y" not in asking
+        assert assumed[0] == "install" and "-y" in assumed
+
+    def test_zypper_takes_unsigned_packages_and_goes_non_interactive_only_with_yes(self, box):
+        box.set_rpm_target("tumbleweed")
+
+        assert box.run("24").returncode == 0
+        asking = box.rpm_manager()[1]
+        (box.fake / "rpm_manager").unlink()
+        assert box.run("24", "--yes").returncode == 0
+        assumed = box.rpm_manager()[1]
+
+        assert asking[0] == "install" and "--allow-unsigned-rpm" in asking and "--non-interactive" not in asking
+        assert assumed[:2] == ["--non-interactive", "install"] and "--allow-unsigned-rpm" in assumed
+
+    def test_the_package_manager_runs_through_sudo_for_a_user(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", uid=1000)
+
+        assert result.returncode == 0, result.stderr
+        assert box.read("sudo_calls").startswith("dnf install ")
+
+    def test_el10_tells_about_epel_and_crb(self, box):
+        box.set_rpm_target("el10")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "EPEL" in result.stdout and "CRB" in result.stdout
+
+    def test_every_target_of_rpm_targets_is_recognised_with_its_dist_tag(self):
+        targets = rpm_targets_file()
+        assert sorted(t[0] for t in targets) == sorted(RPM_OS), "rpm/targets and RPM_OS differ"
+        assert {t[0]: t[2] for t in targets} == RPM_DIST
+
+    def test_the_dist_tags_of_rpm_targets_select_the_assets(self, tmp_path):
+        for target, _image, dist, _family in rpm_targets_file():
+            (tmp_path / target).mkdir()
+            box = Sandbox(tmp_path / target)
+            box.set_os(target, RPM_OS[target])
+            box.set_assets([f"{CORE}{s}-1.4.2-1{dist}.x86_64.rpm" for s in ("", "-gnome", "-plasma")])
+
+            result = box.run("24")
+
+            assert result.returncode == 0, (target, result.stderr)
+
+
+class TestRpmRejected:
+    def test_el9_is_refused_with_the_reason(self, box):
+        box.set_os("noble", 'ID="almalinux"\nVERSION_ID="9.5"\n')
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "EL 9", network=False)
+        assert "webkit2gtk-4.1" in result.stderr
+
+    @pytest.mark.parametrize(
+        "content, message",
+        [
+            ('ID=fedora\nVERSION_ID=40\n', "Fedora 40 is not supported"),
+            ('ID=fedora\nVERSION_ID=42\n', "Fedora 42 is not supported"),
+            ('ID=fedora\nVERSION_ID=46\n', "Fedora 46 is not supported"),
+            ('ID=fedora\n', "Fedora ? is not supported"),
+            ('ID="rocky"\nVERSION_ID="8.10"\n', "not supported"),
+            ('ID="rhel"\nVERSION_ID="11.0"\n', "EL 10 only"),
+            ('ID="opensuse-leap"\nVERSION_ID="15.6"\n', "Leap 15.6 is not supported"),
+            ('ID="opensuse-leap"\n', "Leap ? is not supported"),
+            ('ID="sles"\nVERSION_ID="16.0"\n', "not Ubuntu or KDE neon"),
+            ('ID="centos-stream"\nVERSION_ID="10"\n', "not Ubuntu or KDE neon"),
+            ('ID="fedora-asahi-remix"\nVERSION_ID="44"\n', "not Ubuntu or KDE neon"),
+            ('ID="fedora;x"\nVERSION_ID="44"\n', "not Ubuntu or KDE neon"),
+        ],
+    )
+    def test_unsupported_distributions_and_versions(self, box, content, message):
+        box.set_os("noble", content)
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, message, network=False)
+
+    @pytest.mark.parametrize("machine", ["i686", "ppc64le", "s390x", "riscv64", "armv7l"])
+    def test_unsupported_machines(self, box, machine):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", machine=machine)
+
+        assert_rpm_rejected(box, result, "is not supported", network=False)
+        assert "x86_64 and aarch64" in result.stderr
+
+    def test_plasma_6_is_for_ubuntu_only(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", "--desktop", "plasma-6")
+
+        assert_rpm_rejected(box, result, "--desktop plasma-6 is for Ubuntu 24.04", network=False)
+
+    def test_the_packages_of_another_architecture_are_not_taken(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets("fedora44", "aarch64"))
+
+        result = box.run("24", machine="x86_64")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    @pytest.mark.parametrize("other", [t for t in sorted(RPM_OS) if t != "fedora44"])
+    def test_the_packages_of_another_target_are_not_taken(self, box, other):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets(other))
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    def test_the_packages_of_another_pull_request_are_not_taken(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets("fedora44", "x86_64", ".pr99.57"))
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            f"{CORE}-1.4.2-1.fc44.src.rpm",
+            f"{CORE}-debuginfo-1.4.2-1.fc44.x86_64.rpm",
+            f"{CORE}-debugsource-1.4.2-1.fc44.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc440.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.x86_64.rpm.sig",
+            f"x{CORE}-1.4.2-1.fc44.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.pr24.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.pr24.57x.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.pr124.57.x86_64.rpm",
+        ],
+    )
+    def test_other_files_are_not_taken_for_the_core_package(self, box, name):
+        box.set_rpm_target("fedora44")
+        box.set_assets([name, rpm("-gnome")])
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    def test_two_builds_of_the_same_package_are_refused(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets("fedora44") + [rpm("", revision="2")])
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "more than one network-manager-gpclient package")
+
+    def test_a_missing_desktop_package_is_named(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets([rpm(""), rpm("-plasma")])
+
+        result = box.run("24", desktop="GNOME")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient-gnome package for fedora44/x86_64")
+
+    def test_a_failing_package_manager_is_reported(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", FAKE_RPM_EXIT="1")
+
+        assert result.returncode != 0
+        assert "dnf failed" in result.stderr
+        assert "Installed." not in result.stdout
+        assert list(box.tmp.iterdir()) == []
