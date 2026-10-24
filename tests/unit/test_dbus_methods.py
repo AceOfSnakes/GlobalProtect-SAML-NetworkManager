@@ -4,7 +4,7 @@ Tests for the D-Bus methods and signals of GpclientVPNPlugin.
 Covers __init__ defaults, NeedSecrets, _parse_vpn_section, Connect /
 ConnectInteractive / _do_connect, Disconnect, NewSecrets, the no-op setters and
 the signal bodies. Everything that touches the system (interfaces, gpclient,
-the PTY, the `gpclient disconnect` command) is replaced by a fake.
+the PTY) is replaced by a fake.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -331,7 +331,7 @@ class TestConnectSuccess:
         plugin._openssl_retried = True
         plugin._otp_flags_written = True
         plugin._otp_flag_attempts = 3
-        plugin._line_counter = 9
+        plugin._answered_prompt = (9, "x")
         plugin._tunnel_up = True
 
         connect(plugin, _conn())
@@ -349,7 +349,7 @@ class TestConnectSuccess:
         assert plugin._openssl_retried is False
         assert plugin._otp_flags_written is False
         assert plugin._otp_flag_attempts == 0
-        assert plugin._line_counter == 0
+        assert plugin._answered_prompt is None
         assert plugin._tunnel_up is False
 
 
@@ -750,6 +750,33 @@ class TestConnectData:
 
         assert plugin.dns_servers == []
 
+    def test_dns_of_a_previous_connection_does_not_carry_over(
+        self, service_module, monkeypatch
+    ):
+        # Connect twice with no Disconnect in between (issue #52)
+        plugin = _plugin(service_module, monkeypatch)
+        connect(
+            plugin,
+            _conn(data={"gateway": "g", "dns": "10.0.0.1", "dns-domains": "corp.example"}),
+        )
+        assert plugin.dns_servers == ["10.0.0.1"]
+        assert plugin.dns_domains == ["corp.example"]
+
+        connect(plugin, _conn())
+
+        assert plugin.dns_servers == []
+        assert plugin.dns_domains == []
+
+    def test_dns_of_the_second_connection_replaces_the_first(
+        self, service_module, monkeypatch
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+        connect(plugin, _conn(data={"gateway": "g", "dns": "10.0.0.1"}))
+
+        connect(plugin, _conn(data={"gateway": "g", "dns": "10.0.0.2"}))
+
+        assert plugin.dns_servers == ["10.0.0.2"]
+
     def test_dns_domains(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
 
@@ -858,7 +885,7 @@ def _dirty(plugin):
     plugin._answered_password = True
     plugin._login_failed = True
     plugin._preexisting_ifaces = {"gpd0": []}
-    plugin._line_counter = 5
+    plugin._answered_prompt = (5, "x")
     plugin._tunnel_up = True
 
 
@@ -919,89 +946,47 @@ class TestDisconnect:
 
         assert plugin.calls == ["stop_gpclient", "close_pty"]
 
-    def test_runs_gpclient_disconnect(self, service_module, monkeypatch, fake_exec):
-        plugin = _plugin(service_module, monkeypatch)
-
-        run(plugin.Disconnect())
-
-        assert fake_exec["calls"] == [("/usr/bin/gpclient", "disconnect")]
-        assert fake_exec["proc"].waited is True
-
-    def test_never_runs_a_real_binary(self, service_module, monkeypatch):
-        # Guard for the other tests: the fake is what stands between the test
-        # and /usr/bin/gpclient
-        plugin = _plugin(service_module, monkeypatch)
-        calls = []
-
-        async def fake(*args, **kwargs):
-            calls.append(args)
-            return FakeProc()
-
-        monkeypatch.setattr(service_module.asyncio, "create_subprocess_exec", fake)
-
-        run(plugin.Disconnect())
-
-        assert calls == [("/usr/bin/gpclient", "disconnect")]
-
-    @pytest.mark.parametrize(
-        "error",
-        [OSError("no such file"), RuntimeError("boom"), FileNotFoundError("gpclient")],
-    )
-    def test_start_error_is_logged_not_raised(
-        self, service_module, monkeypatch, fake_exec, dbus_signals, error
+    def test_runs_no_gpclient_disconnect(
+        self, service_module, monkeypatch, fake_exec
     ):
+        # `gpclient disconnect` signals the PID in the shared lock file: after
+        # our own gpclient is stopped, that can only be someone else's (#52)
         plugin = _plugin(service_module, monkeypatch)
-        fake_exec["error"] = error
-        _dirty(plugin)
 
         run(plugin.Disconnect())
 
-        # State is still reset and STOPPED still emitted
-        assert plugin.dns_servers == []
-        assert dbus_signals == [
-            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED)
-        ]
+        assert fake_exec["calls"] == []
 
-    @pytest.mark.parametrize(
-        "error", [asyncio.TimeoutError(), OSError("wait failed")]
-    )
-    def test_wait_error_or_timeout_does_not_abort(
-        self, service_module, monkeypatch, fake_exec, dbus_signals, error
-    ):
-        plugin = _plugin(service_module, monkeypatch)
-        fake_exec["proc"] = FakeProc(wait_error=error)
-        _dirty(plugin)
-
-        run(plugin.Disconnect())
-
-        assert plugin.vpn_username == ""
-        assert dbus_signals == [
-            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED)
-        ]
-
-    def test_real_wait_for_timeout_does_not_abort(
-        self, service_module, monkeypatch, fake_exec, dbus_signals
+    def test_still_stops_our_own_gpclient(
+        self, service_module, monkeypatch, fake_exec
     ):
         plugin = _plugin(service_module, monkeypatch)
 
-        class Hanging:
-            async def wait(self):
-                await asyncio.sleep(3600)
+        run(plugin.Disconnect())
 
-        fake_exec["proc"] = Hanging()
-        real_wait_for = asyncio.wait_for
+        assert "stop_gpclient" in plugin.calls
 
-        async def short_wait_for(awaitable, timeout):
-            # The service asks for 10 s; do not wait that long
-            assert timeout == 10
-            return await real_wait_for(awaitable, timeout=0.01)
+    def test_notes_gpauth_before_stopping_gpclient_and_stops_it_after(
+        self, service_module, monkeypatch, fake_exec
+    ):
+        plugin = _plugin(service_module, monkeypatch)
 
-        monkeypatch.setattr(service_module.asyncio, "wait_for", short_wait_for)
+        async def remember():
+            plugin.calls.append("remember_gpauth")
+
+        async def stop_gpauth():
+            plugin.calls.append("stop_gpauth")
+
+        monkeypatch.setattr(plugin, "_remember_gpauth", remember)
+        monkeypatch.setattr(plugin, "_stop_remembered_gpauth", stop_gpauth)
 
         run(plugin.Disconnect())
 
-        assert dbus_signals == [
-            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED)
+        assert plugin.calls == [
+            "remember_gpauth",
+            "stop_gpclient",
+            "close_pty",
+            "stop_gpauth",
         ]
 
     def test_resets_per_connection_state(
@@ -1046,7 +1031,7 @@ class TestDisconnect:
             "_answered_password",
             "_login_failed",
             "_preexisting_ifaces",
-            "_line_counter",
+            "_answered_prompt",
             "_tunnel_up",
         ):
             assert getattr(plugin, name) == getattr(fresh, name), name
@@ -1225,6 +1210,84 @@ class TestNoOpMethods:
         assert after.keys() == before.keys()
 
 
+class TestDisconnectSurvivesDeadTasks:
+    @pytest.mark.parametrize("attribute", ["tunnel_check_task", "stdout_monitor_task"])
+    def test_task_that_died_with_an_exception(
+        self, service_module, monkeypatch, fake_exec, dbus_signals, caplog, attribute
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+
+        async def crash():
+            raise RuntimeError("task died")
+
+        async def go():
+            task = asyncio.create_task(crash())
+            setattr(plugin, attribute, task)
+            await asyncio.sleep(0)  # the task dies before Disconnect runs
+            assert task.done()
+            with caplog.at_level("ERROR", logger=service_module.logger.name):
+                await plugin.Disconnect()
+
+        run(go())  # must not raise
+
+        assert plugin.calls == ["stop_gpclient", "close_pty"]
+        assert getattr(plugin, attribute) is None
+        assert dbus_signals == [
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED)
+        ]
+        assert "task died" in caplog.text
+
+    def test_both_tasks_died(self, service_module, monkeypatch, fake_exec, dbus_signals):
+        plugin = _plugin(service_module, monkeypatch)
+
+        async def crash():
+            raise RuntimeError("task died")
+
+        async def go():
+            plugin.tunnel_check_task = asyncio.create_task(crash())
+            plugin.stdout_monitor_task = asyncio.create_task(crash())
+            await asyncio.sleep(0)
+            await plugin.Disconnect()
+
+        run(go())
+
+        assert plugin.calls == ["stop_gpclient", "close_pty"]
+        assert dbus_signals[-1] == (
+            "StateChanged",
+            service_module.NM_VPN_SERVICE_STATE_STOPPED,
+        )
+
+
+class TestStateProperty:
+    def test_follows_connect_tunnel_failure_and_disconnect(
+        self, service_module, monkeypatch, fake_exec
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_INIT
+
+        connect(plugin, _conn())
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STARTING
+
+        plugin._set_state(service_module.NM_VPN_SERVICE_STATE_STARTED)
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STARTED
+
+        run(plugin.Disconnect())
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
+
+    def test_failed_connect_ends_stopped(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch, start_ok=False)
+
+        with pytest.raises(Exception):
+            connect(plugin, _conn())
+
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
+
+    def test_stays_init_when_nothing_happened(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_INIT
+
+
 # --- Signal bodies and the State property ------------------------------------
 #
 # With the sdbus stub the decorated function is the plain function, so the body
@@ -1233,12 +1296,53 @@ class TestNoOpMethods:
 
 
 class TestSignalBodies:
-    def test_state_changed_body_stores_the_state(self, service_module):
+    def test_state_changed_body_does_not_store_the_state(self, service_module):
+        # The body never runs on a real emit(): nothing may depend on it
         plugin = service_module.GpclientVPNPlugin()
 
         plugin.StateChanged(service_module.NM_VPN_SERVICE_STATE_STARTED)
 
-        assert plugin._state == service_module.NM_VPN_SERVICE_STATE_STARTED
+        assert plugin._state == service_module.NM_VPN_SERVICE_STATE_INIT
+
+    def test_emit_does_not_run_the_body(self, service_module, dbus_signals):
+        plugin = service_module.GpclientVPNPlugin()
+
+        plugin.StateChanged.emit(service_module.NM_VPN_SERVICE_STATE_STARTED)
+
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_INIT
+        assert dbus_signals == [
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STARTED)
+        ]
+
+    def test_set_state_stores_logs_and_emits(
+        self, service_module, dbus_signals, caplog
+    ):
+        plugin = service_module.GpclientVPNPlugin()
+
+        with caplog.at_level("INFO", logger=service_module.logger.name):
+            plugin._set_state(service_module.NM_VPN_SERVICE_STATE_STARTED)
+
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STARTED
+        assert dbus_signals == [
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STARTED)
+        ]
+        assert "StateChanged: 4" in caplog.text
+
+    def test_emit_failure_logs_the_reason_and_stops(
+        self, service_module, dbus_signals, caplog
+    ):
+        plugin = service_module.GpclientVPNPlugin()
+        reason = service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED
+
+        with caplog.at_level("ERROR", logger=service_module.logger.name):
+            plugin._emit_failure(reason)
+
+        assert f"reason {reason}" in caplog.text
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
+        assert dbus_signals == [
+            ("Failure", reason),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
 
     def test_state_property_returns_state(self, service_module):
         plugin = service_module.GpclientVPNPlugin()

@@ -3,6 +3,7 @@
 # servers before connecting, after connecting with the default settings and
 # after enabling "Use this connection only for resources on its network".
 # Runs as user demo inside the container; see demo/lib.sh for the helpers.
+# shellcheck disable=SC2034 # the EDGE_* settings are read by lib.sh
 source /opt/gp-demo/lib.sh
 EDGE_DX=0
 EDGE_DY=0

@@ -227,6 +227,8 @@ install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpservice \
 # URL handler for globalprotectcallback://
 install -D -m 0644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
   %{buildroot}%{_datadir}/applications/gpgui.desktop
+# gpgui is not shipped: keep the MIME handler, hide the menu entry
+sh scripts/hide-desktop-entry.sh %{buildroot}%{_datadir}/applications/gpgui.desktop
 
 /usr/bin/python3 -m pip install --no-deps --no-index --no-user --ignore-installed \
   --root %{buildroot} --prefix %{_prefix} sdbus-wheel/sdbus-%{sdbus_version}-*.whl

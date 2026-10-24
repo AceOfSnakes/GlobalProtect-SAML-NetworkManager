@@ -5,6 +5,14 @@ export DH_VERBOSE = 1
 # Defines DEB_HOST_MULTIARCH (x86_64-linux-gnu, aarch64-linux-gnu, ...) of the target
 include /usr/share/dpkg/architecture.mk
 
+# The dpkg build flags (CPPFLAGS, CFLAGS, CXXFLAGS, LDFLAGS) with all hardening
+# options (PIE, full RELRO, BIND_NOW, stack protector, fortify, ...). The
+# override targets below run plain recipes, not dh_auto_*, so dh does not pass
+# the flags to them: they go to the GNOME make and to cmake explicitly (not
+# exported: the Rust build below must not see them).
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/buildflags.mk
+
 # The Qt of the Plasma plugin is the one debian/control (a copy of
 # debian/control.ubuntu<version>) lists in Build-Depends: qtbase5-dev for Qt5,
 # qt6-base-dev for Qt6. Empty when it lists both or none; the build stops then.
@@ -47,7 +55,7 @@ ifneq ($(HAS_CORE),)
 	$(MAKE) init-submodules
 
 	# Build GNOME plugins only (Rust binaries are built separately below)
-	$(MAKE) gnome-plugins
+	$(MAKE) gnome-plugins CPPFLAGS='$(CPPFLAGS)' CFLAGS='$(CFLAGS)' LDFLAGS='$(LDFLAGS)'
 endif
 
 	# Build the Plasma plugin against the Qt that debian/control builds with
@@ -56,7 +64,7 @@ endif
 	@test -n "$(PLASMA_PACKAGE)" || { \
 		echo "debian/control must have exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6"; exit 1; }
 	mkdir -p plugins/plasma/build
-	cd plugins/plasma/build && cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
+	cd plugins/plasma/build && CFLAGS='$(CFLAGS) $(CPPFLAGS)' CXXFLAGS='$(CXXFLAGS) $(CPPFLAGS)' LDFLAGS='$(LDFLAGS)' cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
 
 ifneq ($(HAS_CORE),)
 	# Build Rust binaries (gpclient and gpauth)
@@ -135,7 +143,7 @@ ifneq ($(HAS_CORE),)
 
 	# Install systemd service file
 	install -D -m 644 config/nm-gpclient.service \
-		$(CURDIR)/debian/network-manager-gpclient/lib/systemd/system/nm-gpclient.service
+		$(CURDIR)/debian/network-manager-gpclient/usr/lib/systemd/system/nm-gpclient.service
 
 	# Install D-Bus service file for automatic activation
 	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service \
@@ -159,6 +167,8 @@ ifneq ($(HAS_CORE),)
 	# Install .desktop file for URL handler registration (globalprotectcallback://)
 	install -D -m 644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
 		$(CURDIR)/debian/network-manager-gpclient/usr/share/applications/gpgui.desktop
+	# Keep the MIME handler, hide the "GP Connect" menu entry (gpgui is not shipped)
+	scripts/hide-desktop-entry.sh $(CURDIR)/debian/network-manager-gpclient/usr/share/applications/gpgui.desktop
 
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing \

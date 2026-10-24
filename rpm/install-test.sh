@@ -62,8 +62,9 @@ PY
 # check_vpnc_script [root]: a vpnc-script that gpclient finds (the list of
 # crates/openconnect/src/vpn_utils.rs) is executable and runs the hooks of /etc/vpnc,
 # where 90-gpclient-routing is.
+# shellcheck disable=SC2120 # the argument is optional
 check_vpnc_script() {
-    local root=${1:-} path script= hooks
+    local root=${1:-} path script="" hooks
     for path in /usr/local/libexec/gpclient/vpnc-script /usr/libexec/gpclient/vpnc-script \
         /usr/lib/gpclient/vpnc-script /usr/local/share/vpnc-scripts/vpnc-script \
         /usr/local/sbin/vpnc-script /usr/share/vpnc-scripts/vpnc-script /usr/sbin/vpnc-script \
@@ -143,6 +144,12 @@ for path in \
     "$(rpm --eval '%{_libdir}')/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json"; do
     [ -e "$path" ] || fail "missing file $path"
 done
+
+# gpgui is not shipped: the entry is hidden, the callback handler stays
+grep -qx 'NoDisplay=true' /usr/share/applications/gpgui.desktop \
+    || fail "gpgui.desktop has no NoDisplay=true"
+grep -qx 'MimeType=x-scheme-handler/globalprotectcallback;' /usr/share/applications/gpgui.desktop \
+    || fail "gpgui.desktop does not handle globalprotectcallback"
 
 [ -L /usr/lib/libnm-gpclient-properties ] \
     || fail "/usr/lib/libnm-gpclient-properties is not a symlink"

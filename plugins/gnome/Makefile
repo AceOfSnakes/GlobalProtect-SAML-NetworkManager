@@ -1,6 +1,8 @@
 # Makefile for GNOME NetworkManager VPN plugins
 
-CC = gcc
+# CC, CPPFLAGS, CFLAGS and LDFLAGS come from the environment or the command line
+# (dpkg-buildpackage sets them: hardening, -O2 -g, build-id, ...)
+CC ?= gcc
 PLUGIN_CFLAGS = `pkg-config --cflags glib-2.0 libnm` -Wall -fPIC
 PLUGIN_LIBS = `pkg-config --libs glib-2.0 libnm` -ldl
 EDITOR_GTK3_CFLAGS = `pkg-config --cflags glib-2.0 libnm gtk+-3.0 libnma` -Wall -fPIC
@@ -34,16 +36,16 @@ endif
 all: $(ALL_TARGETS)
 
 libnm-vpn-plugin-gpclient.so: nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c
-	$(CC) $(PLUGIN_CFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient.so \
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(PLUGIN_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient.so \
 		-o libnm-vpn-plugin-gpclient.so nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c $(PLUGIN_LIBS)
 
 libnm-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclient-editor-gtk3.c nm-gpclient-mtu.h
-	$(CC) $(EDITOR_GTK3_CFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient-editor.so \
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(EDITOR_GTK3_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient-editor.so \
 		-o libnm-vpn-plugin-gpclient-editor.so \
 		nm-gpclient-editor-plugin.c nm-gpclient-editor-gtk3.c $(EDITOR_GTK3_LIBS)
 
 libnm-gtk4-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclient-editor.c nm-gpclient-mtu.h
-	$(CC) $(EDITOR_GTK4_CFLAGS) -shared -Wl,-soname,libnm-gtk4-vpn-plugin-gpclient-editor.so \
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(EDITOR_GTK4_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-gtk4-vpn-plugin-gpclient-editor.so \
 		-o libnm-gtk4-vpn-plugin-gpclient-editor.so \
 		nm-gpclient-editor-plugin.c nm-gpclient-editor.c $(EDITOR_GTK4_LIBS)
 

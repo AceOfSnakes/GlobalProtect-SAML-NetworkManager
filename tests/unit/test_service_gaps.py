@@ -12,6 +12,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import gc
 import json
 import logging
 import os
@@ -96,21 +97,7 @@ class TestGatewayMatchesEdges:
         assert not service_module.gateway_matches("gw-b", option, substring=True)
 
 
-# --- _last_output_line and _reset_phase_state --------------------------------
-
-
-class TestLastOutputLine:
-    def test_returns_the_last_non_empty_line_stripped(self, service_module):
-        plugin = _plugin(service_module)
-        plugin._recent_lines.extend(["first", "  second  ", "   ", ""])
-        assert plugin._last_output_line() == "second"
-
-    @pytest.mark.parametrize("lines", [[], [""], ["  ", "\t"]])
-    def test_empty_when_nothing_was_printed(self, service_module, lines):
-        plugin = _plugin(service_module)
-        plugin._recent_lines.clear()
-        plugin._recent_lines.extend(lines)
-        assert plugin._last_output_line() == ""
+# --- _reset_phase_state ------------------------------------------------------
 
 
 class TestResetPhaseState:
@@ -386,7 +373,7 @@ sys.exit(0)
 @pytest.fixture
 def start_env(service_module, monkeypatch, tmp_path):
     """Run _start_gpclient against a stand-in script; returns a runner that
-    gives what the script saw. pkill and the user lookup are faked."""
+    gives what the script saw. The user lookup is faked, and so is subprocess.run."""
     out = tmp_path / "seen.json"
     script = tmp_path / "gpclient.py"
     script.write_text(FAKE_GPCLIENT_ENV.replace("__OUT__", str(out)))
@@ -398,14 +385,11 @@ def start_env(service_module, monkeypatch, tmp_path):
                  "GPCLIENT_CUSTOM_DNS_DOMAINS"):
         monkeypatch.delenv(name, raising=False)
 
-    pkill_calls = []
+    subprocess_calls = []
 
     def fake_run(cmd, **kwargs):
-        pkill_calls.append(cmd)
-        if fake_run.error:
-            raise fake_run.error
+        subprocess_calls.append(cmd)
 
-    fake_run.error = None
     monkeypatch.setattr(service_module.subprocess, "run", fake_run)
 
     def run(uid=1000, session_env=None, **settings):
@@ -431,20 +415,18 @@ def start_env(service_module, monkeypatch, tmp_path):
         asyncio.run(go())
         return json.loads(out.read_text())
 
-    run.pkill_calls = pkill_calls
-    run.pkill_failure = fake_run
+    run.subprocess_calls = subprocess_calls
     return run
 
 
 class TestStartGpclient:
-    def test_pkill_is_limited_to_the_real_user(self, start_env):
-        start_env(uid=1234)
-        assert start_env.pkill_calls == [["pkill", "-9", "-u", "1234", "gpauth"]]
-
-    def test_failing_pkill_does_not_stop_the_start(self, start_env):
-        start_env.pkill_failure.error = FileNotFoundError("pkill")
-        seen = start_env()
+    def test_no_pkill_of_gpauth(self, start_env, gpauth_signals):
+        # pkill -9 -u <uid> gpauth also killed the gpauth of a CLI or GUI
+        # session of the same user (issue #52)
+        seen = start_env(uid=1234)
         assert seen["argv"][0] == "connect"
+        assert not [c for c in start_env.subprocess_calls if "pkill" in c]
+        assert gpauth_signals == []
 
     @pytest.mark.parametrize(
         "session_env, warns",
@@ -517,15 +499,25 @@ class TestStartGpclient:
 
 async def _monitor(plugin, chunks, process):
     """Run the monitor on a pipe that carries `chunks` and then ends"""
+    # An object an earlier test leaked (a PTY transport, a file) closes its fd
+    # when it is collected; collect now, before this test takes fd numbers,
+    # so that it cannot close one of ours later (EBADF)
+    gc.collect()
     read_fd, write_fd = os.pipe()
     for chunk in chunks:
         os.write(write_fd, chunk)
     os.close(write_fd)
     plugin._pty_master = read_fd
     plugin.gpclient_process = process
-    await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
-    if plugin._prompt_task:
-        plugin._prompt_task.cancel()
+    try:
+        await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
+    finally:
+        if plugin._prompt_task:
+            plugin._prompt_task.cancel()
+        # Close the read end now, while this loop runs. Left to the garbage
+        # collector, the transport closes its fd number later, when a later
+        # test may already have got the same number from os.pipe() (EBADF).
+        plugin._close_pty()
 
 
 class TestMonitorGpclientOutput:
@@ -564,12 +556,65 @@ class TestMonitorGpclientOutput:
             service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED,
         ) in dbus_signals
 
-    def test_end_of_output_with_exit_zero_reports_nothing(
+    def test_unrequested_exit_zero_reports_connect_failed(
+        self, service_module, dbus_signals, caplog
+    ):
+        plugin = _plugin(service_module)
+        with caplog.at_level("ERROR", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
+        assert list(plugin._recent_lines) == ["hello"]
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
+        assert "gpclient exited (status 0) without being asked to" in caplog.text
+
+    def test_exit_zero_after_the_tunnel_is_up_reports_connect_failed(
         self, service_module, dbus_signals
     ):
         plugin = _plugin(service_module)
+        plugin._set_state(service_module.NM_VPN_SERVICE_STATE_STARTED)
+        plugin._tunnel_up = True
+        dbus_signals.clear()
         asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
-        assert list(plugin._recent_lines) == ["hello"]
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+
+    def test_exit_zero_after_a_reported_failure_is_not_reported_again(
+        self, service_module, dbus_signals
+    ):
+        plugin = _plugin(service_module)
+        plugin._login_failed = True
+        asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
+        assert dbus_signals == []
+
+    def test_exit_requested_by_disconnect_is_not_reported(
+        self, service_module, dbus_signals
+    ):
+        # Disconnect cancels the monitor before it stops gpclient, so the
+        # monitor never gets to see the exit
+        plugin = _plugin(service_module)
+
+        async def go():
+            read_fd, write_fd = os.pipe()
+            plugin._pty_master = read_fd
+            plugin.gpclient_process = FakeProcess(returncode=0)
+            task = asyncio.create_task(plugin._monitor_gpclient_output())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            os.close(write_fd)
+            if plugin._pty_master is not None:
+                try:
+                    os.close(plugin._pty_master)
+                except OSError:
+                    pass
+
+        asyncio.run(go())
         assert dbus_signals == []
 
     def test_non_zero_exit_reports_connect_failed(self, service_module, dbus_signals):
@@ -579,6 +624,60 @@ class TestMonitorGpclientOutput:
             "Failure",
             service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
         ) in dbus_signals
+
+    def test_gpauth_of_gpclient_is_noted_before_the_exit_is_handled(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        # Once gpclient is reaped its children belong to init: look first
+        plugin = _plugin(service_module)
+        events = []
+        process = FakeProcess(returncode=3)
+        real_wait = process.wait
+
+        async def wait():
+            events.append("wait")
+            return await real_wait()
+
+        async def remember():
+            events.append("remember")
+
+        process.wait = wait
+        monkeypatch.setattr(plugin, "_remember_gpauth", remember)
+
+        asyncio.run(_monitor(plugin, [b"hello\r\n"], process))
+
+        assert events == ["remember", "wait"]
+
+    def test_monitor_that_is_cancelled_notes_no_gpauth(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        # Disconnect cancels the monitor and notes the gpauth itself
+        plugin = _plugin(service_module)
+        noted = []
+
+        async def remember():
+            noted.append(True)
+
+        monkeypatch.setattr(plugin, "_remember_gpauth", remember)
+
+        async def go():
+            read_fd, write_fd = os.pipe()
+            plugin._pty_master = read_fd
+            plugin.gpclient_process = FakeProcess(returncode=None)
+            task = asyncio.create_task(plugin._monitor_gpclient_output())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            os.close(write_fd)
+            if plugin._pty_master is not None:
+                try:
+                    os.close(plugin._pty_master)
+                except OSError:
+                    pass
+
+        asyncio.run(go())
+        assert noted == []
 
     def test_non_zero_exit_after_a_reported_failure_is_not_reported_again(
         self, service_module, dbus_signals
@@ -771,25 +870,24 @@ class TestDebouncedPromptChecks:
 
         assert handled == ([] if more_output else [("prompt", "Password")])
 
-    @pytest.mark.parametrize("more_lines", [False, True])
-    def test_prompt_from_the_last_line_waits_for_no_new_lines(
-        self, service_module, quick_debounce, more_lines
+    @pytest.mark.parametrize("more_output", [False, True])
+    def test_prompt_on_a_terminated_row_waits_for_the_screen_to_settle(
+        self, service_module, quick_debounce, more_output
     ):
         handled = []
         plugin = self._watched(service_module, handled)
 
         async def go():
-            # inquire ends the prompt line: the tail is empty
-            plugin._recent_lines.append("? Password:")
-            plugin._line_counter = 1
+            # inquire ends the prompt line: the cursor is on the next row
+            plugin._consume_output("? Password:\r\n")
             plugin._schedule_prompt_check()
-            if more_lines:
-                plugin._line_counter = 2
+            if more_output:
+                plugin._consume_output("more\r\n")
             await _settle()
 
         asyncio.run(go())
 
-        assert handled == ([] if more_lines else [("prompt", "Password")])
+        assert handled == ([] if more_output else [("prompt", "Password")])
 
 
 class TestPendingPromptCheck:
@@ -1196,32 +1294,3 @@ class TestHandlePromptAsksTheUser:
             "Failure",
             service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED,
         ) in dbus_signals
-
-
-# --- The conftest guard against the real pkill ------------------------------------
-
-
-class TestNoRealPkill:
-    @pytest.fixture
-    def marking_tools(self, monkeypatch, tmp_path):
-        """pkill and true on PATH that leave a mark when they really run"""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        for tool in ("pkill", "true"):
-            script = bin_dir / tool
-            script.write_text(f'#!/bin/sh\ntouch "{tmp_path}/{tool}-ran"\n')
-            script.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
-        return tmp_path
-
-    def test_pkill_is_not_run(self, service_module, marking_tools):
-        result = service_module.subprocess.run(
-            ["pkill", "-9", "-u", "1000", "gpauth"], timeout=2
-        )
-        assert result.returncode == 1
-        assert not (marking_tools / "pkill-ran").exists()
-
-    def test_other_commands_still_run(self, service_module, marking_tools):
-        result = service_module.subprocess.run(["true"], timeout=2)
-        assert result.returncode == 0
-        assert (marking_tools / "true-ran").exists()

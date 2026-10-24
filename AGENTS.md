@@ -87,6 +87,7 @@ that has no PR, run the workflow by hand:
 
 ```bash
 make test-unit                        # or: python3 -m pytest tests/unit -q
+make shellcheck                       # shellcheck on every shell script; add new scripts to SHELL_SCRIPTS
 ```
 
 Some tests exercise root-only code paths and some non-root paths; each run
