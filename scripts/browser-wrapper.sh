@@ -13,6 +13,12 @@
 # without it we autodetect. $GP_AUTH_TIMEOUT overrides the 300 s safety timeout.
 
 MAX_WAIT="${GP_AUTH_TIMEOUT:-300}"
+# A value that is not a plain number would make the timeout test fail every time
+BAD_TIMEOUT=""
+if [[ ! $MAX_WAIT =~ ^[0-9]+$ ]]; then
+    BAD_TIMEOUT=$MAX_WAIT
+    MAX_WAIT=300
+fi
 
 # LOG_FILE is set only once the private TEMP_BASE is known (security: /tmp is
 # shared, so a log file there can be a planted symlink or a file others can
@@ -160,6 +166,7 @@ fi
 
 # No log file yet: it lives in the private TEMP_BASE, which is known later.
 log "called with args: $*"
+[ -n "$BAD_TIMEOUT" ] && log "WARNING: GP_AUTH_TIMEOUT is not a number, using 300"
 log "EUID=$EUID USER=${USER:-} SUDO_UID=${SUDO_UID:-} SUDO_USER=${SUDO_USER:-} PKEXEC_UID=${PKEXEC_UID:-} DOAS_USER=${DOAS_USER:-} GP_BROWSER=${GP_BROWSER:-unset} GP_AUTH_TIMEOUT=$MAX_WAIT"
 log "resolved real user: $REAL_USER (uid=$REAL_UID) home=$REAL_HOME"
 

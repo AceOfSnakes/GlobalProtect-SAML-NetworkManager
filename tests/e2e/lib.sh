@@ -138,8 +138,7 @@ smooth_move() {
 # because a click on a popup that is still being drawn can be lost:
 # click_until_window <x> <y> <name-regex> [seconds per try]
 click_until_window() {
-    local try
-    for try in 1 2 3; do
+    for _ in 1 2 3; do
         click "$1" "$2"
         wait_for_window "$3" "${4:-8}" > /dev/null && return 0
     done
@@ -253,7 +252,7 @@ mark_end() {
 # Disconnects the VPN and waits until it is gone: disconnect_vpn <name>
 disconnect_vpn() {
     nmcli connection down "$1" > /dev/null 2>&1
-    for _ in $(seq $(scaled 40)); do
+    for _ in $(seq "$(scaled 40)"); do
         nmcli -t -f NAME connection show --active | grep -qx "$1" || return 0
         sleep 0.5
     done

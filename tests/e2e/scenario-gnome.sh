@@ -1,6 +1,7 @@
 #!/bin/bash
 # README scenario (GNOME): add the VPN in Settings, connect from the panel.
 # Runs as user demo inside the container; see demo/lib.sh for the helpers.
+# shellcheck disable=SC2034 # the EDGE_* settings are read by lib.sh
 source /opt/gp-demo/lib.sh
 EDGE_DX=${EDGE_DX:-0}
 EDGE_DY=${EDGE_DY:-0}

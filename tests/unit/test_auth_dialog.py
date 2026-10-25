@@ -126,8 +126,20 @@ class TestCredentialsConnections:
         assert "s3cret" not in result.stdout
         assert "interaction is not allowed" in result.stderr
 
-    @pytest.mark.parametrize("flags", ["0", "2"])
-    def test_password_flags_not_required_only_when_exactly_4(self, flags):
+    @pytest.mark.parametrize("flags", ["5", "6", "12"])
+    def test_password_flags_is_a_bitmask(self, flags):
+        result = run_dialog(
+            data={
+                "gateway": "vpn.example.com",
+                "auth-mode": "credentials",
+                "password-flags": flags,
+            }
+        )
+        assert result.returncode == 0
+        assert result.stdout == "\n\n"
+
+    @pytest.mark.parametrize("flags", ["0", "1", "2", "", "abc"])
+    def test_password_flags_without_bit_4_still_ask(self, flags):
         # 0 (saved by the system) and 2 (not saved) still need the password
         result = run_dialog(
             data={

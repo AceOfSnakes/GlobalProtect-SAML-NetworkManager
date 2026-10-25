@@ -46,11 +46,11 @@ init-submodules:
 	fi
 
 gpclient: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --release --bin gpclient --no-default-features || $(CARGO) build --release --bin gpclient --no-default-features)
+	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpclient --no-default-features || $(CARGO) build --locked --release --bin gpclient --no-default-features)
 	cp $(GPOC_DIR)/target/release/gpclient .
 
 gpauth: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --release --bin gpauth --no-default-features || $(CARGO) build --release --bin gpauth --no-default-features)
+	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpauth --no-default-features || $(CARGO) build --locked --release --bin gpauth --no-default-features)
 	cp $(GPOC_DIR)/target/release/gpauth .
 
 install: all
@@ -68,6 +68,10 @@ install: all
 	install -D -m 755 gpauth /usr/bin/gpauth
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
+	# Install D-Bus policy, D-Bus activation file and systemd unit
+	install -D -m 644 config/nm-gpclient.conf /etc/dbus-1/system.d/nm-gpclient.conf
+	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
+	install -D -m 644 config/nm-gpclient.service /lib/systemd/system/nm-gpclient.service
 
 clean:
 	$(MAKE) -C $(GNOME_DIR) clean
@@ -205,6 +209,50 @@ test-unit:
 .PHONY: test-coverage
 test-coverage:
 	python3 -m pytest tests/unit -q --cov
+
+# Shell scripts of the repository: every file with a sh/bash shebang outside external/
+# (tests/unit/test_shellcheck.py checks the list). The vendored vpnc-script files
+# come from the vpnc-scripts project and are checked at error level only.
+SHELL_SCRIPTS := \
+	.github/scripts/build-apt-repo.sh \
+	.github/scripts/build-rpm-repo.sh \
+	.github/scripts/gui-smoke.sh \
+	.github/scripts/neon-repo.sh \
+	.github/scripts/upgrade-test.sh \
+	build-all.sh \
+	config/90-gpclient-routing \
+	debian/network-manager-gpclient.postinst \
+	debian/network-manager-gpclient.postrm \
+	plugins/plasma/build.sh \
+	rpm/build.sh \
+	rpm/container-build.sh \
+	rpm/install-test.sh \
+	scripts/browser-wrapper.sh \
+	scripts/edge-wrapper.sh \
+	scripts/hide-desktop-entry.sh \
+	scripts/install-pr-build.sh \
+	tests/e2e/files/loginctl \
+	tests/e2e/files/make-certs.sh \
+	tests/e2e/install-edge.sh \
+	tests/e2e/install-plugin.sh \
+	tests/e2e/lib.sh \
+	tests/e2e/run.sh \
+	tests/e2e/scenario-auth-cancel.sh \
+	tests/e2e/scenario-gnome.sh \
+	tests/e2e/scenario-kde.sh \
+	tests/e2e/scenario-routing.sh \
+	tests/e2e/session/desktop.sh \
+	tests/e2e/session/start.sh
+SHELL_SCRIPTS_VENDORED := \
+	scripts/vpnc-script-debug \
+	vpnc-script
+
+# Lint the shell scripts with shellcheck (the dialect comes from the shebang);
+# fails on any finding at warning level
+.PHONY: shellcheck
+shellcheck:
+	shellcheck --severity=warning $(SHELL_SCRIPTS)
+	shellcheck --severity=error $(SHELL_SCRIPTS_VENDORED)
 
 # Run the upstream contract tests (see docs/UPSTREAM.md)
 .PHONY: test-upstream

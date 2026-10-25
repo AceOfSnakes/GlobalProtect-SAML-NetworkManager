@@ -574,7 +574,7 @@ def test_release_job_does_not_know_about_the_notes():
 def test_release_notes_job_runs_after_release_for_tags_only_with_write_access():
     job = job_text("release-notes")
     assert "\n    needs: release\n" in job
-    assert "\n    if: startsWith(github.ref, 'refs/tags/')\n" in job
+    assert "\n    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'\n" in job
     assert "\n    runs-on: ubuntu-latest\n" in job
     assert "\n    permissions:\n      contents: write\n" in job
 
@@ -595,7 +595,7 @@ def test_release_notes_job_checks_out_only_the_scripts_without_credentials():
     job = job_text("release-notes")
     start = job.index("- name: Checkout code")
     step = job[start:job.index("\n      - name:", start + 1)]
-    assert "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0" in step
+    assert "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1" in step
     assert "persist-credentials: false" in step
     assert "sparse-checkout: .github/scripts\n" in step
     assert "sparse-checkout-cone-mode" not in step.replace("sparse-checkout-cone-mode: true", "")

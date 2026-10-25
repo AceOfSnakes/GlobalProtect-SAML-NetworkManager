@@ -576,8 +576,36 @@ def test_spec_strips_the_rust_binaries():
     # Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
     # upstream's release profile (strip = true)
     spec = read("rpm/network-manager-gpclient.spec")
-    assert "env -u RUSTFLAGS cargo build --release" in spec
+    assert "env -u RUSTFLAGS cargo build --locked --release" in spec
     assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
+
+
+CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
+
+
+def cargo_build_lines_without_locked(text):
+    return [line.strip() for line in text.splitlines()
+            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I) and "--locked" not in line]
+
+
+@pytest.mark.parametrize("path", CARGO_BUILD_FILES)
+def test_every_cargo_build_is_locked(path):
+    # the build must use the dependency versions of upstream's Cargo.lock, or fail
+    text = read(path)
+    assert re.search(r"\bcargo\b\S* build\b", text, re.I)
+    assert cargo_build_lines_without_locked(text) == []
+
+
+@pytest.mark.parametrize("path", CARGO_BUILD_FILES)
+def test_a_cargo_build_without_locked_is_reported(path):
+    text = read(path).replace(" --locked", "")
+    assert cargo_build_lines_without_locked(text)
+
+
+def test_spec_neither_builds_nor_installs_nor_packages_gpservice():
+    # nothing in this project starts gpservice: the callback path is gpclient launch-gui -> gpauth
+    assert "gpservice" not in read("rpm/network-manager-gpclient.spec")
+    assert "gpservice" not in read("rpm/install-test.sh")
 
 
 def provides_exclude_pattern():
@@ -635,3 +663,273 @@ def test_check_stripped_rejects_a_file_that_is_not_elf(tmp_path):
     exe.write_text("#!/bin/sh\n")
     result = run_function(tmp_path, f'check_stripped "{exe}"')
     assert result.returncode == 1
+
+
+# --- SELinux module (Fedora and RHEL only) ---
+
+SELINUX_GUARD = "0%{?fedora} || 0%{?rhel}"
+SELINUX_NAME = "network-manager-gpclient"
+SELINUX_UNINSTALL_CHECK = 'if [ "$1" -eq 0 ]; then'
+
+
+def spec_conditions(spec):
+    """Return (section, stack, line) for every line of a spec.
+
+    The stack holds the enclosing %if conditions, outermost first; a line after %else
+    gets the condition with a "!" in front.
+    """
+    result = []
+    stack = []
+    section = ""
+    for line in spec.splitlines():
+        word = line.split(None, 1)[0] if line.strip() else ""
+        if word in ("%if", "%ifarch"):
+            stack.append(line.split(None, 1)[1].strip())
+        elif word == "%else":
+            stack[-1] = "!" + stack[-1].lstrip("!")
+        elif word == "%endif":
+            stack.pop()
+        else:
+            if word in ("%build", "%install", "%post", "%postun", "%files", "%prep", "%description", "%changelog"):
+                section = word
+            result.append((section, list(stack), line))
+    assert not stack, "unbalanced %if in the spec"
+    return result
+
+
+def selinux_spec_problems(spec):
+    """Return the problems with the SELinux lines of a spec (an empty list: none)."""
+    lines = spec_conditions(spec)
+    problems = []
+    wanted = {
+        r"^BuildRequires:\s+selinux-policy-devel$": "",
+        r"^Requires:\s+selinux-policy-targeted$": "",
+        r"^make -f /usr/share/selinux/devel/Makefile ": "%build",
+        r"%\{buildroot\}%\{_datadir\}/selinux/packages/": "%install",
+        r"^%selinux_modules_install ": "%post",
+        r"^\s*%selinux_modules_uninstall ": "%postun",
+        r"^%\{_datadir\}/selinux/packages/": "%files",
+    }
+    for text, section in wanted.items():
+        found = [(sec, stack) for sec, stack, line in lines if re.search(text, line)]
+        if not found:
+            problems.append(f"missing: {text}")
+        for sec, stack in found:
+            if section and sec != section:
+                problems.append(f"{text} is in {sec or 'the header'}, not in {section}")
+            if stack != [SELINUX_GUARD]:
+                problems.append(f"{text} is under {stack}, not under {SELINUX_GUARD}")
+    # Every other line with "selinux" must be guarded as well
+    for sec, stack, line in lines:
+        if "selinux" in line.lower() and not line.lstrip().startswith("#") and SELINUX_GUARD not in stack:
+            problems.append(f"not guarded: {line.strip()}")
+    # The module is removed on erase only, not on upgrade
+    for index, (sec, stack, line) in enumerate(lines):
+        if "%selinux_modules_uninstall" in line and lines[index - 1][2].strip() != SELINUX_UNINSTALL_CHECK:
+            problems.append("selinux_modules_uninstall is not under the $1 -eq 0 check")
+    return problems
+
+
+def selinux_name_problems(spec, te, te_name):
+    """Return the places where the module name differs from the one in the .te file."""
+    module = re.match(r"module\s+(\S+)\s+\S+;", te)
+    if not module:
+        return ["no module line in the .te file"]
+    name = module.group(1)
+    problems = []
+    if te_name != name + ".te":
+        problems.append(f"file name {te_name} is not {name}.te")
+    sections = {}
+    for sec, _, line in spec_conditions(spec):
+        for pp in re.findall(r"([^/\s]+)\.pp\b", line):
+            sections.setdefault(sec, []).append(pp)
+        uninstall = re.search(r"%selinux_modules_uninstall\s+(\S+)", line)
+        if uninstall:
+            sections.setdefault("uninstall", []).append(uninstall.group(1))
+    for sec in ("%build", "%install", "%post", "%files", "uninstall"):
+        if not sections.get(sec):
+            problems.append(f"no module name in {sec}")
+        problems += [f"{sec} uses {got}, the .te file {name}" for got in sections.get(sec, []) if got != name]
+    return problems
+
+
+EXPECTED_TE_RULES = {
+    ("devpts_t", "chr_file", frozenset({"getattr", "open", "read", "write", "ioctl"})),
+    ("ptmx_t", "chr_file", frozenset({"getattr", "open", "read", "write", "ioctl"})),
+    ("session_dbusd_tmp_t", "sock_file", frozenset({"getattr"})),
+}
+
+
+def selinux_te_problems(te):
+    """Return the problems with the allow rules of a .te file."""
+    text = re.sub(r"#[^\n]*", "", te)
+    rules = set()
+    problems = []
+    for source, target, cls, perms in re.findall(r"^allow\s+(\S+)\s+(\S+):(\S+)\s+(\{[^}]*\}|[^;\s]+)\s*;", text, re.M):
+        perm_set = frozenset(perms.strip("{}").split())
+        if source != "NetworkManager_t":
+            problems.append(f"source domain {source}")
+        if "*" in perm_set or "~" in perms:
+            problems.append(f"wildcard permission on {target}")
+        rules.add((target, cls, perm_set))
+    if len(re.findall(r"^\s*allow\b", text, re.M)) != len(re.findall(r"^allow\s+\S+\s+\S+:\S+\s+(?:\{[^}]*\}|[^;\s]+)\s*;", text, re.M)):
+        problems.append("an allow rule that the check cannot read")
+    if rules != EXPECTED_TE_RULES:
+        problems.append(f"rules differ from the expected ones: {sorted(map(str, rules ^ EXPECTED_TE_RULES))}")
+    return problems
+
+
+def read_selinux_files():
+    return read("rpm/network-manager-gpclient.spec"), read("rpm/network-manager-gpclient.te")
+
+
+def test_spec_selinux_lines_are_only_for_fedora_and_rhel():
+    spec, _ = read_selinux_files()
+    assert selinux_spec_problems(spec) == []
+    # The pieces the check finds: one of each in the right section
+    lines = spec_conditions(spec)
+    assert ("%postun", [SELINUX_GUARD], "    %selinux_modules_uninstall network-manager-gpclient") in lines
+
+
+def make_selinux_spec(guard=SELINUX_GUARD, uninstall_check=True, unguarded=None):
+    """A synthetic spec with all SELinux lines; unguarded: the section that gets no guard."""
+
+    def wrap(section, text):
+        if unguarded == section:
+            return text
+        return f"%if {guard}\n{text}%endif\n"
+
+    uninstall = f"%selinux_modules_uninstall {SELINUX_NAME}\n"
+    if uninstall_check:
+        uninstall = f"{SELINUX_UNINSTALL_CHECK}\n    {uninstall}fi\n"
+    return (
+        wrap("head", "BuildRequires:  selinux-policy-devel\n")
+        + wrap("head", "Requires:       selinux-policy-targeted\n")
+        + "%build\n"
+        + wrap("%build", f"make -f /usr/share/selinux/devel/Makefile {SELINUX_NAME}.pp\n")
+        + "%install\n"
+        + wrap("%install", f"install -D -m 0644 {SELINUX_NAME}.pp %{{buildroot}}%{{_datadir}}/selinux/packages/{SELINUX_NAME}.pp\n")
+        + "%post\n"
+        + wrap("%post", f"%selinux_modules_install %{{_datadir}}/selinux/packages/{SELINUX_NAME}.pp\n")
+        + "%postun\n"
+        + wrap("%postun", uninstall)
+        + "%files\n"
+        + wrap("%files", f"%{{_datadir}}/selinux/packages/{SELINUX_NAME}.pp\n")
+    )
+
+
+def test_selinux_check_accepts_a_good_synthetic_spec():
+    assert selinux_spec_problems(make_selinux_spec()) == []
+
+
+@pytest.mark.parametrize("only_in", ["head", "%build", "%install", "%post", "%postun", "%files"])
+def test_selinux_check_rejects_a_line_outside_the_guard(only_in):
+    # The guard is missing in one place only: the check must find it
+    assert selinux_spec_problems(make_selinux_spec(unguarded=only_in))
+
+
+@pytest.mark.parametrize("guard", ["0%{?suse_version}", "0%{?fedora}", "0%{?rhel}", "1"])
+def test_selinux_check_rejects_another_condition(guard):
+    assert selinux_spec_problems(make_selinux_spec(guard=guard))
+
+
+def test_selinux_check_rejects_the_else_branch_of_the_guard():
+    spec = make_selinux_spec().replace("%if 0%{?fedora} || 0%{?rhel}\nBuildRequires:  selinux-policy-devel\n",
+                                       "%if 0%{?fedora} || 0%{?rhel}\n%else\nBuildRequires:  selinux-policy-devel\n")
+    assert selinux_spec_problems(spec)
+
+
+def test_selinux_check_rejects_an_uninstall_without_the_erase_check():
+    problems = selinux_spec_problems(make_selinux_spec(uninstall_check=False))
+    assert any("$1 -eq 0" in problem for problem in problems)
+
+
+def test_selinux_check_rejects_a_spec_without_selinux():
+    assert selinux_spec_problems("%build\n%install\n%post\n%postun\n%files\n")
+
+
+def test_spec_selinux_module_name_agrees_everywhere():
+    spec, te = read_selinux_files()
+    assert selinux_name_problems(spec, te, "network-manager-gpclient.te") == []
+    assert os.path.isfile(os.path.join(RPM_DIR, "network-manager-gpclient.te"))
+    assert te.startswith("module network-manager-gpclient ")
+
+
+@pytest.mark.parametrize("section", ["make", "install", "post", "files", "uninstall"])
+def test_selinux_name_check_rejects_a_mismatch_in_the_spec(section):
+    spec = make_selinux_spec()
+    te = f"module {SELINUX_NAME} 1.0;\n"
+    assert selinux_name_problems(spec, te, f"{SELINUX_NAME}.te") == []
+    lines = spec.splitlines(keepends=True)
+    keys = {
+        "make": "Makefile",
+        "install": "install -D",
+        "post": "%selinux_modules_install",
+        "files": "%{_datadir}/selinux/packages/" + SELINUX_NAME,
+        "uninstall": "%selinux_modules_uninstall",
+    }
+    changed = "".join(
+        line.replace(SELINUX_NAME, "other-name") if keys[section] in line and not (section == "files" and "install" in line) else line
+        for line in lines
+    )
+    assert changed != spec
+    assert selinux_name_problems(changed, te, f"{SELINUX_NAME}.te")
+
+
+@pytest.mark.parametrize(
+    "te, te_name",
+    [
+        ("module other-name 1.0;\n", f"{SELINUX_NAME}.te"),
+        (f"module {SELINUX_NAME} 1.0;\n", "other-name.te"),
+        ("# no module line\n", f"{SELINUX_NAME}.te"),
+    ],
+)
+def test_selinux_name_check_rejects_a_mismatch_in_the_te_file(te, te_name):
+    assert selinux_name_problems(make_selinux_spec(), te, te_name)
+
+
+def test_selinux_te_allows_exactly_what_the_service_needs():
+    _, te = read_selinux_files()
+    assert selinux_te_problems(te) == []
+    assert re.findall(r"^allow NetworkManager_t ", te, re.M) == ["allow NetworkManager_t "] * 3
+
+
+def good_te_rules():
+    return read_selinux_files()[1]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "allow unconfined_t ptmx_t:chr_file { getattr open read write ioctl };",
+        "allow init_t devpts_t:chr_file { getattr open read write ioctl };",
+        "allow NetworkManager_t ptmx_t:chr_file *;",
+        "allow NetworkManager_t ptmx_t:chr_file ~{ getattr };",
+        "allow NetworkManager_t etc_t:file { read };",
+        "allow NetworkManager_t session_dbusd_tmp_t:sock_file { write };",
+        "allow NetworkManager_t self:capability { sys_admin };",
+    ],
+)
+def test_selinux_te_check_rejects_extra_access(extra):
+    assert selinux_te_problems(good_te_rules() + extra + "\n")
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("allow NetworkManager_t devpts_t:", "allow NetworkManager_t * :"),
+        ("{ getattr open read write ioctl };\nallow NetworkManager_t ptmx_t", "{ getattr open read write };\nallow NetworkManager_t ptmx_t"),
+        ("allow NetworkManager_t session_dbusd_tmp_t:sock_file getattr;", "allow NetworkManager_t session_dbusd_tmp_t:sock_file *;"),
+        ("allow NetworkManager_t ptmx_t", "allow init_t ptmx_t"),
+    ],
+)
+def test_selinux_te_check_rejects_a_changed_rule(old, new):
+    te = good_te_rules()
+    changed = te.replace(old, new)
+    assert old in te
+    assert selinux_te_problems(changed)
+
+
+def test_selinux_te_check_rejects_a_missing_rule():
+    te = "\n".join(line for line in good_te_rules().splitlines() if "ptmx_t:chr_file" not in line)
+    assert selinux_te_problems(te)

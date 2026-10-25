@@ -211,7 +211,11 @@ def main():
 
         # Standard login portal, but the password is explicitly not required
         # (password-flags: 4 = NOT_REQUIRED).
-        if data.get("password-flags", "0") == "4":
+        try:
+            not_required = int(data.get("password-flags", 0)) & 4
+        except (TypeError, ValueError):
+            not_required = 0
+        if not_required:
             output_secrets({})
             wait_for_quit()
             return 0

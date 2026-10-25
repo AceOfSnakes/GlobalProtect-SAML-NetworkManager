@@ -858,3 +858,99 @@ class TestKeepNewestVersions:
         result = repo.build(env={"APT_KEEP_VERSIONS": value})
 
         assert result.returncode == 0, result.stderr + result.stdout
+
+
+# --- Release hygiene: SHA256 only, Acquire-By-Hash and the by-hash copies --------------------------
+
+def release_problems(release_text, suite_dir):
+    """What is wrong with a Release file and the by-hash copies next to the index files in suite_dir
+    (a pathlib.Path of dists/<suite>): MD5Sum or SHA1 listed, no SHA256, no Acquire-By-Hash: yes, or an
+    index file listed under SHA256 without a by-hash/SHA256/<hash> copy of the same content"""
+    found = []
+    sections = [line.rstrip(":") for line in release_text.splitlines() if line and not line.startswith(" ")
+                and line.endswith(":")]
+    for old in ("MD5Sum", "SHA1"):
+        if old in sections:
+            found.append(f"{old} is listed")
+    if "SHA256" not in sections:
+        found.append("no SHA256 section")
+    if "Acquire-By-Hash: yes" not in release_text.splitlines():
+        found.append("no Acquire-By-Hash: yes")
+    listed, in_sha256 = [], False
+    for line in release_text.splitlines():
+        if not line.startswith(" "):
+            in_sha256 = line == "SHA256:"
+        elif in_sha256:
+            listed.append(line.split())
+    for digest, _size, name in listed:
+        index = suite_dir / name
+        copy = index.parent / "by-hash" / "SHA256" / digest
+        if not copy.is_file():
+            found.append(f"no by-hash copy of {name}")
+        elif copy.read_bytes() != index.read_bytes():
+            found.append(f"by-hash copy of {name} has other content")
+    return found
+
+
+GOOD_RELEASE = "Acquire-By-Hash: yes\nSHA256:\n {digest} {size} main/binary-amd64/Packages\n"
+
+
+def make_suite(tmp_path, release_text=GOOD_RELEASE, copy="same"):
+    """dists/<suite> with one Packages file; copy is "same", "wrong" or "missing" for its by-hash copy"""
+    import hashlib
+    binary = tmp_path / "dists" / "noble" / "main" / "binary-amd64"
+    binary.mkdir(parents=True)
+    data = b"Package: x\n"
+    (binary / "Packages").write_bytes(data)
+    digest = hashlib.sha256(data).hexdigest()
+    if copy != "missing":
+        (binary / "by-hash" / "SHA256").mkdir(parents=True)
+        (binary / "by-hash" / "SHA256" / digest).write_bytes(data if copy == "same" else b"other\n")
+    return tmp_path / "dists" / "noble", release_text.format(digest=digest, size=len(data))
+
+
+class TestReleaseChecker:
+    def test_a_good_release_has_no_problems(self, tmp_path):
+        suite_dir, text = make_suite(tmp_path)
+        assert release_problems(text, suite_dir) == []
+
+    @pytest.mark.parametrize("edit,copy,expected", [
+        (lambda t: "MD5Sum:\n d41d8cd98f00b204e9800998ecf8427e 0 main/binary-amd64/Packages\n" + t, "same",
+         "MD5Sum is listed"),
+        (lambda t: "SHA1:\n da39a3ee5e6b4b0d3255bfef95601890afd80709 0 main/binary-amd64/Packages\n" + t, "same",
+         "SHA1 is listed"),
+        (lambda t: t.replace("Acquire-By-Hash: yes\n", ""), "same", "no Acquire-By-Hash: yes"),
+        (lambda t: t.replace("SHA256:", "SHA512:"), "same", "no SHA256 section"),
+        (lambda t: t, "wrong", "other content"),
+        (lambda t: t, "missing", "no by-hash copy"),
+    ])
+    def test_a_bad_release_or_by_hash_copy_is_found(self, tmp_path, edit, copy, expected):
+        suite_dir, text = make_suite(tmp_path, copy=copy)
+        assert any(expected in p for p in release_problems(edit(text), suite_dir))
+
+
+class TestScriptOptions:
+    @pytest.mark.parametrize("option", [
+        "-o APT::FTPArchive::Release::MD5=false",
+        "-o APT::FTPArchive::Release::SHA1=false",
+        "-o APT::FTPArchive::DoByHash=true",
+    ])
+    def test_the_script_asks_apt_ftparchive_for_it(self, option):
+        with open(SCRIPT, encoding="utf-8") as handle:
+            assert option in handle.read()
+
+
+@pytest.mark.skipif(shutil.which("apt-ftparchive") is None, reason="apt-ftparchive is not installed")
+class TestRealAptFtparchive:
+    def test_the_release_is_sha256_only_with_by_hash_copies(self, repo):
+        (repo.bin / "apt-ftparchive").unlink()   # the script finds the real one in /usr/bin
+        repo.add(CORE, "1.5.0-1~noble1")
+        repo.add(CORE, "1.5.0-1~noble1", "arm64")
+
+        result = repo.build()
+
+        assert result.returncode == 0, result.stderr + result.stdout
+        suite_dir = repo.out / "dists" / "noble"
+        text = (suite_dir / "Release").read_text()
+        assert release_problems(text, suite_dir) == []
+        assert "main/binary-amd64/Packages.gz" in text
