@@ -1695,7 +1695,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 self.gpclient_process is not None
                 or self.tunnel_check_task
                 or self.stdout_monitor_task
-                or self._pty_master is not None
             ):
                 logger.info("Connect() while a session is active: stopping it first")
                 await self._teardown()
