@@ -216,15 +216,16 @@ def check_state(results, run, name, kind, scenario):
 def check_edge(results, run, scenario):
     """Edge is started by the wrapper as the desktop user, never as root."""
     wrapper = run.text("edge-wrapper.log") or ""
-    # gpauth runs as the desktop user, so the wrapper starts as uid 1000; if it
-    # was started as root it must drop to uid 1000 before it starts the browser
-    calls = wrapper.count("called with args")
+    # gpauth runs as the desktop user, so every browser start in the log follows
+    # "running as EUID=1000". The wrapper writes wrapper.log only once it runs as
+    # that user: what it logs before (its arguments, a privilege drop as root)
+    # goes to stderr and syslog, and the process snapshots check for root.
+    starts = wrapper.count("started browser with PID")
     as_user = len(re.findall(r"running as EUID=1000 \(no privilege drop needed\)", wrapper))
-    dropped = len(re.findall(r"dropping privileges to demo \(uid=1000\)", wrapper))
     results.add(
         "wrapper runs the browser as the desktop user (uid 1000)",
-        calls > 0 and as_user + dropped == calls,
-        f"{calls} wrapper runs, {as_user} as uid 1000, {dropped} dropped privileges" if wrapper else "no edge-wrapper.log",
+        starts > 0 and as_user == starts,
+        f"{starts} browser starts, {as_user} as uid 1000" if wrapper else "no edge-wrapper.log",
     )
     results.add(
         "wrapper started the browser",
@@ -297,6 +298,28 @@ def check_cancel(results, run):
     )
 
 
+def check_dbus_policy(results, run):
+    """A non-root caller must be denied by the bus policy, not just fail.
+
+    shortcut: the system bus's default context also denies method calls, so
+    this catches an allow rule added for non-root callers, not a lost deny line
+    in nm-gpclient.conf; testing the file alone needs a private bus.
+    """
+    name = "D-Bus policy denies a non-root caller"
+    text = run.text("dbus-policy.txt")
+    if text is None:
+        results.add(name, False, "dbus-policy.txt is missing")
+        return
+    values = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    # AccessDenied only counts when the name is on the bus: ServiceUnknown would pass for the wrong reason
+    ok = (
+        values.get("name-on-bus") == "yes"
+        and values.get("ping-exit", "0") not in ("0", "")
+        and "org.freedesktop.DBus.Error.AccessDenied" in values.get("ping-error", "")
+    )
+    results.add(name, ok, text.strip()[:300])
+
+
 def run_checks(scenario, out):
     run = Run(out)
     results = Results()
@@ -308,6 +331,8 @@ def run_checks(scenario, out):
     check_logs(results, run, scenario)
     if scenario == "auth-cancel":
         check_cancel(results, run)
+    if scenario == "routing":
+        check_dbus_policy(results, run)
     if scenario not in SCENARIO_STATES:
         results.add("known scenario", False, scenario)
     return results.items

@@ -43,6 +43,10 @@ run fails when one of these is wrong:
   on the wired link, the company network is not on the tunnel, or the tunnel is the DNS
   default route; the VPN DNS servers and domain are not on the tunnel;
 - errors or tracebacks in the service log (NetworkManager log);
+- `routing`: the service name is not on the system bus, or a `Peer.Ping` from the
+  non-root user is not denied with `AccessDenied` by the system bus policy (this
+  catches an `allow` for non-root callers; the bus's default deny would hide a lost
+  `deny` line in `nm-gpclient.conf`);
 - after the disconnect: the tunnel or a route through it is left, DNS is not back to
   the wired link's 192.168.1.1, a gpclient/gpauth/Edge process is left;
 - `auth-cancel`: the VPN is active, helpers are left, routes or DNS changed, no
@@ -110,8 +114,10 @@ E2E_SCENARIO_FILE=tests/e2e/scenario-gnome.sh tests/e2e/run.sh gnome`.
 
 ## Known limits
 
-- The container has no systemd and no logind. `files/loginctl` answers
-  `loginctl list-users`, so that the VPN service finds the desktop user.
+- The container has no systemd and no logind. `files/loginctl` answers the
+  service's logind questions (`show-seat seat0`, `show-session`, `list-sessions`)
+  with one active local session of the user with uid 1000, so that the VPN
+  service finds the desktop user.
 - GNOME starts without `gnome-session` (it needs logind): `session/desktop.sh`
   starts `gnome-shell --x11` by hand. NetworkManager runs without polkit
   (`auth-polkit=false`).

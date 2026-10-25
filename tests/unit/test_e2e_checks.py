@@ -74,9 +74,9 @@ def state(kind, edge=None, **override):
     return "".join(f"## {title}\n" + "\n".join(lines) + "\n" for title, lines in sections.items())
 
 
+# What lands in wrapper.log: the wrapper logs its arguments before the file is
+# open (to stderr and syslog)
 WRAPPER_LOG = (
-    "[t] called with args: https://vpn.contoso.example/x\n"
-    "[t] EUID=1000 USER=demo\n"
     "[t] running as EUID=1000 (no privilege drop needed)\n"
     "[t] started browser with PID=654\n"
     "[t] done: gpauth (584) exited - authentication finished, closing browser\n"
@@ -85,6 +85,13 @@ NM_LOG = "__main__ [INFO] gpclient output: Connected to VPN\n"
 NM_LOG_CANCEL = (
     "__main__ [INFO] gpclient output: [t ERROR gpclient::cli::connect] Failed to authenticate with the portal\n"
 )
+
+
+DBUS_POLICY = (
+    "name-on-bus=yes\nping-exit=1\n"
+    "ping-error=Error org.freedesktop.DBus.Error.AccessDenied: Rejected send message\n"
+)
+DBUS_CHECK = "D-Bus policy denies a non-root caller"
 
 
 def write_run(path, scenario, scenario_exit="0"):
@@ -102,6 +109,7 @@ def write_run(path, scenario, scenario_exit="0"):
         files["state-disconnected.txt"] = state("baseline")
         files["state-connected-never-default.txt"] = state("split")
         files["state-disconnected-final.txt"] = state("baseline")
+        files["dbus-policy.txt"] = DBUS_POLICY
     elif scenario == "auth-cancel":
         files["state-before.txt"] = state("baseline")
         files["state-edge-open-1.txt"] = state("baseline", edge="open")
@@ -211,6 +219,13 @@ BREAKS = [
     ),
     ("gnome", "edge-wrapper.log", "running as EUID=1000 (no privilege drop needed)", "running as EUID=0", "wrapper runs the browser as the desktop user (uid 1000)"),
     ("gnome", "edge-wrapper.log", "started browser with PID=654", "no browser", "wrapper started the browser"),
+    (
+        "gnome",
+        "edge-wrapper.log",
+        "started browser with PID=654",
+        "started browser with PID=654\n[t] started browser with PID=777",
+        "wrapper runs the browser as the desktop user (uid 1000)",
+    ),
     ("gnome", "edge-wrapper.log", "authentication finished, closing browser", "gpauth timeout", "wrapper closed the browser when gpauth was done"),
     ("gnome", "NetworkManager.log", "Connected to VPN", "Traceback (most recent call last):", "no errors or tracebacks in the service log"),
     ("gnome", "NetworkManager.log", "Connected to VPN", "__main__ [ERROR] boom", "no errors or tracebacks in the service log"),
@@ -357,3 +372,33 @@ def test_a_named_tunnel_without_its_address_fails(tmp_path):
     named_tunnel(tmp_path)
     edit(tmp_path, "state-connected.txt", "    inet 10.20.30.45/32 scope global gp-1a2b3c4d\n", "")
     assert "[connected] tunnel address is exactly 10.20.30.45/32" in failed_names(tmp_path, "gnome")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "name-on-bus=yes\nping-exit=0\nping-error=\n",
+        "name-on-bus=yes\nping-exit=1\nping-error=Error org.freedesktop.DBus.Error.ServiceUnknown: not provided\n",
+        DBUS_POLICY.replace("name-on-bus=yes", "name-on-bus=no"),
+        "garbage\n",
+        "",
+    ],
+    ids=["ping-ok", "other-error", "name-missing", "malformed", "empty"],
+)
+def test_dbus_policy_check_fails_on_bad_result(tmp_path, text):
+    write_run(tmp_path, "routing")
+    (tmp_path / "dbus-policy.txt").write_text(text)
+    assert DBUS_CHECK in failed_names(tmp_path, "routing")
+
+
+def test_dbus_policy_check_fails_when_file_missing(tmp_path):
+    write_run(tmp_path, "routing")
+    os.remove(tmp_path / "dbus-policy.txt")
+    assert DBUS_CHECK in failed_names(tmp_path, "routing")
+
+
+@pytest.mark.parametrize("scenario", ["gnome", "kde", "auth-cancel"])
+def test_dbus_policy_check_only_in_routing(tmp_path, scenario):
+    write_run(tmp_path, scenario)
+    names = [item["name"] for item in checks.run_checks(scenario, str(tmp_path))]
+    assert DBUS_CHECK not in names
