@@ -298,7 +298,12 @@ def check_cancel(results, run):
 
 
 def check_dbus_policy(results, run):
-    """A non-root caller must be denied by the D-Bus policy, not just fail."""
+    """A non-root caller must be denied by the bus policy, not just fail.
+
+    shortcut: the system bus's default context also denies method calls, so
+    this catches an allow rule added for non-root callers, not a lost deny line
+    in nm-gpclient.conf; testing the file alone needs a private bus.
+    """
     name = "D-Bus policy denies a non-root caller"
     text = run.text("dbus-policy.txt")
     if text is None:
