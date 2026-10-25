@@ -307,7 +307,11 @@ class TestDnsState:
         state = service_module.parse_dns_state(text)
         found = service_module.learned_dns_from_state(state, "gpd0")
         dedupe = service_module._dedupe
-        assert found == (dedupe(servers), dedupe(domains + split), dedupe(servers6))
+        assert found == (
+            dedupe(servers),
+            service_module._merge_domains(domains, split),
+            dedupe(servers6),
+        )
         for address in found[0] + found[2]:
             ipaddress.ip_address(address)
         # a state of another tunnel is not ours

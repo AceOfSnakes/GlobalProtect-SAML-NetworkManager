@@ -10,8 +10,6 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
-import struct
-import socket
 
 import pytest
 
@@ -88,10 +86,6 @@ def connect(plugin, connection, interactive=False):
     run(go())
 
 
-def u32(ip):
-    return struct.unpack("<I", socket.inet_aton(ip))[0]
-
-
 # --- __init__ ----------------------------------------------------------------
 
 
@@ -120,7 +114,6 @@ def test_init_defaults(service_module):
     assert plugin._stored_gateway_count is None
     assert plugin.never_default is False
     assert plugin.ignore_auto_routes is False
-    assert plugin.custom_routes == []
     assert plugin._preexisting_ifaces == {}
     assert plugin.vpn_username == ""
     assert plugin.vpn_password == ""
@@ -133,10 +126,8 @@ def test_init_instances_do_not_share_mutable_state(service_module):
     first = service_module.GpclientVPNPlugin()
     second = service_module.GpclientVPNPlugin()
     first.dns_servers.append("1.1.1.1")
-    first.custom_routes.append(("10.0.0.0", 8))
 
     assert second.dns_servers == []
-    assert second.custom_routes == []
 
 
 # --- _parse_vpn_section ------------------------------------------------------
@@ -466,108 +457,6 @@ class TestConnectRouting:
 
         assert plugin.never_default is True
 
-    def test_route_data_plain_and_tuple_values(self, service_module, monkeypatch):
-        plugin = _plugin(service_module, monkeypatch)
-        route_data = [
-            {"dest": "10.1.0.0", "prefix": 16},
-            {"dest": ("s", "10.2.0.0"), "prefix": ("u", 24)},
-        ]
-
-        connect(plugin, _conn(ipv4={"route-data": route_data}))
-
-        assert plugin.custom_routes == [("10.1.0.0", 16), ("10.2.0.0", 24)]
-
-    def test_route_data_with_empty_dest_is_skipped(self, service_module, monkeypatch):
-        plugin = _plugin(service_module, monkeypatch)
-        route_data = [
-            {"dest": "", "prefix": 8},
-            {"prefix": 8},
-            {"dest": ("s", ""), "prefix": 8},
-            {"dest": "10.3.0.0", "prefix": 16},
-        ]
-
-        connect(plugin, _conn(ipv4={"route-data": route_data}))
-
-        assert plugin.custom_routes == [("10.3.0.0", 16)]
-
-    def test_route_data_missing_prefix_is_zero(self, service_module, monkeypatch):
-        plugin = _plugin(service_module, monkeypatch)
-
-        connect(plugin, _conn(ipv4={"route-data": [{"dest": "10.4.0.0"}]}))
-
-        assert plugin.custom_routes == [("10.4.0.0", 0)]
-
-    def test_route_data_wins_over_routes(self, service_module, monkeypatch):
-        plugin = _plugin(service_module, monkeypatch)
-        ipv4 = {
-            "route-data": [{"dest": "10.5.0.0", "prefix": 16}],
-            "routes": [[u32("192.168.0.0"), 16, 0, 0]],
-        }
-
-        connect(plugin, _conn(ipv4=ipv4))
-
-        assert plugin.custom_routes == [("10.5.0.0", 16)]
-
-    def test_routes_fallback_converts_little_endian_u32(
-        self, service_module, monkeypatch
-    ):
-        plugin = _plugin(service_module, monkeypatch)
-        routes = [
-            [u32("10.6.0.0"), 16, 0, 100],
-            (u32("172.16.5.0"), 24),
-        ]
-
-        connect(plugin, _conn(ipv4={"routes": routes}))
-
-        assert plugin.custom_routes == [("10.6.0.0", 16), ("172.16.5.0", 24)]
-
-    @pytest.mark.parametrize(
-        "bad_entry",
-        [
-            [],
-            [u32("10.0.0.0")],
-            "not-a-list",
-            None,
-            42,
-        ],
-    )
-    def test_routes_fallback_skips_malformed_entries(
-        self, service_module, monkeypatch, bad_entry
-    ):
-        plugin = _plugin(service_module, monkeypatch)
-        routes = [bad_entry, [u32("10.7.0.0"), 16, 0, 0]]
-
-        connect(plugin, _conn(ipv4={"routes": routes}))
-
-        assert plugin.custom_routes == [("10.7.0.0", 16)]
-
-    def test_routes_fallback_bad_prefix_becomes_32(self, service_module, monkeypatch):
-        plugin = _plugin(service_module, monkeypatch)
-        routes = [[u32("10.8.0.0"), "x", 0, 0]]
-
-        connect(plugin, _conn(ipv4={"routes": routes}))
-
-        assert plugin.custom_routes == [("10.8.0.0", 32)]
-
-    @pytest.mark.parametrize("bad_dest", ["x", None, [1]])
-    def test_routes_fallback_bad_dest_skips_entry(
-        self, service_module, monkeypatch, bad_dest
-    ):
-        plugin = _plugin(service_module, monkeypatch)
-        routes = [[bad_dest, 16, 0, 0], [u32("10.9.0.0"), 16, 0, 0]]
-
-        connect(plugin, _conn(ipv4={"routes": routes}))
-
-        assert plugin.custom_routes == [("10.9.0.0", 16)]
-
-    def test_no_routes_gives_empty_list(self, service_module, monkeypatch):
-        plugin = _plugin(service_module, monkeypatch)
-        plugin.custom_routes = [("1.2.3.0", 24)]
-
-        connect(plugin, _conn(ipv4={"routes": []}))
-
-        assert plugin.custom_routes == []
-
 
 class TestConnectData:
     def test_username_and_password(self, service_module, monkeypatch):
@@ -884,7 +773,6 @@ def _dirty(plugin):
     plugin.dns_domains = ["corp.example"]
     plugin.hip_enabled = False
     plugin.never_default = True
-    plugin.custom_routes = [("10.0.0.0", 8)]
     plugin.browser_target = "edge"
     plugin.fix_openssl_mode = "true"
     plugin.fix_openssl = True
@@ -1030,7 +918,6 @@ class TestDisconnect:
             "dns_domains",
             "hip_enabled",
             "never_default",
-            "custom_routes",
             "browser_target",
             "fix_openssl_mode",
             "fix_openssl",

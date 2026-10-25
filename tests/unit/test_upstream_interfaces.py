@@ -345,7 +345,6 @@ def _dirty_plugin(service_module):
     plugin.gpclient_process = RecordingGpclient()
     plugin.hip_enabled = False
     plugin.never_default = True
-    plugin.custom_routes = ["10.0.0.0/8"]
     plugin.dns_servers = ["10.0.0.53"]
     plugin.browser_target = "/usr/bin/firefox"
     return plugin
@@ -355,7 +354,6 @@ def _assert_cleaned(plugin):
     assert plugin.gpclient_process is None
     assert plugin.hip_enabled is True
     assert plugin.never_default is False
-    assert plugin.custom_routes == []
     assert plugin.dns_servers == []
     assert plugin.browser_target is None
 
