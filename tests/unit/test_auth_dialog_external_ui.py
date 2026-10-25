@@ -132,7 +132,32 @@ def test_special_characters_use_keyfile_escaping():
     assert groups["password"]["Value"] == "\\sa\\\\b"  # leading space = \s
 
 
+def test_a_newline_and_a_tab_are_escaped_on_their_own_line():
+    stdout, _, _ = external(
+        data=CRED, secrets={"password": "a\tb"}, hints=["x-vpn-message:line1\nline2", "otp"]
+    )
+    lines = stdout.splitlines()
+    assert "Description=line1\\nline2" in lines  # one line: GKeyFile reads \n back
+    assert "Value=" in lines  # the otp group, never pre-filled
+
+
+def test_the_username_is_named_in_the_description():
+    _, ui, _ = external(data={**CRED, "username": "jdoe"})
+    assert ui["Description"].endswith("\\nUser: jdoe")
+
+
 # Negatives
+
+
+def test_without_a_username_the_description_names_no_user():
+    _, ui, _ = external(data=CRED)
+    assert "User:" not in ui["Description"]
+
+
+def test_a_junk_password_flags_value_counts_as_0():
+    _, _, groups = external(data={**CRED, "password-flags": "junk"}, secrets={"password": "s3cret"})
+    assert groups["password"]["ShouldAsk"] == "false"  # stored, and not "not saved"
+    assert groups["password"]["Value"] == "s3cret"
 
 
 def test_without_flag_no_keyfile_is_printed():

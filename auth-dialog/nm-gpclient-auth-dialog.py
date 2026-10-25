@@ -27,8 +27,9 @@ prints a GKeyFile and exits at once, without waiting for QUIT:
 
 GNOME Shell then shows its own native prompt, and "nmcli --ask" prompts on the
 terminal. nmcli only asks for groups with IsSecret=true and ShouldAsk=true, so
-every group has IsSecret=true; ForceEcho=true marks the ones that are shown as
-typed (username, one-time code). No secret group at all means "nothing to ask".
+every group has IsSecret=true. ForceEcho=true (username, one-time code) makes
+only nmcli show the typed text; GNOME Shell and nm-applet mask every field.
+No secret group at all means "nothing to ask".
 The secrets, labels and flag rules are the same as in the GTK path.
 """
 
@@ -250,11 +251,11 @@ def external_ui(args, data, existing_secrets, requested, message):
             not stored or (key == "password" and bool(flags & 2))
         )
         entries.append((key, stored, secret_label(key), ask, key in PLAIN_TEXT_HINTS))
-    output_external_ui(
-        f"Authenticate VPN: {args.name}",
-        header_text(args.name, message, args.reprompt),
-        entries,
-    )
+    description = header_text(args.name, message, args.reprompt)
+    if data.get("username"):
+        # The GTK window shows the account too: say whose password is asked
+        description += f"\nUser: {data['username']}"
+    output_external_ui(f"Authenticate VPN: {args.name}", description, entries)
     return 0
 
 
