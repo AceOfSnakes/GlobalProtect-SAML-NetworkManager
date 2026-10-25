@@ -83,3 +83,26 @@ def test_the_workflow_checks_the_tag_before_building():
     text = workflow_steps.read_workflow("build-release.yml")
     assert "python3 .github/scripts/check_tag_version.py" in text
     assert text.count("needs: check-tag") == 2
+
+
+def run_step(event, ref, tag):
+    script = workflow_steps.step_script("build-release.yml", "Check the tag against debian/changelog")
+    env = {"PATH": os.environ["PATH"], "EVENT_NAME": event, "REF": ref, "TAG": tag}
+    return subprocess.run(["bash", "-e", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("event, ref, tag, ok", [
+    ("push", "refs/tags/v99.0.0", "v99.0.0", False),
+    ("push", "refs/tags/v1", "v1", False),
+    ("pull_request", "refs/pull/1/merge", "1/merge", True),
+    ("push", "refs/heads/main", "main", True),
+    ("workflow_dispatch", "refs/heads/x", "x", True),
+])
+def test_the_step_checks_tag_pushes_only(event, ref, tag, ok):
+    assert (run_step(event, ref, tag).returncode == 0) is ok
+
+
+def test_the_step_accepts_the_tag_of_the_changelog():
+    with open(os.path.join(ROOT, "debian", "changelog"), encoding="utf-8") as handle:
+        version = handle.readline().split("(")[1].split(")")[0].rsplit("-", 1)[0]
+    assert run_step("push", f"refs/tags/v{version}", f"v{version}").returncode == 0
