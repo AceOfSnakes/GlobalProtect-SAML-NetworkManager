@@ -12,7 +12,7 @@ The `nm-gpclient-service` is a Python3-based VPN service that implements the Net
    - Implements D-Bus interface `org.freedesktop.NetworkManager.VPN.Plugin`
    - Communicates with NetworkManager via System Bus
    - Manages the `gpclient` process
-   - Monitors tunnel interfaces (`gpd0` and any `tunN`, discovered at runtime)
+   - Monitors the tunnel interface (`gp-<UUID>`, or `gpd0` and any `tunN` without a UUID)
 
 2. **D-Bus Interface**
    - Service name: `org.freedesktop.NetworkManager.gpclient`
@@ -77,7 +77,7 @@ Informs NetworkManager about service state change.
 Passes IP configuration to NetworkManager.
 
 **Parameters:**
-- `tundev` (string) - tunnel interface name (e.g., "gpd0")
+- `tundev` (string) - tunnel interface name (e.g., "gp-1a2b3c4d")
 - `address`, `prefix`, `gateway` (uint32) - the tunnel's IPv4 configuration
 - `dns` (array of uint32) - DNS servers as `in_addr_t` values: the profile's
   `dns` override, otherwise the servers the gateway pushed
@@ -135,6 +135,17 @@ Background thread reads gpclient stdout and detects messages:
 After detecting message, immediately checks for tunnel interface.
 
 ### Tunnel Interface Detection
+A connection with a UUID names its tunnel: the service starts gpclient with
+`--interface=gp-<first 8 hex digits of the UUID>` (for example `gp-1a2b3c4d`).
+Detection then takes exactly that interface, as soon as it has an IPv4
+address. It uses no candidate list, no snapshot and no file descriptors. Before
+the start, a stale interface of that name (left by a crashed session) is
+removed when no gpclient runs; `gpd0` and `tunN` are never touched. Every
+NetworkManager connection has a UUID, so the cleanup of a stale `gpd0` (issue
+#7) now runs only for a connection without one (gpclient 3.x does not create
+`gpd0` itself). Without a usable UUID the service does not pass `--interface`
+and detection works as described next.
+
 Every 500ms `/sys/class/net` is scanned for `gpdN`/`tunN` devices (`gpd0`
 first, then `tunN` in numeric order). The candidate list is *not* hardcoded:
 openconnect falls back to a kernel-assigned `tunN` name whenever `gpd0` is
@@ -236,7 +247,7 @@ Connect() called
 Gateway: portal.example.com
 Started gpclient with PID 12345
 gpclient output: ...
-VPN connected - tunnel interface gpd0 detected!
+VPN connected - tunnel interface gp-1a2b3c4d detected!
 ```
 
 ### Log levels:

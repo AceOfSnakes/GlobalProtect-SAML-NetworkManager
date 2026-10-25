@@ -38,11 +38,17 @@ shot() { screenshot "$DEMO_OUT/$1.png"; }
 
 # The state a check can read: connections, addresses, routes and DNS
 snapshot() {
+    # The tunnel is named after the connection (--interface); the fake gpclient
+    # records the name. Before the first connect it is gpd0.
+    local tun
+    tun=$(cat /run/gp-demo/tun-name 2> /dev/null || echo gpd0)
     {
+        echo "## tunnel interface"
+        echo "$tun"
         echo "## nmcli connection show --active"
         nmcli -t -f NAME,TYPE,STATE,DEVICE connection show --active
-        echo "## ip -4 addr show gpd0"
-        ip -4 addr show gpd0 2>&1
+        echo "## ip -4 addr show $tun"
+        ip -4 addr show "$tun" 2>&1
         echo "## ip route"
         ip route
         echo "## ip route show default"
@@ -55,8 +61,8 @@ snapshot() {
         resolvectl dns 2>&1
         echo "## resolvectl domain"
         resolvectl domain 2>&1
-        echo "## resolvectl status gpd0"
-        resolvectl status gpd0 2>&1
+        echo "## resolvectl status $tun"
+        resolvectl status "$tun" 2>&1
         echo "## processes"
         ps -eo user:12,pid,comm,args --no-headers | awk '$3 ~ /^(msedge|microsoft-edge.*|gpclient|gpauth)$/' | cut -c1-200
         echo "## windows"

@@ -33,17 +33,17 @@ After each scenario `checks.py` runs in the container and writes
 `results.json` (`{"scenario", "ok", "checks": [{"name", "ok", "detail"}]}`). The
 run fails when one of these is wrong:
 
-- the VPN is not activated; `gpd0` has not exactly one address, 10.20.30.45/32
+- the VPN is not activated; the tunnel has not exactly one address, 10.20.30.45/32
   (no byte-swapped extra address); the wired connection was touched;
 - Edge was not started by the wrapper as uid 1000, ran as root, was still
   running or its window still open after the authentication;
 - full tunnel: the default route, the Internet (`ip route get 9.9.9.9`) and the
-  company network (`10.20.0.10`) do not go through `gpd0`, or `gpd0` is not the
+  company network (`10.20.0.10`) do not go through the tunnel, or the tunnel is not the
   DNS default route; never-default: the default route and the Internet are not
-  on the wired link, the company network is not on `gpd0`, or `gpd0` is the DNS
-  default route; the VPN DNS servers and domain are not on `gpd0`;
+  on the wired link, the company network is not on the tunnel, or the tunnel is the DNS
+  default route; the VPN DNS servers and domain are not on the tunnel;
 - errors or tracebacks in the service log (NetworkManager log);
-- after the disconnect: `gpd0` or a route through it is left, DNS is not back to
+- after the disconnect: the tunnel or a route through it is left, DNS is not back to
   the wired link's 192.168.1.1, a gpclient/gpauth/Edge process is left;
 - `auth-cancel`: the VPN is active, helpers are left, routes or DNS changed, no
   clean failure in the service log, or the connection attempt ended without an

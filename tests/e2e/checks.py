@@ -106,11 +106,13 @@ def check_state(results, run, name, kind, scenario):
         results.add(f"{label} state saved", False, f"state-{name}.txt is missing")
         return
     active = section(state, "nmcli connection show --active")
-    gpd0_addr = [line.strip() for line in section(state, "ip -4 addr show gpd0") if line.strip().startswith("inet ")]
+    # The tunnel is named after the connection; states of older runs have gpd0
+    tun = next((line.strip() for line in section(state, "tunnel interface") if line.strip()), "gpd0")
+    tun_addr = [line.strip() for line in section(state, f"ip -4 addr show {tun}") if line.strip().startswith("inet ")]
     route_default = section(state, "ip route show default")
     get_inet = " ".join(section(state, "ip route get 9.9.9.9"))
     get_corp = " ".join(section(state, "ip route get 10.20.0.10"))
-    status = " ".join(section(state, "resolvectl status gpd0"))
+    status = " ".join(section(state, f"resolvectl status {tun}"))
     dns = section(state, "resolvectl dns")
     domain = section(state, "resolvectl domain")
     procs = section(state, "processes")
@@ -131,22 +133,22 @@ def check_state(results, run, name, kind, scenario):
         )
         results.add(
             f"{label} tunnel address is exactly {TUNNEL_ADDRESS}",
-            len(gpd0_addr) == 1 and gpd0_addr[0].split()[1] == TUNNEL_ADDRESS,
-            "; ".join(gpd0_addr) or "no address on gpd0",
+            len(tun_addr) == 1 and tun_addr[0].split()[1] == TUNNEL_ADDRESS,
+            "; ".join(tun_addr) or f"no address on {tun}",
         )
         if kind == "full":
             results.add(
-                f"{label} full tunnel: default route and Internet go through gpd0",
-                bool(lines_with(route_default, "dev gpd0")) and "dev gpd0" in get_inet,
+                f"{label} full tunnel: default route and Internet go through {tun}",
+                bool(lines_with(route_default, f"dev {tun}")) and f"dev {tun}" in get_inet,
                 f"default: {'; '.join(route_default)} | 9.9.9.9: {get_inet}",
             )
             results.add(
-                f"{label} full tunnel: company network goes through gpd0",
-                "dev gpd0" in get_corp,
+                f"{label} full tunnel: company network goes through {tun}",
+                f"dev {tun}" in get_corp,
                 get_corp,
             )
             results.add(
-                f"{label} full tunnel: gpd0 is the DNS default route",
+                f"{label} full tunnel: {tun} is the DNS default route",
                 "+DefaultRoute" in status,
                 status,
             )
@@ -154,22 +156,22 @@ def check_state(results, run, name, kind, scenario):
             results.add(
                 f"{label} never-default: default route stays on the wired link",
                 bool(route_default)
-                and not lines_with(route_default, "gpd0")
+                and not lines_with(route_default, tun)
                 and all(WIRED_DEVICE in line for line in route_default),
                 "; ".join(route_default),
             )
             results.add(
-                f"{label} never-default: Internet via wired link, company network via gpd0",
-                f"dev {WIRED_DEVICE}" in get_inet and "dev gpd0" in get_corp,
+                f"{label} never-default: Internet via wired link, company network via {tun}",
+                f"dev {WIRED_DEVICE}" in get_inet and f"dev {tun}" in get_corp,
                 f"9.9.9.9: {get_inet} | 10.20.0.10: {get_corp}",
             )
             results.add(
-                f"{label} never-default: gpd0 is not the DNS default route",
+                f"{label} never-default: {tun} is not the DNS default route",
                 "-DefaultRoute" in status,
                 status,
             )
         results.add(
-            f"{label} VPN DNS servers and domain on gpd0",
+            f"{label} VPN DNS servers and domain on {tun}",
             f"DNS Servers: {VPN_DNS}" in status and f"DNS Domain: {VPN_DOMAIN}" in status,
             status,
         )
@@ -187,10 +189,10 @@ def check_state(results, run, name, kind, scenario):
         )
         results.add(
             f"{label} no tunnel device, no route through it",
-            not gpd0_addr
-            and not [line for line in section(state, "ip route") if "gpd0" in line]
-            and not lines_with(active, "gpd0"),
-            "; ".join(gpd0_addr + lines_with(section(state, "ip route"), "gpd0")),
+            not tun_addr
+            and not [line for line in section(state, "ip route") if tun in line]
+            and not lines_with(active, tun),
+            "; ".join(tun_addr + lines_with(section(state, "ip route"), tun)),
         )
         results.add(
             f"{label} routes: Internet via the wired link",

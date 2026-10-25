@@ -4,13 +4,15 @@
 Only what nm-gpclient-service.py uses is implemented:
 
   gpclient [--fix-openssl] connect [--hip] [--as-gateway] [--user U]
+           [--interface I]
            --browser <path> <server>
   gpclient disconnect
 
 `connect` prints log lines in the style of the real tool (nothing the service
 would take for a prompt or a gateway list), runs the fake gpauth as the desktop
 user (uid from SUDO_UID) and waits for it, then does what the real tool and
-real openconnect does: create the tun device gpd0 and keep its file
+real openconnect does: create the tun device (the --interface name, else
+gpd0) and keep its file
 descriptor open (the service reads /proc/PID/fdinfo "iff:"), then run the real
 /usr/share/vpnc-scripts/vpnc-script with reason pre-init and connect and the
 environment openconnect sets (address, DNS, a full-tunnel split-include list).
@@ -55,7 +57,7 @@ def auth_timeout(default):
             pass
     return int(value) if value.isdigit() and int(value) > 0 else default
 
-TUN_NAME = "gpd0"
+TUN_NAME = "gpd0"  # --interface replaces it, as in openconnect
 VPNC_SCRIPT = "/usr/share/vpnc-scripts/vpnc-script"
 VPN_GATEWAY_IP = "198.51.100.10"  # TEST-NET-2: vpnc-script adds a host route to it
 GATEWAY = "Contoso HQ (gw-hq.contoso.example)"
@@ -220,8 +222,12 @@ def connect(args):
 
 
 def run_connect(args):
+    global TUN_NAME
+    TUN_NAME = args.interface or TUN_NAME
     os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
     os.chmod(STATE_DIR, 0o755)
+    with open(f"{STATE_DIR}/tun-name", "w", encoding="utf-8") as handle:
+        handle.write(f"{TUN_NAME}\n")  # read by snapshot() in lib.sh
     with open(PID_FILE, "w", encoding="utf-8") as handle:
         handle.write(f"{os.getpid()}\n")
 
@@ -298,6 +304,7 @@ def main():
     conn.add_argument("--hip", action="store_true")
     conn.add_argument("--as-gateway", action="store_true")
     conn.add_argument("--user")
+    conn.add_argument("--interface")
     conn.add_argument("--browser", default="/usr/libexec/gpclient/browser-wrapper")
     conn.add_argument("server")
     conn.set_defaults(func=connect)
