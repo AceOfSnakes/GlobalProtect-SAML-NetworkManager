@@ -23,7 +23,6 @@ struct _NMGpclientEditor {
     GtkEntry *username_entry;
     GtkWidget *password_label;
     GtkEntry *password_entry;
-    NMSetting *flags_setting;  /* what the password storage menu is set up with */
     gboolean is_new;  /* no vpn.data at load: first save adds the defaults */
     GtkComboBoxText *browser_combo;
     GtkSpinButton *timeout_spin;
@@ -315,11 +314,9 @@ build_ui (NMGpclientEditor *self)
 
         if (!is_new)
             nm_setting_get_secret_flags (NM_SETTING (s_vpn), "password", &flags, NULL);
-        /* The menu keeps the setting: a new connection may have none yet */
-        self->flags_setting = s_vpn ? g_object_ref (NM_SETTING (s_vpn))
-                                    : NM_SETTING (nm_setting_vpn_new ());
-        nma_utils_setup_password_storage (GTK_WIDGET (self->password_entry), flags,
-                                          self->flags_setting, "password", FALSE, FALSE);
+        /* No setting: libnma would read the flags from it (none on a new
+         * connection, so 0) and ignore these; update_connection() saves them */
+        nma_utils_setup_password_storage (GTK_WIDGET (self->password_entry), flags, NULL, NULL, FALSE, FALSE);
     }
     g_signal_connect (G_OBJECT (self->password_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->password_entry), 1, row++, 1, 1);
@@ -742,7 +739,6 @@ dispose (GObject *object)
     }
 
     g_clear_pointer (&self->mtu_stored, g_free);
-    g_clear_object (&self->flags_setting);
 
     if (self->connection) {
         g_object_unref (self->connection);
@@ -779,7 +775,6 @@ nm_gpclient_editor_init (NMGpclientEditor *self)
     self->username_entry = NULL;
     self->password_label = NULL;
     self->password_entry = NULL;
-    self->flags_setting = NULL;
     self->browser_combo = NULL;
     self->timeout_spin = NULL;
     self->mtu_spin = NULL;

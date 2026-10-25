@@ -18,7 +18,6 @@ struct _NMGpclientEditor {
     GtkWidget *username_entry;
     GtkWidget *password_label;
     GtkWidget *password_entry;
-    NMSetting *flags_setting;  /* what the password storage menu is set up with */
     gboolean is_new;  /* no vpn.data at load: first save adds the defaults */
     GtkWidget *browser_combo;
     GtkWidget *timeout_spin;
@@ -330,11 +329,9 @@ build_ui (NMGpclientEditor *self)
 
         if (!is_new)
             nm_setting_get_secret_flags (NM_SETTING (s_vpn), "password", &flags, NULL);
-        /* The menu keeps the setting: a new connection may have none yet */
-        self->flags_setting = s_vpn ? g_object_ref (NM_SETTING (s_vpn))
-                                    : NM_SETTING (nm_setting_vpn_new ());
-        nma_utils_setup_password_storage (self->password_entry, flags, self->flags_setting,
-                                          "password", FALSE, FALSE);
+        /* No setting: libnma would read the flags from it (none on a new
+         * connection, so 0) and ignore these; update_connection() saves them */
+        nma_utils_setup_password_storage (self->password_entry, flags, NULL, NULL, FALSE, FALSE);
     }
     g_signal_connect (self->password_entry, "changed", G_CALLBACK (entry_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->password_entry, 1, row++, 1, 1);
@@ -734,7 +731,6 @@ nm_gpclient_editor_dispose (GObject *object)
     }
 
     g_clear_pointer (&self->mtu_stored, g_free);
-    g_clear_object (&self->flags_setting);
 
     if (self->connection) {
         g_object_unref (self->connection);

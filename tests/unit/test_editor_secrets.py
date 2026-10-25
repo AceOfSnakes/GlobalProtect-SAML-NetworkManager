@@ -29,6 +29,19 @@ def test_gtk_editor_uses_the_password_storage_menu(rel):
     assert '"otp-flags", "2"' in src
 
 
+@pytest.mark.parametrize("rel", GTK)
+def test_gtk_storage_menu_gets_no_setting(rel):
+    # With a setting, libnma reads the flags from it and ignores the initial
+    # ones: a new connection (no password-flags yet) would start at 0, stored
+    # for all users in the profile, instead of 1
+    calls = re.findall(r"nma_utils_setup_password_storage\s*\(([^;]*)\);", read(rel))
+
+    assert calls
+    for call in calls:
+        args = [a.strip() for a in call.split(",")]
+        assert args[2:4] == ["NULL", "NULL"], call
+
+
 @pytest.mark.parametrize("rel", GTK + [PLASMA])
 def test_every_editor_defaults_a_new_connection_only(rel):
     # The defaults are guarded by "new": an existing connection keeps its flags
