@@ -105,8 +105,9 @@ is false.
   profile's `dns` when it has a valid address of either family, otherwise the
   gateway's `INTERNAL_IP6_DNS`
 - `domains` (array of string) - the same list as in `Ip4Config`
-- `never-default` (boolean) - true when the profile has `ipv4.never-default`:
-  that one setting keeps both families off the default route
+- `never-default` (boolean) - true when the profile has `ipv4.never-default`,
+  so NetworkManager adds no IPv6 default route either (an IPv6 default route
+  that vpnc-script adds itself stays: issue #109)
 
 The gateway's DNS reaches the service through the vpnc hook
 `/etc/vpnc/connect.d/90-gpclient-routing`: vpnc-script sources it with

@@ -130,8 +130,9 @@ fi
 # the Wi-Fi interface is enough) it pushes that empty configuration to
 # systemd-resolved and the VPN DNS is gone while the tunnel stays up. The
 # service reads this file when it detects the tunnel and reports the same
-# servers and domains to NetworkManager in Ip4Config (and Ip6Config when
-# the tunnel has an IPv6 address), so NetworkManager owns
+# servers and domains (the split-DNS ones as routing-only ~domain) to
+# NetworkManager in Ip4Config (and Ip6Config when the tunnel has an IPv6
+# address), so NetworkManager owns
 # the resolver state and reapplies it on every recalculation.
 #
 # Written only when our service started gpclient (it sets the path); a
