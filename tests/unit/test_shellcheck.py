@@ -11,6 +11,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import os
 import re
+import fnmatch
+import shutil
 import subprocess
 
 import pytest
@@ -42,13 +44,37 @@ def workflow_problems(text):
     return []
 
 
-def repository_scripts():
-    """The tracked files with a sh/bash shebang, outside external/"""
-    names = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True).stdout
+# Not tracked by git: what a walk of a copy without .git skips (see .gitignore)
+UNTRACKED_DIRS = (".git", ".claude", "external", "output", "tmp", "build", "__pycache__", "debian/.debhelper")
+UNTRACKED_DIR_PATTERNS = ("debian/network-manager-gpclient*",)
+
+
+def tracked_files(root):
+    """The files git tracks under root, or, in a copy without .git (the non-root
+    run of AGENTS.md), every file outside the untracked directories"""
+    result = subprocess.run(["git", "ls-files", "-z"], cwd=root, capture_output=True)
+    if result.returncode == 0:
+        return [name for name in result.stdout.decode().split("\0") if name]
     found = []
-    for name in names.decode().split("\0"):
-        path = os.path.join(ROOT, name)
-        if not name or name.startswith("external/") or not os.path.isfile(path):
+    for directory, dirs, files in os.walk(root):
+        relative = os.path.relpath(directory, root)
+        relative = "" if relative == "." else relative + "/"
+        dirs[:] = [
+            name for name in dirs
+            if name not in UNTRACKED_DIRS
+            and (relative + name) not in UNTRACKED_DIRS
+            and not any(fnmatch.fnmatch(relative + name, pattern) for pattern in UNTRACKED_DIR_PATTERNS)
+        ]
+        found += [relative + name for name in files]
+    return found
+
+
+def repository_scripts(root=ROOT):
+    """The tracked files with a sh/bash shebang, outside external/"""
+    found = []
+    for name in tracked_files(root):
+        path = os.path.join(root, name)
+        if name.startswith("external/") or not os.path.isfile(path):
             continue
         with open(path, "rb") as handle:
             if SHEBANG.match(handle.readline()):
@@ -129,3 +155,39 @@ def test_other_files_are_not_shell_scripts(line):
 @pytest.mark.parametrize("line", [b"#!/bin/sh\n", b"#!/bin/bash\n", b"#!/usr/bin/env bash\n"])
 def test_shell_shebangs_are_found(line):
     assert SHEBANG.match(line)
+
+
+def _copy_without_git(tmp_path):
+    """A copy of the repository's tracked files without .git, plus build output"""
+    copy = tmp_path / "copy"
+    for name in tracked_files(ROOT):
+        if name.startswith("external/") or not os.path.isfile(os.path.join(ROOT, name)):
+            continue
+        target = copy / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(os.path.join(ROOT, name), target)
+    return copy
+
+
+def test_a_copy_without_git_finds_the_same_scripts(tmp_path):
+    copy = _copy_without_git(tmp_path)
+    assert not (copy / ".git").exists()
+    assert repository_scripts(str(copy)) == repository_scripts()
+
+
+@pytest.mark.parametrize("directory", [
+    "output/noble", "build", "plugins/plasma/build", "debian/network-manager-gpclient/usr/bin",
+    "debian/.debhelper/x", ".claude/hooks", "tmp", "external/GlobalProtect-openconnect",
+])
+def test_a_copy_without_git_skips_build_and_untracked_dirs(tmp_path, directory):
+    copy = _copy_without_git(tmp_path)
+    script = copy / directory / "generated.sh"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("#!/bin/sh\necho\n")
+    assert repository_scripts(str(copy)) == repository_scripts()
+
+
+def test_a_copy_without_git_finds_a_new_script(tmp_path):
+    copy = _copy_without_git(tmp_path)
+    (copy / "scripts" / "new-script.sh").write_text("#!/bin/bash\necho\n")
+    assert "scripts/new-script.sh" in repository_scripts(str(copy))
