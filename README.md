@@ -169,6 +169,8 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `gateway-list-count` | (written by the service) | gpclient's `Found N gateways in portal config` count when the list was last read completely. It marks `gateway-list` as complete; the list is read again when the portal reports another number, and never without that line |
 | `auth-mode` | `saml` | `saml` = browser login, `credentials` = username/password collected upfront |
 | `username` | (empty) | Username for portals that ask on the terminal |
+| `password-flags` | `1` for a new connection from an editor, `0` otherwise | Where the `password` secret is kept: `1` = for this user only (secret agent, e.g. the keyring), `0` = for all users (in the profile file, as plain text), `2` = not saved, asked every time. The editors show this as the **Password** field (only for `auth-mode=credentials`) with a storage menu. Emptying the field keeps a stored password; choose `2` to remove it from the profile |
+| `otp-flags` | `2` for a new connection from an editor | `2` = a one-time code is never stored. The service also sets it after the first one-time prompt |
 | `browser` | `edge` | `edge`, `firefox`, `chrome`, `chromium`, `default`, or the absolute path (or command name) of your own wrapper ([details](docs/EDGE_WRAPPER.md#alternative-browsers)) |
 | `fix-openssl` | `auto` | Legacy TLS renegotiation for portals with an old TLS stack. `auto` retries once when the portal needs it and then stores `true` in the profile; `true` uses it from the start; `false` never does |
 | `mtu` | (empty) | MTU of the tunnel, 576-1500 (smaller values are raised to 576); empty or `0` is automatic. A value that is not a plain number up to 1500 is ignored with a warning in the log. openconnect uses it only when the gateway sends no MTU (its log then says "No MTU received. Calculated N ..."); a gateway MTU wins. Lowering it (`nmcli connection modify "My VPN" +vpn.data mtu=1300`) may help when the tunnel falls back from ESP to HTTPS with "ESP receive error: Message too long", as seen on mobile hotspots. The editors show a stored value they cannot show as 0 and keep it on save while the field is untouched |
@@ -215,8 +217,16 @@ VPN DNS servers answer only for the VPN's domains:
 
 ![ip route and resolvectl before connecting, with the default settings and with "Use this connection only for resources on its network"](docs/images/demo-routing-dns.webp)
 
-The password for `auth-mode=credentials` is a secret, not data:
-`nmcli connection modify "My VPN" +vpn.secrets password=...`
+The password for `auth-mode=credentials` is a secret, not data. Type it in the
+**Password** field of the editor and choose where to keep it with the icon in
+the field. Do not put it on the `nmcli` command line: other users of the
+machine can read it in the process list, and your shell keeps it in its
+history. Use `password-flags=1` and let `nmcli` ask for it:
+
+```bash
+nmcli connection modify "My VPN" +vpn.data password-flags=1
+nmcli --ask connection up "My VPN"
+```
 
 Older versions added `resolve [!UNAVAIL=return]` to the `hosts:` line of `/etc/nsswitch.conf` and kept a backup in `/etc/nsswitch.conf.gpclient-backup`. Version 2.0.0 does not change this file. If you do not want that edit, restore the backup.
 

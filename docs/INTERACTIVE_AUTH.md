@@ -57,21 +57,28 @@ will be asked in a dialog on every connect:
 nmcli connection modify "My VPN" +vpn.data username=jdoe
 ```
 
-Optionally also store the second-phase (gateway/AD) password:
-
-```bash
-nmcli connection modify "My VPN" +vpn.secrets password=SuperSecret
-```
+Optionally also store the second-phase (gateway/AD) password. Type it in the
+**Password** field of the editor, or let `nmcli` ask for it (see the next
+section). Do not put the password on the `nmcli` command line: other users can
+read it in the process list, and your shell keeps it in its history.
 
 ### Plain username + password portal (no SAML, no MFA)
 
-Fully non-interactive setup — ask NetworkManager to collect and store the
-password upfront:
+Ask NetworkManager to collect the password upfront. In the editor, choose
+**Username and password** and type the password in the **Password** field: the
+storage menu (the icon in the field in GNOME, the **Password storage** list in
+Plasma) sets `password-flags` (1 = this user only, 0 = all users, in the
+profile as plain text, 2 = ask every time). Emptying the field does not delete
+a stored password (NetworkManager keeps the old one): choose "ask every time"
+to remove it from the profile. A new connection starts with
+`password-flags=1` and `otp-flags=2`. With `nmcli`, do not give the password on
+the command line. Set the flags and let `nmcli` ask:
 
 ```bash
 nmcli connection modify "My VPN" +vpn.data username=jdoe
 nmcli connection modify "My VPN" +vpn.data auth-mode=credentials
-nmcli connection modify "My VPN" +vpn.secrets password=SuperSecret
+nmcli connection modify "My VPN" +vpn.data password-flags=1
+nmcli --ask connection up "My VPN"
 ```
 
 With `auth-mode=credentials` the service reports to NetworkManager that the

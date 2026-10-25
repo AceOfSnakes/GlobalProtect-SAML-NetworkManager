@@ -5,6 +5,7 @@
 #include <gtk/gtk.h>
 #include <NetworkManager.h>
 #include <nm-vpn-editor-plugin.h>
+#include <nma-ui-utils.h>
 
 #include "nm-gpclient-editor.h"
 #include "nm-gpclient-mtu.h"
@@ -20,6 +21,10 @@ struct _NMGpclientEditor {
     GtkComboBoxText *preferred_gateway_combo;
     GtkComboBoxText *auth_mode_combo;
     GtkEntry *username_entry;
+    GtkWidget *password_label;
+    GtkEntry *password_entry;
+    gboolean is_new;  /* no vpn.data at load: first save adds the defaults */
+    NMSettingSecretFlags password_menu_flags;  /* the storage menu at load */
     GtkComboBoxText *browser_combo;
     GtkSpinButton *timeout_spin;
     GtkSpinButton *mtu_spin;
@@ -135,6 +140,11 @@ static void
 auth_mode_changed_cb (GtkComboBox *combo, gpointer user_data)
 {
     NMGpclientEditor *self = NM_GPCLIENT_EDITOR (user_data);
+    gboolean credentials = gtk_combo_box_get_active (combo) == 1;
+
+    /* The password is used only by "Username and password" */
+    gtk_widget_set_visible (self->password_label, credentials);
+    gtk_widget_set_visible (GTK_WIDGET (self->password_entry), credentials);
 
     if (self->timeout_follows_auth_mode && self->timeout_spin) {
         g_signal_handlers_block_by_func (self->timeout_spin, timeout_changed_cb, self);
@@ -160,6 +170,7 @@ build_ui (NMGpclientEditor *self)
     s_vpn = nm_connection_get_setting_vpn (self->connection);
     /* A profile that exists has at least the gateway in vpn.data */
     is_new = !s_vpn || nm_setting_vpn_get_num_data_items (s_vpn) == 0;
+    self->is_new = is_new;
     stored = s_vpn ? nm_setting_vpn_get_timeout (s_vpn) : 0;
 
     widget = gtk_grid_new ();
@@ -280,6 +291,42 @@ build_ui (NMGpclientEditor *self)
     }
     g_signal_connect (G_OBJECT (self->username_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->username_entry), 1, row++, 1, 1);
+
+    /* Password, stored as a secret of the connection: only for "Username and
+     * password". A new connection asks the secret agent (password-flags=1); an
+     * existing one keeps its flags (a missing key is 0, system-owned). */
+    self->password_label = gtk_label_new ("Password:");
+    gtk_widget_set_halign (self->password_label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (widget), self->password_label, 0, row, 1, 1);
+
+    self->password_entry = GTK_ENTRY (gtk_entry_new ());
+    gtk_entry_set_visibility (self->password_entry, FALSE);
+    gtk_widget_set_hexpand (GTK_WIDGET (self->password_entry), TRUE);
+    gtk_widget_set_tooltip_text (GTK_WIDGET (self->password_entry),
+        "Optional. Use the icon in the field to choose where the password is "
+        "kept: for this user only, for all users, or not at all (asked every time).");
+    if (s_vpn) {
+        value = nm_setting_vpn_get_secret (s_vpn, "password");
+        if (value && *value)
+            gtk_entry_set_text (self->password_entry, value);
+    }
+    {
+        NMSettingSecretFlags flags = NM_SETTING_SECRET_FLAG_AGENT_OWNED;
+
+        if (!is_new)
+            nm_setting_get_secret_flags (NM_SETTING (s_vpn), "password", &flags, NULL);
+        /* No setting: libnma would read the flags from it (none on a new
+         * connection, so 0) and ignore these; update_connection() saves them */
+        nma_utils_setup_password_storage (GTK_WIDGET (self->password_entry), flags, NULL, NULL, FALSE, FALSE);
+        self->password_menu_flags = nma_utils_menu_to_secret_flags (GTK_WIDGET (self->password_entry));
+    }
+    g_signal_connect (G_OBJECT (self->password_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
+    gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->password_entry), 1, row++, 1, 1);
+    /* gtk_widget_show_all() below must not show them in browser mode */
+    gtk_widget_set_no_show_all (self->password_label, TRUE);
+    gtk_widget_set_no_show_all (GTK_WIDGET (self->password_entry), TRUE);
+    gtk_widget_set_visible (self->password_label, auth_index == 1);
+    gtk_widget_set_visible (GTK_WIDGET (self->password_entry), auth_index == 1);
 
     /* Browser */
     label = gtk_label_new ("Browser:");
@@ -564,6 +611,32 @@ update_connection (NMVpnEditor *iface,
             nm_setting_vpn_remove_data_item (s_vpn, "username");
     }
 
+    /* Save the password flags and the password. A new connection gets
+     * password-flags=1; an existing one without the key stays without it. The
+     * secret is kept out of the connection when it is not to be saved. An
+     * agent-owned secret goes to NetworkManager, which hands it to the agent and
+     * keeps it out of the profile file. */
+    if (self->password_entry) {
+        NMSettingSecretFlags flags = nma_utils_menu_to_secret_flags (GTK_WIDGET (self->password_entry));
+
+        /* Only a new connection or a change in the menu writes the flags, so
+         * bits the menu cannot show (4, not required) are kept */
+        if ((self->is_new && flags != NM_SETTING_SECRET_FLAG_NONE) || flags != self->password_menu_flags)
+            nm_setting_set_secret_flags (NM_SETTING (s_vpn), "password", flags, NULL);
+        str = gtk_entry_get_text (self->password_entry);
+        if (gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1) {
+            if (str && *str && !(flags & NM_SETTING_SECRET_FLAG_NOT_SAVED))
+                nm_setting_vpn_add_secret (s_vpn, "password", str);
+            else
+                nm_setting_vpn_remove_secret (s_vpn, "password");
+        }
+    }
+
+    /* A one-time code is never stored. The service sets this after the first
+     * code too; a new connection starts with it. */
+    if (self->is_new && !nm_setting_vpn_get_data_item (s_vpn, "otp-flags"))
+        nm_setting_vpn_add_data_item (s_vpn, "otp-flags", "2");
+
     if (self->browser_combo) {
         str = gtk_combo_box_text_get_active_text (self->browser_combo);
         if (str && strlen (str) && g_strcmp0(str, "Custom...") != 0)
@@ -704,6 +777,8 @@ nm_gpclient_editor_init (NMGpclientEditor *self)
     self->preferred_gateway_combo = NULL;
     self->auth_mode_combo = NULL;
     self->username_entry = NULL;
+    self->password_label = NULL;
+    self->password_entry = NULL;
     self->browser_combo = NULL;
     self->timeout_spin = NULL;
     self->mtu_spin = NULL;
