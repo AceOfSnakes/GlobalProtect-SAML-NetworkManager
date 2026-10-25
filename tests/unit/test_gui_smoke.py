@@ -686,7 +686,7 @@ class TestScreenshot:
 
 
 def good_edit_results():
-    return {case["name"]: {"error": "gateway is required" if case["error"] else None,
+    return {case["name"]: {"error": case["error"] or None,
                            "data": {**case["saved"], "hip": "false"}}
             for case in lib.EDIT_CASES}
 
@@ -787,9 +787,26 @@ class TestEditCases:
                 assert f'gtk_label_new ("{label}")' in text
             assert "nm_gpclient_validate_form" in text
             assert "NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS" in text
-        # the message of the gateway error is in the shared header
+        # the messages of the errors are in the shared header
         with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-validate.h"), encoding="utf-8") as handle:
-            assert f'"{lib.MISSING_GATEWAY_ERROR}"' in handle.read()
+            header = handle.read()
+        assert f'"{lib.MISSING_GATEWAY_ERROR}"' in header
+        assert f'"{lib.BAD_DNS_ERROR}' in header
+
+    def test_a_bad_dns_is_an_error_and_the_data_stays(self):
+        case = self.by_name("a DNS name is refused and nothing is saved")
+
+        assert case["error"] == lib.BAD_DNS_ERROR and case["saved"] == case["vpn_data"]
+
+    def test_the_wrong_error_is_reported(self):
+        """a refusal for another reason does not count for the DNS case"""
+        case = self.by_name("a DNS name is refused and nothing is saved")
+        results = good_edit_results()
+        results[case["name"]]["error"] = lib.MISSING_GATEWAY_ERROR
+
+        problems = lib.check_edit_results(results)
+
+        assert len(problems) == 1 and "did not fail with" in problems[0]
 
 
 class TestProbes:

@@ -137,6 +137,7 @@ EDIT_STORED = {
 }
 CUSTOM_BROWSER = "Custom..."
 MISSING_GATEWAY_ERROR = "gateway is required"
+BAD_DNS_ERROR = "dns must be IPv4 or IPv6 addresses"
 
 
 def _edit_case(name, steps, changes=None, error=False, stored=None):
@@ -173,8 +174,11 @@ EDIT_CASES = [
     _edit_case("a typed custom browser is saved", [("type", "browser", "/opt/mybrowser/bin/browser")],
                {"browser": "/opt/mybrowser/bin/browser"}),
     _edit_case("a listed browser is saved", [("choose", "browser", "chrome")], {"browser": "chrome"}),
-    # the gateway is required
-    _edit_case("an empty gateway is refused and nothing is saved", [("type", "gateway", "")], error=True),
+    # the gateway is required; the shared rules (nm-gpclient-validate.h) refuse a bad field
+    _edit_case("an empty gateway is refused and nothing is saved", [("type", "gateway", "")],
+               error=MISSING_GATEWAY_ERROR),
+    _edit_case("a DNS name is refused and nothing is saved", [("type", "dns", "dns.example.com")],
+               error=BAD_DNS_ERROR),
     _edit_case("a changed gateway is saved", [("type", "gateway", "other.example.com")],
                {"gateway": "other.example.com"}),
 ]
@@ -191,8 +195,8 @@ def check_edit_results(results):
             problems.append(f"edit case {name!r} did not run")
             continue
         error, data = results[name]["error"], results[name]["data"]
-        if case["error"] and (error is None or MISSING_GATEWAY_ERROR not in error):
-            problems.append(f"{name}: update_connection did not fail with {MISSING_GATEWAY_ERROR!r} (got {error!r})")
+        if case["error"] and (error is None or case["error"] not in error):
+            problems.append(f"{name}: update_connection did not fail with {case['error']!r} (got {error!r})")
         elif not case["error"] and error is not None:
             problems.append(f"{name}: update_connection failed: {error}")
         for key in sorted(set(case["saved"]) | set(data)):
