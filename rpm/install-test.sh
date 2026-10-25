@@ -62,8 +62,9 @@ PY
 # check_vpnc_script [root]: a vpnc-script that gpclient finds (the list of
 # crates/openconnect/src/vpn_utils.rs) is executable and runs the hooks of /etc/vpnc,
 # where 90-gpclient-routing is.
+# shellcheck disable=SC2120 # the argument is optional
 check_vpnc_script() {
-    local root=${1:-} path script= hooks
+    local root=${1:-} path script="" hooks
     for path in /usr/local/libexec/gpclient/vpnc-script /usr/libexec/gpclient/vpnc-script \
         /usr/lib/gpclient/vpnc-script /usr/local/share/vpnc-scripts/vpnc-script \
         /usr/local/sbin/vpnc-script /usr/share/vpnc-scripts/vpnc-script /usr/sbin/vpnc-script \
@@ -126,7 +127,7 @@ for pkg in network-manager-gpclient network-manager-gpclient-gnome network-manag
 done
 
 for path in \
-    /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
+    /usr/bin/gpclient /usr/bin/gpauth \
     /usr/lib/NetworkManager/nm-gpclient-service \
     /usr/lib/NetworkManager/VPN/nm-gpclient-service.name \
     /usr/libexec/gpclient/browser-wrapper /usr/libexec/gpclient/edge-wrapper \
@@ -158,7 +159,7 @@ rpm -qf --qf '%{NAME}\n' /usr/lib/libnm-gpclient-properties | grep -qx network-m
     || fail "libnm-gpclient-properties is not in network-manager-gpclient-gnome"
 
 # Every program and plugin finds its shared libraries
-for exe in /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
+for exe in /usr/bin/gpclient /usr/bin/gpauth \
     "$(rpm --eval '%{_libdir}')"/NetworkManager/libnm-*gpclient*.so \
     "$(rpm --eval '%{_libdir}')"/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so; do
     if missing=$(ldd "$exe" 2>&1 | grep 'not found'); then
@@ -166,8 +167,8 @@ for exe in /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice \
     fi
 done
 
-check_openssl /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
-check_stripped /usr/bin/gpclient /usr/bin/gpauth /usr/bin/gpservice
+check_openssl /usr/bin/gpclient /usr/bin/gpauth
+check_stripped /usr/bin/gpclient /usr/bin/gpauth
 check_vpnc_script
 
 /usr/bin/gpclient --version >/dev/null || fail "gpclient --version"

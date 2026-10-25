@@ -43,7 +43,6 @@ static const QStringList browserValues = {
 GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, QWidget *parent)
     : SettingWidget(setting, parent)
     , m_ui(new Ui::GpclientWidget)
-    , m_setting(setting)
 {
     m_ui->setupUi(this);
 
@@ -105,9 +104,6 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
         Q_EMIT validChanged(isValid());
     };
     connect(m_ui->gatewayLineEdit, &QLineEdit::textChanged, this, update_valid);
-    connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, update_valid);
-    connect(m_ui->browserComboBox, &QComboBox::editTextChanged, this, update_valid);
-    connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, update_valid);
 
     watchChangedSetting();
     update_valid();
@@ -244,8 +240,9 @@ QVariantMap GpclientWidget::setting() const
     NMStringMap data = m_originalData;
 
     // Save the portal / gateway address
-    if (!m_ui->gatewayLineEdit->text().isEmpty()) {
-        data.insert(QLatin1String("gateway"), m_ui->gatewayLineEdit->text());
+    const QString gateway = m_ui->gatewayLineEdit->text().trimmed();
+    if (!gateway.isEmpty()) {
+        data.insert(QLatin1String("gateway"), gateway);
     } else {
         data.remove(QLatin1String("gateway"));
     }
@@ -349,5 +346,5 @@ QVariantMap GpclientWidget::setting() const
 bool GpclientWidget::isValid() const
 {
     // The portal / gateway address is required
-    return !m_ui->gatewayLineEdit->text().isEmpty();
+    return !m_ui->gatewayLineEdit->text().trimmed().isEmpty();
 }

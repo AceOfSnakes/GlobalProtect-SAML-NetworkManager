@@ -224,7 +224,13 @@ class TestNeedSecrets:
 
         assert self._ask(service_module, _conn(data=data)) == ""
 
-    @pytest.mark.parametrize("flags", ["0", "1", "2", ""])
+    @pytest.mark.parametrize("flags", ["5", "6", "12", 4, 5])
+    def test_password_flags_is_a_bitmask(self, service_module, flags):
+        data = {"auth-mode": "credentials", "password-flags": flags}
+
+        assert self._ask(service_module, _conn(data=data)) == ""
+
+    @pytest.mark.parametrize("flags", ["0", "1", "2", "", "abc", "3", None, 2])
     def test_other_password_flags_still_ask(self, service_module, flags):
         data = {"auth-mode": "credentials", "password-flags": flags}
 
@@ -534,6 +540,25 @@ class TestConnectRouting:
         connect(plugin, _conn(ipv4={"routes": routes}))
 
         assert plugin.custom_routes == [("10.7.0.0", 16)]
+
+    def test_routes_fallback_bad_prefix_becomes_32(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch)
+        routes = [[u32("10.8.0.0"), "x", 0, 0]]
+
+        connect(plugin, _conn(ipv4={"routes": routes}))
+
+        assert plugin.custom_routes == [("10.8.0.0", 32)]
+
+    @pytest.mark.parametrize("bad_dest", ["x", None, [1]])
+    def test_routes_fallback_bad_dest_skips_entry(
+        self, service_module, monkeypatch, bad_dest
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+        routes = [[bad_dest, 16, 0, 0], [u32("10.9.0.0"), 16, 0, 0]]
+
+        connect(plugin, _conn(ipv4={"routes": routes}))
+
+        assert plugin.custom_routes == [("10.9.0.0", 16)]
 
     def test_no_routes_gives_empty_list(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)

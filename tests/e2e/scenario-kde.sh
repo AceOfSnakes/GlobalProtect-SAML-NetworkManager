@@ -1,6 +1,7 @@
 #!/bin/bash
 # README scenario (KDE Plasma): add the VPN in System Settings, connect from
 # the system tray. Runs as user demo inside the container; see demo/lib.sh.
+# shellcheck disable=SC2034 # the EDGE_* settings are read by lib.sh
 source /opt/gp-demo/lib.sh
 EDGE_DX=${EDGE_DX:-0}
 EDGE_DY=${EDGE_DY:-0}

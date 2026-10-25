@@ -57,6 +57,7 @@ jobs:
     # Docker builds natively on each runner (no QEMU): the arm64 runner produces
     # arm64 packages, the amd64 one amd64 packages.
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     strategy:
       matrix:
         # Only a manual run can pick one version; tags and pull requests build all.
@@ -70,12 +71,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build Debian packages
         env:
@@ -218,7 +219,7 @@ jobs:
           ls -la output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: debs-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
           path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
@@ -261,7 +262,7 @@ jobs:
         # .github/scripts/gui-smoke.sh); also kept when that test failed. Not
         # for tags, like the test.
         if: always() && github.event_name != 'push'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gui-smoke-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
           path: gui-smoke/*.png
@@ -276,6 +277,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.rpm_target != 'none'
     # Natively on each runner, like the Ubuntu build: the arm64 runner builds aarch64 packages.
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     strategy:
       matrix:
         target: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.rpm_target == 'all' && fromJSON('["fedora43", "fedora44", "fedora45", "el10", "leap16.0", "tumbleweed"]') || fromJSON(format('["{0}"]', github.event.inputs.rpm_target))) || fromJSON('["fedora43", "fedora44", "fedora45", "el10", "leap16.0", "tumbleweed"]') }}
@@ -288,7 +290,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
@@ -377,7 +379,7 @@ jobs:
           ls -la "$out"
 
       - name: Upload RPM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rpms-${{ matrix.target }}-${{ matrix.arch }}
           path: output/${{ matrix.target }}-${{ matrix.arch }}/*.rpm
@@ -405,13 +407,14 @@ jobs:
   release:
     needs: [build, build-rpm]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    timeout-minutes: 30
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     permissions:
       contents: write
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
 
@@ -428,7 +431,7 @@ jobs:
           ls -la release-files/
 
       - name: Create Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             release-files/*.deb
@@ -440,14 +443,15 @@ jobs:
   # (the notes are only a convenience) never blocks the apt repository.
   release-notes:
     needs: release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: .github/scripts
@@ -467,7 +471,7 @@ jobs:
 
   publish-apt:
     needs: release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     permissions:
       contents: read
       pages: write

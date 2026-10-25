@@ -62,6 +62,9 @@ BuildRequires:  python3-pip
 BuildRequires:  python3-setuptools
 BuildRequires:  python3-wheel
 BuildRequires:  systemd-rpm-macros
+%if 0%{?fedora} || 0%{?rhel}
+BuildRequires:  selinux-policy-devel
+%endif
 %if 0%{?suse_version}
 # pkgconfig(openssl) resolves to libressl-devel on openSUSE; gpclient needs OpenSSL (3 or later)
 BuildRequires:  libopenssl-devel
@@ -91,11 +94,14 @@ Requires:       vpnc-script
 Conflicts:      globalprotect-openconnect
 # python-sdbus: no target ships it as a package (Debian/Ubuntu: python3-sdbus)
 Provides:       bundled(python3dist(sdbus)) = %{sdbus_version}
+%if 0%{?fedora} || 0%{?rhel}
+Requires:       selinux-policy-targeted
+%endif
 
 %description
 NetworkManager VPN service and command-line tools for GlobalProtect VPN
 connections with SAML/SSO authentication support. The package contains the
-service, the NetworkManager plugin, gpclient, gpauth and gpservice.
+service, the NetworkManager plugin, gpclient and gpauth.
 
 The GUI packages add the connection editors.
 
@@ -135,6 +141,9 @@ connections.
 %setup -q -n %{name}-%{version} -a 1
 
 %build
+%if 0%{?fedora} || 0%{?rhel}
+make -f /usr/share/selinux/devel/Makefile network-manager-gpclient.pp
+%endif
 # The openconnect crate builds the bundled openconnect and libxml2 (build.rs)
 test -d external/GlobalProtect-openconnect/crates/openconnect/deps/openconnect/.
 test -d external/GlobalProtect-openconnect/crates/openconnect/deps/libxml2/.
@@ -153,9 +162,13 @@ mkdir -p plugins/plasma/build
 # With upstream's release profile (strip, opt-level "z"), as the Debian build: Fedora's
 # rpmbuild exports RUSTFLAGS with -Cstrip=none -Cdebuginfo=2, which would override it
 (cd external/GlobalProtect-openconnect && \
-  env -u RUSTFLAGS cargo build --release --bin gpclient --bin gpauth --bin gpservice)
+  env -u RUSTFLAGS cargo build --locked --release --bin gpclient --bin gpauth)
 
 %install
+%if 0%{?fedora} || 0%{?rhel}
+install -D -m 0644 network-manager-gpclient.pp \
+  %{buildroot}%{_datadir}/selinux/packages/network-manager-gpclient.pp
+%endif
 install -D -m 0644 plugins/gnome/libnm-vpn-plugin-gpclient.so \
   %{buildroot}%{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
 install -D -m 0644 plugins/gnome/libnm-vpn-plugin-gpclient-editor.so \
@@ -209,8 +222,6 @@ install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpclient \
   %{buildroot}%{_bindir}/gpclient
 install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpauth \
   %{buildroot}%{_bindir}/gpauth
-install -D -m 0755 external/GlobalProtect-openconnect/target/release/gpservice \
-  %{buildroot}%{_bindir}/gpservice
 # URL handler for globalprotectcallback://
 install -D -m 0644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
   %{buildroot}%{_datadir}/applications/gpgui.desktop
@@ -229,6 +240,9 @@ test -d %{buildroot}%{python3_sitearch}/sdbus
 PYTHONPATH=%{buildroot}%{python3_sitearch} /usr/bin/python3 -c 'import sdbus'
 
 %post
+%if 0%{?fedora} || 0%{?rhel}
+%selinux_modules_install %{_datadir}/selinux/packages/network-manager-gpclient.pp
+%endif
 %systemd_post nm-gpclient.service
 # Reload the D-Bus configuration to pick up the new service files
 if [ -x /usr/bin/dbus-send ]; then
@@ -249,6 +263,11 @@ fi
 
 %postun
 %systemd_postun nm-gpclient.service
+%if 0%{?fedora} || 0%{?rhel}
+if [ "$1" -eq 0 ]; then
+    %selinux_modules_uninstall network-manager-gpclient
+fi
+%endif
 if [ "$1" -eq 0 ]; then
     if [ -x /usr/bin/dbus-send ]; then
         dbus-send --system --type=method_call --dest=org.freedesktop.DBus \
@@ -262,7 +281,6 @@ fi
 %doc README.md
 %{_bindir}/gpclient
 %{_bindir}/gpauth
-%{_bindir}/gpservice
 %{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
 %{_prefix}/lib/NetworkManager/nm-gpclient-service
 %{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
@@ -272,6 +290,9 @@ fi
 %{_unitdir}/nm-gpclient.service
 %{_datadir}/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
 %{_datadir}/applications/gpgui.desktop
+%if 0%{?fedora} || 0%{?rhel}
+%{_datadir}/selinux/packages/network-manager-gpclient.pp
+%endif
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/nm-gpclient.conf
 %dir %{_sysconfdir}/vpnc
 %dir %{_sysconfdir}/vpnc/connect.d

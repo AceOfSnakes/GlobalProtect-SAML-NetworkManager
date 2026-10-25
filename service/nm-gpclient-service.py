@@ -636,6 +636,15 @@ def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
 HIDDEN = "<hidden>"
 
 
+def password_not_required(data: Dict[str, Any]) -> bool:
+    """True when the NM_SETTING_SECRET_FLAG_NOT_REQUIRED bit (4) is set in
+    password-flags (a bitmask); a junk value counts as 0"""
+    try:
+        return bool(int(data.get("password-flags", 0)) & 4)
+    except (TypeError, ValueError):
+        return False
+
+
 def redact_settings(obj: Any) -> Any:
     """Copy of NM settings that is safe to log: every value under a "secrets"
     key (at any depth, also inside sdbus (signature, value) tuples) becomes
@@ -1635,8 +1644,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.info("NeedSecrets(): SAML mode, no secrets needed")
             return ""
 
-        # password-flags: 4 = NOT_REQUIRED
-        if data.get("password-flags", "0") == "4":
+        if password_not_required(data):
             logger.info("NeedSecrets(): password not required")
             return ""
 
@@ -1704,17 +1712,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             if "vpn" not in connection:
                 raise Exception("No VPN data in connection")
 
-            vpn_section = connection["vpn"]
-
-            # Parse data from vpn section
-            vpn_data = {}
-            for key, value in vpn_section.items():
-                if isinstance(value, tuple) and len(value) == 2:
-                    vpn_data[key] = value[1]
-                else:
-                    vpn_data[key] = value
-
-            logger.debug(f"Parsed VPN data: {redact_settings(vpn_data)}")
+            data_dict, secrets_dict = self._parse_vpn_section(connection)
+            logger.debug(
+                "Parsed VPN data: "
+                f"{redact_settings({'data': data_dict, 'secrets': secrets_dict})}"
+            )
 
             # Parse IPv4 routing configuration
             ipv4_section = connection.get("ipv4", {})
@@ -1750,11 +1752,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 for r in routes:
                     if not (isinstance(r, (list, tuple)) and len(r) >= 2):
                         continue
-                    dest_u32 = int(r[0])
-                    prefix = int(r[1])
                     try:
-                        prefix = int(prefix)
-                    except Exception:
+                        dest_u32 = int(r[0])
+                    except (TypeError, ValueError):
+                        continue
+                    try:
+                        prefix = int(r[1])
+                    except (TypeError, ValueError):
                         prefix = 32
 
                     # IMPORTANT: NM uses host order uint32 here on little-endian machines
@@ -1763,13 +1767,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self.custom_routes.append((dest_ip, prefix))
                     logger.info(f"Custom route: {dest_ip}/{prefix}")
 
-            # Get the actual data dictionary
-            data_dict = vpn_data.get("data", {})
             logger.debug(f"Data dict: {data_dict}")
 
             # Stored credentials for standard (non-SAML) login portals.
             # Username lives in vpn.data, password in vpn.secrets.
-            secrets_dict = vpn_data.get("secrets", {}) or {}
             self.vpn_username = data_dict.get("username", "")
             if is_unsafe_username(self.vpn_username):
                 self.vpn_username = ""
@@ -4320,7 +4321,8 @@ async def main_async():
     parser.add_argument(
         "--persist",
         action="store_true",
-        help="Don't quit when VPN connection terminates",
+        # Kept so that a unit override that passes it still starts the service
+        help="Accepted for compatibility; the service never quits on its own",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()

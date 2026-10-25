@@ -83,7 +83,8 @@ build_image() {
 }
 
 make_webp() {
-    local name="$1" outdir="$2" webp="$repo/docs/images/$(webp_of "$1")" tmp
+    local name="$1" outdir="$2" webp tmp
+    webp="$repo/docs/images/$(webp_of "$1")"
     local fps="${WEBP_FPS:-10}" quality="${WEBP_QUALITY:-75}" trim="${WEBP_TRIM_START:-}" end="" filters
     if [ -z "$trim" ]; then
         trim=0
@@ -135,6 +136,7 @@ for name in "${targets[@]}"; do
     if [ "${SKIP_BUILD:-0}" != 1 ]; then
         build_image "$image" || { echo "build of the $image image failed" >&2; failed+=("$name"); continue; }
     fi
+    # shellcheck disable=SC2207 # env_of prints options: the split is wanted
     run=(docker run --rm --privileged --network none --hostname demo-laptop
         -e "E2E_SCENARIO=$name" -e "SCREEN_W=$SCREEN_W" -e "SCREEN_H=$SCREEN_H" -e "DEMO_TIMEOUT_SCALE=${DEMO_TIMEOUT_SCALE:-1}"
         $(env_of "$name") -v "$outdir:/out")

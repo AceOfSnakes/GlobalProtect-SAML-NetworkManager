@@ -118,6 +118,12 @@ Packages will be in:
 RPM packages (Fedora, EL 10, openSUSE; the same three packages, Plasma 6 only)
 are built with `rpm/build.sh <target> <amd64|arm64>`: see [RPM_REPO.md](RPM_REPO.md).
 
+On Fedora and EL, the core RPM also installs the
+`network-manager-gpclient` SELinux policy module. The NetworkManager-launched
+VPN service needs access to its PTY (`ptmx`/`devpts`) and to inspect the
+desktop session bus socket while starting SAML authentication. The module is
+loaded by the RPM scriptlets and removed when the package is removed.
+
 ### Local build:
 
 ```bash

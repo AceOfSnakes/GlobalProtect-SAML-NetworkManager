@@ -446,6 +446,62 @@ class TestMtuCases:
             assert "mtu_touched" in text and "mtu_shown" not in text
 
 
+class TestEditorSourcesHandleBooleansAndGateway:
+    """Source-level checks: the GTK editors cannot be built in the unit tests"""
+
+    @staticmethod
+    def _read(*parts):
+        with open(os.path.join(ROOT, *parts), encoding="utf-8") as handle:
+            return handle.read()
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_read_booleans_ignoring_case(self, source):
+        text = self._read("plugins", "gnome", source)
+
+        assert text.count('g_ascii_strcasecmp (value ? value : "", "true") == 0') >= 2
+        assert 'g_ascii_strcasecmp (value ? value : "", "false") == 0' in text
+        assert 'g_ascii_strcasecmp (value, "true") == 0' in text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_do_not_compare_booleans_case_sensitively(self, source):
+        text = self._read("plugins", "gnome", source)
+
+        assert 'g_strcmp0 (value, "true")' not in text
+        assert 'g_strcmp0(value, "true")' not in text
+        assert 'g_strcmp0 (value, "false")' not in text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_trim_the_gateway(self, source):
+        text = self._read("plugins", "gnome", source)
+
+        assert "g_strstrip (g_strdup (gtk_" in text
+        assert "gateway_entry)))" in text
+        # the untrimmed text is neither checked nor saved
+        assert '"gateway", str)' not in text
+        assert "!str || !*str" not in text and "!str || !strlen (str)" not in text
+
+    def test_plasma_trims_the_gateway_in_save_and_validation(self):
+        cpp = self._read("plugins", "plasma", "gpclientwidget.cpp")
+
+        assert cpp.count("gatewayLineEdit->text().trimmed()") == 2
+        assert "gatewayLineEdit->text().isEmpty()" not in cpp
+        assert 'insert(QLatin1String("gateway"), m_ui->gatewayLineEdit->text())' not in cpp
+
+    def test_plasma_has_no_dead_setting_member_or_valid_signals(self):
+        cpp = self._read("plugins", "plasma", "gpclientwidget.cpp")
+        header = self._read("plugins", "plasma", "gpclientwidget.h")
+
+        assert "m_setting" not in cpp and "m_setting" not in header
+        assert cpp.count("update_valid)") == 1
+        assert "gatewayLineEdit, &QLineEdit::textChanged, this, update_valid" in cpp
+
+    def test_plasma_password_flags_are_tested_as_a_bitmask(self):
+        cpp = self._read("plugins", "plasma", "gpclientauthwidget.cpp")
+
+        assert '.toUInt() & 4) == 0' in cpp
+        assert 'QLatin1String("4")' not in cpp
+
+
 class TestEditorTextsMatchTheSources:
     """The expected texts are the ones the C sources put in the widgets"""
 
