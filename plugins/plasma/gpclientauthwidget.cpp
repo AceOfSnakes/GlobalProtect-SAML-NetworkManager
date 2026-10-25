@@ -56,7 +56,7 @@ GpclientAuthWidget::GpclientAuthWidget(const NetworkManager::VpnSetting::Ptr &se
     // Interactive username, password, and OTP prompts include their secret key.
     if (m_secretKeys.isEmpty() && setting
         && setting->data().value(QLatin1String("auth-mode")) == QLatin1String("credentials")
-        && setting->data().value(QLatin1String("password-flags")) != QLatin1String("4")) {
+        && (setting->data().value(QLatin1String("password-flags")).toUInt() & 4) == 0) {
         m_secretKeys.append(QLatin1String("password"));
     }
 

@@ -60,11 +60,14 @@ case "$1" in
         remove_legacy_edge_wrapper /tmp
 
         # Ensure systemd-resolved is enabled in /etc/nsswitch.conf for split DNS
-        if [ -f /etc/nsswitch.conf ]; then
+        # First install only (no previous version in $2): an upgrade or a
+        # reconfigure must not redo the edit an administrator may have undone.
+        if [ -z "$2" ] && [ -f /etc/nsswitch.conf ]; then
             if ! grep -q "^hosts:.*resolve" /etc/nsswitch.conf; then
                 echo "Configuring /etc/nsswitch.conf to use systemd-resolved..."
                 # Backup original file
-                cp /etc/nsswitch.conf /etc/nsswitch.conf.gpclient-backup
+                # (never overwrite an existing backup)
+                [ -e /etc/nsswitch.conf.gpclient-backup ] || cp /etc/nsswitch.conf /etc/nsswitch.conf.gpclient-backup
                 # Add resolve to hosts line if not present
                 sed -i 's/^hosts:\(.*\)files/hosts:\1resolve [!UNAVAIL=return] files/' /etc/nsswitch.conf || true
                 echo "Note: /etc/nsswitch.conf has been modified. Backup saved to /etc/nsswitch.conf.gpclient-backup"

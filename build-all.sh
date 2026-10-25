@@ -69,6 +69,7 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
 
     echo "=== Building .deb package for Ubuntu $VERSION ==="
     mkdir -p "$OUTPUT_DIR"
+    rm -f "$OUTPUT_DIR"/*.deb "$OUTPUT_DIR"/*.ddeb
     chmod 777 "$OUTPUT_DIR"
 
     # Run with cache mounts for Cargo registry and Rust target directory
@@ -77,9 +78,9 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
         --name "gpclient-build-ubuntu${VERSION}-$$" \
         -v "$OUTPUT_DIR:/output" \
         -v "gpclient-cargo-cache-${VERSION}:/cargo-cache" \
-        -v "gpclient-target-cache-${VERSION}:/build/external/GlobalProtect-openconnect/target" \
+        -v "gpclient-target-cache-${VERSION}:/build/source/external/GlobalProtect-openconnect/target" \
         "$IMAGE_NAME" \
-        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b; cp -v ../*.deb ../*.ddeb /output/ 2>/dev/null; true"
+        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b && cp -v ../*.deb /output/ && { cp -v ../*.ddeb /output/ || true; }"
 
     echo "=== Build complete for Ubuntu $VERSION ==="
     echo "Packages available in: $OUTPUT_DIR/"
