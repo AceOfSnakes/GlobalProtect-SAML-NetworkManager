@@ -204,7 +204,7 @@ install -D -m 0644 config/nm-gpclient.service \
 install -D -m 0644 config/org.freedesktop.NetworkManager.gpclient.service \
   %{buildroot}%{_datadir}/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
 install -D -m 0644 config/nm-gpclient.conf \
-  %{buildroot}%{_sysconfdir}/dbus-1/system.d/nm-gpclient.conf
+  %{buildroot}%{_datadir}/dbus-1/system.d/nm-gpclient.conf
 install -D -m 0755 config/90-gpclient-routing \
   %{buildroot}%{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
 
@@ -293,7 +293,7 @@ fi
 %if 0%{?fedora} || 0%{?rhel}
 %{_datadir}/selinux/packages/network-manager-gpclient.pp
 %endif
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/nm-gpclient.conf
+%{_datadir}/dbus-1/system.d/nm-gpclient.conf
 %dir %{_sysconfdir}/vpnc
 %dir %{_sysconfdir}/vpnc/connect.d
 %config(noreplace) %{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
