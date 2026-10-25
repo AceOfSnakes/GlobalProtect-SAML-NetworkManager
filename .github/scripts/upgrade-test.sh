@@ -272,8 +272,11 @@ fi
 python3 "$HERE/check_upgrade.py" "${MODE_ARGS[@]}" --after "$WORK/after.txt" \
     --expected-version "$EXPECTED" --scenario "$SCENARIO" --codename "$CODENAME" "${PLASMA_FILES[@]}"
 
-# The service is run by the system python3: it must find its D-Bus module
-python3 -c 'import sdbus' || fail "python3 cannot import sdbus $WHEN"
+# The service is run by the system python3: it must find its D-Bus module. Not on
+# 22.04: no package there ships it, users install it with pip (README).
+if [ "$CODENAME" != jammy ]; then
+    python3 -c 'import sdbus' || fail "python3 cannot import sdbus $WHEN"
+fi
 
 # pkg_state <package>: dpkg's state (installed, config-files, not-installed, ...);
 # a package dpkg does not know at all is not-installed
