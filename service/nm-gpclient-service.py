@@ -1544,6 +1544,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # in while it was waiting, and a late task can see that it is stale.
         self._lifecycle_lock = asyncio.Lock()
         self._generation = 0
+        # The generation of the session being set up or running: its tasks
+        # keep it even when they are created after a Disconnect() came in
+        self._session_gen = 0
 
         # Exit when no session exists for IDLE_EXIT_TIMEOUT seconds; off until
         # enable_idle_exit() is called (not with --persist)
@@ -1707,6 +1710,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         gen: int,
     ) -> None:
         """Set up a session, with _lifecycle_lock held (see _do_connect)"""
+        self._session_gen = gen
         logger.debug(f"Full connection data: {redact_settings(connection)}")
         self._interactive = interactive
         self._auth_banner = None
@@ -1959,13 +1963,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         if gen == self._generation:
             return False
-        logger.info("Disconnect arrived during Connect; not starting gpclient")
+        logger.info("Disconnect arrived during Connect; abandoning the setup")
         return True
 
     def _create_task(self, coro, name: str) -> "asyncio.Task":
         """Start a task of the current session and watch it for a crash"""
         task = asyncio.create_task(coro)
-        gen = self._generation
+        gen = self._session_gen
         task.add_done_callback(lambda t: self._task_done(t, gen, name))
         return task
 
@@ -2172,7 +2176,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self, connection: Dict[str, Dict[str, Tuple[str, Any]]]
     ) -> None:
         """Secrets provided by NetworkManager after a SecretsRequired signal"""
-        self._cancel_idle_timer()
         logger.info("NewSecrets() called")
         data, secrets = self._parse_vpn_section(connection)
         logger.debug(f"NewSecrets keys: {list(secrets.keys())}")

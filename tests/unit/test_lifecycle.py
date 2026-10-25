@@ -205,6 +205,40 @@ class TestDisconnectDuringConnect:
             service_module.NM_VPN_SERVICE_STATE_STOPPED,
         )
 
+    def test_a_disconnect_after_the_spawn_stops_the_new_gpclient(
+        self, service_module, monkeypatch, dbus_signals
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+        blocker = asyncio.Event()
+
+        async def spawn_then_wait():
+            proc = FakeProc()
+            plugin.spawned.append(proc)
+            plugin.gpclient_process = proc
+            await blocker.wait()  # Disconnect() comes in here
+            return True
+
+        async def stop():
+            plugin.stop_called.append(plugin.gpclient_process)
+
+        monkeypatch.setattr(plugin, "_start_gpclient", spawn_then_wait)
+        monkeypatch.setattr(plugin, "_stop_gpclient", stop)
+
+        async def go():
+            connect = asyncio.create_task(plugin._do_connect(CONNECTION, False))
+            await _settle()
+            disconnect = asyncio.create_task(plugin.Disconnect())
+            await _settle()
+            blocker.set()
+            await asyncio.gather(connect, disconnect)
+
+        asyncio.run(go())
+
+        assert plugin.stop_called == plugin.spawned and len(plugin.spawned) == 1
+        assert plugin.tunnel_check_task is None
+        assert _failures(dbus_signals) == []
+        assert dbus_signals[-1] == ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED)
+
     def test_start_gpclient_does_not_spawn_after_a_disconnect(
         self, service_module, monkeypatch
     ):
@@ -331,6 +365,26 @@ class TestTaskCrash:
             await plugin._do_connect(CONNECTION, False)
             plugin.tunnel_check_task.cancel()
             await _settle()
+
+        asyncio.run(go())
+
+        assert _failures(dbus_signals) == []
+        assert plugin.spawned[0].terminated == 0
+
+    def test_a_task_the_old_session_starts_after_a_disconnect_reports_nothing(
+        self, service_module, monkeypatch, dbus_signals
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+
+        async def crash():
+            raise RuntimeError("boom")
+
+        async def go():
+            await plugin._do_connect(CONNECTION, False)
+            plugin._generation += 1  # a Disconnect() came in, waits for the lock
+            plugin._create_task(crash(), "prompt handler")  # the old monitor starts it
+            await _settle()
+            await _finish(plugin)
 
         asyncio.run(go())
 
@@ -496,13 +550,12 @@ class TestIdleExit:
 
         assert fired == []
 
-    @pytest.mark.parametrize("method", ["Connect", "NewSecrets"])
+    @pytest.mark.parametrize("method", ["Connect"])
     def test_a_call_cancels_the_timer(self, service_module, monkeypatch, method):
         plugin = _plugin(service_module, monkeypatch)
         fired = []
         arguments = {
             "Connect": (CONNECTION,),
-            "NewSecrets": ({},),
         }[method]
 
         async def go():
@@ -530,6 +583,19 @@ class TestIdleExit:
             await _finish(plugin)
 
         asyncio.run(go())
+
+    def test_a_stray_new_secrets_leaves_the_timer_alone(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch)
+        fired = []
+
+        async def go():
+            plugin.enable_idle_exit(lambda: fired.append(True))
+            await plugin.NewSecrets({})  # no secret request is pending
+            await asyncio.sleep(0.15)
+
+        asyncio.run(go())
+
+        assert fired == [True]
 
     def test_need_secrets_restarts_the_timer(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
