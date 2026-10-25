@@ -97,7 +97,7 @@ def published_summary(repo, pr, sha, script_ref, debs, rpms=()):
         lines += [
             "The script picks what fits the machine it runs on:",
             "",
-            "- the Ubuntu release (22.04, 24.04, 24.10 or 26.04) from `/etc/os-release`,",
+            "- the Ubuntu release (22.04, 24.04 or 26.04) from `/etc/os-release`,",
             "- the architecture (amd64 or arm64) from `dpkg`,",
             "- the desktop: Plasma when `XDG_CURRENT_DESKTOP` mentions KDE, otherwise GNOME. "
             "Force one with `--desktop gnome` or `--desktop plasma`. On KDE neon (Ubuntu 24.04 "

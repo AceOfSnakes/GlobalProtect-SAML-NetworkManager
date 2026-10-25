@@ -108,7 +108,10 @@ class TestMatrixIsTheListOfTargets:
         text = workflow_text()
 
         assert "      ubuntu_version:\n" in text
-        assert dispatch_options("ubuntu_version") == ["22.04", "24.04", "24.10", "26.04", "all"]
+        assert dispatch_options("ubuntu_version") == ["22.04", "24.04", "26.04", "all"]
+        # Ubuntu 24.10 is end of life and not built any more
+        assert "24.10" not in text
+        assert "oracular" not in text
         assert "        ubuntu: ${{ github.event_name == 'workflow_dispatch'" in text
 
     def test_the_job_is_skipped_when_a_manual_run_picks_none(self):

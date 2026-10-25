@@ -248,7 +248,7 @@ class TestVersionOrder:
     def newer(a, b):
         return subprocess.run(["dpkg", "--compare-versions", a, "gt", b]).returncode == 0
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_a_pr_build_is_newer_than_the_release_of_the_same_version(self, codename):
         release = f"1.4.2-1~{codename}1"
 
@@ -279,7 +279,7 @@ class TestVerifyStep:
             ("pull_request", "1.4.2-1~noble1+pr24.57", "24", "57"),
             ("pull_request", "1.4.2-1~resolute1+pr1.1234567", "1", "1234567"),
             ("push", "1.4.2-1~noble1", "", "57"),
-            ("workflow_dispatch", "1.4.2-1~oracular1", "", "57"),
+            ("workflow_dispatch", "1.4.2-1~resolute1", "", "57"),
         ],
     )
     def test_the_version_a_build_is_supposed_to_have_passes(self, box, event, version, pr, run):
@@ -405,7 +405,7 @@ class TestBuildVariants:
         assert "::warning::variant neon of Ubuntu 24.04 needs both" in result["step"].stdout
 
     def test_a_variant_of_another_release_is_not_built(self, box):
-        box.add_variant("neon", ubuntu="24.10")
+        box.add_variant("neon", ubuntu="26.04")
         box.add_variant("neon", ubuntu="22.04")
 
         result = box.build("push")

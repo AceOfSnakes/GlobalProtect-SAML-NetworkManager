@@ -147,7 +147,7 @@ case "$os_id" in
     opensuse-tumbleweed)
         package_format=rpm
         rpm_target=tumbleweed; rpm_dist=.tw ;;
-    *) die "this is '$os_id', not Ubuntu or KDE neon, and not Fedora, EL 10 or openSUSE: the test packages are built for Ubuntu 22.04, 24.04, 24.10 and 26.04 (and KDE neon, which is Ubuntu 24.04 with Plasma 6), Fedora 43 to 45, EL 10, openSUSE Leap 16.0 and Tumbleweed only" ;;
+    *) die "this is '$os_id', not Ubuntu or KDE neon, and not Fedora, EL 10 or openSUSE: the test packages are built for Ubuntu 22.04, 24.04 and 26.04 (and KDE neon, which is Ubuntu 24.04 with Plasma 6), Fedora 43 to 45, EL 10, openSUSE Leap 16.0 and Tumbleweed only" ;;
 esac
 
 if [ "$package_format" = deb ]; then
@@ -156,14 +156,13 @@ if [ "$package_format" = deb ]; then
         case "$version_id" in
             22.04) codename=jammy ;;
             24.04) codename=noble ;;
-            24.10) codename=oracular ;;
             26.04) codename=resolute ;;
         esac
     fi
     # Same suites as .github/scripts/build-apt-repo.sh
     case "$codename" in
-        jammy|noble|oracular|resolute) ;;
-        *) die "Ubuntu ${version_id:-?} (${codename:-unknown}) is not supported: the test packages are built for jammy (22.04), noble (24.04), oracular (24.10) and resolute (26.04)" ;;
+        jammy|noble|resolute) ;;
+        *) die "Ubuntu ${version_id:-?} (${codename:-unknown}) is not supported: the test packages are built for jammy (22.04), noble (24.04) and resolute (26.04)" ;;
     esac
 
     [ "$os_id" != "neon" ] || [ "$codename" = "noble" ] \

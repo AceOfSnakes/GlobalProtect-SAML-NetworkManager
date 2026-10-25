@@ -12,7 +12,7 @@
 #   gnome       install network-manager-gpclient-gnome from the release
 #   plasma      install network-manager-gpclient-plasma from the release; the
 #               editor plugin must be in the Qt directory of the Ubuntu release
-#               (qt5 on 22.04 and 24.04, qt6 on 24.10 and 26.04) afterwards
+#               (qt5 on 22.04 and 24.04, qt6 on 26.04) afterwards
 #   neon        install network-manager-gpclient-plasma-6 on KDE neon: Ubuntu
 #               24.04 with the KDE neon repository (neon-repo.sh, the one the
 #               package is built against), whose editor plugin must be in the
@@ -65,7 +65,7 @@ esac
 # Ubuntu releases that are end of life: their archive moved to
 # old-releases.ubuntu.com. Keep in sync with the Dockerfile.ubuntu<version> that
 # write the same ubuntu.sources (tests/unit checks it).
-EOL_CODENAMES="oracular"
+EOL_CODENAMES=""
 OS_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
 case " $EOL_CODENAMES " in
     *" $OS_CODENAME "*)

@@ -48,7 +48,6 @@ NEON_CODENAME = "noble"
 PLASMA_QT = {
     "jammy": "qt5",  # 22.04
     "noble": "qt5",  # 24.04
-    "oracular": "qt6",  # 24.10
     "resolute": "qt6",  # 26.04
 }
 PLUGIN_NAME = "plasmanetworkmanagement_gpclientui.so"

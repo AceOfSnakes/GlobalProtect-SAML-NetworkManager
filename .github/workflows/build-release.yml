@@ -20,7 +20,6 @@ on:
         options:
           - "22.04"
           - "24.04"
-          - "24.10"
           - "26.04"
           - "all"
       # RPM packages: independent of the choice above, which only picks the Ubuntu build
@@ -94,7 +93,7 @@ jobs:
     strategy:
       matrix:
         # Only a manual run can pick one version; tags and pull requests build all.
-        ubuntu: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.ubuntu_version == 'all' && fromJSON('["22.04", "24.04", "24.10", "26.04"]') || fromJSON(format('["{0}"]', github.event.inputs.ubuntu_version))) || fromJSON('["22.04", "24.04", "24.10", "26.04"]') }}
+        ubuntu: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.ubuntu_version == 'all' && fromJSON('["22.04", "24.04", "26.04"]') || fromJSON(format('["{0}"]', github.event.inputs.ubuntu_version))) || fromJSON('["22.04", "24.04", "26.04"]') }}
         arch: [amd64, arm64]
         include:
           - arch: amd64
