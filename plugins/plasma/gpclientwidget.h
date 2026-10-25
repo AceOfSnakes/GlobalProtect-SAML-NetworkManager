@@ -27,7 +27,6 @@ public:
 
 private:
     Ui::GpclientWidget *m_ui;
-    NetworkManager::VpnSetting::Ptr m_setting;
     /* Everything the profile already had. setting() builds its map from this, so
      * keys this widget does not show (the cached gateway-list, dns-domains) are
      * not silently dropped on save. */

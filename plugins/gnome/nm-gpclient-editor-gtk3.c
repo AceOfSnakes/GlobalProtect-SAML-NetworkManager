@@ -195,7 +195,7 @@ build_ui (NMGpclientEditor *self)
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "as-gateway");
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->as_gateway_check),
-                                      g_strcmp0 (value, "true") == 0);
+                                      g_ascii_strcasecmp (value ? value : "", "true") == 0);
     }
     g_signal_connect (G_OBJECT (self->as_gateway_check), "toggled", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->as_gateway_check), 1, row++, 1, 1);
@@ -414,9 +414,9 @@ build_ui (NMGpclientEditor *self)
         "attempt does not repeat.");
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "fix-openssl");
-        if (g_strcmp0 (value, "true") == 0)
+        if (g_ascii_strcasecmp (value ? value : "", "true") == 0)
             gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 1);
-        else if (g_strcmp0 (value, "false") == 0)
+        else if (g_ascii_strcasecmp (value ? value : "", "false") == 0)
             gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 2);
         else
             gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 0);
@@ -459,7 +459,7 @@ build_ui (NMGpclientEditor *self)
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "hip");
         if (value && *value)
-            hip_enabled = (g_strcmp0(value, "true") == 0);
+            hip_enabled = (g_ascii_strcasecmp (value, "true") == 0);
     }
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->hip_check), hip_enabled);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->hip_check), 1, row++, 1, 1);
@@ -501,11 +501,13 @@ update_connection (NMVpnEditor *iface,
     NMGpclientEditor *self = NM_GPCLIENT_EDITOR (iface);
     NMSettingVpn *s_vpn;
     const char *str;
+    gchar *gateway = NULL;
 
     /* Check gateway is set */
     if (self->gateway_entry) {
-        str = gtk_entry_get_text (self->gateway_entry);
-        if (!str || !strlen (str)) {
+        gateway = g_strstrip (g_strdup (gtk_entry_get_text (self->gateway_entry)));
+        if (!*gateway) {
+            g_free (gateway);
             if (error) {
                 g_set_error (error,
                              NM_VPN_PLUGIN_ERROR,
@@ -525,10 +527,9 @@ update_connection (NMVpnEditor *iface,
     g_object_set (s_vpn, NM_SETTING_VPN_SERVICE_TYPE,
                   "org.freedesktop.NetworkManager.gpclient", NULL);
 
-    if (self->gateway_entry) {
-        str = gtk_entry_get_text (self->gateway_entry);
-        if (str && strlen (str))
-            nm_setting_vpn_add_data_item (s_vpn, "gateway", str);
+    if (gateway) {
+        nm_setting_vpn_add_data_item (s_vpn, "gateway", gateway);
+        g_free (gateway);
     }
 
     if (self->as_gateway_check) {

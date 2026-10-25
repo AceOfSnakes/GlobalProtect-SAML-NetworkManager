@@ -408,7 +408,7 @@ jobs:
     needs: [build, build-rpm]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     permissions:
       contents: write
 
@@ -443,7 +443,7 @@ jobs:
   # (the notes are only a convenience) never blocks the apt repository.
   release-notes:
     needs: release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -471,7 +471,7 @@ jobs:
 
   publish-apt:
     needs: release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     permissions:
       contents: read
       pages: write

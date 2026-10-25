@@ -1338,3 +1338,49 @@ def test_no_private_base_with_read_only_home_is_an_error(tmp_path):
     assert result.returncode != 0
     assert "ERROR: cannot create a private temporary directory" in result.stderr
     assert not (tmp_path / "opened").exists(), "the browser was started"
+
+
+def _fake_user(tmp_path):
+    if IS_ROOT:
+        _fake_root_tools(tmp_path)
+    else:
+        _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+        _fake_browser(tmp_path)
+
+
+def _all_logs(tmp_path, result):
+    syslog = tmp_path / "syslog"
+    return (
+        result.wrapper_log
+        + result.stderr
+        + (syslog.read_text() if syslog.exists() else "")
+    )
+
+
+@pytest.mark.parametrize("timeout", ["5m", "abc", "-5", "1.5", " 7", "5 "])
+def test_non_numeric_auth_timeout_falls_back_to_default(tmp_path, timeout):
+    """A GP_AUTH_TIMEOUT that is not a plain number must not disable the timeout."""
+    _fake_user(tmp_path)
+
+    result = _run_wrapper(
+        _root_env(tmp_path, GP_AUTH_TIMEOUT=timeout, SUDO_UID=str(FAKE_UID))
+    )
+
+    _assert_browser_started(tmp_path, result)
+    text = _all_logs(tmp_path, result)
+    assert "GP_AUTH_TIMEOUT=300" in text
+    assert "GP_AUTH_TIMEOUT is not a number" in text
+
+
+@pytest.mark.parametrize("timeout", ["5", "120"])
+def test_numeric_auth_timeout_is_kept(tmp_path, timeout):
+    _fake_user(tmp_path)
+
+    result = _run_wrapper(
+        _root_env(tmp_path, GP_AUTH_TIMEOUT=timeout, SUDO_UID=str(FAKE_UID))
+    )
+
+    _assert_browser_started(tmp_path, result)
+    text = _all_logs(tmp_path, result)
+    assert f"GP_AUTH_TIMEOUT={timeout}" in text
+    assert "GP_AUTH_TIMEOUT is not a number" not in text
