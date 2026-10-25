@@ -24,6 +24,11 @@
 # (AlmaLinux, Rocky, RHEL, CentOS Stream; needs EPEL and CRB), openSUSE Leap 16.0
 # and Tumbleweed, on x86_64 and aarch64. EL 9 is not supported (no webkit2gtk-4.1).
 #
+# Before anything is installed, the files are checked against the SHA256SUMS
+# asset of the release (when it has one), and with `gh attestation verify` (when
+# gh is installed: it may need `gh auth login`; otherwise the script says that
+# the build provenance was not checked). A failed check stops the script.
+#
 # Run it as `bash <(curl ...)`, not `curl ... | bash`: apt asks its question on
 # the terminal, and a pipe would take stdin away.
 #
@@ -324,6 +329,51 @@ while IFS=$'\t' read -r package name asset_url encoded_name; do
     package_files+=("$tmp/$name")
     packages+=("$package")
 done <<< "$selection"
+
+# --- Verify ------------------------------------------------------------------
+
+# SHA256SUMS: when the release has the asset, every file has to be in it with
+# its SHA256. (GitHub stores the "~" of a name as ".": both are the same name.)
+sums_url="$(python3 - "$tmp/release.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    for asset in json.load(handle).get("assets", []):
+        if isinstance(asset, dict) and asset.get("name") == "SHA256SUMS" and isinstance(asset.get("browser_download_url"), str):
+            print(asset["browser_download_url"])
+            break
+PY
+)" || die "cannot read the release listing"
+if [ -n "$sums_url" ]; then
+    if [ -z "${GP_RELEASE_API:-}" ] && [ "$sums_url" != "https://github.com/$REPO/releases/download/$tag/SHA256SUMS" ]; then
+        die "unexpected download address for SHA256SUMS: $sums_url"
+    fi
+    curl -fsSL --connect-timeout 20 --max-time 120 -o "$tmp/SHA256SUMS" "$sums_url" \
+        || die "cannot download SHA256SUMS"
+    for file in "${package_files[@]}"; do
+        name="${file##*/}"
+        expected="$(awk -v name="${name//\~/.}" '{ n = $2; sub(/^\*/, "", n); gsub(/~/, ".", n) } n == name { print $1 }' "$tmp/SHA256SUMS")"
+        [ -n "$expected" ] || die "$name is not in SHA256SUMS of the release: nothing installed"
+        [ "$(printf '%s\n' "$expected" | wc -l)" -eq 1 ] || die "$name is more than once in SHA256SUMS: nothing installed"
+        actual="$(sha256sum "$file")"; actual="${actual%% *}"
+        [ "$actual" = "$expected" ] || die "SHA256 of $name does not match SHA256SUMS of the release: nothing installed"
+    done
+    echo "Checksums match SHA256SUMS of the release."
+else
+    echo "The release has no SHA256SUMS: checksums not checked."
+fi
+
+# Build provenance, when the GitHub CLI is there (it may need: gh auth login)
+if command -v gh >/dev/null 2>&1; then
+    for file in "${package_files[@]}"; do
+        gh attestation verify "$file" --repo "$REPO" >/dev/null \
+            || die "no valid build provenance for ${file##*/} (gh attestation verify failed; gh may need 'gh auth login'): nothing installed"
+    done
+    echo "Build provenance verified (gh attestation verify)."
+else
+    echo "gh is not installed: build provenance not checked."
+fi
 
 # --- Install -----------------------------------------------------------------
 
