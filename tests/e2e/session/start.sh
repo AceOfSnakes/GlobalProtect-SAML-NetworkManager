@@ -122,7 +122,12 @@ for _ in $(seq 60); do kill -0 $FFMPEG_PID 2>/dev/null || break; sleep 0.5; done
 cp /tmp/raw.mp4 "$OUT/raw.mp4"
 
 # Logs: the service logs to stderr, which NetworkManager forwards to its log
-cp /tmp/edge-wrapper-$DEMO_UID.log "$OUT/edge-wrapper.log" 2>/dev/null || true
+# The wrapper logs to wrapper.log in its private directory: /tmp/edge-wrapper-<uid>,
+# or a mktemp fallback next to it when that one cannot be used
+for log_file in /tmp/edge-wrapper-$DEMO_UID/wrapper.log /tmp/edge-wrapper-$DEMO_UID.*/wrapper.log; do
+    [ -f "$log_file" ] && cat "$log_file"
+done > "$OUT/edge-wrapper.log" 2>/dev/null
+[ -s "$OUT/edge-wrapper.log" ] || rm -f "$OUT/edge-wrapper.log"
 nmcli -t -f NAME,TYPE,STATE connection show --active > "$OUT/nmcli-active.txt" 2>&1
 { ip route; resolvectl status; } > "$OUT/network-state.txt" 2>&1
 ip -4 addr show "$(cat /run/gp-demo/tun-name 2> /dev/null || echo gpd0)" > "$OUT/tunnel.txt" 2>&1

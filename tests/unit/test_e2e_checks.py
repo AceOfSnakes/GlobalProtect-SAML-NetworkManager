@@ -74,9 +74,9 @@ def state(kind, edge=None, **override):
     return "".join(f"## {title}\n" + "\n".join(lines) + "\n" for title, lines in sections.items())
 
 
+# What lands in wrapper.log: the wrapper logs its arguments before the file is
+# open (to stderr and syslog)
 WRAPPER_LOG = (
-    "[t] called with args: https://vpn.contoso.example/x\n"
-    "[t] EUID=1000 USER=demo\n"
     "[t] running as EUID=1000 (no privilege drop needed)\n"
     "[t] started browser with PID=654\n"
     "[t] done: gpauth (584) exited - authentication finished, closing browser\n"
@@ -219,6 +219,13 @@ BREAKS = [
     ),
     ("gnome", "edge-wrapper.log", "running as EUID=1000 (no privilege drop needed)", "running as EUID=0", "wrapper runs the browser as the desktop user (uid 1000)"),
     ("gnome", "edge-wrapper.log", "started browser with PID=654", "no browser", "wrapper started the browser"),
+    (
+        "gnome",
+        "edge-wrapper.log",
+        "started browser with PID=654",
+        "started browser with PID=654\n[t] started browser with PID=777",
+        "wrapper runs the browser as the desktop user (uid 1000)",
+    ),
     ("gnome", "edge-wrapper.log", "authentication finished, closing browser", "gpauth timeout", "wrapper closed the browser when gpauth was done"),
     ("gnome", "NetworkManager.log", "Connected to VPN", "Traceback (most recent call last):", "no errors or tracebacks in the service log"),
     ("gnome", "NetworkManager.log", "Connected to VPN", "__main__ [ERROR] boom", "no errors or tracebacks in the service log"),

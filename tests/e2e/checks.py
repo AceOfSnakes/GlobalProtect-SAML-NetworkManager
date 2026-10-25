@@ -216,15 +216,16 @@ def check_state(results, run, name, kind, scenario):
 def check_edge(results, run, scenario):
     """Edge is started by the wrapper as the desktop user, never as root."""
     wrapper = run.text("edge-wrapper.log") or ""
-    # gpauth runs as the desktop user, so the wrapper starts as uid 1000; if it
-    # was started as root it must drop to uid 1000 before it starts the browser
-    calls = wrapper.count("called with args")
+    # gpauth runs as the desktop user, so every browser start in the log follows
+    # "running as EUID=1000". The wrapper writes wrapper.log only once it runs as
+    # that user: what it logs before (its arguments, a privilege drop as root)
+    # goes to stderr and syslog, and the process snapshots check for root.
+    starts = wrapper.count("started browser with PID")
     as_user = len(re.findall(r"running as EUID=1000 \(no privilege drop needed\)", wrapper))
-    dropped = len(re.findall(r"dropping privileges to demo \(uid=1000\)", wrapper))
     results.add(
         "wrapper runs the browser as the desktop user (uid 1000)",
-        calls > 0 and as_user + dropped == calls,
-        f"{calls} wrapper runs, {as_user} as uid 1000, {dropped} dropped privileges" if wrapper else "no edge-wrapper.log",
+        starts > 0 and as_user == starts,
+        f"{starts} browser starts, {as_user} as uid 1000" if wrapper else "no edge-wrapper.log",
     )
     results.add(
         "wrapper started the browser",
