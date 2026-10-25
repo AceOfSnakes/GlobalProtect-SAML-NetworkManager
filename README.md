@@ -218,6 +218,8 @@ VPN DNS servers answer only for the VPN's domains:
 The password for `auth-mode=credentials` is a secret, not data:
 `nmcli connection modify "My VPN" +vpn.secrets password=...`
 
+Older versions added `resolve [!UNAVAIL=return]` to the `hosts:` line of `/etc/nsswitch.conf` and kept a backup in `/etc/nsswitch.conf.gpclient-backup`. Version 2.0.0 does not change this file. If you do not want that edit, restore the backup.
+
 ## Packages
 
 | Package | Description |
@@ -441,15 +443,16 @@ More in [docs/EDGE_WRAPPER.md](docs/EDGE_WRAPPER.md#troubleshooting).
 
 ### Debug vpnc-script
 
-The repository includes a modified `vpnc-script` (from Ubuntu 24.04 `vpnc-scripts` package) with added debug logging. This script is **not installed** by the package - you need to download it manually from the repository:
+The repository has a small wrapper, `scripts/vpnc-script-debug`. It writes the tunnel settings that openconnect gives to vpnc-script (`reason`, `TUNDEV`, `VPNGATEWAY`, `INTERNAL_IP4_*`, `INTERNAL_IP6_*`, `CISCO_SPLIT_*`, `MTU`, `CISCO_DEF_DOMAIN`) and the `-x` trace of the real script to the journal, then runs the real script (`/usr/share/vpnc-scripts/vpnc-script`, or the file in `VPNC_SCRIPT_REAL`) and returns its exit status. The package does **not** install it. Do not overwrite the system `vpnc-script`: install the wrapper as a separate file and point gpclient (or openconnect) at it:
 
 ```bash
-# Download and install debug vpnc-script
-curl -o /tmp/vpnc-script https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/vpnc-script-debug
-sudo cp /tmp/vpnc-script /usr/share/vpnc-scripts/vpnc-script
+sudo curl -o /usr/local/sbin/vpnc-script-debug https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/vpnc-script-debug
+sudo chmod 755 /usr/local/sbin/vpnc-script-debug
+sudo gpclient --script /usr/local/sbin/vpnc-script-debug connect <portal>   # manual run
+sudo journalctl -t vpnc-script-debug
 ```
 
-Debug logs are written to `/tmp/vpnc-script2.log`.
+Remove the file when you are done: `sudo rm /usr/local/sbin/vpnc-script-debug`.
 
 ## Documentation
 

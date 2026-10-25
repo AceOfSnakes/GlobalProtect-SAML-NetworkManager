@@ -50,7 +50,7 @@ install -D -m 755 scripts/edge-wrapper.sh \
 install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service \
     "$dest/usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service"
 install -D -m 644 config/nm-gpclient.conf \
-    "$dest/etc/dbus-1/system.d/nm-gpclient.conf"
+    "$dest/usr/share/dbus-1/system.d/nm-gpclient.conf"
 mkdir -p "$dest/usr/libexec/NetworkManager"
 ln -sf /usr/lib/NetworkManager/nm-gpclient-service \
     "$dest/usr/libexec/NetworkManager/gpclient-nm-service"

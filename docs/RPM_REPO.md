@@ -95,9 +95,10 @@ sudo zypper removerepo network-manager-gpclient
 
 ## Differences from the Ubuntu packages
 
-- The RPMs do not change `/etc/nsswitch.conf` (the Debian package adds
-  `resolve` to its `hosts:` line). Fedora and EL manage that file with
-  `authselect`, and Fedora uses systemd-resolved by default.
+- Neither the RPMs nor the Debian package change `/etc/nsswitch.conf`
+  (Debian packages before 2.0.0 added `resolve` to its `hosts:` line). Fedora
+  and EL manage that file with `authselect`, and Fedora uses systemd-resolved
+  by default.
 - openSUSE does not use systemd-resolved by default; the VPN DNS then follows
   what vpnc-script does without it. This is not tested with a real VPN yet.
 - On openSUSE the service and the auth dialog start with the versioned Python

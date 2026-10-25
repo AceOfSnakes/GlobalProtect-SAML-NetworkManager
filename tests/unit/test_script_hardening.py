@@ -1,7 +1,7 @@
 """
 Tests for the hardening of the release and build scripts: publish-apt.yml (a failing download
 fails the job), build-release.yml (release jobs run for tag pushes only), build-all.sh, the
-Makefile `install` target and the nsswitch edit of debian/network-manager-gpclient.postinst.
+Makefile `install` target and the systemd enable symlink removal of debian/network-manager-gpclient.postinst.
 (upgrade_possible is covered in test_upgrade_test_workflow.py.)
 
 Every positive test has a negative counterpart. External tools are fakes on PATH.
@@ -230,7 +230,7 @@ def test_every_script_of_shell_scripts_exists():
 # --- Makefile install --------------------------------------------------------
 
 CONFIG_INSTALLS = [
-    ("config/nm-gpclient.conf", "/etc/dbus-1/system.d/nm-gpclient.conf"),
+    ("config/nm-gpclient.conf", "/usr/share/dbus-1/system.d/nm-gpclient.conf"),
     ("config/org.freedesktop.NetworkManager.gpclient.service",
      "/usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service"),
     ("config/nm-gpclient.service", "/lib/systemd/system/nm-gpclient.service"),
@@ -266,54 +266,50 @@ class TestMakeInstall:
         assert src in self.text().split("\ninstall-dev:")[1]
 
 
-# --- postinst: nsswitch.conf -------------------------------------------------
+# --- postinst: systemd enable symlink, nsswitch.conf -------------------------
 
-HOSTS_OLD = "passwd: files\nhosts: files dns\n"
-
-
-def run_postinst(tmp_path, args, backup=None, hosts=HOSTS_OLD):
-    nss = tmp_path / "nsswitch.conf"
-    nss.write_text(hosts)
-    if backup is not None:
-        (tmp_path / "nsswitch.conf.gpclient-backup").write_text(backup)
-    text = open(POSTINST).read().replace("/etc/nsswitch.conf", str(nss))
-    text = text.replace("remove_legacy_edge_wrapper /tmp\n", "")
+def run_postinst(tmp_path, args, helper=True):
+    text = open(POSTINST).read().replace("remove_legacy_edge_wrapper /tmp\n", "")
     script = tmp_path / "postinst"
     script.write_text(text)
-    # Never reload the real D-Bus or signal a real nm-gpclient-service
-    bin_dir = fake_bin(tmp_path, {"dbus-send": "exit 0\n", "pgrep": "exit 1\n", "pkill": "exit 1\n"})
+    tools = {"dbus-send": "exit 0\n", "pgrep": "exit 1\n", "pkill": "exit 1\n"}
+    if helper:
+        tools["deb-systemd-helper"] = 'echo "$*" >> "$FAKE_DIR/helper_calls"\n'
+    # Fake dpkg: the real one may not be there; "lt" compares the dotted numbers only
+    tools["dpkg"] = ('[ "$1" = --compare-versions ] || exit 2\n'
+                     'v=${2%%-*}; [ "$(printf "%s\\n%s\\n" "$v" "${4%~}" | sort -V | head -n1)" = "$v" ] '
+                     '&& [ "$v" != "${4%~}" ]\n')
+    bin_dir = fake_bin(tmp_path, tools)
     result = subprocess.run(["sh", str(script), *args], capture_output=True, text=True, timeout=30,
-                            env={"PATH": f"{bin_dir}:{SAFE_PATH}"})
-    backup_file = tmp_path / "nsswitch.conf.gpclient-backup"
-    return result, nss.read_text(), backup_file.read_text() if backup_file.exists() else None
+                            env={"PATH": f"{bin_dir}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path)})
+    calls = tmp_path / "helper_calls"
+    return result, calls.read_text() if calls.exists() else ""
+
+
+class TestPostinstSystemd:
+    @pytest.mark.parametrize("old", ["1.5.0-1", "1.4.1-1"])
+    def test_an_upgrade_from_before_2_0_0_disables_the_unit(self, tmp_path, old):
+        result, calls = run_postinst(tmp_path, ["configure", old])
+
+        assert result.returncode == 0, result.stderr
+        assert calls == "disable nm-gpclient.service\n"
+
+    @pytest.mark.parametrize("args", [["configure"], ["configure", "2.0.0-1"], ["configure", "2.1.0-1"],
+                                      ["reconfigure", "2.0.0-1"]])
+    def test_a_first_install_and_a_newer_upgrade_leave_the_unit_alone(self, tmp_path, args):
+        result, calls = run_postinst(tmp_path, args)
+
+        assert result.returncode == 0, result.stderr
+        assert calls == ""
+
+    def test_a_missing_helper_does_not_fail_the_upgrade(self, tmp_path):
+        result, calls = run_postinst(tmp_path, ["configure", "1.5.0-1"], helper=False)
+
+        assert result.returncode == 0, result.stderr
+        assert calls == ""
 
 
 class TestPostinstNsswitch:
-    def test_a_first_install_adds_resolve_and_saves_a_backup(self, tmp_path):
-        result, nss, backup = run_postinst(tmp_path, ["configure"])
+    def test_the_postinst_does_not_mention_nsswitch(self):
+        assert "nsswitch" not in open(POSTINST).read()
 
-        assert result.returncode == 0, result.stderr
-        assert "resolve [!UNAVAIL=return] files" in nss
-        assert backup == HOSTS_OLD
-
-    @pytest.mark.parametrize("args", [["configure", "1.4.1-1"], ["reconfigure", "1.4.1-1"]])
-    def test_an_upgrade_does_not_touch_the_file(self, tmp_path, args):
-        result, nss, backup = run_postinst(tmp_path, args)
-
-        assert result.returncode == 0, result.stderr
-        assert nss == HOSTS_OLD
-        assert backup is None
-
-    def test_a_first_install_never_overwrites_an_existing_backup(self, tmp_path):
-        result, nss, backup = run_postinst(tmp_path, ["configure"], backup="original\n")
-
-        assert result.returncode == 0, result.stderr
-        assert "resolve" in nss
-        assert backup == "original\n"
-
-    def test_a_file_that_has_resolve_is_left_alone(self, tmp_path):
-        hosts = "hosts: files resolve [!UNAVAIL=return] dns\n"
-        result, nss, backup = run_postinst(tmp_path, ["configure"], hosts=hosts)
-
-        assert result.returncode == 0, result.stderr
-        assert nss == hosts and backup is None
