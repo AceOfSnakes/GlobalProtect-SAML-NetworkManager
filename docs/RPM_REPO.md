@@ -145,7 +145,9 @@ apt repository and the RPM repositories from all published releases
 (`.github/scripts/build-rpm-repo.sh`). It signs every RPM and every
 `repodata/repomd.xml` with the apt key (`APT_GPG_PRIVATE_KEY`, RSA), so a key
 rotation is the one described in [APT_REPO.md](APT_REPO.md); the repository
-signs the RPMs again on every publish.
+signs the RPMs again on every publish. Before it signs, it checks every RPM
+against the release's `SHA256SUMS` and its build provenance (see
+"Verifying packages" in [APT_REPO.md](APT_REPO.md)).
 
 The release job waits for every Ubuntu and RPM build: a release has all its
 packages or is not made. When one build fails on the tag (Tumbleweed changes

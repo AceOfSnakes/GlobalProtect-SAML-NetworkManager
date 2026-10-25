@@ -61,18 +61,41 @@ sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archi
 sudo apt update
 ```
 
+### Verifying packages
+
+Every release after v1.5.0 has a `SHA256SUMS` asset and a build provenance
+attestation (SLSA, signed through Sigstore) for each `.deb` and `.rpm` file. The
+attestation names the workflow run of this repository that built the file. To
+check a file you downloaded from a GitHub release:
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS            # in the download directory
+gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SAML-NetworkManager
+```
+
+`publish-apt.yml` does both checks for every package before it signs it into the
+apt and RPM repositories: a package that fails, or a release without `SHA256SUMS`,
+stops the run. Only the releases listed in
+`.github/legacy-unattested-releases.txt` (v1.5.0 and older) are published without
+the checks. `scripts/install-pr-build.sh` checks the test packages of a pull
+request the same way (`SHA256SUMS` when the release has one, `gh attestation
+verify` when `gh` is installed).
+
 ## For the maintainer
 
 ### Cutting a release
 
 1. Add an entry to `debian/changelog` with the new version (`1.4.0-1`).
-2. Commit, then tag and push:
+2. Commit, then tag and push. The tag is `v` and the upstream version of the top
+   changelog entry (`1.4.0-1` gives `v1.4.0`); `build-release.yml` stops at once
+   when they differ:
    ```bash
    git tag v1.4.0
    git push origin v1.4.0
    ```
 3. `build-release.yml` builds every Ubuntu release for `amd64` and `arm64`, creates the GitHub
-   release with the `.deb` files attached, and then calls `publish-apt.yml`,
+   release with the `.deb` and `.rpm` files and `SHA256SUMS` attached (the build jobs
+   attest each file), and then calls `publish-apt.yml`,
    which republishes the repository.
 
 The build appends the release codename to the version, so the same upstream
@@ -196,6 +219,27 @@ gh api -X POST repos/WMP/GlobalProtect-SAML-NetworkManager/pages -f build_type=w
 
 A public repository means a public site - which is what an apt repository is
 anyway.
+
+### Repository settings only the owner can set
+
+These are in the GitHub UI and no workflow can set them. Until they are set, a
+person with write access to the repository can still reach the signing key or
+move a release tag.
+
+- **Signing key in an environment.** Move `APT_GPG_PRIVATE_KEY` from the
+  repository secrets to a secret of the `github-pages` environment (Settings →
+  Environments → github-pages), and restrict that environment to the tags `v*`
+  (Deployment branches and tags → Selected branches and tags → Add tag rule
+  `v*`). `publish-apt.yml` already runs in that environment. Delete the
+  repository-level secret afterwards.
+- **Tag ruleset.** Settings → Rules → Rulesets → New tag ruleset, target `v*`:
+  restrict creations, updates and deletions to the owner, and block force pushes.
+- **Immutable releases.** Settings → General → Releases → "Enable release
+  immutability". A published release then keeps its assets and its tag, so
+  `SHA256SUMS` and the attested files cannot be replaced afterwards.
+- **Code scanning and Scorecard.** `codeql.yml`, `zizmor.yml` and `scorecard.yml`
+  need Settings → Advanced Security → Code scanning to be enabled for the results
+  to show in the Security tab.
 
 ### Not implemented
 
