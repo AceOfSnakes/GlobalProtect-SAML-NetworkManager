@@ -17,5 +17,6 @@ fi
 env | grep -E '^(reason|TUNDEV|VPNGATEWAY|INTERNAL_IP4_[A-Z0-9_]*|INTERNAL_IP6_[A-Z0-9_]*|CISCO_SPLIT_[A-Z0-9_]*|CISCO_IPV6_SPLIT_[A-Z0-9_]*|MTU|CISCO_DEF_DOMAIN)=' |
     sort | logger -t "$tag"
 
-bash -x "$real" "$@" 2>&1 | logger -t "$tag"
+# The real script is POSIX sh (dash on Ubuntu): trace it with the same shell
+sh -x "$real" "$@" 2>&1 | logger -t "$tag"
 exit "${PIPESTATUS[0]}"
