@@ -126,7 +126,7 @@ class TestPublishAptDownload:
 
 # --- build-release.yml -------------------------------------------------------
 
-@pytest.mark.parametrize("job", ["release", "release-notes", "publish-apt"])
+@pytest.mark.parametrize("job", ["sbom", "release", "release-notes", "publish-apt"])
 def test_release_jobs_run_for_tag_pushes_only(job):
     text = read_workflow("build-release.yml")
     block = text[text.index(f"\n  {job}:\n"):]
@@ -138,8 +138,8 @@ def test_release_jobs_run_for_tag_pushes_only(job):
 def test_only_the_release_jobs_check_the_tag():
     # a workflow_dispatch run on a tag must not reach them: no other job needs the check
     text = read_workflow("build-release.yml")
-    assert text.count("github.event_name == 'push'") >= 3
-    assert text.count("startsWith(github.ref, 'refs/tags/')") == 3
+    assert text.count("github.event_name == 'push'") >= 4
+    assert text.count("startsWith(github.ref, 'refs/tags/')") == 4
 
 
 # --- build-all.sh ------------------------------------------------------------

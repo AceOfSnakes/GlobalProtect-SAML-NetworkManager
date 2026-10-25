@@ -459,8 +459,41 @@ jobs:
             -v "$PWD/rpm:/rpm:ro" \
             "$image" bash /rpm/install-test.sh /rpms
 
+  # One CycloneDX SBOM of the Rust dependencies that gpclient and gpauth are
+  # built from (the same Cargo.lock for every package), once per release. It is
+  # made from the lock file: no build and no network. It is not in SHA256SUMS:
+  # that file lists the package assets, which publish-apt checks one by one.
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Only Cargo.lock is read: the nested submodules are not needed
+          submodules: true
+          persist-credentials: false
+
+      - name: Generate SBOM of the Rust dependencies
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          file: external/GlobalProtect-openconnect/Cargo.lock
+          syft-version: v1.55.0
+          format: cyclonedx-json
+          output-file: sbom-rust.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom-rust.cdx.json
+          if-no-files-found: error
+
   release:
-    needs: [build, build-rpm]
+    needs: [build, build-rpm, sbom]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
@@ -481,7 +514,7 @@ jobs:
           # (network-manager-gpclient-1.4.0-1.fc44.x86_64.rpm), so no renaming is
           # needed to keep them unique across all builds.
           mkdir -p release-files
-          find artifacts \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} release-files/ \;
+          find artifacts \( -name '*.deb' -o -name '*.rpm' -o -name 'sbom-rust.cdx.json' \) -exec cp {} release-files/ \;
           echo "Release files:"
           ls -la release-files/
 
@@ -502,6 +535,7 @@ jobs:
             release-files/*.deb
             release-files/*.rpm
             release-files/SHA256SUMS
+            release-files/sbom-rust.cdx.json
           generate_release_notes: true
           fail_on_unmatched_files: true
 
