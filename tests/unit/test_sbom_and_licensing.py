@@ -11,7 +11,7 @@ import re
 import pytest
 
 from test_actions_pinned import uses_problems
-from workflow_steps import read_workflow, step_lines, step_names
+from workflow_steps import read_workflow, step_lines
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 AUDIT = "rust-audit.yml"
