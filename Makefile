@@ -219,6 +219,7 @@ SHELL_SCRIPTS := \
 	.github/scripts/gui-smoke.sh \
 	.github/scripts/neon-repo.sh \
 	.github/scripts/upgrade-test.sh \
+	.github/scripts/verify-release-assets.sh \
 	build-all.sh \
 	config/90-gpclient-routing \
 	debian/network-manager-gpclient.postinst \

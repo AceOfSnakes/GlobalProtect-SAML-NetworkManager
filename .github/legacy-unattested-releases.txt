@@ -1,0 +1,10 @@
+# Releases published before SHA256SUMS and build provenance existed. The apt
+# and RPM repositories still publish their packages without verification
+# (.github/scripts/verify-release-assets.sh). One tag per line. Never add a
+# new release here: a new release gets SHA256SUMS and attestations from
+# .github/workflows/build-release.yml.
+v1.0.0
+v1.2.0
+v1.4.0
+v1.4.1
+v1.5.0
