@@ -17,6 +17,21 @@ Two modes:
     e.g. "otp" for an RSA token / one-time code, "password", "username".
     A hint prefixed with "x-vpn-message:" carries the human-readable
     prompt message from the VPN service.
+
+External UI mode (--external-ui-mode, enabled by supports-external-ui-mode in
+nm-gpclient-service.name): no window and no "key\nvalue" pairs. The dialog
+prints a GKeyFile and exits at once, without waiting for QUIT:
+
+  [VPN Plugin UI]            Version=2, Title, Description
+  [<secret name>]            Value, Label, IsSecret, ShouldAsk, ForceEcho
+
+GNOME Shell then shows its own native prompt, and "nmcli --ask" prompts on the
+terminal. nmcli only asks for groups with IsSecret=true and ShouldAsk=true, so
+every group has IsSecret=true. ForceEcho=true (username, one-time code) makes
+only nmcli show the typed text; GNOME Shell and nm-applet mask every field.
+No secret group at all means "nothing to ask".
+The secrets, labels and flag rules are the same as in the GTK path, except that
+a NOT_SAVED (2) password is always asked, even when a stored value comes in.
 """
 
 import argparse
@@ -79,6 +94,51 @@ def output_secrets(secrets):
     sys.stdout.flush()
 
 
+def keyfile_escape(value):
+    """Escape a value like GKeyFile does (backslash, whitespace, newlines)"""
+    value = (
+        value.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return "\\s" + value[1:] if value.startswith(" ") else value
+
+
+def output_external_ui(title, description, entries):
+    """Write the external UI keyfile; entries are (key, value, label, ask, echo)"""
+    lines = [
+        "[VPN Plugin UI]",
+        "Version=2",
+        f"Description={keyfile_escape(description)}",
+        f"Title={keyfile_escape(title)}",
+    ]
+    for key, value, label, ask, echo in entries:
+        lines += [
+            "",
+            f"[{key}]",
+            f"Value={keyfile_escape(value)}",
+            f"Label={keyfile_escape(label)}",
+            "IsSecret=true",
+            f"ShouldAsk={str(ask).lower()}",
+            f"ForceEcho={str(echo).lower()}",
+        ]
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
+
+
+def secret_label(key):
+    return SECRET_LABELS.get(key, key.replace("-", " ").capitalize())
+
+
+def header_text(vpn_name, message, reprompt):
+    if message:
+        return message
+    if reprompt:
+        return f"Authentication failed. Enter the credentials for “{vpn_name}” again."
+    return f"Credentials are required to connect to “{vpn_name}”."
+
+
 def parse_hints(raw_hints):
     """Split hints into requested secret keys and an optional message"""
     keys = []
@@ -114,14 +174,7 @@ def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
     content.set_spacing(8)
 
     header = Gtk.Label()
-    if message:
-        header.set_text(message)
-    elif reprompt:
-        header.set_text(
-            f"Authentication failed. Enter the credentials for “{vpn_name}” again."
-        )
-    else:
-        header.set_text(f"Credentials are required to connect to “{vpn_name}”.")
+    header.set_text(header_text(vpn_name, message, reprompt))
     header.set_line_wrap(True)
     header.set_max_width_chars(60)
     header.set_xalign(0)
@@ -139,8 +192,7 @@ def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
 
     entries = {}
     for row, key in enumerate(requested):
-        label_text = SECRET_LABELS.get(key, key.replace("-", " ").capitalize())
-        label = Gtk.Label(label=f"{label_text}:")
+        label = Gtk.Label(label=f"{secret_label(key)}:")
         label.set_xalign(1)
         grid.attach(label, 0, row, 1, 1)
 
@@ -175,6 +227,39 @@ def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
     return result
 
 
+def external_ui(args, data, existing_secrets, requested, message):
+    """External UI mode: describe the secrets to ask, never open a window"""
+    upfront = not requested  # no hints: NetworkManager wants the stored secrets
+    if upfront and data.get("auth-mode", "saml") == "credentials":
+        requested = ["password"]
+    # A hint that cannot be a keyfile group name is not a secret name
+    requested = [
+        k for k in requested if k.isprintable() and not set(k) & set("[]") and k.strip()
+    ]
+    try:
+        flags = int(data.get("password-flags", 0))
+    except (TypeError, ValueError):
+        flags = 0
+    if upfront and flags & 4:
+        requested = []  # password NOT_REQUIRED
+
+    entries = []
+    for key in requested:
+        # One-time codes are never pre-filled; NOT_SAVED (2) is always asked
+        fresh = args.reprompt or key in ONE_TIME_HINTS
+        stored = "" if fresh else existing_secrets.get(key, "")
+        ask = args.allow_interaction and (
+            not stored or (key == "password" and bool(flags & 2))
+        )
+        entries.append((key, stored, secret_label(key), ask, key in PLAIN_TEXT_HINTS))
+    description = header_text(args.name, message, args.reprompt)
+    if data.get("username"):
+        # The GTK window shows the account too: say whose password is asked
+        description += f"\nUser: {data['username']}"
+    output_external_ui(f"Authenticate VPN: {args.name}", description, entries)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="GlobalProtect VPN auth dialog")
     parser.add_argument("-u", "--uuid", required=True)
@@ -184,7 +269,9 @@ def main():
     parser.add_argument("-r", "--reprompt", action="store_true")
     parser.add_argument("-t", "--hint", action="append", default=[])
     parser.add_argument(
-        "--external-ui-mode", action="store_true", help="Ignored (not supported)"
+        "--external-ui-mode",
+        action="store_true",
+        help="Print a keyfile for the agent (GNOME Shell, nmcli) instead of a window",
     )
     args = parser.parse_args()
 
@@ -194,6 +281,9 @@ def main():
 
     data, existing_secrets = read_stdin_data()
     requested, message = parse_hints(args.hint)
+
+    if args.external_ui_mode:
+        return external_ui(args, data, existing_secrets, requested, message)
 
     if not requested:
         # No hints: NetworkManager wants the connection's stored secrets, not
@@ -225,9 +315,7 @@ def main():
 
     # If we already have every requested secret and don't need to re-ask,
     # return them without any UI. One-time codes are always asked for.
-    reusable = not args.reprompt and not any(
-        key in ONE_TIME_HINTS for key in requested
-    )
+    reusable = not args.reprompt and not any(key in ONE_TIME_HINTS for key in requested)
     if reusable and all(existing_secrets.get(key) for key in requested):
         output_secrets({key: existing_secrets[key] for key in requested})
         wait_for_quit()
