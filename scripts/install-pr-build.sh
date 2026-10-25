@@ -336,8 +336,11 @@ done <<< "$selection"
 # the GitHub API)
 if ! command -v gh >/dev/null 2>&1; then
     echo "gh is not installed: build provenance not checked."
-elif ! gh auth status >/dev/null 2>&1; then
+elif ! gh auth status --hostname github.com >/dev/null 2>&1; then
     echo "gh is not logged in (gh auth login): build provenance not checked."
+elif ! gh attestation verify --help >/dev/null 2>&1; then
+    # gh attestation came in gh 2.49 (Ubuntu 22.04 and 24.04 ship older ones)
+    echo "gh is too old for 'gh attestation' (2.49 or newer needed): build provenance not checked."
 else
     for file in "${package_files[@]}"; do
         gh attestation verify "$file" --repo "$REPO" \

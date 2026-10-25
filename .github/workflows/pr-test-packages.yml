@@ -123,7 +123,7 @@ jobs:
             echo "reason=pull requests from forks are not published" >> "$GITHUB_OUTPUT"
           elif [[ "$ACTOR" == dependabot* || "$PR_AUTHOR" == *dependabot* ]]; then
             echo "state=not-published" >> "$GITHUB_OUTPUT"
-            echo "reason=Dependabot pull requests are not published (their builds have no provenance)" >> "$GITHUB_OUTPUT"
+            echo "reason=Dependabot pull requests are not published (their builds are not attested)" >> "$GITHUB_OUTPUT"
           else
             echo "state=publish" >> "$GITHUB_OUTPUT"
           fi
