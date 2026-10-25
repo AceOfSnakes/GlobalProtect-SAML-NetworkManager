@@ -330,3 +330,30 @@ def test_missing_browser_trace_fails(tmp_path, scenario):
     if scenario == "routing":
         os.remove(tmp_path / "state-edge-open-2.txt")
     assert "browser was running during the sign-in" in failed_names(tmp_path, scenario)
+
+
+def named_tunnel(path, name="gp-1a2b3c4d"):
+    """The run as the service makes it with a connection UUID: the tunnel has
+    its own name, which every state file lists in its "tunnel interface"."""
+    for entry in os.listdir(path):
+        if entry.startswith("state-"):
+            full = os.path.join(path, entry)
+            with open(full, encoding="utf-8") as handle:
+                text = handle.read()
+            with open(full, "w", encoding="utf-8") as handle:
+                handle.write(f"## tunnel interface\n{name}\n" + text.replace("gpd0", name))
+
+
+@pytest.mark.parametrize("scenario", SCENARIOS)
+def test_a_named_tunnel_passes_every_check(tmp_path, scenario):
+    write_run(tmp_path, scenario)
+    named_tunnel(tmp_path)
+    assert failed_names(tmp_path, scenario) == []
+
+
+def test_a_named_tunnel_without_its_address_fails(tmp_path):
+    # The checks read the address of the named tunnel, not of gpd0
+    write_run(tmp_path, "gnome")
+    named_tunnel(tmp_path)
+    edit(tmp_path, "state-connected.txt", "    inet 10.20.30.45/32 scope global gp-1a2b3c4d\n", "")
+    assert "[connected] tunnel address is exactly 10.20.30.45/32" in failed_names(tmp_path, "gnome")

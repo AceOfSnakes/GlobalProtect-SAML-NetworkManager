@@ -140,9 +140,11 @@ A connection with a UUID names its tunnel: the service starts gpclient with
 Detection then takes exactly that interface, as soon as it has an IPv4
 address. It uses no candidate list, no snapshot and no file descriptors. Before
 the start, a stale interface of that name (left by a crashed session) is
-removed when no gpclient runs; `gpd0` and `tunN` are never touched. Without a
-usable UUID the service does not pass `--interface` and detection works as
-described next.
+removed when no gpclient runs; `gpd0` and `tunN` are never touched. Every
+NetworkManager connection has a UUID, so the cleanup of a stale `gpd0` (issue
+#7) now runs only for a connection without one (gpclient 3.x does not create
+`gpd0` itself). Without a usable UUID the service does not pass `--interface`
+and detection works as described next.
 
 Every 500ms `/sys/class/net` is scanned for `gpdN`/`tunN` devices (`gpd0`
 first, then `tunN` in numeric order). The candidate list is *not* hardcoded:
