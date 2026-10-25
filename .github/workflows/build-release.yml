@@ -53,7 +53,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A release tag must be v<upstream version of debian/changelog>: otherwise
+  # the packages would carry another version than the release's name.
+  check-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            debian/changelog
+          sparse-checkout-cone-mode: false
+
+      - name: Check the tag against debian/changelog
+        if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python3 .github/scripts/check_tag_version.py "$TAG" debian/changelog
+
   build:
+    needs: check-tag
     # Docker builds natively on each runner (no QEMU): the arm64 runner produces
     # arm64 packages, the amd64 one amd64 packages.
     runs-on: ${{ matrix.runner }}
@@ -274,6 +297,7 @@ jobs:
   # rpm/targets; a unit test keeps this matrix equal to it. A manual run builds
   # the target it picks (none: no RPM build, and so no release job either).
   build-rpm:
+    needs: check-tag
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.rpm_target != 'none'
     # Natively on each runner, like the Ubuntu build: the arm64 runner builds aarch64 packages.
     runs-on: ${{ matrix.runner }}
