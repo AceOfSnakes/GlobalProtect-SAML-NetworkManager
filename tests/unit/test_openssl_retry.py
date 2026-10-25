@@ -125,6 +125,28 @@ def _plugin(service_module, monkeypatch, fake, mode="auto"):
 
 
 class TestOpensslRetry:
+    @pytest.mark.parametrize("disconnect", [True, False])
+    def test_a_disconnect_during_the_retry_reports_no_failure(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, disconnect
+    ):
+        fake = _write_fake(tmp_path, "gpclient.py", FAKE_GPCLIENT_ALWAYS_FAILING.replace(
+            "__LAUNCH_LOG__", str(tmp_path / "launches")))
+        plugin = _plugin(service_module, monkeypatch, fake)
+        calls = []
+
+        async def stop_gpauth():
+            calls.append(1)
+            if disconnect and len(calls) == 2:  # the retry's _start_gpclient
+                plugin._generation += 1
+
+        monkeypatch.setattr(plugin, "_stop_remembered_gpauth", stop_gpauth)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        failures = [s for s in dbus_signals if s[0] == "Failure"]
+        assert (failures == []) is disconnect
+        assert (tmp_path / "launches").read_text().count("launch") == (1 if disconnect else 2)
+
     def test_retries_once_with_the_flag(self, service_module, monkeypatch, tmp_path):
         fake = _write_fake(tmp_path, "gpclient.py", FAKE_GPCLIENT)
         plugin = _plugin(service_module, monkeypatch, fake)

@@ -2730,6 +2730,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 if await self._retry_with_openssl_fix():
                     # A new monitor task took over the retried process
                     return
+                if self._session_gen != self._generation:
+                    # A Disconnect() came in during the retry: nothing to report
+                    return
                 logger.error(f"gpclient failed with exit code {returncode}")
                 self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
             elif returncode == 0 and not self._login_failed:
