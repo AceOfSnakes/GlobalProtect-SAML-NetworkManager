@@ -443,7 +443,7 @@ More in [docs/EDGE_WRAPPER.md](docs/EDGE_WRAPPER.md#troubleshooting).
 
 ### Debug vpnc-script
 
-The repository has a small wrapper, `scripts/vpnc-script-debug`. It writes the tunnel settings that openconnect gives to vpnc-script (`reason`, `TUNDEV`, `VPNGATEWAY`, `INTERNAL_IP4_*`, `INTERNAL_IP6_*`, `CISCO_SPLIT_*`, `MTU`, `CISCO_DEF_DOMAIN`) and the `-x` trace of the real script to the journal, then runs the real script (`/usr/share/vpnc-scripts/vpnc-script`, or the file in `VPNC_SCRIPT_REAL`) and returns its exit status. The package does **not** install it. Do not overwrite the system `vpnc-script`: install the wrapper as a separate file and point gpclient (or openconnect) at it:
+The repository has a small wrapper, `scripts/vpnc-script-debug`. It writes the tunnel settings that openconnect gives to vpnc-script (`reason`, `TUNDEV`, `VPNGATEWAY`, `INTERNAL_IP4_*`, `INTERNAL_IP6_*`, `CISCO_SPLIT_*`, `MTU`, `CISCO_DEF_DOMAIN`) and the `-x` trace of the real script to the journal, then runs the real script (`/usr/share/vpnc-scripts/vpnc-script`, else `/etc/vpnc/vpnc-script` on the RPM distributions, or the file in `VPNC_SCRIPT_REAL`) and returns its exit status. The package does **not** install it. Do not overwrite the system `vpnc-script`: install the wrapper as a separate file and point gpclient (or openconnect) at it:
 
 ```bash
 sudo curl -o /usr/local/sbin/vpnc-script-debug https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/vpnc-script-debug

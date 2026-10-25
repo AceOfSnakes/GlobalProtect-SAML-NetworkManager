@@ -275,10 +275,12 @@ def run_postinst(tmp_path, args, helper=True):
     tools = {"dbus-send": "exit 0\n", "pgrep": "exit 1\n", "pkill": "exit 1\n"}
     if helper:
         tools["deb-systemd-helper"] = 'echo "$*" >> "$FAKE_DIR/helper_calls"\n'
-    # Fake dpkg: the real one may not be there; "lt" compares the dotted numbers only
-    tools["dpkg"] = ('[ "$1" = --compare-versions ] || exit 2\n'
-                     'v=${2%%-*}; [ "$(printf "%s\\n%s\\n" "$v" "${4%~}" | sort -V | head -n1)" = "$v" ] '
-                     '&& [ "$v" != "${4%~}" ]\n')
+    # The real dpkg when there is one (CI); else a fake whose "lt" compares the
+    # upstream versions only
+    if not shutil.which("dpkg"):
+        tools["dpkg"] = ('[ "$1" = --compare-versions ] || exit 2\n'
+                         'v=${2%%-*}; [ "$(printf "%s\\n%s\\n" "$v" "${4%~}" | sort -V | head -n1)" = "$v" ] '
+                         '&& [ "$v" != "${4%~}" ]\n')
     bin_dir = fake_bin(tmp_path, tools)
     result = subprocess.run(["sh", str(script), *args], capture_output=True, text=True, timeout=30,
                             env={"PATH": f"{bin_dir}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path)})
@@ -287,14 +289,15 @@ def run_postinst(tmp_path, args, helper=True):
 
 
 class TestPostinstSystemd:
-    @pytest.mark.parametrize("old", ["1.5.0-1", "1.4.1-1"])
+    @pytest.mark.parametrize("old", ["1.5.0-1", "1.4.1-1", "1.5.0-1~noble1", "1.5.0-1~jammy1~pr90"])
     def test_an_upgrade_from_before_2_0_0_disables_the_unit(self, tmp_path, old):
         result, calls = run_postinst(tmp_path, ["configure", old])
 
         assert result.returncode == 0, result.stderr
-        assert calls == "disable nm-gpclient.service\n"
+        assert calls == "purge nm-gpclient.service\n"
 
     @pytest.mark.parametrize("args", [["configure"], ["configure", "2.0.0-1"], ["configure", "2.1.0-1"],
+                                      ["configure", "2.0.0-1~noble1"], ["configure", "2.0.0-1~jammy1~pr96"],
                                       ["reconfigure", "2.0.0-1"]])
     def test_a_first_install_and_a_newer_upgrade_leave_the_unit_alone(self, tmp_path, args):
         result, calls = run_postinst(tmp_path, args)

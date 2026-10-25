@@ -2,9 +2,14 @@
 # Debug wrapper for vpnc-script: logs the tunnel settings and the trace of the
 # real script to the journal (tag vpnc-script-debug), then runs the real script
 # and exits with its status. Manual opt-in, the package does not install it.
-# VPNC_SCRIPT_REAL: the real script (default /usr/share/vpnc-scripts/vpnc-script)
+# VPNC_SCRIPT_REAL: the real script (default /usr/share/vpnc-scripts/vpnc-script
+# on Debian/Ubuntu, /etc/vpnc/vpnc-script on Fedora, EL and openSUSE)
 
-real=${VPNC_SCRIPT_REAL:-/usr/share/vpnc-scripts/vpnc-script}
+real=$VPNC_SCRIPT_REAL
+if [ -z "$real" ]; then
+    real=/usr/share/vpnc-scripts/vpnc-script
+    [ -e "$real" ] || real=/etc/vpnc/vpnc-script
+fi
 tag=vpnc-script-debug
 
 if [ ! -x "$real" ]; then
