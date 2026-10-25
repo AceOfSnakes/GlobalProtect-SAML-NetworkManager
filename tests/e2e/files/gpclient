@@ -11,7 +11,8 @@ Only what nm-gpclient-service.py uses is implemented:
 `connect` prints log lines in the style of the real tool (nothing the service
 would take for a prompt or a gateway list), runs the fake gpauth as the desktop
 user (uid from SUDO_UID) and waits for it, then does what the real tool and
-real openconnect does: create the tun device gpd0 and keep its file
+real openconnect does: create the tun device (the --interface name, else
+gpd0) and keep its file
 descriptor open (the service reads /proc/PID/fdinfo "iff:"), then run the real
 /usr/share/vpnc-scripts/vpnc-script with reason pre-init and connect and the
 environment openconnect sets (address, DNS, a full-tunnel split-include list).
