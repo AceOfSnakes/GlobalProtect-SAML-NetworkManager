@@ -24,6 +24,9 @@
 # repository enabled that would upgrade the base system too, so only the
 # installed network-manager-gpclient packages are upgraded there.
 #
+# After these checks the installed packages are removed, purged and installed again (no
+# conffile may be left after the purge, the new install must be clean).
+#
 # With a gui-out-dir, a GUI smoke test of the installed editor plugin follows
 # the successful upgrade (gui-smoke.sh; screenshots go to that directory).
 #
@@ -268,6 +271,53 @@ if [ "$SCENARIO" = plasma ] || [ "$SCENARIO" = neon ]; then
 fi
 python3 "$HERE/check_upgrade.py" "${MODE_ARGS[@]}" --after "$WORK/after.txt" \
     --expected-version "$EXPECTED" --scenario "$SCENARIO" --codename "$CODENAME" "${PLASMA_FILES[@]}"
+
+# The service is run by the system python3: it must find its D-Bus module
+python3 -c 'import sdbus' || fail "python3 cannot import sdbus $WHEN"
+
+# pkg_state <package>: dpkg's state (installed, config-files, not-installed, ...);
+# a package dpkg does not know at all is not-installed
+pkg_state() {
+    dpkg-query -W -f='${db:Status-Status}' "$1" 2> /dev/null || echo not-installed
+}
+
+# The same installed packages go through remove (the configuration stays),
+# purge (it goes too) and a new install from the local repository
+mapfile -t PKGS < <(awk '$3 ~ /^i/ {print $1}' "$WORK/after.txt")
+[ ${#PKGS[@]} -gt 0 ] || fail "no network-manager-gpclient package is installed to remove"
+# Conffiles of the packages, as dpkg lists them (" <path> <md5sum>"); may be none
+mapfile -t CONFFILES < <(dpkg-query -W -f='${Conffiles}\n' "${PKGS[@]}" | awk 'NF {print $1}')
+
+echo "::group::Remove ${PKGS[*]}"
+apt-get remove -y "${PKGS[@]}"
+echo "::endgroup::"
+for pkg in "${PKGS[@]}"; do
+    case "$(pkg_state "$pkg")" in
+        config-files | not-installed) ;;
+        *) fail "$pkg is still installed after apt-get remove" ;;
+    esac
+done
+echo "PASS: remove of ${PKGS[*]}"
+
+echo "::group::Purge ${PKGS[*]}"
+apt-get purge -y "${PKGS[@]}"
+echo "::endgroup::"
+for pkg in "${PKGS[@]}"; do
+    [ "$(pkg_state "$pkg")" = not-installed ] || fail "$pkg is not purged: state $(pkg_state "$pkg")"
+done
+for conffile in "${CONFFILES[@]}"; do
+    [ ! -e "$conffile" ] || fail "$conffile is left after apt-get purge"
+done
+echo "PASS: purge of ${PKGS[*]} (${#CONFFILES[@]} conffiles checked)"
+
+echo "::group::Install ${PKGS[*]} again"
+apt-get install -y --no-install-recommends "${PKGS[@]}"
+echo "::endgroup::"
+for pkg in "${PKGS[@]}"; do
+    [ "$(pkg_state "$pkg")" = installed ] || fail "$pkg is not installed after the new install"
+done
+[ -z "$(dpkg --audit)" ] || fail "dpkg --audit reports problems after the new install: $(dpkg --audit)"
+echo "PASS: new install of ${PKGS[*]}"
 
 echo "PASS: $SCENARIO $MODE on $CODENAME/$ARCH to $EXPECTED"
 if [ -n "$GUI_OUT" ]; then
