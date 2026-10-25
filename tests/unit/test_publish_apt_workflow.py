@@ -18,6 +18,8 @@ PAGES = "Configure Pages"
 BUILD = "Build the repository"
 ENV_LINE = "          APT_REPO_URL: ${{ steps.pages.outputs.base_url }}"
 ID_LINE = "        id: pages"
+UPLOAD = "Upload Pages artifact"
+HIDDEN_LINE = "          include-hidden-files: true"
 
 
 def problems(text):
@@ -37,6 +39,8 @@ def problems(text):
     others = [line for line in build if "${{" in line and line != ENV_LINE]
     if others:
         found.append(f"an expression outside the env line: {others}")
+    if HIDDEN_LINE not in step_lines(WORKFLOW, UPLOAD, text):
+        found.append("the Pages artifact leaves out hidden files such as .nojekyll")
     return found
 
 
@@ -81,6 +85,9 @@ def test_the_build_script_line_holds_no_expression():
     ("expression in a second env entry", lambda t: t.replace(
         ENV_LINE, ENV_LINE + "\n          OTHER: ${{ github.head_ref }}"), "an expression outside the env line"),
     ("build step renamed", lambda t: t.replace("- name: " + BUILD, "- name: Build"), "missing step"),
+    ("hidden files not included", lambda t: t.replace(HIDDEN_LINE + "\n", ""), "leaves out hidden files"),
+    ("hidden files set to false", lambda t: t.replace(HIDDEN_LINE, HIDDEN_LINE.replace("true", "false")),
+     "leaves out hidden files"),
 ])
 def test_a_modified_workflow_is_rejected(name, mutate, expected):
     text = read_workflow(WORKFLOW)

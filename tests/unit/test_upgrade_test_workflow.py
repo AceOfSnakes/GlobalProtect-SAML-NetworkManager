@@ -127,7 +127,7 @@ class TestStepInTheWorkflow:
 
         assert names.index(UPLOAD_STEP) == names.index(STEP) + 1
         assert "        if: always()" in step
-        assert "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2" in step
+        assert "uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2" in step
         assert "name: gui-smoke-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}" in step
         assert "path: gui-smoke/*.png" in step
         assert "if-no-files-found: ignore" in step
