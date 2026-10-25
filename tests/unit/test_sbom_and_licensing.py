@@ -5,6 +5,7 @@ and the DEP-5 file debian/copyright. No YAML parser is needed (CI installs only
 pytest): the files are read as text.
 """
 
+import fnmatch
 import os
 import re
 
@@ -157,6 +158,19 @@ def copyright_stanzas(text):
     return stanzas
 
 
+def copyright_order_problems(stanzas):
+    """The last matching Files paragraph wins: a broader pattern must come before the patterns it contains"""
+    patterns = [s["Files"].split("\n") for s in stanzas if "Files" in s]
+    problems = []
+    for i, narrow in enumerate(patterns):
+        for broad in patterns[i + 1:]:
+            for a in narrow:
+                for b in broad:
+                    if a != b and fnmatch.fnmatchcase(a, b):
+                        problems.append(f"{b} comes after {a}, which it contains")
+    return problems
+
+
 def copyright_problems(text):
     """Problems with the structure of a DEP-5 file that this project relies on"""
     stanzas = copyright_stanzas(text)
@@ -167,6 +181,7 @@ def copyright_problems(text):
     for stanza in files:
         if "Copyright" not in stanza or "License" not in stanza:
             problems.append(f"Files stanza without Copyright or License: {stanza['Files']}")
+    problems += copyright_order_problems(stanzas)
     defined = {s["License"].split("\n")[0] for s in stanzas[1:] if "Files" not in s and "License" in s}
     for stanza in files:
         name = stanza.get("License", "").split("\n")[0].strip()
@@ -232,3 +247,128 @@ def test_broken_copyright_is_reported(old, new):
 def test_copyright_checker_reports_an_unknown_license():
     text = "Format: f\nUpstream-Name: n\n\nFiles: *\nCopyright: me\nLicense: Foo\n"
     assert copyright_problems(text) == ["license without a paragraph: Foo"]
+
+
+def test_copyright_stanza_order_is_broad_before_narrow():
+    assert copyright_order_problems(copyright_stanzas(read_copyright())) == []
+
+
+def test_copyright_with_a_broad_stanza_after_a_narrow_one_is_reported():
+    blocks = read_copyright().split("\n\n")
+    upstream = next(i for i, b in enumerate(blocks) if b.startswith("Files: external/GlobalProtect-openconnect/*"))
+    mit = next(i for i, b in enumerate(blocks) if b.startswith("Files: external/GlobalProtect-openconnect/crates/browser-launcher"))
+    blocks[upstream], blocks[mit] = blocks[mit], blocks[upstream]
+    problems = copyright_problems("\n\n".join(blocks))
+    assert any("external/GlobalProtect-openconnect/* comes after" in p for p in problems)
+
+
+def test_unrelated_patterns_are_no_order_problem():
+    text = "Format: f\n\nFiles: a/*\nCopyright: x\nLicense: L\n\nFiles: b/*\nCopyright: x\nLicense: L\n"
+    assert copyright_order_problems(copyright_stanzas(text)) == []
+
+
+def test_plasma_files_have_the_kde_license_stanzas():
+    stanza = stanza_for(read_copyright(), "plugins/plasma/include/vpnuiplugin.h")
+    assert stanza["License"].startswith("LGPL-2.1")
+    for holder in ("Will Stephenson", "Lukáš Tinkl", "Jan Grulich"):
+        assert holder in stanza["Copyright"]
+
+
+# Mutations of the workflow text: each one breaks a positive check
+
+
+def audit_trigger_problems(text):
+    problems = []
+    if not re.search(r'(?m)^  schedule:\n    - cron: "[^"]+"$', text):
+        problems.append("no schedule")
+    if "\n  workflow_dispatch:\n" not in text:
+        problems.append("no workflow_dispatch")
+    pr = text[text.index("\n  pull_request:\n"):text.index("\npermissions:")]
+    for path in ("- external/GlobalProtect-openconnect\n", "- upstream/**\n"):
+        if path not in pr:
+            problems.append(f"no path {path.strip()}")
+    return problems
+
+
+def audit_permission_problems(text):
+    problems = []
+    if "\npermissions:\n  contents: read\n\n" not in text:
+        problems.append("top-level permissions")
+    if text.count("security-events: write") != 1:
+        problems.append("security-events")
+    return problems + [p for p in ("contents: write", "id-token", "pull-requests: write", "actions: write") if p in text]
+
+
+def audit_fail_policy_problems(text):
+    lines = step_lines(AUDIT, "Fail on findings (weekly schedule only)", text)
+    return [] if "        if: github.event_name == 'schedule'" in lines else ["fails on every event"]
+
+
+def audit_sarif_problems(text):
+    lines = step_lines(AUDIT, "Upload OSV result to code scanning", text)
+    ok = any(line.strip().startswith("if: github.event_name != 'pull_request'") for line in lines)
+    return [] if ok else ["SARIF is uploaded for pull requests"]
+
+
+def sbom_upload_problems(text):
+    start = text.index("\n  release:\n") + 1
+    job = text[start:text.index("\n  release-notes:\n")]
+    problems = []
+    if "\n    needs: [build, build-rpm, sbom]\n" not in job:
+        problems.append("release does not need sbom")
+    if f"            release-files/{SBOM}\n" not in job:
+        problems.append("sbom not uploaded")
+    return problems
+
+
+def sbom_tag_problems(text):
+    start = text.index("\n  sbom:\n") + 1
+    job = text[start:text.index("\n  release:\n")]
+    ok = "    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'\n" in job
+    return [] if ok else ["sbom job runs for every event"]
+
+
+@pytest.mark.parametrize("check", [audit_trigger_problems, audit_permission_problems, audit_fail_policy_problems, audit_sarif_problems])
+def test_audit_checks_pass_on_the_real_workflow(check):
+    assert check(read_workflow(AUDIT)) == []
+
+
+@pytest.mark.parametrize("check", [sbom_upload_problems, sbom_tag_problems])
+def test_release_checks_pass_on_the_real_workflow(check):
+    assert check(read_workflow(RELEASE)) == []
+
+
+@pytest.mark.parametrize(
+    "check, old, new",
+    [
+        (audit_fail_policy_problems, "        if: github.event_name == 'schedule'\n", ""),
+        (audit_sarif_problems, "if: github.event_name != 'pull_request' &&", "if:"),
+        (audit_permission_problems, "      contents: read\n      security-events", "      contents: write\n      security-events"),
+        (audit_permission_problems, "\npermissions:\n  contents: read\n", "\npermissions:\n  contents: write\n"),
+        (audit_trigger_problems, '  schedule:\n    - cron: "17 5 * * 1"\n', ""),
+        (audit_trigger_problems, "      - external/GlobalProtect-openconnect\n", ""),
+        (audit_trigger_problems, "  workflow_dispatch:\n", ""),
+    ],
+)
+def test_weakened_audit_workflow_is_reported(check, old, new):
+    text = read_workflow(AUDIT)
+    bad = text.replace(old, new, 1)
+    assert bad != text and check(bad) != []
+
+
+SBOM_JOB_HEAD = "  sbom:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n"
+TAG_ONLY = "    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'\n"
+
+
+@pytest.mark.parametrize(
+    "check, old, new",
+    [
+        (sbom_upload_problems, "needs: [build, build-rpm, sbom]", "needs: [build, build-rpm]"),
+        (sbom_upload_problems, f"            release-files/{SBOM}\n", ""),
+        (sbom_tag_problems, SBOM_JOB_HEAD + TAG_ONLY, SBOM_JOB_HEAD),
+    ],
+)
+def test_weakened_release_workflow_is_reported(check, old, new):
+    text = read_workflow(RELEASE)
+    bad = text.replace(old, new, 1)
+    assert bad != text and check(bad) != []
