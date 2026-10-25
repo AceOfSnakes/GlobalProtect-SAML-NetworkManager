@@ -359,7 +359,7 @@ class TestOutputPath:
         assert plugin._tunnel_settings == service_module.TunnelSettings()
 
     def test_the_record_is_reset_on_disconnect(
-        self, service_module, monkeypatch, fake_exec
+        self, service_module, monkeypatch, fake_exec  # noqa: F811  # the fixture imported above
     ):
         plugin = _plugin(service_module, monkeypatch)
         plugin._tunnel_settings = _parse(service_module, _lines())

@@ -9,7 +9,6 @@ import pytest
 
 # Dogtail imports - will fail gracefully if not installed
 try:
-    from dogtail.predicate import GenericPredicate
     from dogtail.tree import root
 
     DOGTAIL_AVAILABLE = True
@@ -37,7 +36,7 @@ class TestNMConnectionEditor:
             assert app is not None, "nm-connection-editor window not found"
             assert app.showing, "Window is not visible"
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_editor_opens")
             raise
 
@@ -62,7 +61,7 @@ class TestNMConnectionEditor:
             assert add_btn is not None, "Add button not found"
             assert add_btn.sensitive, "Add button is not sensitive (disabled)"
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_add_button_exists")
             raise
 
@@ -91,7 +90,7 @@ class TestNMConnectionEditor:
 
             assert dialog is not None, "Add connection dialog did not appear"
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_open_add_connection_dialog")
             raise
 
@@ -143,7 +142,7 @@ class TestNMConnectionEditor:
             if gp_item:
                 print("GlobalProtect VPN plugin is available in the menu!")
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_vpn_option_available")
             raise
 
@@ -238,6 +237,6 @@ class TestNMConnectionEditor:
             assert gateway_label or vpn_tab, "VPN editor dialog doesn't have expected VPN fields"
             print("GlobalProtect VPN connection editor opened successfully!")
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_select_vpn_and_create")
             raise
