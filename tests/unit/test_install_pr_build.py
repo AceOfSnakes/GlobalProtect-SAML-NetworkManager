@@ -27,12 +27,11 @@ TAG_URL = f"https://github.com/{REPO}/releases/download/pr-24"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/tags/pr-24"
 VERSION = "1.4.2-1"
 
-CODENAMES = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
+CODENAMES = {"jammy": "22.04", "noble": "24.04", "resolute": "26.04"}
 # What debian/control.ubuntu<version> builds; Ubuntu 24.04 has one more build, for KDE neon (amd64 only)
 PACKAGES = {
     "jammy": ["", "-gnome", "-plasma"],
     "noble": ["", "-gnome", "-plasma"],
-    "oracular": ["", "-gnome", "-plasma"],
     "resolute": ["", "-gnome", "-plasma"],
 }
 CORE = "network-manager-gpclient"
@@ -351,8 +350,7 @@ class TestInstall:
             ("resolute", "amd64", "ubuntu:GNOME", ["", "-gnome"]),
             ("jammy", "amd64", "KDE", ["", "-plasma"]),
             ("noble", "amd64", "KDE", ["", "-plasma"]),
-            ("oracular", "amd64", "KDE", ["", "-plasma"]),
-            ("oracular", "arm64", "x-cinnamon", ["", "-gnome"]),
+            ("resolute", "arm64", "x-cinnamon", ["", "-gnome"]),
             ("noble", "amd64", "", ["", "-gnome"]),
             ("noble", "amd64", "plasma:kde", ["", "-plasma"]),
         ],
@@ -418,7 +416,7 @@ class TestInstall:
         assert box.installed() == [deb("", "noble", "amd64", True), deb("-gnome", "noble", "amd64", True)]
 
     @pytest.mark.parametrize("tilde", [False, True])
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_the_packages_of_a_pr_build_are_found_under_both_spellings(self, box, codename, tilde):
         box.set_os(codename)
         box.set_assets(all_assets(tilde, BUILD))
@@ -474,7 +472,7 @@ class TestInstall:
 
         assert "sudo pip3 install sdbus" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["noble", "resolute"])
     def test_the_python3_sdbus_note_is_not_shown_elsewhere(self, box, codename):
         box.set_os(codename)
 
@@ -490,7 +488,7 @@ class TestInstall:
         assert "sudo apt remove network-manager-gpclient network-manager-gpclient-plasma" in result.stdout
         assert "docs/APT_REPO.md" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_the_way_back_selects_the_release_by_suite(self, box, codename):
         box.set_os(codename)
 
@@ -499,7 +497,7 @@ class TestInstall:
         assert result.returncode == 0, result.stderr
         assert f"sudo apt install --allow-downgrades network-manager-gpclient/{codename} network-manager-gpclient-gnome/{codename}" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_the_way_back_does_not_reinstall_or_use_bare_names(self, box, codename):
         box.set_os(codename)
 
@@ -617,6 +615,8 @@ class TestRejected:
         [
             "ID=ubuntu\nVERSION_ID=\"20.04\"\nVERSION_CODENAME=focal\n",
             "ID=ubuntu\nVERSION_ID=\"25.10\"\nVERSION_CODENAME=questing\n",
+            "ID=ubuntu\nVERSION_ID=\"24.10\"\nVERSION_CODENAME=oracular\n",
+            "ID=ubuntu\nVERSION_ID=\"24.10\"\n",
             "ID=ubuntu\nVERSION_ID=\"20.04\"\n",
             "ID=ubuntu\n",
             "ID=ubuntu\nVERSION_CODENAME=noble;x\n",
@@ -883,7 +883,7 @@ class TestPlasmaPackage:
         assert box.installed() == [deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")]
         assert box.read("dpkg_query_calls") is None
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     def test_plasma_6_is_refused_on_the_other_releases(self, box, codename):
         box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
 
@@ -920,7 +920,7 @@ class TestPlasmaPackage:
         assert result.returncode == 0, result.stderr
         assert "sudo apt install --allow-downgrades network-manager-gpclient/noble network-manager-gpclient-plasma-6/noble" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     @pytest.mark.parametrize("plasma_nm", ["4:6.1.5-0ubuntu1", "4:6.7.5-0zneon+24.04+noble+release+build62"])
     def test_other_releases_never_get_the_plasma_6_package(self, box, codename, plasma_nm):
         box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
@@ -974,7 +974,7 @@ class TestPlasmaPackage:
         assert_rejected(box, result, f"no {CORE}-gnome package for noble/arm64")
         assert "amd64 only" not in result.stderr
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     def test_kde_neon_on_another_base_is_refused(self, box, codename):
         box.set_os(codename, NEON_OS_RELEASE.replace("noble", codename).replace("24.04", CODENAMES[codename]))
 
@@ -999,14 +999,14 @@ class TestPlasmaPackage:
         assert_rejected(box, result, f"no {CORE}-plasma package for {codename}/amd64")
 
     def test_gnome_does_not_look_at_plasma_nm(self, box):
-        result = self.plasma(box, codename="oracular", plasma_nm="4:5.27.11-0ubuntu1", desktop="ubuntu:GNOME")
+        result = self.plasma(box, codename="resolute", plasma_nm="4:5.27.11-0ubuntu1", desktop="ubuntu:GNOME")
 
         assert result.returncode == 0, result.stderr
-        assert box.installed() == [deb("", "oracular", "amd64"), deb("-gnome", "oracular", "amd64")]
+        assert box.installed() == [deb("", "resolute", "amd64"), deb("-gnome", "resolute", "amd64")]
         assert box.read("dpkg_query_calls") is None
 
     def test_plasma_nm_is_asked_for_on_ubuntu_24_04_only(self, box):
-        for codename in ("jammy", "oracular", "resolute"):
+        for codename in ("jammy", "resolute"):
             self.plasma(box, codename=codename, plasma_nm="4:6.1.5-0ubuntu1")
             assert box.read("dpkg_query_calls") is None, codename
 

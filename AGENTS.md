@@ -9,7 +9,7 @@ grows past that limit. Keep it short and move details into `docs/`.
 ## What this project is
 
 A NetworkManager VPN plugin for GlobalProtect with SAML/SSO authentication,
-packaged as `.deb` files for Ubuntu 22.04, 24.04, 24.10 and 26.04 and as RPM
+packaged as `.deb` files for Ubuntu 22.04, 24.04 and 26.04 and as RPM
 files for Fedora 43-45, EL 10 and openSUSE Leap 16.0/Tumbleweed (`rpm/targets`),
 on `amd64` and `arm64`, and published as signed apt and RPM repositories on
 GitHub Pages.

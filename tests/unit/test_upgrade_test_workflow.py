@@ -658,7 +658,7 @@ class TestGuiSmokeScript:
 class TestEndOfLifeReleases:
     """Ubuntu releases past their end of life are served by old-releases.ubuntu.com"""
 
-    CODENAMES = {"22.04": "jammy", "24.04": "noble", "24.10": "oracular", "26.04": "resolute"}
+    CODENAMES = {"22.04": "jammy", "24.04": "noble", "26.04": "resolute"}
 
     def script_text(self):
         with open(SCRIPT, encoding="utf-8") as handle:
@@ -681,7 +681,9 @@ class TestEndOfLifeReleases:
 
     def test_the_set_matches_the_dockerfiles(self):
         assert self.eol_in_script() == self.eol_in_dockerfiles()
-        assert "oracular" in self.eol_in_script()
+
+    def test_ubuntu_24_10_is_not_built_any_more(self):
+        assert not os.path.exists(os.path.join(ROOT, "Dockerfile.ubuntu24.10"))
 
     def test_a_current_release_is_not_in_the_set(self):
         assert not self.eol_in_script() & {"jammy", "noble", "resolute"}
@@ -691,10 +693,12 @@ class TestEndOfLifeReleases:
 
         assert text.index("old-releases.ubuntu.com/ubuntu/") < text.index("apt-get update")
 
-    def run_block(self, tmp_path, codename):
+    def run_block(self, tmp_path, codename, eol="oracular"):
         """Run the EOL block with /etc/apt redirected into tmp_path"""
         text = self.script_text()
         block = text[text.index("EOL_CODENAMES="):text.index("# neon_skip_reason:")]
+        # no release that is built is end of life now: pretend that one is, to test the block
+        block = block.replace('EOL_CODENAMES=""', f'EOL_CODENAMES="{eol}"')
         block = block.replace('$(. /etc/os-release && echo "${VERSION_CODENAME:-}")', codename)
         block = block.replace("/etc/apt/", f"{tmp_path}/")
         (tmp_path / "sources.list.d").mkdir()
@@ -710,9 +714,10 @@ class TestEndOfLifeReleases:
         assert "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n" in sources
         assert (tmp_path / "sources.list").read_text() == ""
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute", "oracular2", "x"])
-    def test_other_releases_keep_their_sources(self, tmp_path, codename):
-        self.run_block(tmp_path, codename)
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute", "oracular2", "x", ""])
+    @pytest.mark.parametrize("eol", ["oracular", ""])
+    def test_other_releases_keep_their_sources(self, tmp_path, codename, eol):
+        self.run_block(tmp_path, codename, eol)
 
         assert not (tmp_path / "sources.list.d" / "ubuntu.sources").exists()
         assert "archive.ubuntu.com" in (tmp_path / "sources.list").read_text()

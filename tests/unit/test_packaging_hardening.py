@@ -130,8 +130,7 @@ class TestControlFields:
         # the packages that have the GNOME package: the neon variant has none
         assert (("Package: " + GNOME) in text) == ("neon" not in path)
 
-    @pytest.mark.parametrize("name", ["control.ubuntu22.04", "control.ubuntu24.04", "control.ubuntu24.10",
-                                      "control.ubuntu26.04"])
+    @pytest.mark.parametrize("name", ["control.ubuntu22.04", "control.ubuntu24.04", "control.ubuntu26.04"])
     def test_a_gnome_package_without_python3_is_reported(self, name):
         text = read("debian", name)
         broken = re.sub(r"^ +python3,?\n", "", text, flags=re.M)
@@ -140,8 +139,7 @@ class TestControlFields:
         assert python3_problems(broken) != []
 
     @pytest.mark.parametrize("dep", ["python3-gi", "gir1.2-gtk-3.0"])
-    @pytest.mark.parametrize("name", ["control.ubuntu22.04", "control.ubuntu24.04", "control.ubuntu24.10",
-                                      "control.ubuntu26.04"])
+    @pytest.mark.parametrize("name", ["control.ubuntu22.04", "control.ubuntu24.04", "control.ubuntu26.04"])
     def test_a_gnome_package_without_the_gtk_bindings_is_reported(self, name, dep):
         text = read("debian", name)
         broken = re.sub(r"(?<=[ ,])%s,?(?=\n)" % re.escape(dep), "", text)

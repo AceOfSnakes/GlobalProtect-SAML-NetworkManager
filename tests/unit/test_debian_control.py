@@ -2,15 +2,14 @@
 The Plasma editor package. v1.4.1 shipped one package for it,
 network-manager-gpclient-plasma, built with the Qt of the Plasma of the Ubuntu
 release; 1.5.0 keeps that: one package of that name on every release, Qt5 on
-22.04 and 24.04, Qt6 on 24.10 and 26.04. No -plasma-5 / -plasma-6 packages and
+22.04 and 24.04, Qt6 on 26.04. No -plasma-5 / -plasma-6 packages and
 no transitional packages are built.
 
 Test packages of pull requests (versions like 1.5.0-1~noble1+pr31.62) did have
 network-manager-gpclient-plasma-5 (Qt5 releases) and -plasma-6 (Qt6 releases)
 with the same files as the new package, so every control file replaces and breaks
 the ones that were built for its release below 1.5.1~, and no other: -plasma-5
-on Ubuntu 22.04 and 24.04, -plasma-6 on 26.04, both on 24.10 (its test builds
-produced both).
+on Ubuntu 22.04 and 24.04, -plasma-6 on 26.04.
 
 debian/rules builds the plugin against the Qt that debian/control lists in
 Build-Depends (qtbase5-dev or qt6-base-dev, exactly one), and the Dockerfile of
@@ -49,7 +48,6 @@ QT = {
     "control": "qt5",
     "control.ubuntu22.04": "qt5",
     "control.ubuntu24.04": "qt5",
-    "control.ubuntu24.10": "qt6",
     "control.ubuntu26.04": "qt6",
 }
 # The former test packages every control file replaces and breaks
@@ -57,7 +55,6 @@ FORMERS = {
     "control": [PLASMA + "-5"],
     "control.ubuntu22.04": [PLASMA + "-5"],
     "control.ubuntu24.04": [PLASMA + "-5"],
-    "control.ubuntu24.10": [PLASMA + "-5", PLASMA + "-6"],
     "control.ubuntu26.04": [PLASMA + "-6"],
 }
 # What the Plasma package of every control file conflicts with: on Ubuntu 24.04 the
@@ -66,7 +63,6 @@ CONFLICTS = {
     "control": [PLASMA6],
     "control.ubuntu22.04": [],
     "control.ubuntu24.04": [PLASMA6],
-    "control.ubuntu24.10": [],
     "control.ubuntu26.04": [],
 }
 # The plasma-nm the Plasma package of every control file depends on: the plugin is built with
@@ -76,7 +72,6 @@ PLASMA_NM = {
     "control": "plasma-nm (<< 4:6)",
     "control.ubuntu22.04": "plasma-nm (<< 4:6)",
     "control.ubuntu24.04": "plasma-nm (<< 4:6)",
-    "control.ubuntu24.10": "plasma-nm (>= 4:6)",
     "control.ubuntu26.04": "plasma-nm (>= 4:6)",
 }
 # What the core package recommends: on Ubuntu 24.04 the package for KDE neon is one of the alternatives, or
@@ -85,13 +80,11 @@ RECOMMENDS = {
     "control": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
     "control.ubuntu22.04": "%s-gnome | %s" % (CORE, PLASMA),
     "control.ubuntu24.04": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
-    "control.ubuntu24.10": "%s-gnome | %s" % (CORE, PLASMA),
     "control.ubuntu26.04": "%s-gnome | %s" % (CORE, PLASMA),
 }
 DOCKERFILES = {
     "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
     "control.ubuntu24.04": "Dockerfile.ubuntu24.04",
-    "control.ubuntu24.10": "Dockerfile.ubuntu24.10",
     "control.ubuntu26.04": "Dockerfile.ubuntu26.04",
 }
 # What the Plasma plugin needs to build, by Qt (the plugin's CMakeLists.txt)
@@ -441,16 +434,15 @@ class TestControlFiles:
     def test_a_file_that_replaces_other_former_packages_than_its_own_is_reported(self, name):
         qt = QT[name]
         assert check_control(read(name), qt, **expected(name, formers=["network-manager-gpclient-plasma-7"])) != []
-        if name != "control.ubuntu24.10":
-            # only 24.10 had test builds of both
-            assert check_control(read(name), qt, **expected(name, formers=BOTH)) != []
+        # no release has test builds of both
+        assert check_control(read(name), qt, **expected(name, formers=BOTH)) != []
 
     def test_debian_control_is_the_copy_for_ubuntu_24_04(self):
         assert read("control") == read("control.ubuntu24.04")
 
     @pytest.mark.parametrize("name, qt", [("control.ubuntu22.04", "qt5"), ("control.ubuntu24.04", "qt5"),
-                                          ("control.ubuntu24.10", "qt6"), ("control.ubuntu26.04", "qt6")])
-    def test_qt5_on_22_04_and_24_04_and_qt6_on_24_10_and_26_04(self, name, qt):
+                                          ("control.ubuntu26.04", "qt6")])
+    def test_qt5_on_22_04_and_24_04_and_qt6_on_26_04(self, name, qt):
         package = parse_control(read(name))[PLASMA]
         expected = [relation(f) for f in FORMERS[name]]
         assert relations(package["replaces"]) == expected
@@ -459,13 +451,12 @@ class TestControlFiles:
         assert ("qtbase5-dev" in build) == (qt == "qt5")
         assert ("qt6-base-dev" in build) == (qt == "qt6")
 
-    def test_24_10_replaces_and_breaks_both_former_packages(self):
-        package = parse_control(read("control.ubuntu24.10"))[PLASMA]
-        for field in ("replaces", "breaks"):
-            assert relations(package[field]) == [relation(PLASMA + "-5"), relation(PLASMA + "-6")]
+    @pytest.mark.parametrize("name", ["debian/control.ubuntu24.10", "Dockerfile.ubuntu24.10"])
+    def test_ubuntu_24_10_is_not_built_any_more(self, name):
+        assert not os.path.exists(os.path.join(ROOT, name))
 
     @pytest.mark.parametrize("missing", BOTH)
-    def test_a_24_10_file_without_one_of_the_former_packages_is_reported(self, missing):
+    def test_a_file_without_one_of_the_former_packages_is_reported(self, missing):
         text = good("qt6", BOTH)
         assert check_control(text, "qt6", BOTH) == []
         broken = text.replace(",\n         %s (<< 1.5.1~)" % missing, "").replace(
@@ -473,7 +464,7 @@ class TestControlFiles:
         assert broken != text
         assert any("lacks" in p and missing in p for p in check_control(broken, "qt6", BOTH))
 
-    def test_the_file_of_24_04_does_not_pass_as_the_one_of_24_10(self):
+    def test_the_file_of_24_04_does_not_pass_as_one_that_replaces_both(self):
         assert check_control(read("control.ubuntu24.04"), "qt5", **expected("control.ubuntu24.04", formers=BOTH)) != []
 
     @pytest.mark.parametrize("name", sorted(QT))
@@ -721,11 +712,10 @@ class TestNeonControl:
         assert relations(noble["replaces"]) == [relation(PLASMA + "-5")]
 
     def test_the_package_is_not_a_former_test_package_that_a_control_file_replaces(self):
-        # 1.5.0 builds network-manager-gpclient-plasma-6 for neon; the 24.10 and 26.04 files still
-        # replace and break the -plasma-6 of the pull request test builds below 1.5.1~, which have
-        # the same files in the same Qt6 directory
-        for name in ("control.ubuntu24.10", "control.ubuntu26.04"):
-            assert relation(PLASMA6) in relations(parse_control(read(name))[PLASMA]["breaks"])
+        # 1.5.0 builds network-manager-gpclient-plasma-6 for neon; the 26.04 file still
+        # replaces and breaks the -plasma-6 of the pull request test builds below 1.5.1~, which
+        # have the same files in the same Qt6 directory
+        assert relation(PLASMA6) in relations(parse_control(read("control.ubuntu26.04"))[PLASMA]["breaks"])
 
 
 NEON_DOCKERFILE = "Dockerfile.ubuntu24.04-neon"
@@ -968,7 +958,7 @@ class TestRulesPlasmaOnly:
 
     @pytest.mark.parametrize("name, package", [
         (NEON, PLASMA6), ("control.ubuntu22.04", PLASMA), ("control.ubuntu24.04", PLASMA),
-        ("control.ubuntu24.10", PLASMA), ("control.ubuntu26.04", PLASMA), ("control", PLASMA),
+        ("control.ubuntu26.04", PLASMA), ("control", PLASMA),
     ])
     def test_the_variables_follow_the_packages_of_the_control_file(self, tmp_path, name, package):
         variables = make_variables(tmp_path, read(name))

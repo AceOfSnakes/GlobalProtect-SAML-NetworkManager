@@ -528,16 +528,26 @@ def apt_suites():
     return set(match.group(1).split())
 
 
+# Releases that are not built any more: their packages stay in older GitHub releases and in the
+# apt suites, so the notes of those releases still need the name
+RETIRED = {"24.10"}
+
+
 def map_problems(ubuntu, versions, suites):
     problems = ["no codename for Ubuntu %s" % v for v in sorted(versions - set(ubuntu.values()))]
     problems += ["no entry for the suite %s" % c for c in sorted(suites - set(ubuntu))]
     problems += ["%s is in neither the matrix nor the suites" % c for c in sorted(set(ubuntu) - suites)]
-    problems += ["%s (%s) is not in the build matrix" % (c, v) for c, v in sorted(ubuntu.items()) if v not in versions]
+    problems += ["%s (%s) is not in the build matrix" % (c, v) for c, v in sorted(ubuntu.items()) if v not in versions | RETIRED]
     return problems
 
 
 def test_ubuntu_map_matches_the_build_matrix_and_the_apt_suites():
     assert map_problems(release_notes.UBUNTU, matrix_versions(), apt_suites()) == []
+
+
+def test_a_retired_release_is_in_the_map_but_not_in_the_matrix():
+    assert "24.10" in release_notes.UBUNTU.values()
+    assert not RETIRED & matrix_versions()
 
 
 def test_map_check_reports_a_missing_entry():
