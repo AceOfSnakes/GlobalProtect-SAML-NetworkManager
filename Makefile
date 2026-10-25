@@ -68,6 +68,10 @@ install: all
 	install -D -m 755 gpauth /usr/bin/gpauth
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
+	# Install D-Bus policy, D-Bus activation file and systemd unit
+	install -D -m 644 config/nm-gpclient.conf /etc/dbus-1/system.d/nm-gpclient.conf
+	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
+	install -D -m 644 config/nm-gpclient.service /lib/systemd/system/nm-gpclient.service
 
 clean:
 	$(MAKE) -C $(GNOME_DIR) clean
@@ -216,7 +220,6 @@ SHELL_SCRIPTS := \
 	.github/scripts/neon-repo.sh \
 	.github/scripts/upgrade-test.sh \
 	build-all.sh \
-	clean-cache.sh \
 	config/90-gpclient-routing \
 	debian/network-manager-gpclient.postinst \
 	debian/network-manager-gpclient.postrm \

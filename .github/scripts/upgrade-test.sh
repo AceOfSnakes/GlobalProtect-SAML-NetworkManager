@@ -161,9 +161,11 @@ esac
 # architecture. Fails (returns 1) when it has no suite or no such package.
 upgrade_possible() {
     check_released_suite || return 1
-    curl -fsSL "$REPO_URL/gpclient-archive-keyring.gpg" > "$KEYRING"
+    # An `if` condition turns set -e off: a failure here must not look like "no package"
+    curl -fsSL "$REPO_URL/gpclient-archive-keyring.gpg" > "$KEYRING" \
+        || fail "cannot download $REPO_URL/gpclient-archive-keyring.gpg"
     echo "deb [arch=$ARCH signed-by=$KEYRING] $REPO_URL $CODENAME main" > "$RELEASED_LIST"
-    apt-get update -qq
+    apt-get update -qq || fail "apt-get update failed for $REPO_URL"
     [ -n "$(candidate "$PACKAGE")" ]
 }
 

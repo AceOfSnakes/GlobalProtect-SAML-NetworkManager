@@ -574,7 +574,7 @@ def test_release_job_does_not_know_about_the_notes():
 def test_release_notes_job_runs_after_release_for_tags_only_with_write_access():
     job = job_text("release-notes")
     assert "\n    needs: release\n" in job
-    assert "\n    if: startsWith(github.ref, 'refs/tags/')\n" in job
+    assert "\n    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'\n" in job
     assert "\n    runs-on: ubuntu-latest\n" in job
     assert "\n    permissions:\n      contents: write\n" in job
 

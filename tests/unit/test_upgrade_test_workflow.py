@@ -351,16 +351,17 @@ class TestUpgradeOrFresh:
 
     FAKE_CURL = r"""echo "$*" >> "$FAKE_DIR/curl_calls"
 case "$*" in
-    *keyring*) printf 'KEY' ;;
+    *keyring*) [ -n "$FAKE_KEY_FAIL" ] && exit 22; printf 'KEY' ;;
     *) printf '%s' "$FAKE_CODE" ;;
 esac
 """
     FAKE_APT_CACHE = r"""printf 'network-manager-gpclient-gnome:\n  Installed: (none)\n%s\n' "$FAKE_CANDIDATE"
 """
     FAKE_APT_GET = r"""echo "$*" >> "$FAKE_DIR/apt_calls"
+[ -z "$FAKE_APT_FAIL" ] || exit 100
 """
 
-    def decide(self, tmp_path, code, candidate):
+    def decide(self, tmp_path, code, candidate, **fake_env):
         """(result, files) of upgrade_possible with a released repository that answers `code` for its
         Release file and shows `candidate` (a policy line, e.g. '  Candidate: 1.4.1-1~noble1')"""
         bin_dir = make_bin(tmp_path, {"curl": self.FAKE_CURL, "apt-cache": self.FAKE_APT_CACHE,
@@ -375,7 +376,7 @@ esac
         result = subprocess.run(
             ["bash", "-c", script],
             env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path), "FAKE_CODE": code,
-                 "FAKE_CANDIDATE": candidate},
+                 "FAKE_CANDIDATE": candidate, **fake_env},
             capture_output=True, text=True, timeout=30,
         )
         return result
@@ -411,6 +412,20 @@ esac
         assert result.returncode == 1
         assert "FRESH" not in result.stdout and "UPGRADE" not in result.stdout
         assert "FAIL: cannot read" in result.stderr
+
+    @pytest.mark.parametrize("fake_env, message", [
+        ({"FAKE_KEY_FAIL": "1"}, "FAIL: cannot download"),
+        ({"FAKE_APT_FAIL": "1"}, "FAIL: apt-get update failed"),
+    ])
+    def test_a_failing_keyring_download_or_apt_update_fails_instead_of_installing_fresh(
+            self, tmp_path, fake_env, message):
+        # upgrade_possible runs as an `if` condition (set -e is off): without the explicit
+        # `|| fail` a failure here would silently turn the upgrade test into a fresh install
+        result = self.decide(tmp_path, "200", "  Candidate: 1.4.1-1~noble1", **fake_env)
+
+        assert result.returncode == 1
+        assert "FRESH" not in result.stdout and "UPGRADE" not in result.stdout
+        assert message in result.stderr
 
 
 class TestFlow:

@@ -80,11 +80,20 @@ jobs:
           fi
           while read -r tag; do
             echo "::group::$tag"
-            gh release download "$tag" -D incoming --pattern '*.deb' --clobber \
-              || echo "::warning::$tag has no .deb assets"
+            # Read the asset names once: a failing download must fail the job,
+            # never drop a release from the repositories silently.
+            assets="$(gh release view "$tag" --json assets -q '.assets[].name')"
+            if grep -q '\.deb$' <<< "$assets"; then
+              gh release download "$tag" -D incoming --pattern '*.deb' --clobber
+            else
+              echo "::warning::$tag has no .deb assets"
+            fi
             # Releases before the RPM packages have none
-            gh release download "$tag" -D incoming --pattern '*.rpm' --clobber \
-              || echo "::warning::$tag has no .rpm assets"
+            if grep -q '\.rpm$' <<< "$assets"; then
+              gh release download "$tag" -D incoming --pattern '*.rpm' --clobber
+            else
+              echo "::warning::$tag has no .rpm assets"
+            fi
             echo "::endgroup::"
           done < tags.txt
           ls -la incoming

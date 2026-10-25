@@ -42,7 +42,69 @@ private Q_SLOTS:
     void removesClearedKeys();
     void keepsPersistentAndUserName();
     void doesNotInventPersistentAndUserName();
+    void trimsGateway_data();
+    void trimsGateway();
+    void readsBooleansIgnoringCase_data();
+    void readsBooleansIgnoringCase();
 };
+
+void GpclientWidgetTest::trimsGateway_data()
+{
+    QTest::addColumn<QString>("typed");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<QString>("saved");
+
+    QTest::newRow("padded") << "  vpn.example.com \t" << true << "vpn.example.com";
+    QTest::newRow("plain") << "vpn.example.com" << true << "vpn.example.com";
+    QTest::newRow("empty") << "" << false << "";
+    QTest::newRow("spaces only") << "   \t " << false << "";
+}
+
+void GpclientWidgetTest::trimsGateway()
+{
+    QFETCH(QString, typed);
+    QFETCH(bool, valid);
+    QFETCH(QString, saved);
+
+    GpclientWidget widget(makeSetting({{QStringLiteral("gateway"), QStringLiteral("old.example.com")}}, 0));
+    auto *edit = widget.findChild<QLineEdit *>(QStringLiteral("gatewayLineEdit"));
+    QVERIFY(edit);
+    edit->setText(typed);
+
+    QCOMPARE(widget.isValid(), valid);
+    NetworkManager::VpnSetting result;
+    result.fromMap(widget.setting());
+    QCOMPARE(result.data().value(QStringLiteral("gateway")), saved);
+}
+
+void GpclientWidgetTest::readsBooleansIgnoringCase_data()
+{
+    QTest::addColumn<QString>("key");
+    QTest::addColumn<QString>("value");
+    QTest::addColumn<QString>("expectedSaved");
+
+    QTest::newRow("hip TRUE") << "hip" << "TRUE" << "true";
+    QTest::newRow("hip True") << "hip" << "True" << "true";
+    QTest::newRow("hip FALSE") << "hip" << "FALSE" << "false";
+    QTest::newRow("hip other is off") << "hip" << "yes" << "false";
+    QTest::newRow("as-gateway TRUE") << "as-gateway" << "TRUE" << "true";
+    QTest::newRow("as-gateway other is off") << "as-gateway" << "yes" << "";
+    QTest::newRow("fix-openssl TRUE") << "fix-openssl" << "TRUE" << "true";
+    QTest::newRow("fix-openssl False") << "fix-openssl" << "False" << "false";
+    QTest::newRow("fix-openssl other is auto") << "fix-openssl" << "yes" << "";
+}
+
+void GpclientWidgetTest::readsBooleansIgnoringCase()
+{
+    QFETCH(QString, key);
+    QFETCH(QString, value);
+    QFETCH(QString, expectedSaved);
+
+    GpclientWidget widget(makeSetting({{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}, {key, value}}, 0));
+    NetworkManager::VpnSetting result;
+    result.fromMap(widget.setting());
+    QCOMPARE(result.data().value(key), expectedSaved);
+}
 
 void GpclientWidgetTest::timeout_data()
 {
