@@ -25,7 +25,7 @@ Comment: Copied from plasma-nm. The file headers say "LGPL-2.1-only OR
  LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL".
 
 Files: plugins/gnome/nm-vpn-plugin-utils.*
-Copyright: The copyright holders named in the file headers
+Copyright: 2016, 2018 Red Hat, Inc.
 License: LGPL-2+
 
 Files: external/GlobalProtect-openconnect/*

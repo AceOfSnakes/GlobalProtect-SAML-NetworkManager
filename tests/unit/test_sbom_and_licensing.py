@@ -30,11 +30,8 @@ def release_job_text():
 
 
 def test_audit_runs_weekly_manually_and_for_upstream_changes():
-    text = read_workflow(AUDIT)
-    assert re.search(r'(?m)^  schedule:\n    - cron: "[^"]+"$', text)
-    assert "\n  workflow_dispatch:\n" in text
-    pr = text[text.index("\n  pull_request:\n"):text.index("\npermissions:")]
-    assert "- external/GlobalProtect-openconnect\n" in pr and "- upstream/**\n" in pr
+    # One implementation (audit_trigger_problems) for this and its negative cases
+    assert audit_trigger_problems(read_workflow(AUDIT)) == []
 
 
 def test_audit_does_not_run_on_every_push_or_with_pull_request_target():
@@ -44,11 +41,7 @@ def test_audit_does_not_run_on_every_push_or_with_pull_request_target():
 
 
 def test_audit_permissions_are_minimal():
-    text = read_workflow(AUDIT)
-    assert "\npermissions:\n  contents: read\n\n" in text
-    assert text.count("security-events: write") == 1  # the SARIF upload, in the job only
-    for forbidden in ("contents: write", "id-token", "pull-requests: write", "actions: write"):
-        assert forbidden not in text
+    assert audit_permission_problems(read_workflow(AUDIT)) == []
 
 
 def test_audit_scans_the_submodule_lock_file_with_both_tools_pinned():
@@ -65,15 +58,14 @@ def test_audit_scans_the_submodule_lock_file_with_both_tools_pinned():
 
 
 def test_only_the_schedule_run_fails_on_a_finding():
-    assert "        if: github.event_name == 'schedule'" in step_lines(AUDIT, "Fail on findings (weekly schedule only)")
+    assert audit_fail_policy_problems(read_workflow(AUDIT)) == []
     # the scanning steps never fail the job themselves
     for name in ("Run cargo-audit", "Run osv-scanner"):
         assert any("|| status=$?" in line for line in step_lines(AUDIT, name))
 
 
 def test_sarif_is_not_uploaded_for_pull_requests():
-    lines = step_lines(AUDIT, "Upload OSV result to code scanning")
-    assert any(line.strip().startswith("if: github.event_name != 'pull_request'") for line in lines)
+    assert audit_sarif_problems(read_workflow(AUDIT)) == []
 
 
 def test_every_action_of_the_audit_is_pinned():
