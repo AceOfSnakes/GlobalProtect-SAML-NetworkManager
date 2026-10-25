@@ -207,7 +207,7 @@ sudo /usr/lib/NetworkManager/nm-gpclient-service --debug
 ```
 
 ### Command-line options:
-- `--persist` - don't close service after VPN disconnect
+- `--persist` - do not exit when there is no VPN session; without it the service exits after 180 s with no session, and NetworkManager starts it again when needed
 - `--debug` - enable detailed logging
 
 ### Testing connection via D-Bus:
@@ -243,7 +243,7 @@ VPN connected - tunnel interface gpd0 detected!
 - `INFO` - normal operations
 - `WARNING` - issues that don't block operation
 - `ERROR` - critical errors
-- `DEBUG` - detailed information (only with --debug)
+- `DEBUG` - detailed information (with `--debug`, `GPCLIENT_DEBUG=1`, or `NM_VPN_LOG_LEVEL` 7 or higher)
 
 ## Troubleshooting
 

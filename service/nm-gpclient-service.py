@@ -2046,43 +2046,35 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
     async def _teardown(self) -> None:
         """Stop the session and reset its state (with _lifecycle_lock held)"""
-        # Stop tunnel monitoring
-        if self.tunnel_check_task:
-            self.tunnel_check_task.cancel()
-            try:
-                await self.tunnel_check_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception("Tunnel monitor task had failed")
-            self.tunnel_check_task = None
-
-        # Stop pending prompt handling
-        if self._prompt_task:
-            self._prompt_task.cancel()
-            try:
-                await self._prompt_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception("Prompt task had failed")
-            self._prompt_task = None
+        # Cancel every session task first, then wait for them: a task that
+        # still ran while another one is awaited could report a Failure or
+        # start a prompt task for a session that is going away (issue #52)
+        tasks = [
+            (self.tunnel_check_task, "Tunnel monitor"),
+            (self._prompt_task, "Prompt"),
+            (self.stdout_monitor_task, "gpclient output monitor"),
+        ]
+        for task, _ in tasks:
+            if task:
+                task.cancel()
 
         # Cancel any pending interactive secrets request
         if self._secret_future and not self._secret_future.done():
             self._secret_future.cancel()
         self._secret_future = None
 
-        # Stop stdout monitoring
-        if self.stdout_monitor_task:
-            self.stdout_monitor_task.cancel()
+        for task, name in tasks:
+            if not task:
+                continue
             try:
-                await self.stdout_monitor_task
+                await task
             except asyncio.CancelledError:
                 pass
             except Exception:
-                logger.exception("gpclient output monitor task had failed")
-            self.stdout_monitor_task = None
+                logger.exception(f"{name} task had failed")
+        self.tunnel_check_task = None
+        self._prompt_task = None
+        self.stdout_monitor_task = None
 
         # Stop gpclient first, close the PTY after. gpclient is the session
         # leader of the PTY: closing the master sends it SIGHUP, which gpclient

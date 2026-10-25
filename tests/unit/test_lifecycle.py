@@ -169,6 +169,45 @@ class TestQuickToggle:
         assert len(plugin.spawned) == 1
 
 
+class TestTeardownOrder:
+    @pytest.mark.parametrize("slow_cancel", [True, False])
+    def test_every_task_is_cancelled_before_any_is_awaited(
+        self, service_module, monkeypatch, dbus_signals, slow_cancel
+    ):
+        plugin = _plugin(service_module, monkeypatch)
+        release = asyncio.Event()
+        reported = []
+
+        async def tunnel():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                if slow_cancel:
+                    await release.wait()  # teardown waits here for a while
+                raise
+
+        async def monitor():
+            # gpclient "exits" while teardown waits for the tunnel task
+            await asyncio.sleep(0.05)
+            reported.append(True)
+            plugin._emit_failure(service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
+
+        async def go():
+            plugin._state = service_module.NM_VPN_SERVICE_STATE_STARTED
+            plugin.tunnel_check_task = asyncio.create_task(tunnel())
+            plugin.stdout_monitor_task = asyncio.create_task(monitor())
+            await asyncio.sleep(0)
+            disconnect = asyncio.create_task(plugin.Disconnect())
+            await asyncio.sleep(0.1)
+            release.set()
+            await disconnect
+
+        asyncio.run(go())
+
+        assert reported == []
+        assert _failures(dbus_signals) == []
+
+
 class TestDisconnectDuringConnect:
     @pytest.mark.parametrize(
         "step", ["_cleanup_stale_gpd0", "_snapshot_tunnel_interfaces", "_start_gpclient"]
