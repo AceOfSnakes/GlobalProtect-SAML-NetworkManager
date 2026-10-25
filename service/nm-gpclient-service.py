@@ -1624,7 +1624,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         Returns:
             String with setting name that needs secrets, or empty string if none needed
         """
-        self._cancel_idle_timer()
+        # Restarted, not cancelled: NetworkManager may never call Connect()
+        # (the user cancels the password dialog)
+        self._arm_idle_timer()
         logger.debug("=== NeedSecrets() called ===")
         logger.debug(f"Settings data: {redact_settings(settings)}")
 
@@ -2008,6 +2010,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         ) and self.gpclient_process is None:
             logger.info(f"No session for {IDLE_EXIT_TIMEOUT} s, exiting")
             self._on_idle()
+        else:
+            # Busy: look again later, so the service still exits once it is idle
+            self._arm_idle_timer()
 
     def enable_idle_exit(self, callback: Callable[[], None]) -> None:
         """Call `callback` when the plugin has had no session for a while"""

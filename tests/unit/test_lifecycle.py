@@ -496,12 +496,11 @@ class TestIdleExit:
 
         assert fired == []
 
-    @pytest.mark.parametrize("method", ["NeedSecrets", "Connect", "NewSecrets"])
+    @pytest.mark.parametrize("method", ["Connect", "NewSecrets"])
     def test_a_call_cancels_the_timer(self, service_module, monkeypatch, method):
         plugin = _plugin(service_module, monkeypatch)
         fired = []
         arguments = {
-            "NeedSecrets": ({},),
             "Connect": (CONNECTION,),
             "NewSecrets": ({},),
         }[method]
@@ -532,13 +531,48 @@ class TestIdleExit:
 
         asyncio.run(go())
 
+    def test_need_secrets_restarts_the_timer(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch)
+        fired = []
+
+        async def go():
+            plugin.enable_idle_exit(lambda: fired.append(True))
+            await asyncio.sleep(0.03)
+            first = plugin._idle_handle
+            await plugin.NeedSecrets({})  # no Connect() follows
+            assert plugin._idle_handle is not None and plugin._idle_handle is not first
+            await asyncio.sleep(0.03)
+            assert fired == []  # 0.06 s after enabling, but only 0.03 s after NeedSecrets
+            await asyncio.sleep(0.1)
+
+        asyncio.run(go())
+
+        assert fired == [True]
+
+    def test_a_busy_expiry_looks_again_and_exits_once_idle(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch)
+        fired = []
+
+        async def go():
+            plugin._state = service_module.NM_VPN_SERVICE_STATE_STARTED
+            plugin.enable_idle_exit(lambda: fired.append(True))
+            await asyncio.sleep(0.12)  # expired twice while busy
+            assert fired == []
+            assert plugin._idle_handle is not None
+            plugin._state = service_module.NM_VPN_SERVICE_STATE_STOPPED  # no _set_state: no new arm
+            await asyncio.sleep(0.12)
+
+        asyncio.run(go())
+
+        assert fired == [True]
+
     def test_restarts_after_stopped(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
         fired = []
 
         async def go():
             plugin.enable_idle_exit(lambda: fired.append(True))
-            await plugin.NeedSecrets({})  # cancels the timer
+            await plugin.Connect(CONNECTION)  # cancels the timer
             await asyncio.sleep(0.1)
             assert fired == []
             await plugin.Disconnect()  # STOPPED starts it again
