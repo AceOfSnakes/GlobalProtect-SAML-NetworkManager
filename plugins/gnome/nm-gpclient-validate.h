@@ -9,8 +9,9 @@
  * check text only; they do not look at the file system.
  * tests/unit/test_validate_header.py compiles this header and tests it.
  *
- * Shortcut: only ASCII white space is handled. The service (Python \s) also
- * treats Unicode spaces as white space. */
+ * shortcut: only ASCII white space is handled (Python \s also takes Unicode
+ * spaces), so the editor lets such a value through and the service rejects
+ * it; handle UTF-8 spaces when a user reports one. */
 
 #ifndef NM_GPCLIENT_VALIDATE_H
 #define NM_GPCLIENT_VALIDATE_H
@@ -137,7 +138,14 @@ nm_gpclient_validate_dns (const char *text)
         if (end || *text == ',' || *text == ';' || nm_gpclient_validate_is_space (*text)) {
             if (n > 0) {
                 entry[n] = '\0';
-                if (inet_pton (AF_INET, entry, addr) != 1 && inet_pton (AF_INET6, entry, addr) != 1)
+                char *zone = strchr (entry, '%');
+
+                /* Python's ipaddress takes an IPv6 zone (fe80::1%eth0) */
+                if (zone && zone[1] && !strchr (zone + 1, '%'))
+                    *zone = '\0';
+                else
+                    zone = NULL;
+                if ((zone || inet_pton (AF_INET, entry, addr) != 1) && inet_pton (AF_INET6, entry, addr) != 1)
                     return 0;
                 n = 0;
             }
