@@ -67,8 +67,9 @@ esac
 # write the same ubuntu.sources (tests/unit checks it).
 EOL_CODENAMES=""
 OS_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
+# An empty codename must not match the blanks of an empty list
 case " $EOL_CODENAMES " in
-    *" $OS_CODENAME "*)
+    *" ${OS_CODENAME:-(none)} "*)
         echo "$OS_CODENAME is end of life: using old-releases.ubuntu.com"
         : > /etc/apt/sources.list
         printf '%s\n' \

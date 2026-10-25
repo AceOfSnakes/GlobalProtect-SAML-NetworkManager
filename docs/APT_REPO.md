@@ -50,7 +50,8 @@ not be extracted (a package without one, or one that cannot be unpacked) gets a 
 
 Supported suites are Ubuntu release codenames: `jammy` (22.04), `noble` (24.04),
 `resolute` (26.04). Both `amd64` and `arm64` are built; apt picks the one matching
-your system.
+your system. `oracular` (24.10, end of life) keeps the packages of earlier releases
+and gets no new ones.
 
 Removal:
 

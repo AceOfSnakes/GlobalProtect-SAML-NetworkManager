@@ -713,10 +713,9 @@ class TestNeonControl:
 
     def test_the_package_is_not_a_former_test_package_that_a_control_file_replaces(self):
         # 1.5.0 builds network-manager-gpclient-plasma-6 for neon; the 26.04 file still
-        # replaces and break the -plasma-6 of the pull request test builds below 1.5.1~, which have
-        # the same files in the same Qt6 directory
-        for name in ("control.ubuntu26.04",):
-            assert relation(PLASMA6) in relations(parse_control(read(name))[PLASMA]["breaks"])
+        # replaces and breaks the -plasma-6 of the pull request test builds below 1.5.1~, which
+        # have the same files in the same Qt6 directory
+        assert relation(PLASMA6) in relations(parse_control(read("control.ubuntu26.04"))[PLASMA]["breaks"])
 
 
 NEON_DOCKERFILE = "Dockerfile.ubuntu24.04-neon"
