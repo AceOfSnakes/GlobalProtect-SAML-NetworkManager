@@ -314,7 +314,7 @@ void GpclientWidgetTest::trimsGateway()
 
 void GpclientWidgetTest::fieldValidity_data()
 {
-    QTest::addColumn<QString>("field"); // object name of the line edit
+    QTest::addColumn<QString>("field"); // object name of the line edit or combo box
     QTest::addColumn<QString>("typed");
     QTest::addColumn<bool>("hip");
     QTest::addColumn<bool>("valid");
@@ -333,6 +333,10 @@ void GpclientWidgetTest::fieldValidity_data()
     QTest::newRow("hip script relative, hip off") << "hipScriptLineEdit" << "hip.sh" << false << true;
     QTest::newRow("username plain") << "usernameLineEdit" << "alice" << true << true;
     QTest::newRow("username option") << "usernameLineEdit" << "-alice" << true << false;
+    QTest::newRow("browser bare name") << "browserComboBox" << "brave-browser" << true << true;
+    QTest::newRow("browser absolute path") << "browserComboBox" << "/opt/bin/my-browser" << true << true;
+    QTest::newRow("browser with space") << "browserComboBox" << "my browser" << true << false;
+    QTest::newRow("browser relative path") << "browserComboBox" << "bin/browser" << true << false;
 }
 
 void GpclientWidgetTest::fieldValidity()
@@ -346,17 +350,28 @@ void GpclientWidgetTest::fieldValidity()
     QVERIFY(widget.isValid());
     auto *check = widget.findChild<QCheckBox *>(QStringLiteral("hipCheckBox"));
     auto *edit = widget.findChild<QLineEdit *>(field);
+    auto *combo = widget.findChild<QComboBox *>(field);
     QVERIFY(check);
-    QVERIFY(edit);
+    QVERIFY(edit || combo);
+    const auto type = [&](const QString &text) {
+        if (combo) {
+            combo->setEditText(text);
+        } else {
+            edit->setText(text);
+        }
+    };
     QSignalSpy spy(&widget, &GpclientWidget::validChanged);
+    check->setChecked(true);
+    // A bad value first, so that a valid row must also report the way back
+    type(field == QLatin1String("hipScriptLineEdit") ? QStringLiteral("relative") : QStringLiteral("-bad value"));
+    QVERIFY(!widget.isValid());
+    QVERIFY(!spy.isEmpty());
+    QCOMPARE(spy.last().at(0).toBool(), false);
     check->setChecked(hip);
-    edit->setText(typed);
+    type(typed);
 
     QCOMPARE(widget.isValid(), valid);
-    if (!valid) {
-        QVERIFY(!spy.isEmpty());
-        QCOMPARE(spy.last().at(0).toBool(), false);
-    }
+    QCOMPARE(spy.last().at(0).toBool(), valid);
 }
 
 void GpclientWidgetTest::readsBooleansIgnoringCase_data()

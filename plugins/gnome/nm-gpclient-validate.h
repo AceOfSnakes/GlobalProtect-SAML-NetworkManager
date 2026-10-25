@@ -9,9 +9,11 @@
  * check text only; they do not look at the file system.
  * tests/unit/test_validate_header.py compiles this header and tests it.
  *
- * shortcut: only ASCII white space is handled (Python \s also takes Unicode
- * spaces), so the editor lets such a value through and the service rejects
- * it; handle UTF-8 spaces when a user reports one. */
+ * shortcut: only ASCII white space is handled (Python \s and strip() also
+ * take Unicode spaces such as U+00A0). Inside a gateway the editor then lets
+ * a value through that the service rejects; at the edges of browser,
+ * hip-script and dns entries, and between dns entries, it rejects a value the
+ * service accepts. Handle UTF-8 spaces when a user reports one. */
 
 #ifndef NM_GPCLIENT_VALIDATE_H
 #define NM_GPCLIENT_VALIDATE_H
