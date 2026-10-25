@@ -209,6 +209,8 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
             m_passwordFlagsIndex = 2;
         }
         m_ui->passwordFlagsComboBox->setCurrentIndex(m_passwordFlagsIndex);
+        // Loaded before the combo's signal is connected: "Ask every time" here too
+        m_ui->passwordLineEdit->setEnabled(m_passwordFlagsIndex != 2);
         loadSecrets(setting);
         setPasswordVisible(m_ui->authModeComboBox->currentIndex() == 1);
 

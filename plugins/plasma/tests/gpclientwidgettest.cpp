@@ -531,6 +531,8 @@ void GpclientWidgetTest::passwordStorage()
     if (flagsIndex >= 0) {
         combo->setCurrentIndex(flagsIndex);
     }
+    // "Ask every time" takes no typing, also for a profile loaded with it
+    QCOMPARE(edit->isEnabled(), combo->currentIndex() != 2);
     edit->setText(password);
 
     NetworkManager::VpnSetting saved;
