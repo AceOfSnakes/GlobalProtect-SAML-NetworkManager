@@ -19,7 +19,7 @@ SERVICE_NAME = "org.freedesktop.NetworkManager.gpclient"
 
 
 def _policy(**attrs):
-    root = ET.parse(POLICY_PATH)  # noqa: S314  # the repo's own file.getroot()
+    root = ET.parse(POLICY_PATH).getroot()  # noqa: S314  # the repo's own file
     found = [p for p in root.findall("policy") if p.attrib == attrs]
     assert len(found) == 1
     return found[0]
