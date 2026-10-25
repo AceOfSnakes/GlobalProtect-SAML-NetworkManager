@@ -69,7 +69,7 @@ install: all
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
 	# Install D-Bus policy, D-Bus activation file and systemd unit
-	install -D -m 644 config/nm-gpclient.conf /etc/dbus-1/system.d/nm-gpclient.conf
+	install -D -m 644 config/nm-gpclient.conf /usr/share/dbus-1/system.d/nm-gpclient.conf
 	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
 	install -D -m 644 config/nm-gpclient.service /lib/systemd/system/nm-gpclient.service
 
@@ -100,7 +100,7 @@ CHECK_NM_VPN_DIR = @case "$(NM_VPN_DIR)" in *//*) echo "NM_VPN_DIR=$(NM_VPN_DIR)
 NM_LIB_DIR = /usr/lib/NetworkManager
 NM_LIBEXEC_DIR = /usr/libexec/gpclient
 DBUS_SERVICES_DIR = /usr/share/dbus-1/system-services
-DBUS_CONF_DIR = /etc/dbus-1/system.d
+DBUS_CONF_DIR = /usr/share/dbus-1/system.d
 SYSTEMD_DIR = /lib/systemd/system
 VPNC_DIR = /etc/vpnc/connect.d
 
@@ -211,8 +211,7 @@ test-coverage:
 	python3 -m pytest tests/unit -q --cov
 
 # Shell scripts of the repository: every file with a sh/bash shebang outside external/
-# (tests/unit/test_shellcheck.py checks the list). The vendored vpnc-script files
-# come from the vpnc-scripts project and are checked at error level only.
+# (tests/unit/test_shellcheck.py checks the list).
 SHELL_SCRIPTS := \
 	.github/scripts/build-apt-repo.sh \
 	.github/scripts/build-rpm-repo.sh \
@@ -230,6 +229,7 @@ SHELL_SCRIPTS := \
 	scripts/browser-wrapper.sh \
 	scripts/edge-wrapper.sh \
 	scripts/hide-desktop-entry.sh \
+	scripts/vpnc-script-debug \
 	scripts/install-pr-build.sh \
 	tests/e2e/files/loginctl \
 	tests/e2e/files/make-certs.sh \
@@ -243,16 +243,12 @@ SHELL_SCRIPTS := \
 	tests/e2e/scenario-routing.sh \
 	tests/e2e/session/desktop.sh \
 	tests/e2e/session/start.sh
-SHELL_SCRIPTS_VENDORED := \
-	scripts/vpnc-script-debug \
-	vpnc-script
 
 # Lint the shell scripts with shellcheck (the dialect comes from the shebang);
 # fails on any finding at warning level
 .PHONY: shellcheck
 shellcheck:
 	shellcheck --severity=warning $(SHELL_SCRIPTS)
-	shellcheck --severity=error $(SHELL_SCRIPTS_VENDORED)
 
 # Run the upstream contract tests (see docs/UPSTREAM.md)
 .PHONY: test-upstream

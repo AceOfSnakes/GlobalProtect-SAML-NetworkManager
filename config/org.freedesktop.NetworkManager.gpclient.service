@@ -1,3 +1,5 @@
 [D-BUS Service]
 Name=org.freedesktop.NetworkManager.gpclient
+Exec=/usr/lib/NetworkManager/nm-gpclient-service
+User=root
 SystemdService=nm-gpclient.service
