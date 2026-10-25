@@ -53,11 +53,44 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A release tag must be v<upstream version of debian/changelog>: otherwise
+  # the packages would carry another version than the release's name.
+  check-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            debian/changelog
+          sparse-checkout-cone-mode: false
+
+      - name: Check the tag against debian/changelog
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Only a tag push is a release; other runs have no tag to check
+          if [ "$EVENT_NAME" = "push" ] && [[ "$REF" == refs/tags/* ]]; then
+            python3 .github/scripts/check_tag_version.py "$TAG" debian/changelog
+          fi
+
   build:
+    needs: check-tag
     # Docker builds natively on each runner (no QEMU): the arm64 runner produces
     # arm64 packages, the amd64 one amd64 packages.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    # Only this job and build-rpm write attestations (build provenance of the
+    # package files); everything else stays read-only.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         # Only a manual run can pick one version; tags and pull requests build all.
@@ -218,6 +251,16 @@ jobs:
           echo "Built packages:"
           ls -la output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
+      - name: Attest build provenance of the .deb files
+        # Tags and pull requests of this repository: a pull request from a
+        # fork (and Dependabot) gets a read-only token and cannot attest. The
+        # apt repository publishes only packages with provenance
+        # (.github/scripts/verify-release-assets.sh).
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
+
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -274,10 +317,15 @@ jobs:
   # rpm/targets; a unit test keeps this matrix equal to it. A manual run builds
   # the target it picks (none: no RPM build, and so no release job either).
   build-rpm:
+    needs: check-tag
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.rpm_target != 'none'
     # Natively on each runner, like the Ubuntu build: the arm64 runner builds aarch64 packages.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         target: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.rpm_target == 'all' && fromJSON('["fedora43", "fedora44", "fedora45", "el10", "leap16.0", "tumbleweed"]') || fromJSON(format('["{0}"]', github.event.inputs.rpm_target))) || fromJSON('["fedora43", "fedora44", "fedora45", "el10", "leap16.0", "tumbleweed"]') }}
@@ -378,6 +426,13 @@ jobs:
           echo "Built packages:"
           ls -la "$out"
 
+      - name: Attest build provenance of the .rpm files
+        # Same condition as for the .deb files
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: output/${{ matrix.target }}-${{ matrix.arch }}/*.rpm
+
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -430,12 +485,23 @@ jobs:
           echo "Release files:"
           ls -la release-files/
 
+      - name: Write SHA256SUMS
+        run: |
+          # One line per package, named as GitHub stores the asset: it turns
+          # the "~" of a version into "." (so `sha256sum -c SHA256SUMS` works in
+          # the download directory). publish-apt checks every package against it.
+          cd release-files
+          sha256sum -- *.deb *.rpm > SHA256SUMS
+          sed -i 's/~/./g' SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             release-files/*.deb
             release-files/*.rpm
+            release-files/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true
 
@@ -474,6 +540,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     permissions:
       contents: read
+      attestations: read
       pages: write
       id-token: write
     uses: ./.github/workflows/publish-apt.yml

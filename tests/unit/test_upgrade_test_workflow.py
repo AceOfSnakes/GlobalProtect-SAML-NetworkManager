@@ -154,12 +154,16 @@ class TestStepInTheWorkflow:
 
         assert "        if: always() && github.event_name != 'push'\n" in step
 
-    def test_the_build_job_gets_no_permissions_of_its_own(self):
+    def test_the_build_jobs_get_no_write_permission_but_the_attestations(self):
         with open(os.path.join(workflow_steps.WORKFLOWS, WORKFLOW), encoding="utf-8") as handle:
             text = handle.read()
 
         build = text.split("\n  build:\n")[1].split("\n  release:\n")[0]
-        assert "permissions:" not in build
+        # build and build-rpm: the contents stay read-only, the attestations of the packages
+        # (tests/unit/test_release_provenance_workflow.py) are all they may write
+        assert build.count("      contents: read\n      id-token: write\n      attestations: write\n") == 2
+        assert build.count("permissions:") == 2
+        assert "contents: write" not in build
 
 
 class TestRunningTheStep:
