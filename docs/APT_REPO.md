@@ -81,7 +81,7 @@ stops the run. Only the releases listed in
 the checks. The attestation must come from `build-release.yml` and the tag of the
 release (`--signer-workflow`, `--source-ref`). `scripts/install-pr-build.sh`
 checks the build provenance of the test packages of a pull request with
-`gh attestation verify` when `gh` is installed and logged in (it has no
+`gh attestation verify` when `gh` is installed, logged in and 2.51 or newer (it has no
 `SHA256SUMS`; the source ref of a pull request build is its merge ref).
 
 ## For the maintainer

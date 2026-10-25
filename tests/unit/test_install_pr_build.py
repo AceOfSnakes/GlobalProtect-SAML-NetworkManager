@@ -182,10 +182,14 @@ echo "$*" >> "$FAKE_DIR/gh_calls"
 if [ "$1 $2" = "auth status" ]; then
     [ "$3 $4" = "--hostname github.com" ] && [ ! -e "$FAKE_DIR/gh_logged_out" ]; exit
 fi
-# gh before 2.49 has no attestation command
+# gh before 2.49 has no attestation command, 2.49 and 2.50 no --signer-workflow
 if [ "$1" = attestation ] && [ -e "$FAKE_DIR/gh_old" ]; then echo 'unknown command "attestation" for "gh"' >&2; exit 1; fi
 [ "$1 $2" = "attestation verify" ] || exit 2
-[ "$3" = --help ] && exit 0
+if [ "$3" = --help ]; then
+    echo "  -R, --repo string"
+    [ -e "$FAKE_DIR/gh_no_signer_flag" ] || echo "      --signer-workflow string"
+    exit 0
+fi
 file="$3"; repo=""; signer=""
 while [ $# -gt 0 ]; do
     case "$1" in --repo) repo="$2" ;; --signer-workflow) signer="$2" ;; esac
@@ -1391,13 +1395,14 @@ class TestProvenance:
         assert "attestation verify" not in box.read("gh_calls")
         assert box.installed() == self.NOBLE_GNOME
 
-    def test_a_gh_without_the_attestation_command_reports_the_provenance_as_not_checked(self, box):
-        (box.fake / "gh_old").write_text("")
+    @pytest.mark.parametrize("old", ["gh_old", "gh_no_signer_flag"])
+    def test_a_gh_without_the_attestation_command_reports_the_provenance_as_not_checked(self, box, old):
+        (box.fake / old).write_text("")
 
         result = box.run("24")
 
         assert result.returncode == 0, result.stderr
-        assert "gh is too old for 'gh attestation' (2.49 or newer needed): build provenance not checked" in result.stdout
+        assert "gh is too old for 'gh attestation verify --signer-workflow' (2.51 or newer needed): build provenance not checked" in result.stdout
         assert box.installed() == self.NOBLE_GNOME
 
     def test_rpm_packages_are_checked_too(self, box):
