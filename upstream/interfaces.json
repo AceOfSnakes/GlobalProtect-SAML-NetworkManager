@@ -207,6 +207,7 @@
         "cli-hip",
         "cli-as-gateway",
         "cli-mtu",
+        "cli-interface",
         "cli-user",
         "cli-browser",
         "sudo-uid",
@@ -220,6 +221,8 @@
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_does_not_read_the_environment_of_user_processes",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_passes_the_mtu_before_the_browser",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_leaves_out_the_mtu_when_automatic",
+        "tests/unit/test_tunnel_interface_name.py::TestCommandLine::test_interface_follows_connect_and_comes_before_the_gateway",
+        "tests/unit/test_tunnel_interface_name.py::TestCommandLine::test_no_interface_without_a_usable_uuid",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_leaves_out_optional_flags_by_default",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_fails_cleanly_when_the_binary_is_missing",
         "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item"
@@ -246,7 +249,9 @@
         "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient_and_gpservice",
         "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_while_gpclient_runs",
         "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_while_gpservice_runs",
-        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_without_gpd0"
+        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_without_gpd0",
+        "tests/unit/test_tunnel_interface_name.py::TestStaleInterface::test_stale_named_interface_is_removed_and_gpd0_kept",
+        "tests/unit/test_tunnel_interface_name.py::TestStaleInterface::test_an_interface_of_another_name_is_left_alone"
       ]
     },
     {

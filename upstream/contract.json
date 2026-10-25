@@ -218,6 +218,13 @@
       "used_by": "service/nm-gpclient-service.py: --mtu"
     },
     {
+      "id": "cli-interface",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) interface: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --interface"
+    },
+    {
       "id": "tunnel-settings-interface",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",

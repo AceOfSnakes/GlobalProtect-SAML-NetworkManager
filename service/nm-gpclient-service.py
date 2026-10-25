@@ -22,6 +22,7 @@ import shutil
 import signal
 import socket
 import stat
+import string
 import struct
 import subprocess
 import sys
@@ -68,6 +69,10 @@ NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED = 1
 NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG = 2
 
 # --- Tunnel interface detection ---------------------------------------------
+#
+# A connection with a UUID names its tunnel (--interface=gp-xxxxxxxx) and
+# detection takes exactly that interface. The rest of this comment is about the
+# fallback without a name.
 #
 # The tunnel our gpclient brings up is either gpd0 (created exclusively by
 # gpclient) or a kernel-assigned tunN device - openconnect falls back to the
@@ -883,6 +888,16 @@ def tunnel_candidate_order(iface: str) -> Tuple[int, int]:
         return len(TUNNEL_INTERFACE_KIND_ORDER), 0
     kind = match.group("kind")
     return TUNNEL_INTERFACE_KIND_ORDER.index(kind), int(match.group("index"))
+
+
+def tunnel_interface_name(uuid: str) -> Optional[str]:
+    """The tunnel name we ask gpclient for: gp- and the first 8 hex digits of
+    the connection UUID (11 characters, the kernel allows 15). None when the
+    UUID has no 8 hex digits; detection then falls back to the heuristics."""
+    digits = (uuid or "").replace("-", "")[:8]
+    if len(digits) != 8 or any(c not in string.hexdigits for c in digits):
+        return None
+    return f"gp-{digits.lower()}"
 
 
 def list_tunnel_candidates() -> List[str]:
@@ -2490,6 +2505,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if self.mtu:
                 cmd.extend(["--mtu", str(self.mtu)])
 
+            # Name the tunnel after the connection, so detection is exact
+            tun_name = tunnel_interface_name(self._connection_uuid)
+            if tun_name:
+                cmd.append(f"--interface={tun_name}")
+
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:
                 cmd.append(f"--user={self.vpn_username}")
@@ -4034,21 +4054,31 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             )
 
     async def _cleanup_stale_gpd0(self) -> None:
-        """Remove a leftover gpd0 interface from a previous session.
+        """Remove a leftover tunnel interface from a previous session.
 
-        gpd0 is created by gpclient, and by gpservice for the GUI client. A
-        gpd0 while neither runs is stale. A stale gpd0 blackholes routing (the
-        portal becomes unreachable) and used to be picked up by tunnel
-        detection as a live connection (issue #7). When one of them runs, gpd0
-        may belong to a session of the user that is not ours (CLI or GUI), so
-        it is kept (issue #52). tunN devices may belong to other VPN clients
-        and are never touched. No `gpclient disconnect` runs here: it would
-        signal that other session.
+        With a connection UUID the tunnel has its own name (gp-xxxxxxxx) and
+        only that interface is removed, when no gpclient runs. Without one it
+        is gpd0, which is created by gpclient, and by gpservice for the GUI
+        client. A gpd0 while neither runs is stale. A stale gpd0 blackholes
+        routing (the portal becomes unreachable) and used to be picked up by
+        tunnel detection as a live connection (issue #7). When one of them
+        runs, gpd0 may belong to a session of the user that is not ours (CLI
+        or GUI), so it is kept (issue #52). tunN devices may belong to other
+        VPN clients and are never touched. No `gpclient disconnect` runs
+        here: it would signal that other session.
         """
-        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):  # noqa: ASYNC240
+        name = tunnel_interface_name(self._connection_uuid)
+        if name:
+            await self._cleanup_stale_iface(name, ("gpclient",))
+        else:
+            await self._cleanup_stale_iface("gpd0", ("gpclient", "gpservice"))
+
+    async def _cleanup_stale_iface(self, iface: str, processes: Tuple[str, ...]) -> None:
+        """`ip link del iface` unless one of `processes` runs (pgrep -x)."""
+        if not os.path.exists(f"{NET_SYSFS_PATH}/{iface}"):  # noqa: ASYNC240
             return
 
-        for name in ("gpclient", "gpservice"):
+        for name in processes:
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "pgrep",
@@ -4059,7 +4089,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 )
                 if await proc.wait() == 0:
                     logger.warning(
-                        f"gpd0 exists and a {name} process is running - "
+                        f"{iface} exists and a {name} process is running - "
                         "not cleaning up"
                     )
                     return
@@ -4068,26 +4098,26 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 return
 
         logger.warning(
-            "Found stale gpd0 interface with no gpclient or gpservice process "
-            "- cleaning up"
+            f"Found stale {iface} interface with no "
+            f"{' or '.join(processes)} process - cleaning up"
         )
 
-        if os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):  # noqa: ASYNC240
+        if os.path.exists(f"{NET_SYSFS_PATH}/{iface}"):  # noqa: ASYNC240
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "ip", "link", "del", "gpd0"
+                    "ip", "link", "del", iface
                 )
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=5)
                 except asyncio.TimeoutError:
-                    logger.warning("'ip link del gpd0' timed out, killing it")
+                    logger.warning(f"'ip link del {iface}' timed out, killing it")
                     proc.kill()
                     await proc.wait()
             except Exception as e:
-                logger.error(f"Failed to delete stale gpd0: {e}")
+                logger.error(f"Failed to delete stale {iface}: {e}")
 
-        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):  # noqa: ASYNC240
-            logger.info("Stale gpd0 interface removed")
+        if not os.path.exists(f"{NET_SYSFS_PATH}/{iface}"):  # noqa: ASYNC240
+            logger.info(f"Stale {iface} interface removed")
 
     def _build_generic_config(
         self, iface: str, gateway_int: Optional[int]
@@ -4114,7 +4144,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 # turned up, so the /proc walk stays off the idle path.
                 owned_ifaces = None
 
-                for iface in list_tunnel_candidates():
+                # A named tunnel is exactly that interface: no candidate list,
+                # no snapshot, no fdinfo ownership
+                tun_name = tunnel_interface_name(self._connection_uuid)
+                candidates = [tun_name] if tun_name else list_tunnel_candidates()
+
+                for iface in candidates:
                     # Check if interface has an IP address (not just exists)
                     ip_addr, prefix = await self._get_iface_ipv4(iface)
 
@@ -4129,7 +4164,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     # same IP before gpclient started - it is a stale gpd0 or
                     # another VPN's tunnel (issue #7)
                     if (
-                        iface in self._preexisting_ifaces
+                        not tun_name
+                        and iface in self._preexisting_ifaces
                         and self._preexisting_ifaces[iface] == ip_addr
                     ):
                         logger.debug(
@@ -4143,7 +4179,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     # moment. When gpclient's own file descriptors tell us
                     # which interface is ours, trust that over the timing
                     # (issue #13).
-                    if owned_ifaces is None:
+                    if owned_ifaces is None and not tun_name:
                         owned_ifaces = self._tunnel_ifaces_owned_by_gpclient()
                     if owned_ifaces and iface not in owned_ifaces:
                         logger.debug(
