@@ -135,7 +135,7 @@ for path in \
     /usr/share/applications/gpgui.desktop \
     /usr/lib/systemd/system/nm-gpclient.service \
     /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service \
-    /etc/dbus-1/system.d/nm-gpclient.conf \
+    /usr/share/dbus-1/system.d/nm-gpclient.conf \
     /etc/vpnc/connect.d/90-gpclient-routing \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient-editor.so" \

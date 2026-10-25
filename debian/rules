@@ -151,7 +151,7 @@ ifneq ($(HAS_CORE),)
 
 	# Install D-Bus policy file
 	install -D -m 644 config/nm-gpclient.conf \
-		$(CURDIR)/debian/network-manager-gpclient/etc/dbus-1/system.d/nm-gpclient.conf
+		$(CURDIR)/debian/network-manager-gpclient/usr/share/dbus-1/system.d/nm-gpclient.conf
 
 	# Create compatibility symlink for old path
 	mkdir -p $(CURDIR)/debian/network-manager-gpclient/usr/libexec/NetworkManager
@@ -175,6 +175,12 @@ ifneq ($(HAS_CORE),)
 		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/connect.d/90-gpclient-routing
 endif
 
+
+# NetworkManager starts the service (or D-Bus activates it): not at boot, and
+# no restart on upgrade (the preinst from debhelper and the postinst stop the old
+# process; NetworkManager starts the new one)
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --no-restart-after-upgrade
 
 override_dh_auto_clean:
 	$(MAKE) clean || true

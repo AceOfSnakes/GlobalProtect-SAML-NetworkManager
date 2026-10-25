@@ -438,6 +438,23 @@ class TestMtuCases:
         maximum = box[box.index('<property name="maximum">'):]
         assert f"<number>{lib.MTU_MAX}</number>" in maximum[:maximum.index("</property>")]
 
+    def test_plasma_mtu_spin_box_is_the_promoted_widget_with_its_header(self):
+        plasma = os.path.join(ROOT, "plugins", "plasma")
+        with open(os.path.join(plasma, "gpclientwidget.ui"), encoding="utf-8") as handle:
+            ui = handle.read()
+
+        assert '<widget class="MtuSpinBox" name="mtuSpinBox">' in ui
+        assert "<class>MtuSpinBox</class>" in ui and "<extends>QSpinBox</extends>" in ui
+        assert "<header>mtuspinbox.h</header>" in ui
+        assert os.path.isfile(os.path.join(plasma, "mtuspinbox.h"))
+
+    def test_plasma_other_spin_boxes_are_not_promoted(self):
+        with open(os.path.join(ROOT, "plugins", "plasma", "gpclientwidget.ui"), encoding="utf-8") as handle:
+            ui = handle.read()
+
+        assert ui.count("<customwidget>") == 1
+        assert '<widget class="QDoubleSpinBox" name="timeoutSpinBox">' in ui
+
     def test_the_gtk_editors_keep_an_invalid_stored_value_by_a_touched_flag(self):
         for source in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
             with open(os.path.join(ROOT, "plugins", "gnome", source), encoding="utf-8") as handle:
