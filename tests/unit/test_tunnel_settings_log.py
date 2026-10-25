@@ -396,7 +396,7 @@ class TestFallbackAndCrossCheck:
         assert config["dns"] == ("au", _nm(service_module, "10.1.1.1", "10.1.1.2"))
         assert config["domains"] == (
             "as",
-            ["corp.example", "lab.example", "vpn.example"],
+            ["corp.example", "lab.example", "~vpn.example"],
         )
 
     def test_log_dns_is_used_when_the_hook_wrote_no_state_file(
@@ -461,6 +461,61 @@ class TestFallbackAndCrossCheck:
         assert config["dns"] == ("au", _nm(service_module, "10.1.1.1"))
         assert config["domains"] == ("as", ["corp.example"])
         assert _disagreements(caplog) == []
+
+    def test_a_matching_split_dns_is_silent_and_a_different_one_warns(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, caplog
+    ):
+        plugin = _plugin_running(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            _lines(
+                DNS="10.1.1.1",
+                **{"search domains": "corp.example", "split DNS": "Vpn.Example"},
+            ),
+        )
+        _read_output(plugin)
+        _state(
+            service_module,
+            TUNDEV="tun0",
+            INTERNAL_IP4_DNS="10.1.1.1",
+            CISCO_DEF_DOMAIN="corp.example",
+            CISCO_SPLIT_DNS="vpn.example",
+        )
+
+        with caplog.at_level("INFO", logger=service_module.logger.name):
+            _detect(service_module, monkeypatch, tmp_path, plugin)
+
+        assert _ip4_config(dbus_signals)["domains"] == (
+            "as",
+            ["corp.example", "~vpn.example"],
+        )
+        assert _disagreements(caplog) == []
+
+        # the same name as a search domain in the hook is not the same
+        # configuration as a routing-only one in the log
+        dbus_signals.clear()
+        _state(
+            service_module,
+            TUNDEV="tun0",
+            INTERNAL_IP4_DNS="10.1.1.1",
+            CISCO_DEF_DOMAIN="corp.example vpn.example",
+        )
+        plugin = _plugin_running(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            _lines(
+                DNS="10.1.1.1",
+                **{"search domains": "corp.example", "split DNS": "vpn.example"},
+            ),
+        )
+        _read_output(plugin)
+        caplog.clear()
+        with caplog.at_level("INFO", logger=service_module.logger.name):
+            _detect(service_module, monkeypatch, tmp_path, plugin)
+
+        assert len(_disagreements(caplog)) == 1
 
     def test_the_hook_only_fills_what_it_has_and_the_log_the_rest(
         self, service_module, monkeypatch, tmp_path, dbus_signals, caplog

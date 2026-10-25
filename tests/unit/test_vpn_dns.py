@@ -12,6 +12,7 @@ NetworkManager own (and reapply) the VPN resolver configuration.
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
+import ipaddress
 import os
 import socket
 import struct
@@ -81,9 +82,70 @@ class TestStateParsing:
 
         assert learned == (
             ["10.0.0.1", "10.0.0.2"],
-            ["corp.example", "extra.example", "lab.example"],
+            # the split-DNS only domains are routing-only; corp.example is a
+            # search domain already
+            ["corp.example", "extra.example", "~lab.example"],
             ["fd00::53"],
         )
+
+    @pytest.mark.parametrize(
+        "split, expected",
+        [
+            ("Corp.Example", ["corp.example"]),  # a search domain routes too
+            ("lab.example,lab.example", ["corp.example", "~lab.example"]),
+            (",,", ["corp.example"]),  # no bare "~"
+            ("", ["corp.example"]),
+        ],
+    )
+    def test_split_dns_is_routing_only_unless_a_search_domain(
+        self, service_module, split, expected
+    ):
+        learned = service_module.learned_dns_from_state(
+            {"CISCO_DEF_DOMAIN": "corp.example", "CISCO_SPLIT_DNS": split}, "tun0"
+        )
+
+        assert learned[1] == expected
+
+    def test_search_domains_never_get_the_routing_prefix(self, service_module):
+        learned = service_module.learned_dns_from_state(
+            {"CISCO_DEF_DOMAIN": "a.example b.example"}, "tun0"
+        )
+
+        assert learned[1] == ["a.example", "b.example"]
+
+    @pytest.mark.parametrize(
+        "fields, expected",
+        [
+            ({"INTERNAL_IP6_ADDRESS": "fd00::5", "INTERNAL_IP6_NETMASK": "fd00::5/64"},
+             ("fd00::5", 64)),
+            ({"INTERNAL_IP6_NETMASK": "fd00::6/48"}, ("fd00::6", 48)),
+            ({"INTERNAL_IP6_ADDRESS": "fd00::7"}, ("fd00::7", 128)),
+            ({"INTERNAL_IP6_ADDRESS": "fd00::7", "INTERNAL_IP6_NETMASK": ""},
+             ("fd00::7", 128)),
+        ],
+    )
+    def test_tunnel_ipv6_from_state(self, service_module, fields, expected):
+        found = service_module.tunnel_ipv6_from_state(dict(fields, TUNDEV="tun0"), "tun0")
+
+        assert (str(found[0]), found[1]) == expected
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            {},
+            {"INTERNAL_IP6_ADDRESS": "", "INTERNAL_IP6_NETMASK": ""},
+            {"INTERNAL_IP6_ADDRESS": "garbage"},
+            {"INTERNAL_IP6_ADDRESS": "10.1.2.3"},
+            {"INTERNAL_IP6_NETMASK": "fd00::5/200"},
+            {"INTERNAL_IP6_NETMASK": "fd00::5/x"},
+            {"INTERNAL_IP6_NETMASK": "/64"},
+            {"INTERNAL_IP6_ADDRESS": "fd00::5", "TUNDEV": "tun7"},  # another tunnel
+        ],
+    )
+    def test_tunnel_ipv6_from_state_rejects_bad_state(self, service_module, state):
+        state = {"TUNDEV": "tun0", **state}
+
+        assert service_module.tunnel_ipv6_from_state(state, "tun0") is None
 
     def test_state_for_another_tunnel_is_rejected(self, service_module):
         state = {"TUNDEV": "tun1", "INTERNAL_IP4_DNS": "10.0.0.1"}
@@ -348,6 +410,29 @@ class TestDetectionReportsDns:
 
         assert config["dns"] == ("au", [_nm_u32("192.168.1.53")])
         assert config["domains"] == ("as", ["corp.example", "extra.example"])
+
+    def test_split_dns_domains_go_to_networkmanager_as_routing_only(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(
+            dns_state_sandbox,
+            TUNDEV="tun0",
+            CISCO_DEF_DOMAIN="corp.example",
+            CISCO_SPLIT_DNS="corp.example,lab.example,extra.example",
+        )
+
+        config = _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_domains=["extra.example"],
+        )
+
+        assert config["domains"] == (
+            "as",
+            ["corp.example", "~lab.example", "extra.example"],
+        )
 
     def test_without_state_file_the_tunnel_is_still_reported(
         self, service_module, monkeypatch, tmp_path, dbus_signals
@@ -750,6 +835,8 @@ class TestVpncHook:
                 "CISCO_DEF_DOMAIN": "corp.example",
                 "CISCO_SPLIT_DNS": "corp.example,lab.example",
                 "VPNGATEWAY": "203.0.113.9",
+                "INTERNAL_IP6_ADDRESS": "fd00::5",
+                "INTERNAL_IP6_NETMASK": "fd00::5/64",
             },
         )
 
@@ -762,7 +849,23 @@ class TestVpncHook:
         assert "CISCO_DEF_DOMAIN=corp.example extra.example" in lines
         assert "CISCO_SPLIT_DNS=corp.example,lab.example" in lines
         assert "VPNGATEWAY=203.0.113.9" in lines
+        assert "INTERNAL_IP6_ADDRESS=fd00::5" in lines
+        assert "INTERNAL_IP6_NETMASK=fd00::5/64" in lines
         assert not list((tmp_path / "run").glob("*.tmp.*"))
+
+    def test_an_ipv4_only_tunnel_records_empty_ipv6_values(
+        self, service_module, tmp_path
+    ):
+        state = tmp_path / "dns-state"
+        self._source_hook(
+            tmp_path, {"GPCLIENT_NM_DNS_STATE": str(state), "TUNDEV": "tun0"}
+        )
+
+        lines = state.read_text().splitlines()
+        assert "INTERNAL_IP6_ADDRESS=" in lines
+        assert "INTERNAL_IP6_NETMASK=" in lines
+        parsed = service_module.parse_dns_state(state.read_text())
+        assert service_module.tunnel_ipv6_from_state(parsed, "tun0") is None
 
     def test_leaves_nothing_behind_for_a_manual_gpclient(self, tmp_path):
         self._source_hook(
@@ -823,3 +926,147 @@ class TestVpncHook:
         assert "could not write DNS state" in result.stderr
         assert "written to" not in result.stderr
         assert sorted(p.name for p in tmp_path.iterdir()) == ["blocker"]
+
+
+def _signal(signals, name):
+    return [payload for n, payload in signals if n == name]
+
+
+class TestDetectionReportsIp6Config:
+    """A dual-stack tunnel: has-ip6 and Ip6Config go together (issue #53)"""
+
+    DUAL = dict(
+        TUNDEV="tun0",
+        INTERNAL_IP4_DNS="10.0.0.1",
+        INTERNAL_IP6_DNS="fd00::53 fd00::54",
+        CISCO_DEF_DOMAIN="corp.example",
+        CISCO_SPLIT_DNS="lab.example",
+        INTERNAL_IP6_ADDRESS="fd00::5",
+        INTERNAL_IP6_NETMASK="fd00::5/64",
+    )
+
+    def test_dual_stack_emits_ip6config_after_ip4config(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+
+        assert [n for n, _ in dbus_signals][:3] == ["Config", "Ip4Config", "Ip6Config"]
+        assert _signal(dbus_signals, "Config")[0]["has-ip6"] == ("b", True)
+        ip = ipaddress.IPv6Address
+        assert _signal(dbus_signals, "Ip6Config")[0] == {
+            "tundev": ("s", "tun0"),
+            "address": ("ay", ip("fd00::5").packed),
+            "prefix": ("u", 64),
+            "dns": ("aay", [ip("fd00::53").packed, ip("fd00::54").packed]),
+            "domains": ("as", ["corp.example", "~lab.example"]),
+        }
+
+    def test_profile_dns_with_a_valid_address_replaces_gateway_ipv6_dns(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        _detect(
+            service_module,
+            monkeypatch,
+            tmp_path,
+            dbus_signals,
+            dns_servers=["2001:db8::1", "192.168.1.53"],
+        )
+
+        dns = _signal(dbus_signals, "Ip6Config")[0]["dns"]
+        assert dns == ("aay", [ipaddress.IPv6Address("2001:db8::1").packed])
+
+    def test_ipv4_only_profile_dns_leaves_ip6config_without_dns(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        _detect(
+            service_module, monkeypatch, tmp_path, dbus_signals,
+            dns_servers=["192.168.1.53"],
+        )
+
+        assert "dns" not in _signal(dbus_signals, "Ip6Config")[0]
+
+    def test_invalid_profile_dns_falls_back_to_gateway_ipv6_dns(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, dns_state_sandbox
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        _detect(
+            service_module, monkeypatch, tmp_path, dbus_signals,
+            dns_servers=["not-an-ip"],
+        )
+
+        assert len(_signal(dbus_signals, "Ip6Config")[0]["dns"][1]) == 2
+
+    @pytest.mark.parametrize("never_default", [True, False])
+    def test_never_default_covers_ipv6(
+        self, service_module, monkeypatch, tmp_path, dbus_signals,
+        dns_state_sandbox, never_default,
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        _detect(
+            service_module, monkeypatch, tmp_path, dbus_signals,
+            never_default=never_default,
+        )
+
+        config6 = _signal(dbus_signals, "Ip6Config")[0]
+        assert config6.get("never-default") == (
+            ("b", True) if never_default else None
+        )
+
+    def test_ipv6_only_profile_dns_on_dual_stack_is_applied_without_warning(
+        self, service_module, monkeypatch, tmp_path, dbus_signals,
+        dns_state_sandbox, caplog,
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            _detect(
+                service_module, monkeypatch, tmp_path, dbus_signals,
+                dns_servers=["2001:db8::1"],
+            )
+
+        dns = _signal(dbus_signals, "Ip6Config")[0]["dns"]
+        assert dns == ("aay", [ipaddress.IPv6Address("2001:db8::1").packed])
+        assert "IPv6 DNS servers are not applied" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {},
+            {"INTERNAL_IP6_ADDRESS": "", "INTERNAL_IP6_NETMASK": ""},
+            {"INTERNAL_IP6_ADDRESS": "garbage", "INTERNAL_IP6_NETMASK": ""},
+            {"TUNDEV": "tun7"},  # the state of another tunnel
+        ],
+    )
+    def test_no_ipv6_address_means_no_ip6config_and_no_has_ip6(
+        self, service_module, monkeypatch, tmp_path, dbus_signals,
+        dns_state_sandbox, caplog, extra,
+    ):
+        fields = dict(self.DUAL, INTERNAL_IP6_ADDRESS="", INTERNAL_IP6_NETMASK="")
+        _write_state(dns_state_sandbox, **{**fields, **extra})
+
+        with caplog.at_level("INFO", logger=service_module.logger.name):
+            _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+
+        assert _signal(dbus_signals, "Ip6Config") == []
+        assert _signal(dbus_signals, "Config")[0]["has-ip6"] == ("b", False)
+        # the gateway's IPv6 DNS is only logged for tunnels without IPv6
+        assert ("no IPv6 config" in caplog.text) is (extra.get("TUNDEV") != "tun7")
+
+    def test_the_log_line_about_missing_ipv6_config_is_gone_with_ip6config(
+        self, service_module, monkeypatch, tmp_path, dbus_signals,
+        dns_state_sandbox, caplog,
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        with caplog.at_level("INFO", logger=service_module.logger.name):
+            _detect(service_module, monkeypatch, tmp_path, dbus_signals)
+
+        assert "no IPv6 config" not in caplog.text

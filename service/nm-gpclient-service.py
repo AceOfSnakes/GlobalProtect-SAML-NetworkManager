@@ -20,7 +20,6 @@ import pty
 import re
 import shutil
 import signal
-import socket
 import stat
 import string
 import struct
@@ -1109,25 +1108,63 @@ def _dedupe(items: List[str]) -> List[str]:
     return result
 
 
+def _drop_shadowed(domains: List[str]) -> List[str]:
+    """`domains` without duplicates; a routing-only "~x" is dropped when the
+    plain search domain x is there (a search domain routes as well)."""
+    plain = {d.lower() for d in domains if not d.startswith("~")}
+    return _dedupe(
+        [d for d in domains if not (d.startswith("~") and d[1:].lower() in plain)]
+    )
+
+
+def _merge_domains(search: List[str], split: List[str]) -> List[str]:
+    """Search domains plus split-DNS domains as NetworkManager's `domains`:
+    the split ones get the "~" prefix (routing only, no search)."""
+    return _drop_shadowed(search + ["~" + d for d in split if d])
+
+
 def learned_dns_from_state(
     state: Dict[str, str], iface: str
 ) -> Optional[Tuple[List[str], List[str], List[str]]]:
-    """DNS the gateway pushed for `iface`: (ipv4 servers, search domains,
-    ipv6 servers), or None when the state does not describe this tunnel.
+    """DNS the gateway pushed for `iface`: (ipv4 servers, domains, ipv6
+    servers), or None when the state does not describe this tunnel.
 
     CISCO_DEF_DOMAIN is space-separated (vpnc-script convention, and our hook
     appends the profile's dns-domains to it); CISCO_SPLIT_DNS is the
     comma-separated split-DNS list openconnect builds from the gateway's
-    response.
+    response. The domains are NetworkManager's: the split-DNS ones carry "~".
     """
     tundev = state.get("TUNDEV", "")
     if tundev and tundev != iface:
         return None
     servers = [s for s in state.get("INTERNAL_IP4_DNS", "").split() if s]
     servers6 = [s for s in state.get("INTERNAL_IP6_DNS", "").split() if s]
-    domains = state.get("CISCO_DEF_DOMAIN", "").split()
-    domains += re.split(r"[,\s]+", state.get("CISCO_SPLIT_DNS", ""))
-    return _dedupe(servers), _dedupe(domains), _dedupe(servers6)
+    domains = _merge_domains(
+        state.get("CISCO_DEF_DOMAIN", "").split(),
+        re.split(r"[,\s]+", state.get("CISCO_SPLIT_DNS", "")),
+    )
+    return _dedupe(servers), domains, _dedupe(servers6)
+
+
+def tunnel_ipv6_from_state(
+    state: Dict[str, str], iface: str
+) -> Optional[Tuple[ipaddress.IPv6Address, int]]:
+    """The tunnel's IPv6 address and prefix the hook recorded for `iface`, or
+    None when the state is for another tunnel or holds no valid IPv6 address.
+
+    openconnect sets INTERNAL_IP6_ADDRESS to the bare address and
+    INTERNAL_IP6_NETMASK to "address/prefix"; either may be missing.
+    """
+    tundev = state.get("TUNDEV", "")
+    if tundev and tundev != iface:
+        return None
+    address, _, prefix = state.get("INTERNAL_IP6_NETMASK", "").partition("/")
+    address = state.get("INTERNAL_IP6_ADDRESS", "") or address
+    try:
+        found = ipaddress.IPv6Interface(f"{address}/{prefix or 128}")
+    except ValueError:
+        return None
+    return found.ip, found.network.prefixlen
 
 
 def vpn_gateway_from_state(
@@ -1596,7 +1633,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Routing configuration
         self.never_default = False
         self.ignore_auto_routes = False
-        self.custom_routes = []
 
         # Tunnel-candidate interfaces (with their IPs) that already existed
         # when Connect() started - these must never be picked up by tunnel
@@ -1608,6 +1644,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # file (issue #15)
         self._dns_state_rounds = 0
         self._vpn_gateway: Optional[ipaddress.IPv4Address] = None
+        self._tunnel_ip6: Optional[Tuple[ipaddress.IPv6Address, int]] = None
 
         # Interactive authentication state (issue #6: RSA token / standard
         # login portals where gpclient prompts on its terminal)
@@ -1778,40 +1815,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"never-default: {self.never_default}")
             self.ignore_auto_routes = ipv4_config.get("ignore-auto-routes", False)
             logger.info(f"ignore-auto-routes: {self.ignore_auto_routes}")
-
-            self.custom_routes = []
-            # Prefer route-data if present
-            route_data = ipv4_config.get("route-data")
-            if route_data:
-                for route in route_data:
-                    dest_raw = route.get("dest", "")
-                    prefix_raw = route.get("prefix", 0)
-                    dest = dest_raw[1] if isinstance(dest_raw, tuple) else dest_raw
-                    prefix = (
-                        prefix_raw[1] if isinstance(prefix_raw, tuple) else prefix_raw
-                    )
-                    if dest:
-                        self.custom_routes.append((dest, int(prefix)))
-            else:
-                # Fallback: parse "routes" (aau): [dest_u32, prefix, next_hop_u32, metric]
-                routes = ipv4_config.get("routes", [])
-                for r in routes:
-                    if not (isinstance(r, (list, tuple)) and len(r) >= 2):
-                        continue
-                    try:
-                        dest_u32 = int(r[0])
-                    except (TypeError, ValueError):
-                        continue
-                    try:
-                        prefix = int(r[1])
-                    except (TypeError, ValueError):
-                        prefix = 32
-
-                    # IMPORTANT: NM uses host order uint32 here on little-endian machines
-                    dest_ip = socket.inet_ntoa(struct.pack("<I", dest_u32))
-
-                    self.custom_routes.append((dest_ip, prefix))
-                    logger.info(f"Custom route: {dest_ip}/{prefix}")
 
             logger.debug(f"Data dict: {data_dict}")
 
@@ -2119,7 +2122,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.hip_enabled = True
         self.hip_script = None
         self.never_default = False
-        self.custom_routes = []
         self.browser_target = None
         self.fix_openssl_mode = "auto"
         self.fix_openssl = False
@@ -3881,9 +3883,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """DNS the gateway pushed for `iface`, as recorded by the vpnc hook.
 
         None when the file is not there (yet) or describes another tunnel.
-        Also sets self._vpn_gateway (the state's VPNGATEWAY, or None).
+        Also sets self._vpn_gateway (the state's VPNGATEWAY, or None) and
+        self._tunnel_ip6 (the tunnel's IPv6 address and prefix, or None).
         """
         self._vpn_gateway = None
+        self._tunnel_ip6 = None
         try:
             with open(DNS_STATE_FILE, "r", encoding="utf-8", errors="replace") as f:
                 text = f.read()
@@ -3896,6 +3900,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         state = parse_dns_state(text)
         learned = learned_dns_from_state(state, iface)
         self._vpn_gateway = vpn_gateway_from_state(state, iface)
+        self._tunnel_ip6 = tunnel_ipv6_from_state(state, iface)
         if learned is None:
             logger.debug(
                 f"DNS state file is for {state.get('TUNDEV')!r}, not {iface} - ignoring"
@@ -3925,8 +3930,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logged_servers = list(settings.dns)
         logged_domains: Optional[List[str]] = None
         if settings.search_domains is not None and settings.split_dns is not None:
-            logged_domains = _dedupe(
-                list(settings.search_domains) + list(settings.split_dns)
+            logged_domains = _merge_domains(
+                list(settings.search_domains), list(settings.split_dns)
             )
 
         hook_servers = servers + servers6
@@ -3978,10 +3983,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if address is None:
                 logger.warning(f"Failed to convert DNS {dns!r}: not an IP address")
             elif address.version == 6:
-                # Ip4Config has no room for it
-                logger.info(
-                    f"DNS server {dns} is IPv6 - not reported to NetworkManager"
-                )
+                # Ip4Config has no room for it; Ip6Config carries it when
+                # the tunnel has an IPv6 address
+                logger.info(f"DNS server {dns} is IPv6 - not in Ip4Config")
             else:
                 dns_list.append(ipv4_to_nm_uint32(address))
                 logger.info(f"Added DNS server: {dns}")
@@ -4014,7 +4018,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     f"DNS servers overridden by the profile: {self.dns_servers} "
                     f"(gateway pushed {learned_servers})"
                 )
-            if all(address.version == 6 for address in addresses):
+            if self._tunnel_ip6 is None and all(
+                address.version == 6 for address in addresses
+            ):
                 logger.warning(
                     f"The DNS servers in the profile are IPv6 only "
                     f"({self.dns_servers}): IPv6 DNS servers are not applied "
@@ -4040,18 +4046,54 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         if dns_list:
             config["dns"] = ("au", dns_list)
 
-        domains = _dedupe(learned_domains + list(self.dns_domains))
+        domains = _drop_shadowed(learned_domains + list(self.dns_domains))
         if domains:
             config["domains"] = ("as", domains)
             logger.info(f"Added DNS search domains: {domains}")
 
-        if learned_servers6:
+        if learned_servers6 and self._tunnel_ip6 is None:
             # No Ip6Config is emitted for the tunnel, so these stay with
             # vpnc-script alone
             logger.info(
                 f"Gateway pushed IPv6 DNS servers {learned_servers6} - "
                 "not reported to NetworkManager (no IPv6 config)"
             )
+
+    def _build_ip6_config(
+        self,
+        iface: str,
+        domains: List[str],
+        learned: Optional[Tuple[List[str], List[str], List[str]]],
+    ) -> Optional[Dict[str, Tuple[str, Any]]]:
+        """The a{sv} dict of the Ip6Config signal, or None when the tunnel has
+        no IPv6 address (then the tunnel is IPv4 only, as before).
+
+        DNS servers follow the rule of _build_dns_config: the profile's `dns`
+        wins when any of its entries is a valid address of either family.
+        """
+        if self._tunnel_ip6 is None:
+            return None
+        address, prefix = self._tunnel_ip6
+        profile = [parse_ip_address(dns) for dns in self.dns_servers]
+        if any(profile):
+            candidates = profile
+        else:
+            candidates = [parse_ip_address(s) for s in (learned or ([], [], []))[2]]
+        servers = [a for a in candidates if a is not None and a.version == 6]
+        config: Dict[str, Tuple[str, Any]] = {
+            "tundev": ("s", iface),
+            "address": ("ay", address.packed),
+            "prefix": ("u", prefix),
+        }
+        if servers:
+            config["dns"] = ("aay", [a.packed for a in servers])
+        if domains:
+            config["domains"] = ("as", domains)
+        if self.never_default:
+            # The README's split-tunnel setting is ipv4.never-default: without
+            # this, NM routes all IPv6 traffic through the tunnel
+            config["never-default"] = ("b", True)
+        return config
 
     async def _cleanup_stale_gpd0(self) -> None:
         """Remove a leftover tunnel interface from a previous session.
@@ -4130,7 +4172,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         if gateway_int is not None:
             generic["gateway"] = ("u", gateway_int)
         generic["has-ip4"] = ("b", True)
-        generic["has-ip6"] = ("b", False)
+        generic["has-ip6"] = ("b", self._tunnel_ip6 is not None)
         if self.mtu:
             generic["mtu"] = ("u", self.mtu)
         return generic
@@ -4296,24 +4338,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                             else:
                                 logger.info(f"Added gateway: {gateway}")
 
-                    # Add custom routes if specified
-                    if self.custom_routes:
-                        routes = []
-                        for dest, dest_prefix in self.custom_routes:
-                            try:
-                                dest_int = ipv4_to_nm_uint32(dest)
-                                # Route format: (dest_ip, prefix, next_hop, metric)
-                                # For VPN, next_hop is usually 0 (direct route)
-                                routes.append((dest_int, dest_prefix, 0, 0))
-                                logger.info(f"Added custom route: {dest}/{dest_prefix}")
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to add route {dest}/{dest_prefix}: {e}"
-                                )
-
-                        if routes:
-                            config["routes"] = ("a(uuuu)", routes)
-
                     # DNS servers and search domains: the profile's override
                     # and/or what the gateway pushed (issue #15)
                     self._build_dns_config(config, learned_dns)
@@ -4327,6 +4351,15 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     # Emit Ip4Config signal
                     logger.info(f"Ip4Config: {config}")
                     self.Ip4Config.emit(config)
+
+                    # has-ip6 is set only with an address, and then NM waits
+                    # for this signal
+                    config6 = self._build_ip6_config(
+                        iface, config.get("domains", ("as", []))[1], learned_dns
+                    )
+                    if config6 is not None:
+                        logger.info(f"Ip6Config: {config6}")
+                        self.Ip6Config.emit(config6)
 
                     # Emit state change: activated
                     self._set_state(NM_VPN_SERVICE_STATE_STARTED)

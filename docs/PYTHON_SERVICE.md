@@ -36,7 +36,7 @@ Starts VPN connection.
 2. Runs `gpclient connect --browser X --gateway Y Z`
 3. Monitors gpclient stdout in separate thread
 4. Checks for tunnel interface every 500ms
-5. After detecting interface, emits `Ip4Config` signal
+5. After detecting interface, emits `Ip4Config` signal (and `Ip6Config` for a dual-stack tunnel)
 
 #### `Disconnect()`
 Disconnects VPN.
@@ -81,8 +81,33 @@ Passes IP configuration to NetworkManager.
 - `address`, `prefix`, `gateway` (uint32) - the tunnel's IPv4 configuration
 - `dns` (array of uint32) - DNS servers as `in_addr_t` values: the profile's
   `dns` override, otherwise the servers the gateway pushed
-- `domains` (array of string) - search domains: the gateway's default domain
-  and split-DNS list plus the profile's `dns-domains`
+- `domains` (array of string) - the gateway's default domain and the
+  profile's `dns-domains` as search domains, and the gateway's split-DNS list
+  with a `~` prefix (`~corp.example`: routing-only domains, no search). A
+  split-DNS domain that is also a search domain stays a plain search domain.
+
+There is no `routes` key: NetworkManager applies the connection's
+`ipv4.routes` itself on top of the VPN configuration, so the service does not
+send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook.
+
+#### `Ip6Config(a{sv})`
+Sent right after `Ip4Config`, only for a tunnel with an IPv6 address (the
+`Config` signal has `has-ip6` set then, and never otherwise). The hook records
+`INTERNAL_IP6_ADDRESS` and `INTERNAL_IP6_NETMASK` (`address/prefix`) in the
+state file. Without a valid IPv6 address there is no `Ip6Config` and `has-ip6`
+is false.
+
+**Parameters:**
+- `tundev` (string) - tunnel interface name
+- `address` (array of byte, 16 bytes), `prefix` (uint32) - the tunnel's IPv6
+  configuration
+- `dns` (array of 16-byte arrays) - IPv6 DNS servers: the IPv6 entries of the
+  profile's `dns` when it has a valid address of either family, otherwise the
+  gateway's `INTERNAL_IP6_DNS`
+- `domains` (array of string) - the same list as in `Ip4Config`
+- `never-default` (boolean) - true when the profile has `ipv4.never-default`,
+  so NetworkManager adds no IPv6 default route either (an IPv6 default route
+  that vpnc-script adds itself stays: issue #109)
 
 The gateway's DNS reaches the service through the vpnc hook
 `/etc/vpnc/connect.d/90-gpclient-routing`: vpnc-script sources it with
@@ -171,7 +196,8 @@ After finding interface:
 1. Reads the DNS the gateway pushed from the vpnc hook's state file
    (waits up to 2 s for it) and builds the IP configuration (interface name,
    address, DNS servers, search domains)
-2. Emits `Ip4Config` signal
+2. Emits `Ip4Config` signal, then `Ip6Config` when the tunnel has an IPv6
+   address
 3. Emits `StateChanged(STARTED)` signal
 4. Stops timer
 

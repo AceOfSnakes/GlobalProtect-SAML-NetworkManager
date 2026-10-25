@@ -47,7 +47,7 @@ def _fake_ip(tmp_path, monkeypatch, route_output):
 
 @pytest.fixture
 def detect(service_module, monkeypatch, tmp_path, dbus_signals):
-    def run(ip_addr, route_output="", routes=None):
+    def run(ip_addr, route_output=""):
         _fake_ip(tmp_path, monkeypatch, route_output)
         plugin = _plugin_with_tunnels(
             service_module,
@@ -56,7 +56,6 @@ def detect(service_module, monkeypatch, tmp_path, dbus_signals):
             ips={"tun0": ip_addr},
             preexisting={},
         )
-        plugin.custom_routes = routes or []
         assert _run_loop(plugin) is True
         return _ip4_config(dbus_signals)
 
@@ -117,35 +116,3 @@ class TestGateway:
 
         assert config is not None
         assert "gateway" not in config
-
-
-class TestRoutes:
-    def test_route_destinations_are_in_addr_t(self, detect):
-        destinations = ["10.124.0.0", "172.16.254.0", "192.168.1.0"]
-        config = detect(
-            "10.9.8.7", routes=[(dest, 24) for dest in destinations]
-        )
-
-        assert config["routes"] == (
-            "a(uuuu)",
-            [(_expected(dest), 24, 0, 0) for dest in destinations],
-        )
-
-    @big_endian_host
-    def test_route_destinations_are_not_big_endian(self, detect):
-        destinations = ["10.124.0.0", "172.16.254.0", "192.168.1.0"]
-        config = detect(
-            "10.9.8.7", routes=[(dest, 24) for dest in destinations]
-        )
-
-        sent = [route[0] for route in config["routes"][1]]
-        assert not set(sent) & {_big_endian(dest) for dest in destinations}
-
-    @pytest.mark.parametrize("bad", ["10.1", "0x7f.0.0.1", "not-an-ip"])
-    def test_a_malformed_route_is_skipped_and_the_rest_kept(self, detect, bad):
-        config = detect("10.9.8.7", routes=[(bad, 24), ("172.16.254.0", 24)])
-
-        assert config["routes"] == (
-            "a(uuuu)",
-            [(_expected("172.16.254.0"), 24, 0, 0)],
-        )

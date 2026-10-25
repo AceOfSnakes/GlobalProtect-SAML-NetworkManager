@@ -208,12 +208,17 @@ NetworkManager's own DNS recalculations (they used to be applied only by
 vpnc-script and were wiped on the next recalculation - see
 [#15](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/15)).
 This needs the vpnc hook `/etc/vpnc/connect.d/90-gpclient-routing` that the
-package installs.
+package installs. The gateway's split-DNS domains are routing-only (`~domain`):
+names under them go to the VPN DNS servers, but a short name is not completed
+with them. Add a domain to `dns-domains` to make it a search domain as well.
 
 By default all traffic goes through the VPN. With **Use this connection only
-for resources on its network** (IPv4 tab of the connection, `ipv4.never-default
-yes`) only the networks the gateway announces go through the tunnel, and the
-VPN DNS servers answer only for the VPN's domains:
+for resources on its network** (IPv4 tab of the connection,
+`ipv4.never-default yes`) only the networks the gateway announces go through
+the tunnel, and the VPN DNS servers answer only for the VPN's domains. On a
+dual-stack tunnel NetworkManager then adds no IPv6 default route either, but an
+IPv6 default route that vpnc-script sets itself stays
+([#109](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/109)):
 
 ![ip route and resolvectl before connecting, with the default settings and with "Use this connection only for resources on its network"](docs/images/demo-routing-dns.webp)
 

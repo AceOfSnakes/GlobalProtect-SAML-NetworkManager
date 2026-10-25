@@ -577,27 +577,44 @@ class TestCheckTunnelLoopPayload:
         assert ("never-default is set" in caplog.text) is never_default
         assert ("Added gateway: 10.8.0.1" in caplog.text) is not never_default
 
-    def test_custom_routes_skip_invalid_entries(
-        self, make_loop, dbus_signals, caplog, service_module
+    def test_routes_of_the_connection_are_not_echoed(
+        self, make_loop, dbus_signals, monkeypatch
     ):
+        """NetworkManager applies ipv4.routes itself (issue #53)"""
         loop = make_loop()
-        loop.plugin.custom_routes = [("10.50.0.0", 16), ("bogus", 8), ("192.168.7.0", 24)]
-        with caplog.at_level("WARNING", logger=service_module.logger.name):
-            assert loop.run() is True
-        nm = service_module.ipv4_to_nm_uint32
-        assert _ip4_config(dbus_signals)["routes"] == (
-            "a(uuuu)",
-            [(nm("10.50.0.0"), 16, 0, 0), (nm("192.168.7.0"), 24, 0, 0)],
-        )
-        assert "Failed to add route bogus/8" in caplog.text
+        plugin = loop.plugin
 
-    def test_only_invalid_custom_routes_leave_routes_out(
-        self, make_loop, dbus_signals
-    ):
-        loop = make_loop()
-        loop.plugin.custom_routes = [("bogus", 8)]
-        assert loop.run() is True
-        assert "routes" not in _ip4_config(dbus_signals)
+        async def nothing(*_args):
+            return None
+
+        async def snapshot():
+            return {}
+
+        async def started():
+            return True
+
+        for name in ("_cleanup_stale_gpd0", "_stop_gpclient"):
+            monkeypatch.setattr(plugin, name, nothing)
+        monkeypatch.setattr(plugin, "_snapshot_tunnel_interfaces", snapshot)
+        monkeypatch.setattr(plugin, "_start_gpclient", started)
+        monkeypatch.setattr(plugin, "_close_pty", lambda: None)
+        connection = {
+            "vpn": {"data": {"gateway": "vpn.example.com"}},
+            "ipv4": {
+                "route-data": [{"dest": "10.1.0.0", "prefix": 16}],
+                "routes": [[0x0A02, 16, 0, 0]],
+            },
+        }
+
+        async def scenario():
+            await plugin._do_connect(connection, interactive=False)
+            await asyncio.wait_for(plugin.tunnel_check_task, timeout=2)
+
+        asyncio.run(scenario())
+
+        config = _ip4_config(dbus_signals)
+        assert config["address"] == ("u", _nm(loop.module, "10.8.0.5"))
+        assert "routes" not in config
 
     def test_dns_config_is_built(self, make_loop, dbus_signals, service_module):
         calls = []
