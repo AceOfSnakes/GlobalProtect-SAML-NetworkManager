@@ -43,6 +43,9 @@ def _build_sdbus_stub():
         def __init_subclass__(cls, **kwargs):
             pass
 
+    class DbusFailedError(Exception):
+        dbus_error_name = "org.freedesktop.DBus.Error.Failed"
+
     # D-Bus signals are emitted as `self.SignalName.emit(payload)`. Give the
     # decorated functions an `emit` attribute (bound methods expose the
     # function's attributes) that records the call, so tests can assert what the
@@ -59,6 +62,7 @@ def _build_sdbus_stub():
         return decorator
 
     stub.DbusInterfaceCommonAsync = DbusInterfaceCommonAsync
+    stub.DbusFailedError = DbusFailedError
     stub.dbus_method_async = _decorator_factory
     stub.dbus_property_async = _decorator_factory
     stub.dbus_signal_async = _decorator_factory
