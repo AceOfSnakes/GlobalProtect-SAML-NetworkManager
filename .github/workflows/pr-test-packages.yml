@@ -33,10 +33,10 @@ name: PR test packages
 # prerelease.
 
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] runs from main only and never checks out or runs PR code
     workflows: ["Build and Release"]
     types: [completed]
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] only closes the prerelease of a PR, no PR code
     types: [closed]
 
 permissions: {}

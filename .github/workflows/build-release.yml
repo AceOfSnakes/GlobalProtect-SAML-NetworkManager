@@ -85,6 +85,12 @@ jobs:
     # arm64 packages, the amd64 one amd64 packages.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    # Only this job and build-rpm write attestations (build provenance of the
+    # package files); everything else stays read-only.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         # Only a manual run can pick one version; tags and pull requests build all.
@@ -245,6 +251,16 @@ jobs:
           echo "Built packages:"
           ls -la output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
 
+      - name: Attest build provenance of the .deb files
+        # Tags and pull requests of this repository: a pull request from a
+        # fork (and Dependabot) gets a read-only token and cannot attest. The
+        # apt repository publishes only packages with provenance
+        # (.github/scripts/verify-release-assets.sh).
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: output/ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}/*.deb
+
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -306,6 +322,10 @@ jobs:
     # Natively on each runner, like the Ubuntu build: the arm64 runner builds aarch64 packages.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         target: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.rpm_target == 'all' && fromJSON('["fedora43", "fedora44", "fedora45", "el10", "leap16.0", "tumbleweed"]') || fromJSON(format('["{0}"]', github.event.inputs.rpm_target))) || fromJSON('["fedora43", "fedora44", "fedora45", "el10", "leap16.0", "tumbleweed"]') }}
@@ -406,6 +426,13 @@ jobs:
           echo "Built packages:"
           ls -la "$out"
 
+      - name: Attest build provenance of the .rpm files
+        # Same condition as for the .deb files
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: output/${{ matrix.target }}-${{ matrix.arch }}/*.rpm
+
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -458,12 +485,23 @@ jobs:
           echo "Release files:"
           ls -la release-files/
 
+      - name: Write SHA256SUMS
+        run: |
+          # One line per package, named as GitHub stores the asset: it turns
+          # the "~" of a version into "." (so `sha256sum -c SHA256SUMS` works in
+          # the download directory). publish-apt checks every package against it.
+          cd release-files
+          sha256sum -- *.deb *.rpm > SHA256SUMS
+          sed -i 's/~/./g' SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             release-files/*.deb
             release-files/*.rpm
+            release-files/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true
 
