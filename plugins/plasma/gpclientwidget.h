@@ -23,9 +23,13 @@ public:
 
     void loadConfig(const NetworkManager::Setting::Ptr &setting) override;
     QVariantMap setting() const override;
+    void loadSecrets(const NetworkManager::Setting::Ptr &setting) override;
+    void loadSecrets(const NetworkManager::Setting::Ptr &setting) override;
     bool isValid() const override;
 
 private:
+    void setPasswordVisible(bool visible);
+    void setPasswordVisible(bool visible);
     Ui::GpclientWidget *m_ui;
     /* Everything the profile already had. setting() builds its map from this, so
      * keys this widget does not show (the cached gateway-list, dns-domains) are
@@ -42,6 +46,16 @@ private:
     /* The user changed the MTU spin box after load: until then an invalid
      * stored value (the box shows 0) is kept on save. */
     bool m_mtuTouched = false;
+    /* No vpn.data at load: the first save adds password-flags and otp-flags. */
+    bool m_isNew = false;
+    /* Index of the password storage combo at load: only a change writes
+     * password-flags of an existing profile. */
+    int m_passwordFlagsIndex = 1;
+    /* No vpn.data at load: the first save adds password-flags and otp-flags. */
+    bool m_isNew = false;
+    /* Index of the password storage combo at load: only a change writes
+     * password-flags of an existing profile. */
+    int m_passwordFlagsIndex = 1;
 };
 
 #endif // PLASMA_NM_GPCLIENT_WIDGET_H

@@ -54,6 +54,8 @@ private Q_SLOTS:
     void mtuEmptyIsAutomatic_data();
     void mtuEmptyIsAutomatic();
     void mtuArrowsAndWheelStillStep();
+    void passwordStorage_data();
+    void passwordStorage();
 };
 
 namespace
@@ -484,6 +486,58 @@ void GpclientWidgetTest::doesNotInventPersistentAndUserName()
     saved.fromMap(widget.setting());
     QVERIFY(!saved.persistent());
     QVERIFY(saved.username().isEmpty());
+}
+
+void GpclientWidgetTest::passwordStorage_data()
+{
+    QTest::addColumn<NMStringMap>("data");
+    QTest::addColumn<int>("flagsIndex"); // -1: leave the combo alone
+    QTest::addColumn<QString>("password");
+    QTest::addColumn<QString>("expectedFlags"); // empty: no password-flags key
+    QTest::addColumn<QString>("expectedOtpFlags"); // empty: no otp-flags key
+    QTest::addColumn<QString>("expectedSecret"); // empty: no secret
+
+    const NMStringMap none;
+    const NMStringMap gateway{{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}};
+    NMStringMap notSaved = gateway;
+    notSaved.insert(QStringLiteral("password-flags"), QStringLiteral("2"));
+
+    // The combo items are: agent (1), system (0), not saved (2)
+    QTest::newRow("new, default is the agent") << none << -1 << QString() << "1" << "2" << QString();
+    QTest::newRow("new, agent keeps the password for NetworkManager") << none << 0 << "pw" << "1" << "2" << "pw";
+    QTest::newRow("new, system") << none << 1 << "pw" << "0" << "2" << "pw";
+    QTest::newRow("new, not saved drops the password") << none << 2 << "pw" << "2" << "2" << QString();
+    // Negative: an existing profile is left as it is
+    QTest::newRow("existing without flags stays without") << gateway << -1 << QString() << QString() << QString() << QString();
+    QTest::newRow("existing without flags, changed") << gateway << 0 << QString() << "1" << QString() << QString();
+    QTest::newRow("existing not saved stays") << notSaved << -1 << "pw" << "2" << QString() << QString();
+    QTest::newRow("existing not saved, to system") << notSaved << 1 << "pw" << "0" << QString() << "pw";
+}
+
+void GpclientWidgetTest::passwordStorage()
+{
+    QFETCH(NMStringMap, data);
+    QFETCH(int, flagsIndex);
+    QFETCH(QString, password);
+    QFETCH(QString, expectedFlags);
+    QFETCH(QString, expectedOtpFlags);
+    QFETCH(QString, expectedSecret);
+
+    GpclientWidget widget(makeSetting(data, 0));
+    auto *combo = widget.findChild<QComboBox *>(QStringLiteral("passwordFlagsComboBox"));
+    auto *edit = widget.findChild<QLineEdit *>(QStringLiteral("passwordLineEdit"));
+    QVERIFY(combo);
+    QVERIFY(edit);
+    if (flagsIndex >= 0) {
+        combo->setCurrentIndex(flagsIndex);
+    }
+    edit->setText(password);
+
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+    QCOMPARE(saved.data().value(QStringLiteral("password-flags")), expectedFlags);
+    QCOMPARE(saved.data().value(QStringLiteral("otp-flags")), expectedOtpFlags);
+    QCOMPARE(saved.secrets().value(QStringLiteral("password")), expectedSecret);
 }
 
 QTEST_MAIN(GpclientWidgetTest)
