@@ -125,7 +125,7 @@ cp /tmp/raw.mp4 "$OUT/raw.mp4"
 cp /tmp/edge-wrapper-$DEMO_UID.log "$OUT/edge-wrapper.log" 2>/dev/null || true
 nmcli -t -f NAME,TYPE,STATE connection show --active > "$OUT/nmcli-active.txt" 2>&1
 { ip route; resolvectl status; } > "$OUT/network-state.txt" 2>&1
-ip -4 addr show gpd0 > "$OUT/gpd0.txt" 2>&1
+ip -4 addr show "$(cat /run/gp-demo/tun-name 2> /dev/null || echo gpd0)" > "$OUT/tunnel.txt" 2>&1
 
 # The checks read what the scenario saved (state-*.txt) and the logs
 log "checks"
