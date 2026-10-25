@@ -3983,10 +3983,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if address is None:
                 logger.warning(f"Failed to convert DNS {dns!r}: not an IP address")
             elif address.version == 6:
-                # Ip4Config has no room for it
-                logger.info(
-                    f"DNS server {dns} is IPv6 - not reported to NetworkManager"
-                )
+                # Ip4Config has no room for it; Ip6Config carries it when
+                # the tunnel has an IPv6 address
+                logger.info(f"DNS server {dns} is IPv6 - not in Ip4Config")
             else:
                 dns_list.append(ipv4_to_nm_uint32(address))
                 logger.info(f"Added DNS server: {dns}")
@@ -4019,7 +4018,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     f"DNS servers overridden by the profile: {self.dns_servers} "
                     f"(gateway pushed {learned_servers})"
                 )
-            if all(address.version == 6 for address in addresses):
+            if self._tunnel_ip6 is None and all(
+                address.version == 6 for address in addresses
+            ):
                 logger.warning(
                     f"The DNS servers in the profile are IPv6 only "
                     f"({self.dns_servers}): IPv6 DNS servers are not applied "
