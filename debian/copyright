@@ -6,6 +6,24 @@ Files: *
 Copyright: 2024 WMP
 License: LGPL-2.1
 
+Files: plugins/plasma/gpclient*.cpp
+ plugins/plasma/gpclient*.h
+ plugins/plasma/mtuspinbox.h
+ plugins/plasma/tests/gpclientwidgettest.cpp
+Copyright: 2025 GlobalProtect VPN Plugin
+License: LGPL-2.1
+Comment: The file headers say "LGPL-2.1-only OR LGPL-3.0-only OR
+ LicenseRef-KDE-Accepted-LGPL".
+
+Files: plugins/plasma/include/settingwidget.h
+ plugins/plasma/include/vpnuiplugin.h
+Copyright: 2008 Will Stephenson <wstephenson@kde.org>
+ 2013 Lukáš Tinkl <ltinkl@redhat.com>
+ 2013 Jan Grulich <jgrulich@redhat.com>
+License: LGPL-2.1
+Comment: Copied from plasma-nm. The file headers say "LGPL-2.1-only OR
+ LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL".
+
 Files: plugins/gnome/nm-vpn-plugin-utils.*
 Copyright: The copyright holders named in the file headers
 License: LGPL-2+
