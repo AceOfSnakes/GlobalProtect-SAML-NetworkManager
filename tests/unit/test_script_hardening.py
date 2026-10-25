@@ -268,13 +268,12 @@ class TestMakeInstall:
 
 # --- postinst: systemd enable symlink, nsswitch.conf -------------------------
 
-def run_postinst(tmp_path, args, helper=True):
+def run_postinst(tmp_path, args):
     text = open(POSTINST).read().replace("remove_legacy_edge_wrapper /tmp\n", "")
     script = tmp_path / "postinst"
     script.write_text(text)
     tools = {"dbus-send": "exit 0\n", "pgrep": "exit 1\n", "pkill": "exit 1\n"}
-    if helper:
-        tools["deb-systemd-helper"] = 'echo "$*" >> "$FAKE_DIR/helper_calls"\n'
+    tools["deb-systemd-helper"] = 'echo "$*" >> "$FAKE_DIR/helper_calls"\n'
     # The real dpkg when there is one (CI); else a fake whose "lt" compares the
     # upstream versions only
     if not shutil.which("dpkg"):
@@ -294,19 +293,13 @@ class TestPostinstSystemd:
         result, calls = run_postinst(tmp_path, ["configure", old])
 
         assert result.returncode == 0, result.stderr
-        assert calls == "purge nm-gpclient.service\n"
+        assert calls == "purge nm-gpclient.service\nunmask nm-gpclient.service\n"
 
     @pytest.mark.parametrize("args", [["configure"], ["configure", "2.0.0-1"], ["configure", "2.1.0-1"],
                                       ["configure", "2.0.0-1~noble1"], ["configure", "2.0.0-1~jammy1~pr96"],
                                       ["reconfigure", "2.0.0-1"]])
     def test_a_first_install_and_a_newer_upgrade_leave_the_unit_alone(self, tmp_path, args):
         result, calls = run_postinst(tmp_path, args)
-
-        assert result.returncode == 0, result.stderr
-        assert calls == ""
-
-    def test_a_missing_helper_does_not_fail_the_upgrade(self, tmp_path):
-        result, calls = run_postinst(tmp_path, ["configure", "1.5.0-1"], helper=False)
 
         assert result.returncode == 0, result.stderr
         assert calls == ""

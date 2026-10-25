@@ -177,7 +177,8 @@ endif
 
 
 # NetworkManager starts the service (or D-Bus activates it): not at boot, and
-# no restart on upgrade (the postinst stops the old process)
+# no restart on upgrade (the preinst from debhelper and the postinst stop the old
+# process; NetworkManager starts the new one)
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start --no-restart-after-upgrade
 

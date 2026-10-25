@@ -62,9 +62,11 @@ case "$1" in
         # Versions before 2.0.0 enabled nm-gpclient.service at boot; NetworkManager
         # and D-Bus start it on demand, so remove the enable symlink on upgrade
         # (purge: also the helper state, which no later purge of a static unit removes).
-        if [ -n "$2" ] && dpkg --compare-versions "$2" lt 2.0.0~ \
-                && command -v deb-systemd-helper >/dev/null 2>&1; then
+        # The debhelper of 22.04 masked the unit when that version was removed, and
+        # a static unit gets no unmask snippet: unmask (only a mask the helper made).
+        if [ -n "$2" ] && dpkg --compare-versions "$2" lt 2.0.0~; then
             deb-systemd-helper purge nm-gpclient.service >/dev/null 2>&1 || true
+            deb-systemd-helper unmask nm-gpclient.service >/dev/null 2>&1 || true
         fi
         ;;
 

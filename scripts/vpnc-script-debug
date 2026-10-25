@@ -5,10 +5,11 @@
 # VPNC_SCRIPT_REAL: the real script (default /usr/share/vpnc-scripts/vpnc-script
 # on Debian/Ubuntu, /etc/vpnc/vpnc-script on Fedora, EL and openSUSE)
 
+# VPNC_SCRIPT_DEBUG_ROOT: prefix of the default paths, for the tests only
 real=$VPNC_SCRIPT_REAL
 if [ -z "$real" ]; then
-    real=/usr/share/vpnc-scripts/vpnc-script
-    [ -e "$real" ] || real=/etc/vpnc/vpnc-script
+    real=${VPNC_SCRIPT_DEBUG_ROOT:-}/usr/share/vpnc-scripts/vpnc-script
+    [ -e "$real" ] || real=${VPNC_SCRIPT_DEBUG_ROOT:-}/etc/vpnc/vpnc-script
 fi
 tag=vpnc-script-debug
 

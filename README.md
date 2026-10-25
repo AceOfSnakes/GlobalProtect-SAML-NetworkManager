@@ -448,7 +448,7 @@ The repository has a small wrapper, `scripts/vpnc-script-debug`. It writes the t
 ```bash
 sudo curl -o /usr/local/sbin/vpnc-script-debug https://raw.githubusercontent.com/WMP/GlobalProtect-SAML-NetworkManager/main/scripts/vpnc-script-debug
 sudo chmod 755 /usr/local/sbin/vpnc-script-debug
-sudo gpclient --script /usr/local/sbin/vpnc-script-debug connect <portal>   # manual run
+sudo gpclient connect --script /usr/local/sbin/vpnc-script-debug <portal>   # manual run
 sudo journalctl -t vpnc-script-debug
 ```
 
