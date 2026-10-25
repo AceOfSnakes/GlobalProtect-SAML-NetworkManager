@@ -114,8 +114,10 @@ E2E_SCENARIO_FILE=tests/e2e/scenario-gnome.sh tests/e2e/run.sh gnome`.
 
 ## Known limits
 
-- The container has no systemd and no logind. `files/loginctl` answers
-  `loginctl list-users`, so that the VPN service finds the desktop user.
+- The container has no systemd and no logind. `files/loginctl` answers the
+  service's logind questions (`show-seat seat0`, `show-session`, `list-sessions`)
+  with one active local session of the user with uid 1000, so that the VPN
+  service finds the desktop user.
 - GNOME starts without `gnome-session` (it needs logind): `session/desktop.sh`
   starts `gnome-shell --x11` by hand. NetworkManager runs without polkit
   (`auth-polkit=false`).
