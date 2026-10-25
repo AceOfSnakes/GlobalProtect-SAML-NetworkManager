@@ -24,6 +24,7 @@ struct _NMGpclientEditor {
     GtkWidget *password_label;
     GtkEntry *password_entry;
     gboolean is_new;  /* no vpn.data at load: first save adds the defaults */
+    NMSettingSecretFlags password_menu_flags;  /* the storage menu at load */
     GtkComboBoxText *browser_combo;
     GtkSpinButton *timeout_spin;
     GtkSpinButton *mtu_spin;
@@ -317,6 +318,7 @@ build_ui (NMGpclientEditor *self)
         /* No setting: libnma would read the flags from it (none on a new
          * connection, so 0) and ignore these; update_connection() saves them */
         nma_utils_setup_password_storage (GTK_WIDGET (self->password_entry), flags, NULL, NULL, FALSE, FALSE);
+        self->password_menu_flags = nma_utils_menu_to_secret_flags (GTK_WIDGET (self->password_entry));
     }
     g_signal_connect (G_OBJECT (self->password_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->password_entry), 1, row++, 1, 1);
@@ -617,7 +619,9 @@ update_connection (NMVpnEditor *iface,
     if (self->password_entry) {
         NMSettingSecretFlags flags = nma_utils_menu_to_secret_flags (GTK_WIDGET (self->password_entry));
 
-        if (flags != NM_SETTING_SECRET_FLAG_NONE || nm_setting_vpn_get_data_item (s_vpn, "password-flags"))
+        /* Only a new connection or a change in the menu writes the flags, so
+         * bits the menu cannot show (4, not required) are kept */
+        if ((self->is_new && flags != NM_SETTING_SECRET_FLAG_NONE) || flags != self->password_menu_flags)
             nm_setting_set_secret_flags (NM_SETTING (s_vpn), "password", flags, NULL);
         str = gtk_entry_get_text (self->password_entry);
         if (gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1) {

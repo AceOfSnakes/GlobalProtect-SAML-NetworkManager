@@ -42,6 +42,34 @@ def test_gtk_storage_menu_gets_no_setting(rel):
         assert args[2:4] == ["NULL", "NULL"], call
 
 
+GTK_FLAGS_RULE = re.compile(
+    r"if \(\(self->is_new && flags != NM_SETTING_SECRET_FLAG_NONE\) \|\| flags != self->password_menu_flags\)\s*"
+    r"nm_setting_set_secret_flags"
+)
+
+
+def gtk_flags_written_only_when_new_or_changed(src):
+    return bool(GTK_FLAGS_RULE.search(src)) and src.count("nm_setting_set_secret_flags") == 1
+
+
+@pytest.mark.parametrize("rel", GTK)
+def test_gtk_editor_writes_the_flags_only_when_new_or_changed(rel):
+    # An existing profile keeps flags the menu cannot show (4, not required)
+    assert gtk_flags_written_only_when_new_or_changed(read(rel))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        '    nm_setting_set_secret_flags (NM_SETTING (s_vpn), "password", flags, NULL);',
+        '    if (flags != NM_SETTING_SECRET_FLAG_NONE || nm_setting_vpn_get_data_item (s_vpn, "password-flags"))\n'
+        '        nm_setting_set_secret_flags (NM_SETTING (s_vpn), "password", flags, NULL);',
+    ],
+)
+def test_an_unconditional_or_old_flags_write_is_rejected(bad):
+    assert not gtk_flags_written_only_when_new_or_changed(bad)
+
+
 @pytest.mark.parametrize("rel", GTK + [PLASMA])
 def test_every_editor_defaults_a_new_connection_only(rel):
     # The defaults are guarded by "new": an existing connection keeps its flags

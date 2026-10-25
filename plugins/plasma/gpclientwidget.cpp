@@ -104,6 +104,13 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->passwordLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->passwordFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
+    // "Ask every time" stores nothing: no typing into the field (as in GNOME)
+    connect(m_ui->passwordFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        m_ui->passwordLineEdit->setEnabled(index != 2);
+        if (index == 2) {
+            m_ui->passwordLineEdit->clear();
+        }
+    });
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->hipCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
