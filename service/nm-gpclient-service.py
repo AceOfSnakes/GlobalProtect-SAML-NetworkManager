@@ -4089,6 +4089,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             config["dns"] = ("aay", [a.packed for a in servers])
         if domains:
             config["domains"] = ("as", domains)
+        if self.never_default:
+            # The README's split-tunnel setting is ipv4.never-default: without
+            # this, NM routes all IPv6 traffic through the tunnel
+            config["never-default"] = ("b", True)
         return config
 
     async def _cleanup_stale_gpd0(self) -> None:

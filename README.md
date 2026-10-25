@@ -210,8 +210,8 @@ package installs.
 
 By default all traffic goes through the VPN. With **Use this connection only
 for resources on its network** (IPv4 tab of the connection, `ipv4.never-default
-yes`) only the networks the gateway announces go through the tunnel, and the
-VPN DNS servers answer only for the VPN's domains:
+yes`; it covers IPv6 on a dual-stack tunnel as well) only the networks the
+gateway announces go through the tunnel, and the VPN DNS servers answer only for the VPN's domains:
 
 ![ip route and resolvectl before connecting, with the default settings and with "Use this connection only for resources on its network"](docs/images/demo-routing-dns.webp)
 

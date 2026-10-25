@@ -1003,6 +1003,23 @@ class TestDetectionReportsIp6Config:
 
         assert len(_signal(dbus_signals, "Ip6Config")[0]["dns"][1]) == 2
 
+    @pytest.mark.parametrize("never_default", [True, False])
+    def test_never_default_covers_ipv6(
+        self, service_module, monkeypatch, tmp_path, dbus_signals,
+        dns_state_sandbox, never_default,
+    ):
+        _write_state(dns_state_sandbox, **self.DUAL)
+
+        _detect(
+            service_module, monkeypatch, tmp_path, dbus_signals,
+            never_default=never_default,
+        )
+
+        config6 = _signal(dbus_signals, "Ip6Config")[0]
+        assert config6.get("never-default") == (
+            ("b", True) if never_default else None
+        )
+
     def test_ipv6_only_profile_dns_on_dual_stack_is_applied_without_warning(
         self, service_module, monkeypatch, tmp_path, dbus_signals,
         dns_state_sandbox, caplog,
