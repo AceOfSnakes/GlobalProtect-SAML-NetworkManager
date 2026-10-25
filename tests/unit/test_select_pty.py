@@ -942,12 +942,6 @@ class TestPressListDown:
             "  gw-b (b.example.com)",
             "[to move, to select]",
         ]
-        second = [
-            "? Which gateway do you want to connect to?",
-            "  gw-a (a.example.com)",
-            "> gw-b (b.example.com)",
-            "[to move, to select]",
-        ]
         plugin._screen.feed("\r\n".join(first) + "\r\n")
 
         previous = service_module.detect_select_prompt(plugin._screen.lines())

@@ -720,11 +720,11 @@ def selinux_spec_problems(spec):
             if stack != [SELINUX_GUARD]:
                 problems.append(f"{text} is under {stack}, not under {SELINUX_GUARD}")
     # Every other line with "selinux" must be guarded as well
-    for sec, stack, line in lines:
+    for _sec, stack, line in lines:
         if "selinux" in line.lower() and not line.lstrip().startswith("#") and SELINUX_GUARD not in stack:
             problems.append(f"not guarded: {line.strip()}")
     # The module is removed on erase only, not on upgrade
-    for index, (sec, stack, line) in enumerate(lines):
+    for index, (_sec, _stack, line) in enumerate(lines):
         if "%selinux_modules_uninstall" in line and lines[index - 1][2].strip() != SELINUX_UNINSTALL_CHECK:
             problems.append("selinux_modules_uninstall is not under the $1 -eq 0 check")
     return problems

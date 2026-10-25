@@ -36,7 +36,7 @@ def state(kind, edge=None, **override):
         "ip route show default": ["default via 192.168.1.1 dev enp0s31f6 metric 100"],
         "ip route get 9.9.9.9": GET_WIRED.format("9.9.9.9").split("\n"),
         "ip route get 10.20.0.10": GET_WIRED.format("10.20.0.10").split("\n"),
-        "resolvectl dns": ["Global:", f"Link 2 (enp0s31f6): 192.168.1.1"],
+        "resolvectl dns": ["Global:", "Link 2 (enp0s31f6): 192.168.1.1"],
         "resolvectl domain": ["Global:", "Link 2 (enp0s31f6):"],
         "resolvectl status gpd0": ['Failed to resolve interface "gpd0": No such device'],
         "processes": [],

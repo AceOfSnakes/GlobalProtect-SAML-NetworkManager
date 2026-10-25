@@ -28,8 +28,7 @@ import sys
 import termios
 import unicodedata
 from collections import deque
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from sdbus import (
     DbusInterfaceCommonAsync,
@@ -119,7 +118,7 @@ DNS_STATE_ENV = "GPCLIENT_NM_DNS_STATE"
 DNS_STATE_WAIT_ROUNDS = 4
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
-OTP_SECRET_KEY = "otp"
+OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
 # Tries per connection to mark the code as not-saved in the profile
 OTP_FLAG_MAX_ATTEMPTS = 2
 
@@ -647,13 +646,13 @@ def _secrets_pattern(secrets: frozenset) -> Optional["re.Pattern[str]"]:
     return re.compile("|".join(parts)) if parts else None
 
 
-def mask_secrets(line: str, secrets: Sequence[str]) -> str:
+def mask_secrets(line: str, secrets: Iterable[str]) -> str:
     """Replace every occurrence of a secret value in a line of output"""
     pattern = _secrets_pattern(frozenset(secrets))
     return pattern.sub(lambda _: HIDDEN, line) if pattern else line
 
 
-def mask_secret_prompts(line: str, labels: Sequence[str]) -> str:
+def mask_secret_prompts(line: str, labels: Iterable[str]) -> str:
     """Hide whatever follows the label of a prompt that was answered with a secret
 
     inquire redraws a text prompt after every keystroke, so the output holds
@@ -712,7 +711,7 @@ def is_one_time_secret(text: str) -> bool:
     for word, subs in split_label(text):
         pieces = [word] + [sub[0] for sub in subs]
         befores = [previous, previous] + [sub[0] for sub in subs[:-1]]
-        for piece, before in zip(pieces, befores):
+        for piece, before in zip(pieces, befores, strict=True):
             if not ONE_TIME_SECRET_RE.fullmatch(piece):
                 continue
             # "Zip code", "ZIP-Code", "PostCode": a bare "code" after a word
@@ -1223,8 +1222,9 @@ def parse_tunnel_settings_line(line: str, settings: TunnelSettings) -> TunnelSet
         )
         return dataclasses.replace(settings, dns=items)
     items = _tunnel_list(value, TUNNEL_DOMAIN_RE.fullmatch)
-    field = "search_domains" if key == "search domains" else "split_dns"
-    return dataclasses.replace(settings, **{field: items})
+    if key == "search domains":
+        return dataclasses.replace(settings, search_domains=items)
+    return dataclasses.replace(settings, split_dns=items)
 
 
 def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
@@ -1243,7 +1243,7 @@ def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
     try:
         info = os.stat(resolved)
     except OSError as e:
-        raise ValueError(f"cannot read the file: {e.strerror or e}")
+        raise ValueError(f"cannot read the file: {e.strerror or e}") from e
     if not stat.S_ISREG(info.st_mode):
         raise ValueError(f"{resolved} is not a regular file")
     if info.st_uid not in trusted_uids:
@@ -1459,7 +1459,7 @@ class ScreenBuffer:
             return
         if params[:1] in ("<", "=", ">", "?"):  # private (cursor visibility, ...)
             return
-        numbers = []
+        numbers: List[Optional[int]] = []
         for part in params.split(";"):
             if not part:
                 numbers.append(None)
@@ -1502,7 +1502,9 @@ class ScreenBuffer:
                 self._rows = [[] for _ in self._rows]
 
 
-class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN):
+class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN
+):
     """NetworkManager VPN Plugin for gpclient using python-sdbus"""
 
     def __init__(self):
@@ -1539,6 +1541,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
         self._stored_gateway_count: Optional[int] = None  # gateway-list-count
+        # Declared here for the type checker; reset for each attempt in
+        # _reset_output_state
+        self._gateway_count: Optional[int] = None
+        self._lap_entries: List[str] = []
+        self._tunnel_settings = TunnelSettings()  # logged by gpclient (issue #37)
 
         # Routing configuration
         self.never_default = False
@@ -1855,7 +1862,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self.hip_script = validate_hip_script(hip_script_str)
                 except ValueError as e:
                     logger.error(f"Rejected hip-script {hip_script_str!r}: {e}")
-                    raise Exception(f"Invalid hip-script {hip_script_str!r}: {e}")
+                    raise Exception(f"Invalid hip-script {hip_script_str!r}: {e}") from e
                 logger.info(f"HIP script: {self.hip_script}")
 
             # Emit state change: preparing
@@ -1999,12 +2006,12 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     @dbus_method_async("a{sv}")
     async def SetIp4Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Set IPv4 configuration (optional, for compatibility)"""
-        logger.info(f"SetIp4Config() called")
+        logger.info("SetIp4Config() called")
 
     @dbus_method_async("a{sv}")
     async def SetIp6Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Set IPv6 configuration (optional, for compatibility)"""
-        logger.info(f"SetIp6Config() called")
+        logger.info("SetIp6Config() called")
 
     @dbus_method_async("s")
     async def SetFailure(self, reason: str) -> None:
@@ -2262,24 +2269,24 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
 
         # The active local session on seat0
-        uid = self._seat0_active_user()
-        if uid is not None:
-            entry = self._user_entry(pwd.getpwuid, uid)
+        seat_uid = self._seat0_active_user()
+        if seat_uid is not None:
+            entry = self._user_entry(pwd.getpwuid, seat_uid)
             if entry:
-                logger.debug(f"Found active seat0 user: {entry[1]} (UID: {uid})")
+                logger.debug(f"Found active seat0 user: {entry[1]} (UID: {seat_uid})")
                 return entry
-            logger.debug(f"Seat0 user with UID {uid} does not exist")
+            logger.debug(f"Seat0 user with UID {seat_uid} does not exist")
 
         # No seat0 session (xrdp, remote desktop, VM): one active user is clear
-        uid = self._single_active_session_user()
-        if uid is not None:
-            entry = self._user_entry(pwd.getpwuid, uid)
+        session_uid = self._single_active_session_user()
+        if session_uid is not None:
+            entry = self._user_entry(pwd.getpwuid, session_uid)
             if entry:
                 logger.info(
-                    f"Using the active non-seat0 session of {entry[1]} (UID: {uid})"
+                    f"Using the active non-seat0 session of {entry[1]} (UID: {session_uid})"
                 )
                 return entry
-            logger.debug(f"Session user with UID {uid} does not exist")
+            logger.debug(f"Session user with UID {session_uid} does not exist")
 
         logger.warning(
             "no active local session on seat0 and not exactly one other user "
@@ -2612,8 +2619,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # "Found N gateways in portal config" of this attempt, and the entries
         # of the whole list when this attempt saw all of it (read page by
         # page, or a list that is not paged); empty otherwise
-        self._gateway_count: Optional[int] = None
-        self._lap_entries: List[str] = []
+        self._gateway_count = None
+        self._lap_entries = []
         # The tunnel settings gpclient logged in this attempt (issue #37)
         self._tunnel_settings = TunnelSettings()
 
@@ -3102,9 +3109,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 else:
                     logger.info(f"Preferred gateway {preferred!r} matches {target!r}")
                 wanted = target
-                matches = lambda option: option == target  # noqa: E731
+                matches: Callable[..., bool] = lambda option: option == target  # noqa: E731
                 homing = True
-                step_limit = max(SELECT_MAX_STEPS, self._gateway_count + 1)
+                step_limit = max(SELECT_MAX_STEPS, (self._gateway_count or 0) + 1)
             elif not preferred:
                 wanted = options[0]
                 matches = lambda option: option == wanted  # noqa: E731
@@ -3176,7 +3183,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     homing = True
                     hit = substring_hit
                     # An exact match seen on the way back still wins
-                    matches = lambda option: (  # noqa: E731
+                    matches = lambda option, hit=hit: (  # noqa: E731
                         option == hit
                         or gateway_matches(preferred, option, substring=False)
                     )
@@ -3190,7 +3197,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     # The walk began on the first proposal, unless gpclient did
                     # not redraw after Home: then go on to it by its name
                     homing = True
-                    matches = lambda option: option == first_proposal  # noqa: E731
+                    matches = lambda option, first_proposal=first_proposal: (  # noqa: E731
+                        option == first_proposal
+                    )
                     step_limit = steps + SELECT_MAX_STEPS
 
                 if matches(current):
@@ -3336,7 +3345,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 if frame is None
                 else (tuple(frame["options"]), frame["cursor"], frame["more"])
             )
-            if seen is not None and seen == last_seen:
+            if frame is not None and seen == last_seen:
                 if frame["options"][frame["cursor"]] != previous_option:
                     return frame
             last_seen = seen
@@ -3536,7 +3545,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         except asyncio.TimeoutError:
             raise Exception(
                 f"Timed out waiting for the user to provide {secret_key!r}"
-            )
+            ) from None
         finally:
             self._secret_future = None
 
@@ -3885,7 +3894,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         and are never touched. No `gpclient disconnect` runs here: it would
         signal that other session.
         """
-        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
+        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):  # noqa: ASYNC240
             return
 
         for name in ("gpclient", "gpservice"):
@@ -3912,7 +3921,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             "- cleaning up"
         )
 
-        if os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
+        if os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):  # noqa: ASYNC240
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "ip", "link", "del", "gpd0"
@@ -3926,7 +3935,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             except Exception as e:
                 logger.error(f"Failed to delete stale gpd0: {e}")
 
-        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
+        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):  # noqa: ASYNC240
             logger.info("Stale gpd0 interface removed")
 
     def _build_generic_config(
@@ -4182,10 +4191,11 @@ async def main_async():
         try:
             import datetime
 
-            script_path = os.path.abspath(__file__)
-            with open(script_path, "rb") as f:
-                script_hash = hashlib.md5(f.read()).hexdigest()
-            mtime = os.path.getmtime(script_path)
+            # noqa below: debug-only, once at startup, before the loop runs
+            script_path = os.path.abspath(__file__)  # noqa: ASYNC240
+            with open(script_path, "rb") as f:  # noqa: ASYNC230
+                script_hash = hashlib.md5(f.read(), usedforsecurity=False).hexdigest()
+            mtime = os.path.getmtime(script_path)  # noqa: ASYNC240
             mtime_str = datetime.datetime.fromtimestamp(mtime).strftime(
                 "%Y-%m-%d %H:%M:%S"
             )

@@ -119,7 +119,7 @@ class Box:
         """Run the script that one `docker run` hands to its container, in a fresh copy of the sources:
         {docker_args, version, changelog, control}"""
         # docker run --rm -e PR_SUFFIX=<..> -e CONTROL=<..> -v <..> <image> bash -c <script>
-        environment = {a.split("=", 1)[0]: a.split("=", 1)[1] for a, b in zip(args[1:], args) if b == "-e"}
+        environment = {a.split("=", 1)[0]: a.split("=", 1)[1] for a, b in zip(args[1:], args, strict=False) if b == "-e"}
         (self.work / "debian" / "changelog").write_text(
             f"network-manager-gpclient ({RELEASE_VERSION}) unstable; urgency=medium\n\n  * x\n"
         )

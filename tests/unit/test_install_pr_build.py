@@ -12,7 +12,6 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -802,7 +801,7 @@ class TestRejected:
         "base, replace",
         [
             ("https://evil.example/pr-24", None),
-            (f"https://github.com/other/repo/releases/download/pr-24", None),
+            ("https://github.com/other/repo/releases/download/pr-24", None),
             (f"https://github.com/{REPO}/releases/download/pr-25", None),
             (f"http://github.com/{REPO}/releases/download/pr-24", None),
             (f"https://github.com.evil.example/{REPO}/releases/download/pr-24", None),
@@ -926,7 +925,7 @@ class TestPlasmaPackage:
     def test_other_releases_never_get_the_plasma_6_package(self, box, codename, plasma_nm):
         box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
 
-        result = self.plasma(box, codename=codename, plasma_nm=plasma_nm)
+        self.plasma(box, codename=codename, plasma_nm=plasma_nm)
 
         assert box.installed() == [deb("", codename, "amd64"), deb("-plasma", codename, "amd64")]
 
@@ -940,7 +939,7 @@ class TestPlasmaPackage:
     def test_kde_neon_with_gnome_chosen_gets_the_gnome_package(self, box):
         box.set_os("noble", NEON_OS_RELEASE)
 
-        result = box.run("24", "--desktop", "gnome", desktop="KDE")
+        box.run("24", "--desktop", "gnome", desktop="KDE")
 
         assert box.installed() == [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
 

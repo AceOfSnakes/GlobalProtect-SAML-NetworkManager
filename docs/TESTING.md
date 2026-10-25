@@ -69,7 +69,9 @@ such package for that Ubuntu version or architecture (no suite for 24.10, no
 arm64 builds), there is nothing to upgrade from: the script says so, installs the
 package from the new `.deb` files instead and checks the result the same way
 (`check_upgrade.py --fresh`). The step does not run for tags, so a network
-failure cannot block a release. To run it by hand
+failure cannot block a release. After the checks the script also imports `sdbus` with
+the system `python3`, removes and purges the installed packages (no conffile may
+remain) and installs them again. To run it by hand
 against built packages (it needs network access and changes only the container):
 
 ```bash
@@ -157,6 +159,13 @@ Docker with privileged containers and an amd64 host are needed. The results are
 in `tests/e2e/out/<scenario>/` (`results.json`, logs, screenshots, `raw.mp4`).
 The workflow `e2e.yml` runs the same by hand (Actions tab) or when a pull
 request gets the label `e2e`. See `tests/e2e/README.md`.
+
+## Static analysis
+
+`make lint` runs `ruff check` and `mypy` (configured in `pyproject.toml`; the
+`lint` job of `tests.yml` runs it with pinned versions of both tools). `make check`
+runs `make lint`, `make shellcheck` and `make test-unit`. To run `make lint` before
+each commit: `pre-commit install` (`.pre-commit-config.yaml`).
 
 ## Upstream tests
 
