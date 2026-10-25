@@ -40,6 +40,21 @@ nmcli connection add type vpn vpn-type gpclient con-name "Contoso VPN" \
 nmcli connection up "Contoso VPN" > "$DEMO_OUT/nmcli-warmup.log" 2>&1 &
 edge_signin
 wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active (setup)"
+# The D-Bus policy (config/nm-gpclient.conf) must keep a non-root caller away from
+# the running service. Record if the name is on the system bus and what a Ping
+# from this user returns; checks.py reads the file.
+{
+    if dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+        org.freedesktop.DBus.ListNames 2> /dev/null | grep -q '"org.freedesktop.NetworkManager.gpclient"'; then
+        echo "name-on-bus=yes"
+    else
+        echo "name-on-bus=no"
+    fi
+    ping_err=$(dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager.gpclient \
+        /org/freedesktop/NetworkManager/VPN/Plugin org.freedesktop.DBus.Peer.Ping 2>&1 > /dev/null)
+    echo "ping-exit=$?"
+    echo "ping-error=$(echo "$ping_err" | head -n 1)"
+} > "$DEMO_OUT/dbus-policy.txt"
 nmcli connection down "Contoso VPN" > /dev/null 2>&1
 for _ in $(seq 40); do
     nmcli -t -f NAME connection show --active | grep -qx "Contoso VPN" || break

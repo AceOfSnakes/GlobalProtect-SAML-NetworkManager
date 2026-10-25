@@ -87,6 +87,13 @@ NM_LOG_CANCEL = (
 )
 
 
+DBUS_POLICY = (
+    "name-on-bus=yes\nping-exit=1\n"
+    "ping-error=Error org.freedesktop.DBus.Error.AccessDenied: Rejected send message\n"
+)
+DBUS_CHECK = "D-Bus policy denies a non-root caller"
+
+
 def write_run(path, scenario, scenario_exit="0"):
     files = {"scenario.exit": scenario_exit + "\n", "NetworkManager.log": NM_LOG, "edge-wrapper.log": WRAPPER_LOG}
     if scenario in ("gnome", "kde"):
@@ -102,6 +109,7 @@ def write_run(path, scenario, scenario_exit="0"):
         files["state-disconnected.txt"] = state("baseline")
         files["state-connected-never-default.txt"] = state("split")
         files["state-disconnected-final.txt"] = state("baseline")
+        files["dbus-policy.txt"] = DBUS_POLICY
     elif scenario == "auth-cancel":
         files["state-before.txt"] = state("baseline")
         files["state-edge-open-1.txt"] = state("baseline", edge="open")
@@ -357,3 +365,33 @@ def test_a_named_tunnel_without_its_address_fails(tmp_path):
     named_tunnel(tmp_path)
     edit(tmp_path, "state-connected.txt", "    inet 10.20.30.45/32 scope global gp-1a2b3c4d\n", "")
     assert "[connected] tunnel address is exactly 10.20.30.45/32" in failed_names(tmp_path, "gnome")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "name-on-bus=yes\nping-exit=0\nping-error=\n",
+        "name-on-bus=yes\nping-exit=1\nping-error=Error org.freedesktop.DBus.Error.ServiceUnknown: not provided\n",
+        DBUS_POLICY.replace("name-on-bus=yes", "name-on-bus=no"),
+        "garbage\n",
+        "",
+    ],
+    ids=["ping-ok", "other-error", "name-missing", "malformed", "empty"],
+)
+def test_dbus_policy_check_fails_on_bad_result(tmp_path, text):
+    write_run(tmp_path, "routing")
+    (tmp_path / "dbus-policy.txt").write_text(text)
+    assert DBUS_CHECK in failed_names(tmp_path, "routing")
+
+
+def test_dbus_policy_check_fails_when_file_missing(tmp_path):
+    write_run(tmp_path, "routing")
+    os.remove(tmp_path / "dbus-policy.txt")
+    assert DBUS_CHECK in failed_names(tmp_path, "routing")
+
+
+@pytest.mark.parametrize("scenario", ["gnome", "kde", "auth-cancel"])
+def test_dbus_policy_check_only_in_routing(tmp_path, scenario):
+    write_run(tmp_path, scenario)
+    names = [item["name"] for item in checks.run_checks(scenario, str(tmp_path))]
+    assert DBUS_CHECK not in names

@@ -43,6 +43,8 @@ run fails when one of these is wrong:
   on the wired link, the company network is not on the tunnel, or the tunnel is the DNS
   default route; the VPN DNS servers and domain are not on the tunnel;
 - errors or tracebacks in the service log (NetworkManager log);
+- `routing`: the service name is not on the system bus, or a `Peer.Ping` from the
+  non-root user is not denied with `AccessDenied` by the D-Bus policy;
 - after the disconnect: the tunnel or a route through it is left, DNS is not back to
   the wired link's 192.168.1.1, a gpclient/gpauth/Edge process is left;
 - `auth-cancel`: the VPN is active, helpers are left, routes or DNS changed, no

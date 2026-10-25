@@ -297,6 +297,23 @@ def check_cancel(results, run):
     )
 
 
+def check_dbus_policy(results, run):
+    """A non-root caller must be denied by the D-Bus policy, not just fail."""
+    name = "D-Bus policy denies a non-root caller"
+    text = run.text("dbus-policy.txt")
+    if text is None:
+        results.add(name, False, "dbus-policy.txt is missing")
+        return
+    values = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    # AccessDenied only counts when the name is on the bus: ServiceUnknown would pass for the wrong reason
+    ok = (
+        values.get("name-on-bus") == "yes"
+        and values.get("ping-exit", "0") not in ("0", "")
+        and "org.freedesktop.DBus.Error.AccessDenied" in values.get("ping-error", "")
+    )
+    results.add(name, ok, text.strip()[:300])
+
+
 def run_checks(scenario, out):
     run = Run(out)
     results = Results()
@@ -308,6 +325,8 @@ def run_checks(scenario, out):
     check_logs(results, run, scenario)
     if scenario == "auth-cancel":
         check_cancel(results, run)
+    if scenario == "routing":
+        check_dbus_policy(results, run)
     if scenario not in SCENARIO_STATES:
         results.add("known scenario", False, scenario)
     return results.items
