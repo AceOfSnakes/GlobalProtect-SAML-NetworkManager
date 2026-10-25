@@ -8,6 +8,10 @@ name: Publish APT repository
 # idempotent and the repository can be recreated from scratch at any time
 # (after a key rotation, for example). Nothing is committed to the repo.
 #
+# Every package is verified before it is signed: its SHA256 against the
+# release's SHA256SUMS and its build provenance (gh attestation verify). Only
+# the releases of .github/legacy-unattested-releases.txt are exempt.
+#
 # Called by build-release.yml after a tagged release, or manually.
 
 on:
@@ -16,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  attestations: read
   pages: write
   id-token: write
 
@@ -69,7 +74,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p incoming
+          mkdir -p incoming verify
           # --paginate: no fixed limit, so an old release is never dropped from
           # the repository when there are many releases.
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
@@ -83,17 +88,27 @@ jobs:
             # Read the asset names once: a failing download must fail the job,
             # never drop a release from the repositories silently.
             assets="$(gh release view "$tag" --json assets -q '.assets[].name')"
+            mkdir "verify/$tag"
             if grep -q '\.deb$' <<< "$assets"; then
-              gh release download "$tag" -D incoming --pattern '*.deb' --clobber
+              gh release download "$tag" -D "verify/$tag" --pattern '*.deb'
             else
               echo "::warning::$tag has no .deb assets"
             fi
             # Releases before the RPM packages have none
             if grep -q '\.rpm$' <<< "$assets"; then
-              gh release download "$tag" -D incoming --pattern '*.rpm' --clobber
+              gh release download "$tag" -D "verify/$tag" --pattern '*.rpm'
             else
               echo "::warning::$tag has no .rpm assets"
             fi
+            # Releases after v1.5.0 have a SHA256SUMS asset; the legacy ones
+            # (.github/legacy-unattested-releases.txt) do not.
+            if grep -qx 'SHA256SUMS' <<< "$assets"; then
+              gh release download "$tag" -D "verify/$tag" --pattern 'SHA256SUMS'
+            fi
+            # Checksum and build provenance of every package: a failure stops
+            # the run before anything is signed.
+            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"
+            find "verify/$tag" \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} incoming/ \;
             echo "::endgroup::"
           done < tags.txt
           ls -la incoming

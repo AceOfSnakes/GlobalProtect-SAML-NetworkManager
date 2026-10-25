@@ -33,10 +33,10 @@ name: PR test packages
 # prerelease.
 
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] runs from main only and never checks out or runs PR code
     workflows: ["Build and Release"]
     types: [completed]
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] only closes the prerelease of a PR, no PR code
     types: [closed]
 
 permissions: {}
@@ -74,6 +74,7 @@ jobs:
       CONCLUSION: ${{ github.event.workflow_run.conclusion }}
       HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      ACTOR: ${{ github.event.workflow_run.actor.login }}
 
     steps:
       # Default branch only, and only the helper script: nothing of the pull
@@ -95,23 +96,34 @@ jobs:
             exit 1
           fi
           number=$(gh pr list --repo "$REPO" --state open --limit 500 \
-            --json number,headRefOid \
-            --jq ".[] | select(.headRefOid == \"$SHA\") | .number" | head -n 1)
+            --json number,headRefOid,author \
+            --jq ".[] | select(.headRefOid == \"$SHA\") | \"\(.number) \(.author.login)\"" | head -n 1)
+          author="${number#* }"
+          number="${number%% *}"
           if [ -z "$number" ]; then
             echo "No open pull request has head $SHA (closed, or a newer push): nothing to do"
+            author=""
           fi
           echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "author=$author" >> "$GITHUB_OUTPUT"
 
       # Only packages built from this repository's own branches are published.
+      # Dependabot's token cannot write attestations (no id-token: write), so
+      # its packages could never be verified: they are not published either.
       - name: Decide what to do
         id: plan
         if: steps.pr.outputs.number != ''
+        env:
+          PR_AUTHOR: ${{ steps.pr.outputs.author }}
         run: |
           if [ "$CONCLUSION" != "success" ]; then
             echo "state=failed" >> "$GITHUB_OUTPUT"
           elif [ "$HEAD_REPO" != "$REPO" ]; then
             echo "state=not-published" >> "$GITHUB_OUTPUT"
             echo "reason=pull requests from forks are not published" >> "$GITHUB_OUTPUT"
+          elif [[ "$ACTOR" == dependabot* || "$PR_AUTHOR" == *dependabot* ]]; then
+            echo "state=not-published" >> "$GITHUB_OUTPUT"
+            echo "reason=Dependabot pull requests are not published (their builds are not attested)" >> "$GITHUB_OUTPUT"
           else
             echo "state=publish" >> "$GITHUB_OUTPUT"
           fi

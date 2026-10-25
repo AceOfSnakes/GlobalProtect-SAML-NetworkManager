@@ -24,6 +24,11 @@
 # (AlmaLinux, Rocky, RHEL, CentOS Stream; needs EPEL and CRB), openSUSE Leap 16.0
 # and Tumbleweed, on x86_64 and aarch64. EL 9 is not supported (no webkit2gtk-4.1).
 #
+# Before anything is installed, the files are checked with `gh attestation
+# verify` (build provenance of build-release.yml), when gh is installed,
+# logged in and 2.51 or newer; otherwise the script says that the build
+# provenance was not checked. A failed check stops the script.
+#
 # Run it as `bash <(curl ...)`, not `curl ... | bash`: apt asks its question on
 # the terminal, and a pipe would take stdin away.
 #
@@ -324,6 +329,26 @@ while IFS=$'\t' read -r package name asset_url encoded_name; do
     package_files+=("$tmp/$name")
     packages+=("$package")
 done <<< "$selection"
+
+# --- Verify ------------------------------------------------------------------
+
+# Build provenance, when the GitHub CLI is there and logged in (the check needs
+# the GitHub API)
+if ! command -v gh >/dev/null 2>&1; then
+    echo "gh is not installed: build provenance not checked."
+elif ! gh auth status --hostname github.com >/dev/null 2>&1; then
+    echo "gh is not logged in (gh auth login): build provenance not checked."
+elif [[ "$(gh attestation verify --help 2>/dev/null)" != *--signer-workflow* ]]; then
+    # --signer-workflow came in gh 2.51 (Ubuntu 22.04 and 24.04 ship older ones)
+    echo "gh is too old for 'gh attestation verify --signer-workflow' (2.51 or newer needed): build provenance not checked."
+else
+    for file in "${package_files[@]}"; do
+        gh attestation verify "$file" --repo "$REPO" \
+            --signer-workflow "$REPO/.github/workflows/build-release.yml" >/dev/null \
+            || die "no valid build provenance for ${file##*/} (gh attestation verify failed): nothing installed"
+    done
+    echo "Build provenance verified (gh attestation verify)."
+fi
 
 # --- Install -----------------------------------------------------------------
 
