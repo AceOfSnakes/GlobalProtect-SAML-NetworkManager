@@ -31,6 +31,7 @@ from collections import deque
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from sdbus import (
+    DbusFailedError,
     DbusInterfaceCommonAsync,
     dbus_method_async,
     dbus_property_async,
@@ -176,6 +177,8 @@ INTERNAL_NETWORK_RE = re.compile(
 # timeout, so it needs more than 5 s before we may SIGKILL it (a cut logout
 # leaves a stale lock on the gateway)
 GPCLIENT_TERMINATE_TIMEOUT = 10
+# Exit when no session exists for this many seconds (not with --persist)
+IDLE_EXIT_TIMEOUT = 180
 # How long our own gpauth processes get to exit after SIGTERM before SIGKILL
 GPAUTH_TERMINATE_TIMEOUT = 2
 
@@ -1502,6 +1505,18 @@ class ScreenBuffer:
                 self._rows = [[] for _ in self._rows]
 
 
+class BadArgumentsError(DbusFailedError):
+    """The connection settings are invalid (NM maps it to a BadArguments error)"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.VPN.Error.BadArguments"
+
+
+class LaunchFailedError(DbusFailedError):
+    """gpclient could not be started"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.VPN.Error.LaunchFailed"
+
+
 class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
     DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN
 ):
@@ -1523,6 +1538,22 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.hip_enabled = True  # HIP enabled by default
         self.hip_script = None  # validated path of a custom HIP executable
         self._state = NM_VPN_SERVICE_STATE_INIT
+
+        # Connect() and Disconnect() must not interleave (issue #52): the lock
+        # is held while a session is set up or torn down, never during the
+        # authentication. The generation grows for every new session and for
+        # every Disconnect(), so a Connect() can see that a Disconnect() came
+        # in while it was waiting, and a late task can see that it is stale.
+        self._lifecycle_lock = asyncio.Lock()
+        self._generation = 0
+        # The generation of the session being set up or running: its tasks
+        # keep it even when they are created after a Disconnect() came in
+        self._session_gen = 0
+
+        # Exit when no session exists for IDLE_EXIT_TIMEOUT seconds; off until
+        # enable_idle_exit() is called (not with --persist)
+        self._on_idle: Optional[Callable[[], None]] = None
+        self._idle_handle: Optional[asyncio.TimerHandle] = None
 
         # Legacy TLS renegotiation workaround (issue #2)
         self.fix_openssl_mode = "auto"  # auto | true | false
@@ -1603,6 +1634,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         Returns:
             String with setting name that needs secrets, or empty string if none needed
         """
+        # Restarted, not cancelled: NetworkManager may never call Connect()
+        # (the user cancels the password dialog)
+        self._arm_idle_timer()
         logger.debug("=== NeedSecrets() called ===")
         logger.debug(f"Settings data: {redact_settings(settings)}")
 
@@ -1653,6 +1687,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         Args:
             connection: Dictionary with VPN connection settings
         """
+        self._cancel_idle_timer()
         logger.info("=== Connect() called ===")
         await self._do_connect(connection, interactive=False)
 
@@ -1662,6 +1697,27 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         interactive: bool,
     ) -> None:
         """Shared implementation for Connect() and ConnectInteractive()"""
+        async with self._lifecycle_lock:
+            # Bumped before the teardown, so a task that fails while it is
+            # stopped does not report a failure of the old session
+            self._generation += 1
+            if (
+                self.gpclient_process is not None
+                or self.tunnel_check_task
+                or self.stdout_monitor_task
+            ):
+                logger.info("Connect() while a session is active: stopping it first")
+                await self._teardown()
+            await self._setup_session(connection, interactive, self._generation)
+
+    async def _setup_session(
+        self,
+        connection: Dict[str, Dict[str, Tuple[str, Any]]],
+        interactive: bool,
+        gen: int,
+    ) -> None:
+        """Set up a session, with _lifecycle_lock held (see _do_connect)"""
+        self._session_gen = gen
         logger.debug(f"Full connection data: {redact_settings(connection)}")
         self._interactive = interactive
         self._auth_banner = None
@@ -1685,7 +1741,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         try:
             # Extract VPN data
             if "vpn" not in connection:
-                raise Exception("No VPN data in connection")
+                raise BadArgumentsError("No VPN data in connection")
 
             data_dict, secrets_dict = self._parse_vpn_section(connection)
             logger.debug(
@@ -1749,7 +1805,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self.vpn_username = data_dict.get("username", "")
             if is_unsafe_username(self.vpn_username):
                 self.vpn_username = ""
-                raise Exception("Invalid username specified")
+                raise BadArgumentsError("Invalid username specified")
             self.vpn_password = secrets_dict.get("password", "")
             if self.vpn_password:
                 # Masked in the output even if no prompt is ever answered with it
@@ -1779,10 +1835,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # a gateway address when as-gateway is set.
             self.gateway = data_dict.get("gateway", "").strip()
             if not self.gateway:
-                raise Exception("No gateway specified")
+                raise BadArgumentsError("No gateway specified")
             # The server goes to gpclient as an argument, never as an option
             if self.gateway.startswith("-") or UNSAFE_GATEWAY_RE.search(self.gateway):
-                raise Exception("Invalid gateway specified")
+                raise BadArgumentsError("Invalid gateway specified")
             logger.info(f"Server: {self.gateway}")
 
             # Legacy TLS renegotiation workaround (issue #2): auto retries once
@@ -1862,7 +1918,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     self.hip_script = validate_hip_script(hip_script_str)
                 except ValueError as e:
                     logger.error(f"Rejected hip-script {hip_script_str!r}: {e}")
-                    raise Exception(f"Invalid hip-script {hip_script_str!r}: {e}") from e
+                    raise BadArgumentsError(
+                        f"Invalid hip-script {hip_script_str!r}: {e}"
+                    ) from e
                 logger.info(f"HIP script: {self.hip_script}")
 
             # Emit state change: preparing
@@ -1873,7 +1931,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # gpclient starts, so tunnel detection cannot pick up a stale
             # or foreign interface (issue #7)
             await self._cleanup_stale_gpd0()
+            if self._superseded(gen):
+                return
             self._preexisting_ifaces = await self._snapshot_tunnel_interfaces()
+            if self._superseded(gen):
+                self._preexisting_ifaces = {}
+                return
 
             # A DNS state file from a previous session must not be mistaken
             # for this connection's (issue #15)
@@ -1883,11 +1946,15 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # Start gpclient process
             success = await self._start_gpclient()
 
+            if self._superseded(gen):
+                return
             if not success:
-                raise Exception("Failed to start gpclient process")
+                raise LaunchFailedError("Failed to start gpclient process")
 
             # Start monitoring for tunnel interface
-            self.tunnel_check_task = asyncio.create_task(self._check_tunnel_loop())
+            self.tunnel_check_task = self._create_task(
+                self._check_tunnel_loop(), "tunnel monitor"
+            )
 
             logger.info("Connect() completed successfully")
 
@@ -1896,42 +1963,118 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
             raise
 
+    def _superseded(self, gen: int) -> bool:
+        """True when a Disconnect() came in since the session `gen` started.
+
+        Disconnect() reports STOPPED itself, so the caller just stops.
+        """
+        if gen == self._generation:
+            return False
+        logger.info("Disconnect arrived during Connect; abandoning the setup")
+        return True
+
+    def _create_task(self, coro, name: str) -> "asyncio.Task":
+        """Start a task of the current session and watch it for a crash"""
+        task = asyncio.create_task(coro)
+        gen = self._session_gen
+        task.add_done_callback(lambda t: self._task_done(t, gen, name))
+        return task
+
+    def _task_done(self, task: "asyncio.Task", gen: int, name: str) -> None:
+        """Log a crashed session task and fail the connection (issue #52).
+
+        A cancelled task is normal. A task of an older session never reports.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        logger.error(f"Task {name} crashed: {exc}", exc_info=exc)
+        if gen == self._generation and self._state in (
+            NM_VPN_SERVICE_STATE_STARTING,
+            NM_VPN_SERVICE_STATE_STARTED,
+        ):
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
+                f"internal error in {name}: {exc}",
+            )
+
+    def _cancel_idle_timer(self) -> None:
+        if self._idle_handle:
+            self._idle_handle.cancel()
+            self._idle_handle = None
+
+    def _arm_idle_timer(self) -> None:
+        self._cancel_idle_timer()
+        if self._on_idle:
+            self._idle_handle = asyncio.get_running_loop().call_later(
+                IDLE_EXIT_TIMEOUT, self._idle_expired
+            )
+
+    def _idle_expired(self) -> None:
+        self._idle_handle = None
+        if self._state in (
+            NM_VPN_SERVICE_STATE_INIT,
+            NM_VPN_SERVICE_STATE_STOPPED,
+        ) and self.gpclient_process is None:
+            logger.info(f"No session for {IDLE_EXIT_TIMEOUT} s, exiting")
+            if self._on_idle:  # always set: only enable_idle_exit() arms the timer
+                self._on_idle()
+        else:
+            # Busy: look again later, so the service still exits once it is idle
+            self._arm_idle_timer()
+
+    def enable_idle_exit(self, callback: Callable[[], None]) -> None:
+        """Call `callback` when the plugin has had no session for a while"""
+        self._on_idle = callback
+        self._arm_idle_timer()
+
     @dbus_method_async()
     async def Disconnect(self) -> None:
         """Disconnect from VPN"""
         logger.info("Disconnect() called")
+        # Before the first await: a Connect() that is setting up sees it
+        self._generation += 1
+        async with self._lifecycle_lock:
+            await self._teardown()
 
-        # Stop tunnel monitoring
-        if self.tunnel_check_task:
-            self.tunnel_check_task.cancel()
-            try:
-                await self.tunnel_check_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception("Tunnel monitor task had failed")
-            self.tunnel_check_task = None
+        # Emit state change
+        self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
 
-        # Stop pending prompt handling
-        if self._prompt_task:
-            self._prompt_task.cancel()
-            self._prompt_task = None
+        logger.info("Disconnected from VPN")
+
+    async def _teardown(self) -> None:
+        """Stop the session and reset its state (with _lifecycle_lock held)"""
+        # Cancel every session task first, then wait for them: a task that
+        # still ran while another one is awaited could report a Failure or
+        # start a prompt task for a session that is going away (issue #52)
+        tasks = [
+            (self.tunnel_check_task, "Tunnel monitor"),
+            (self._prompt_task, "Prompt"),
+            (self.stdout_monitor_task, "gpclient output monitor"),
+        ]
+        for task, _ in tasks:
+            if task:
+                task.cancel()
 
         # Cancel any pending interactive secrets request
         if self._secret_future and not self._secret_future.done():
             self._secret_future.cancel()
         self._secret_future = None
 
-        # Stop stdout monitoring
-        if self.stdout_monitor_task:
-            self.stdout_monitor_task.cancel()
+        for task, name in tasks:
+            if not task:
+                continue
             try:
-                await self.stdout_monitor_task
+                await task
             except asyncio.CancelledError:
                 pass
             except Exception:
-                logger.exception("gpclient output monitor task had failed")
-            self.stdout_monitor_task = None
+                logger.exception(f"{name} task had failed")
+        self.tunnel_check_task = None
+        self._prompt_task = None
+        self.stdout_monitor_task = None
 
         # Stop gpclient first, close the PTY after. gpclient is the session
         # leader of the PTY: closing the master sends it SIGHUP, which gpclient
@@ -1993,11 +2136,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._login_failed = False
         self._preexisting_ifaces = {}
 
-        # Emit state change
-        self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
-
-        logger.info("Disconnected from VPN")
-
     @dbus_method_async("a{sv}")
     async def SetConfig(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Set configuration (optional, for compatibility)"""
@@ -2029,6 +2167,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         When gpclient hits an interactive challenge (RSA token, OTP, standard
         login) we emit SecretsRequired and receive the answer via NewSecrets.
         """
+        self._cancel_idle_timer()
         logger.info("=== ConnectInteractive() called ===")
         await self._do_connect(connection, interactive=True)
 
@@ -2301,6 +2440,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
     async def _start_gpclient(self) -> bool:
         """Start gpclient process"""
+        gen = self._generation
         try:
             # Get real user first
             # (blocking loginctl calls: off the event loop)
@@ -2313,6 +2453,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # `pkill gpauth`: it would also kill the gpauth of a gpclient the
             # user started from a terminal or of the GUI (issue #52).
             await self._stop_remembered_gpauth()
+
+            # A Disconnect() came in while we waited: do not spawn (issue #52)
+            if gen != self._generation:
+                return False
 
             # Build command.
             #
@@ -2434,8 +2578,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"Started gpclient with PID {self.gpclient_process.pid}")
 
             # Start monitoring PTY output
-            self.stdout_monitor_task = asyncio.create_task(
-                self._monitor_gpclient_output()
+            self.stdout_monitor_task = self._create_task(
+                self._monitor_gpclient_output(), "gpclient output monitor"
             )
 
             return True
@@ -2585,6 +2729,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if returncode != 0 and not self._login_failed:
                 if await self._retry_with_openssl_fix():
                     # A new monitor task took over the retried process
+                    return
+                if self._session_gen != self._generation:
+                    # A Disconnect() came in during the retry: nothing to report
                     return
                 logger.error(f"gpclient failed with exit code {returncode}")
                 self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
@@ -2832,6 +2979,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._state = state
         logger.info(f"StateChanged: {state}")
         self.StateChanged.emit(state)
+        if state == NM_VPN_SERVICE_STATE_STOPPED and self._on_idle:
+            self._arm_idle_timer()
 
     def _schedule_prompt_check(self) -> None:
         """(Re)schedule the debounced check for a pending interactive prompt.
@@ -2867,8 +3016,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     return
                 await self._handle_select_prompt(select_frame)
 
-            self._prompt_task = asyncio.create_task(
-                _debounced_select(self._screen.version)
+            self._prompt_task = self._create_task(
+                _debounced_select(self._screen.version), "prompt handler"
             )
             return
 
@@ -2886,7 +3035,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self._answered_prompt = found
             await self._handle_prompt(label)
 
-        self._prompt_task = asyncio.create_task(_debounced(self._screen.version))
+        self._prompt_task = self._create_task(
+            _debounced(self._screen.version), "prompt handler"
+        )
 
     def _screen_prompt(self) -> Optional[Tuple[int, str]]:
         """The text prompt gpclient waits at, as (row id, label), or None.
@@ -4172,14 +4323,22 @@ async def main_async():
     parser.add_argument(
         "--persist",
         action="store_true",
-        # Kept so that a unit override that passes it still starts the service
-        help="Accepted for compatibility; the service never quits on its own",
+        help=(
+            "Do not exit when there is no VPN session for "
+            f"{IDLE_EXIT_TIMEOUT} seconds"
+        ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
     # Enable debug mode: from --debug flag or GPCLIENT_DEBUG env var (default: disabled for security)
     debug_mode = args.debug or os.environ.get("GPCLIENT_DEBUG", "0") == "1"
+
+    # NetworkManager passes a syslog level number: 7 is LOG_DEBUG
+    try:
+        debug_mode = debug_mode or int(os.environ.get("NM_VPN_LOG_LEVEL", "")) >= 7
+    except ValueError:
+        pass
 
     if debug_mode:
         logger.setLevel(logging.DEBUG)
@@ -4246,6 +4405,9 @@ async def main_async():
     def signal_handler(signum):
         logger.info(f"Received signal {signum}, exiting...")
         shutdown_event.set()
+
+    if not args.persist:
+        plugin.enable_idle_exit(shutdown_event.set)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         asyncio.get_event_loop().add_signal_handler(

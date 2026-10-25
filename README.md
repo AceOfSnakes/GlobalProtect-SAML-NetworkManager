@@ -372,8 +372,11 @@ to claim the same D-Bus name and you get
 
 ```bash
 sudo systemctl stop nm-gpclient
-sudo /usr/lib/NetworkManager/nm-gpclient-service --debug
+sudo /usr/lib/NetworkManager/nm-gpclient-service --debug --persist
 ```
+
+Without `--persist` the service exits by itself after 3 minutes with no VPN
+session (NetworkManager starts it again when it needs it).
 
 That error on its own does **not** mean the VPN is broken — it just
 means the service is already running. The actual error from a failing
