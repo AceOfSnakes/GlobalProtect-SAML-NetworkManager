@@ -194,8 +194,9 @@ def test_copyright_is_valid_dep5_and_keeps_the_header():
     assert header["Source"] == "https://github.com/WMP/GlobalProtect-SAML-NetworkManager"
 
 
-def test_copyright_asks_for_a_review_by_a_person():
-    assert read_copyright().startswith("# Reviewed by: (needs a person)\n")
+def test_copyright_starts_with_the_format_field():
+    # DEP-5: the header paragraph comes first, nothing before it
+    assert read_copyright().startswith("Format: ")
 
 
 def test_copyright_files_star_is_lgpl_21_as_the_license_file():

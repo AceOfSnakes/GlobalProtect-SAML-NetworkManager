@@ -1,4 +1,3 @@
-# Reviewed by: (needs a person)
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: network-manager-gpclient
 Source: https://github.com/WMP/GlobalProtect-SAML-NetworkManager
