@@ -178,6 +178,7 @@ exit "${FAKE_RPM_EXIT:-0}"
 # gh attestation verify <file> --repo <repo>: fails for the file names in $FAKE_DIR/gh_bad
 FAKE_GH = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/gh_calls"
+if [ "$1 $2" = "auth status" ]; then [ ! -e "$FAKE_DIR/gh_logged_out" ]; exit; fi
 [ "$1 $2" = "attestation verify" ] || exit 2
 grep -qxF "$(basename "$3")" "$FAKE_DIR/gh_bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
 exit 0
@@ -1339,8 +1340,9 @@ class TestChecksumsAndProvenance:
         assert result.returncode == 0, result.stderr
         assert "Checksums match SHA256SUMS" in result.stdout
         assert "Build provenance verified" in result.stdout
-        assert sorted(os.path.basename(c.split()[2]) for c in box.read("gh_calls").splitlines()) == sorted(self.NOBLE_GNOME)
-        assert all(c.endswith(f"--repo {REPO}") for c in box.read("gh_calls").splitlines())
+        verify_calls = [c for c in box.read("gh_calls").splitlines() if c.startswith("attestation verify ")]
+        assert sorted(os.path.basename(c.split()[2]) for c in verify_calls) == sorted(self.NOBLE_GNOME)
+        assert all(c.endswith(f"--repo {REPO}") for c in verify_calls)
         assert box.installed() == self.NOBLE_GNOME
 
     def test_a_release_without_sha256sums_is_installed_with_a_note(self, box):
@@ -1400,7 +1402,7 @@ class TestChecksumsAndProvenance:
     def test_a_wrong_download_address_of_sha256sums_is_refused_by_default(self, box):
         box.set_assets(all_assets(build=BUILD))
         box.set_sums()
-        box.set_api_body(box.read("api_body").replace(f"{TAG_URL}/SHA256SUMS", f"https://evil.example/pr-24/SHA256SUMS"))
+        box.set_api_body(box.read("api_body").replace(f"{TAG_URL}/SHA256SUMS", "https://evil.example/pr-24/SHA256SUMS"))
 
         result = box.run("24", api=False)
 
@@ -1423,6 +1425,17 @@ class TestChecksumsAndProvenance:
 
         assert result.returncode == 0, result.stderr
         assert "gh is not installed: build provenance not checked" in result.stdout
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_a_gh_that_is_not_logged_in_reports_the_provenance_as_not_checked(self, box):
+        (box.fake / "gh_logged_out").write_text("")
+        (box.fake / "gh_bad").write_text(self.NOBLE_GNOME[0] + "\n")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is not logged in (gh auth login): build provenance not checked" in result.stdout
+        assert "attestation verify" not in box.read("gh_calls")
         assert box.installed() == self.NOBLE_GNOME
 
     def test_rpm_packages_are_checked_too(self, box):

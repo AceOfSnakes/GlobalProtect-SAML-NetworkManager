@@ -26,8 +26,8 @@
 #
 # Before anything is installed, the files are checked against the SHA256SUMS
 # asset of the release (when it has one), and with `gh attestation verify` (when
-# gh is installed: it may need `gh auth login`; otherwise the script says that
-# the build provenance was not checked). A failed check stops the script.
+# gh is installed and logged in; otherwise the script says that the build
+# provenance was not checked). A failed check stops the script.
 #
 # Run it as `bash <(curl ...)`, not `curl ... | bash`: apt asks its question on
 # the terminal, and a pipe would take stdin away.
@@ -364,15 +364,18 @@ else
     echo "The release has no SHA256SUMS: checksums not checked."
 fi
 
-# Build provenance, when the GitHub CLI is there (it may need: gh auth login)
-if command -v gh >/dev/null 2>&1; then
+# Build provenance, when the GitHub CLI is there and logged in (the check needs
+# the GitHub API)
+if ! command -v gh >/dev/null 2>&1; then
+    echo "gh is not installed: build provenance not checked."
+elif ! gh auth status >/dev/null 2>&1; then
+    echo "gh is not logged in (gh auth login): build provenance not checked."
+else
     for file in "${package_files[@]}"; do
         gh attestation verify "$file" --repo "$REPO" >/dev/null \
-            || die "no valid build provenance for ${file##*/} (gh attestation verify failed; gh may need 'gh auth login'): nothing installed"
+            || die "no valid build provenance for ${file##*/} (gh attestation verify failed): nothing installed"
     done
     echo "Build provenance verified (gh attestation verify)."
-else
-    echo "gh is not installed: build provenance not checked."
 fi
 
 # --- Install -----------------------------------------------------------------
