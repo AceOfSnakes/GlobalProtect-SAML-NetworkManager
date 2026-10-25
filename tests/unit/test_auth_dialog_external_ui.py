@@ -134,10 +134,10 @@ def test_special_characters_use_keyfile_escaping():
 
 def test_a_newline_and_a_tab_are_escaped_on_their_own_line():
     stdout, _, _ = external(
-        data=CRED, secrets={"password": "a\tb"}, hints=["x-vpn-message:line1\nline2", "otp"]
+        data=CRED, hints=["x-vpn-message:line1\nline2\tx", "otp"]
     )
     lines = stdout.splitlines()
-    assert "Description=line1\\nline2" in lines  # one line: GKeyFile reads \n back
+    assert "Description=line1\\nline2\\tx" in lines  # one line: GKeyFile reads both back
     assert "Value=" in lines  # the otp group, never pre-filled
 
 
