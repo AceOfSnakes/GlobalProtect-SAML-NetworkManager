@@ -30,7 +30,8 @@ terminal. nmcli only asks for groups with IsSecret=true and ShouldAsk=true, so
 every group has IsSecret=true. ForceEcho=true (username, one-time code) makes
 only nmcli show the typed text; GNOME Shell and nm-applet mask every field.
 No secret group at all means "nothing to ask".
-The secrets, labels and flag rules are the same as in the GTK path.
+The secrets, labels and flag rules are the same as in the GTK path, except that
+a NOT_SAVED (2) password is always asked, even when a stored value comes in.
 """
 
 import argparse
