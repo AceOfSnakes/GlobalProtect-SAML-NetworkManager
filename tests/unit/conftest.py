@@ -8,7 +8,6 @@ A minimal stub is injected before the service module is loaded.
 
 import importlib.util
 import os
-import subprocess
 
 import pytest
 from sdbus_stub import sdbus_stubbed

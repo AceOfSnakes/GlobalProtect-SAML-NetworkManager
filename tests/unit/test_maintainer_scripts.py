@@ -92,9 +92,9 @@ def _negatives(path):
         f"/usr/local/bin/python3 {path}",
         f"/usr/bin/python3{path}",
         "nm-gpclient-service",
-        f"gpclient connect vpn.example.com --service",
-        f"gpclient --service",
-        f"gpservice",
+        "gpclient connect vpn.example.com --service",
+        "gpclient --service",
+        "gpservice",
         "",
     ]
 

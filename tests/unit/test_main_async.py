@@ -80,7 +80,7 @@ def run_service(service_module, fire=True):
         loop = asyncio.get_running_loop()
         loop.add_signal_handler = lambda sig, cb: handlers.__setitem__(sig, cb)
         task = asyncio.ensure_future(service_module.main_async())
-        while len(handlers) < 2 and not task.done():
+        while len(handlers) < 2 and not task.done():  # noqa: ASYNC110  # yields to the loop until the service registers its handlers
             await asyncio.sleep(0)
         if fire and not task.done():
             handlers[signal.SIGTERM]()
@@ -238,7 +238,7 @@ class TestShutdown:
             loop = asyncio.get_running_loop()
             loop.add_signal_handler = lambda s, cb: handlers.__setitem__(s, cb)
             task = asyncio.ensure_future(service_module.main_async())
-            while len(handlers) < 2:
+            while len(handlers) < 2:  # noqa: ASYNC110  # same
                 await asyncio.sleep(0)
             # Still running until a signal arrives
             await asyncio.sleep(0)

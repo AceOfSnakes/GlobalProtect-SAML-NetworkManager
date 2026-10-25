@@ -1302,7 +1302,7 @@ class TestStateProperty:
     def test_failed_connect_ends_stopped(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch, start_ok=False)
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="Failed to start gpclient"):
             connect(plugin, _conn())
 
         assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
