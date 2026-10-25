@@ -500,7 +500,9 @@ class TestEditorSourcesHandleBooleansAndGateway:
     def test_plasma_trims_the_gateway_in_save_and_validation(self):
         cpp = self._read("plugins", "plasma", "gpclientwidget.cpp")
 
-        assert cpp.count("gatewayLineEdit->text().trimmed()") == 2
+        # saved trimmed; validity goes through the shared rule, which strips
+        assert cpp.count("gatewayLineEdit->text().trimmed()") == 1
+        assert "nm_gpclient_validate_form(m_ui->gatewayLineEdit->text()" in cpp
         assert "gatewayLineEdit->text().isEmpty()" not in cpp
         assert 'insert(QLatin1String("gateway"), m_ui->gatewayLineEdit->text())' not in cpp
 
@@ -509,7 +511,8 @@ class TestEditorSourcesHandleBooleansAndGateway:
         header = self._read("plugins", "plasma", "gpclientwidget.h")
 
         assert "m_setting" not in cpp and "m_setting" not in header
-        assert cpp.count("update_valid)") == 1
+        # the gateway and the other checked fields (nm-gpclient-validate.h)
+        assert cpp.count("update_valid)") == 6
         assert "gatewayLineEdit, &QLineEdit::textChanged, this, update_valid" in cpp
 
     def test_plasma_password_flags_are_tested_as_a_bitmask(self):
@@ -782,8 +785,11 @@ class TestEditCases:
                 text = handle.read()
             for label in lib.EDIT_LABELS.values():
                 assert f'gtk_label_new ("{label}")' in text
-            assert f'"{lib.MISSING_GATEWAY_ERROR}"' in text
+            assert "nm_gpclient_validate_form" in text
             assert "NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS" in text
+        # the message of the gateway error is in the shared header
+        with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-validate.h"), encoding="utf-8") as handle:
+            assert f'"{lib.MISSING_GATEWAY_ERROR}"' in handle.read()
 
 
 class TestProbes:
