@@ -159,7 +159,8 @@ if [ "$package_format" = deb ]; then
             26.04) codename=resolute ;;
         esac
     fi
-    # Same suites as .github/scripts/build-apt-repo.sh
+    # The suites with current builds (.github/scripts/build-apt-repo.sh also
+    # keeps oracular, 24.10, with the packages of older releases)
     case "$codename" in
         jammy|noble|resolute) ;;
         *) die "Ubuntu ${version_id:-?} (${codename:-unknown}) is not supported: the test packages are built for jammy (22.04), noble (24.04) and resolute (26.04)" ;;
