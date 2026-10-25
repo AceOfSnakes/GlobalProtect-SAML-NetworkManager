@@ -38,19 +38,32 @@ FAKE_GH = r"""echo "$*" >> "$FAKE_DIR/gh_calls"
 case "$1 $2" in
     "api --paginate") printf '%s\n' v2 v1 ;;
     "release view") [ "$3" = "$FAKE_VIEW_FAIL" ] && exit 1; cat "$FAKE_DIR/assets_$3" ;;
-    "release download") [ "$3" = "$FAKE_DL_FAIL" ] && exit 1; echo "downloaded $3 $7" >> "$FAKE_DIR/downloads" ;;
+    "release download")
+        [ "$3" = "$FAKE_DL_FAIL" ] && exit 1
+        echo "downloaded $3 $7" >> "$FAKE_DIR/downloads"
+        # a file per pattern, in the directory given with -D
+        [ "$7" = SHA256SUMS ] && : > "$5/SHA256SUMS" || : > "$5/$3-${7#\*.}.${7#\*.}" ;;
 esac
 """
 
 
-def run_download(tmp_path, assets, dl_fail="", view_fail=""):
+# The real script has tests of its own (test_verify_release_assets.py): here it records its arguments
+FAKE_VERIFY = """echo "$1 $2" >> "$FAKE_DIR/verified"
+[ "$1" = "$FAKE_VERIFY_FAIL" ] && exit 1
+exit 0
+"""
+
+
+def run_download(tmp_path, assets, dl_fail="", view_fail="", verify_fail=""):
     for tag, names in assets.items():
         (tmp_path / f"assets_{tag}").write_text("".join(n + "\n" for n in names))
     env = {"PATH": f"{fake_bin(tmp_path, {'gh': FAKE_GH})}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path),
-           "FAKE_DL_FAIL": dl_fail, "FAKE_VIEW_FAIL": view_fail, "GITHUB_REPOSITORY": "o/r"}
+           "FAKE_DL_FAIL": dl_fail, "FAKE_VIEW_FAIL": view_fail, "FAKE_VERIFY_FAIL": verify_fail,
+           "GITHUB_REPOSITORY": "o/r"}
     script = step_script("publish-apt.yml", "Download packages from every published release")
     work = tmp_path / "work"
-    work.mkdir()
+    (work / ".github" / "scripts").mkdir(parents=True)
+    (work / ".github" / "scripts" / "verify-release-assets.sh").write_text(FAKE_VERIFY)
     # GitHub Actions runs a step without `shell:` as `bash -e {0}`
     result = subprocess.run(["bash", "-e", "-c", script], cwd=work, env=env, capture_output=True,
                             text=True, timeout=30)
@@ -65,7 +78,8 @@ class TestPublishAptDownload:
         result, downloads = run_download(tmp_path, self.ASSETS)
 
         assert result.returncode == 0, result.stderr
-        assert downloads == ["downloaded v2 *.deb", "downloaded v2 *.rpm", "downloaded v1 *.deb"]
+        assert downloads == ["downloaded v2 *.deb", "downloaded v2 *.rpm", "downloaded v2 SHA256SUMS",
+                             "downloaded v1 *.deb"]
         assert "::warning::v1 has no .rpm assets" in result.stdout
         assert "no .deb assets" not in result.stdout
 
@@ -89,6 +103,21 @@ class TestPublishAptDownload:
 
         assert result.returncode != 0
         assert downloads == []
+
+    def test_every_release_is_verified_before_its_packages_are_used(self, tmp_path):
+        result, _ = run_download(tmp_path, self.ASSETS)
+
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "verified").read_text().splitlines() == ["v2 verify/v2", "v1 verify/v1"]
+        assert sorted(os.listdir(tmp_path / "work" / "incoming")) == ["v1-deb.deb", "v2-deb.deb", "v2-rpm.rpm"]
+
+    @pytest.mark.parametrize("failing", ["v2", "v1"])
+    def test_a_failed_verification_fails_the_job_without_the_packages_of_the_release(self, tmp_path, failing):
+        result, _ = run_download(tmp_path, self.ASSETS, verify_fail=failing)
+
+        assert result.returncode != 0
+        assert "ls -la" not in result.stdout
+        assert not any(name.startswith(failing + "-") for name in os.listdir(tmp_path / "work" / "incoming"))
 
     def test_the_download_has_no_error_swallowing_fallback(self):
         script = step_script("publish-apt.yml", "Download packages from every published release")

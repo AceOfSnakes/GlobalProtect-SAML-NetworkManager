@@ -41,6 +41,7 @@ FAKE_GH = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/gh_calls"
 case "$1 $2" in
     "pr view") cat "$FAKE_DIR/pr_view" ;;
+    "pr list") cat "$FAKE_DIR/pr_list" ;;
     "release view") [ -e "$FAKE_DIR/release_exists" ] ;;
     "release delete") echo "$*" >> "$FAKE_DIR/gh_deleted" ;;
     "run download")
@@ -103,6 +104,68 @@ class Box:
 @pytest.fixture
 def box(tmp_path):
     return Box(tmp_path)
+
+
+def outputs(box):
+    path = box.root / "output"
+    return dict(line.split("=", 1) for line in path.read_text().splitlines()) if path.exists() else {}
+
+
+class TestDecideWhatToDo:
+    PLAN = "Decide what to do"
+    ENV = {"CONCLUSION": "success", "HEAD_REPO": REPO, "ACTOR": "alice", "PR_AUTHOR": "alice"}
+
+    def plan(self, box, **env):
+        result = box.run(self.PLAN, **{**self.ENV, **env})
+        assert result.returncode == 0, result.stderr
+        return outputs(box)
+
+    def test_a_successful_build_of_the_own_repository_is_published(self, box):
+        assert self.plan(box) == {"state": "publish"}
+
+    @pytest.mark.parametrize("env", [
+        {"ACTOR": "dependabot[bot]"},
+        {"PR_AUTHOR": "dependabot[bot]"},
+        {"PR_AUTHOR": "app/dependabot"},
+        {"ACTOR": "dependabot[bot]", "PR_AUTHOR": "dependabot[bot]"},
+    ])
+    def test_a_dependabot_pull_request_is_not_published(self, box, env):
+        result = self.plan(box, **env)
+
+        assert result["state"] == "not-published"
+        assert "Dependabot" in result["reason"]
+
+    def test_a_fork_is_not_published(self, box):
+        assert self.plan(box, HEAD_REPO="someone/fork")["state"] == "not-published"
+
+    def test_a_failed_build_is_reported_as_failed_also_for_dependabot(self, box):
+        assert self.plan(box, CONCLUSION="failure", ACTOR="dependabot[bot]") == {"state": "failed"}
+
+    @pytest.mark.parametrize("actor, author", [("alice", "alice"), ("bob", "alice"), ("renovate[bot]", "bot")])
+    def test_other_users_are_published(self, box, actor, author):
+        assert self.plan(box, ACTOR=actor, PR_AUTHOR=author) == {"state": "publish"}
+
+    def test_the_plan_does_not_check_out_or_run_pull_request_code(self):
+        text = workflow_steps.read_workflow(WORKFLOW)
+        assert text.count("actions/checkout@") == 1
+        assert "ref: ${{ github.event.repository.default_branch }}" in text
+
+
+class TestFindThePullRequest:
+    FIND = "Find the pull request"
+
+    @pytest.mark.parametrize("listing, number, author", [
+        ("24 alice", "24", "alice"),
+        ("24 dependabot[bot]", "24", "dependabot[bot]"),
+        ("", "", ""),
+    ])
+    def test_number_and_author_are_read_from_the_listing(self, box, listing, number, author):
+        (box.fake / "pr_list").write_text(listing + "\n")
+
+        result = box.run(self.FIND)
+
+        assert result.returncode == 0, result.stderr
+        assert outputs(box) == {"number": number, "author": author}
 
 
 class TestRenderTheCheck:

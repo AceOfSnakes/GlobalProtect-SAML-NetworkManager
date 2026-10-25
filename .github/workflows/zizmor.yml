@@ -1,0 +1,42 @@
+name: zizmor
+
+# Static analysis of the workflows (https://docs.zizmor.sh). Fails on a finding
+# of high severity; run `zizmor --min-severity medium .github/workflows` for the
+# rest. A finding that is intended is ignored in the workflow with
+# `# zizmor: ignore[<audit>] <reason>`.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zizmor-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The version is pinned: a new zizmor release must not turn a green run red
+          ZIZMOR_VERSION: "1.31.1"
+        run: pipx run "zizmor==$ZIZMOR_VERSION" --min-severity high --format plain .github/workflows

@@ -12,6 +12,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -172,6 +173,33 @@ done
 exit "${FAKE_RPM_EXIT:-0}"
 """
 
+# gh attestation verify <file> --repo <repo> --signer-workflow <workflow>: fails for the file names in
+# $FAKE_DIR/gh_bad and, like the real one with an attestation of another workflow, when the signer
+# workflow is not the one of the release build
+FAKE_GH = r"""#!/bin/bash
+echo "$*" >> "$FAKE_DIR/gh_calls"
+if [ "$1 $2" = "auth status" ]; then
+    [ "$3 $4" = "--hostname github.com" ] && [ ! -e "$FAKE_DIR/gh_logged_out" ]; exit
+fi
+# gh before 2.49 has no attestation command, 2.49 and 2.50 no --signer-workflow
+if [ "$1" = attestation ] && [ -e "$FAKE_DIR/gh_old" ]; then echo 'unknown command "attestation" for "gh"' >&2; exit 1; fi
+[ "$1 $2" = "attestation verify" ] || exit 2
+if [ "$3" = --help ]; then
+    echo "  -R, --repo string"
+    [ -e "$FAKE_DIR/gh_no_signer_flag" ] || echo "      --signer-workflow string"
+    exit 0
+fi
+file="$3"; repo=""; signer=""
+while [ $# -gt 0 ]; do
+    case "$1" in --repo) repo="$2" ;; --signer-workflow) signer="$2" ;; esac
+    shift
+done
+[ -n "$repo" ] && [ "$signer" = "$repo/.github/workflows/build-release.yml" ] \
+    || { echo "wrong repository or signer workflow" >&2; exit 1; }
+grep -qxF "$(basename "$file")" "$FAKE_DIR/gh_bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
+exit 0
+"""
+
 FAKE_APT = r"""#!/bin/bash
 {
     printf '%s\n' "$@"
@@ -205,7 +233,7 @@ class Sandbox:
         for name, body in (
             ("curl", FAKE_CURL), ("dpkg", FAKE_DPKG), ("dpkg-query", FAKE_DPKG_QUERY),
             ("id", FAKE_ID), ("sudo", FAKE_SUDO), ("apt", FAKE_APT), ("uname", FAKE_UNAME),
-            ("dnf", FAKE_RPM_MANAGER), ("zypper", FAKE_RPM_MANAGER),
+            ("dnf", FAKE_RPM_MANAGER), ("zypper", FAKE_RPM_MANAGER), ("gh", FAKE_GH),
         ):
             path = self.bin / name
             path.write_text(body)
@@ -1298,3 +1326,90 @@ class TestRpmRejected:
         assert "dnf failed" in result.stderr
         assert "Installed." not in result.stdout
         assert list(box.tmp.iterdir()) == []
+
+
+class TestProvenance:
+    """`gh attestation verify`, when gh is installed and logged in"""
+
+    NOBLE_GNOME = [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
+    SIGNER = f"--signer-workflow {REPO}/.github/workflows/build-release.yml"
+
+    def test_every_package_is_verified_against_the_repository_and_the_release_workflow(self, box):
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "Build provenance verified" in result.stdout
+        verify_calls = [c for c in box.read("gh_calls").splitlines() if c.startswith("attestation verify ") and c != "attestation verify --help"]
+        assert sorted(os.path.basename(c.split()[2]) for c in verify_calls) == sorted(self.NOBLE_GNOME)
+        assert all(c.endswith(f"--repo {REPO} {self.SIGNER}") for c in verify_calls)
+        # the source ref of a pull request build is its merge ref: not pinned
+        assert not any("--source-ref" in c for c in verify_calls)
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_the_fake_gh_refuses_another_signer_workflow(self, box):
+        """The check that the flags are passed has teeth: without the flag the fake fails"""
+        gh = subprocess.run(
+            [str(box.bin / "gh"), "attestation", "verify", "x.deb", "--repo", REPO],
+            env={"FAKE_DIR": str(box.fake)}, capture_output=True, text=True)
+        assert gh.returncode == 1
+        gh = subprocess.run(
+            [str(box.bin / "gh"), "attestation", "verify", "x.deb", "--repo", REPO,
+             "--signer-workflow", f"{REPO}/.github/workflows/other.yml"],
+            env={"FAKE_DIR": str(box.fake)}, capture_output=True, text=True)
+        assert gh.returncode == 1
+
+    def test_the_script_does_not_look_for_sha256sums(self, box):
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert not any("SHA256SUMS" in url for url in box.curl_urls())
+
+    @pytest.mark.parametrize("bad", NOBLE_GNOME)
+    def test_a_failed_attestation_is_refused(self, box, bad):
+        (box.fake / "gh_bad").write_text(bad + "\n")
+
+        result = box.run("24")
+
+        assert_rejected(box, result, f"no valid build provenance for {bad}")
+
+    def test_without_gh_the_provenance_is_reported_as_not_checked(self, box):
+        (box.bin / "gh").unlink()
+        if shutil.which("gh", path="/usr/bin:/bin:" + os.path.dirname(sys.executable)):
+            pytest.skip("gh is installed in a system directory of this machine")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is not installed: build provenance not checked" in result.stdout
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_a_gh_that_is_not_logged_in_reports_the_provenance_as_not_checked(self, box):
+        (box.fake / "gh_logged_out").write_text("")
+        (box.fake / "gh_bad").write_text(self.NOBLE_GNOME[0] + "\n")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is not logged in (gh auth login): build provenance not checked" in result.stdout
+        assert "attestation verify" not in box.read("gh_calls")
+        assert box.installed() == self.NOBLE_GNOME
+
+    @pytest.mark.parametrize("old", ["gh_old", "gh_no_signer_flag"])
+    def test_a_gh_without_the_attestation_command_reports_the_provenance_as_not_checked(self, box, old):
+        (box.fake / old).write_text("")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is too old for 'gh attestation verify --signer-workflow' (2.51 or newer needed): build provenance not checked" in result.stdout
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_rpm_packages_are_checked_too(self, box):
+        box.set_rpm_target("fedora44")
+        (box.fake / "gh_bad").write_text(rpm("") + "\n")
+
+        result = box.run("24")
+
+        assert result.returncode != 0
+        assert f"no valid build provenance for {rpm('')}" in result.stderr
+        assert box.rpm_manager() is None
