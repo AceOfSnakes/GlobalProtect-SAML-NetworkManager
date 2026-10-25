@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QSignalSpy>
+#include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QtTest>
 
@@ -46,7 +47,236 @@ private Q_SLOTS:
     void trimsGateway();
     void readsBooleansIgnoringCase_data();
     void readsBooleansIgnoringCase();
+    void mtuTyping_data();
+    void mtuTyping();
+    void mtuDeleteOnAutomaticKeepsIt_data();
+    void mtuDeleteOnAutomaticKeepsIt();
+    void mtuEmptyIsAutomatic_data();
+    void mtuEmptyIsAutomatic();
+    void mtuArrowsAndWheelStillStep();
 };
+
+namespace
+{
+// Types into the MTU spin box like a user: focus, optional select all, keys
+struct MtuBox {
+    QSpinBox *spin = nullptr;
+    QLineEdit *edit = nullptr;
+};
+
+MtuBox findMtu(GpclientWidget &widget)
+{
+    MtuBox box;
+    box.spin = widget.findChild<QSpinBox *>(QStringLiteral("mtuSpinBox"));
+    if (box.spin) {
+        box.edit = box.spin->findChild<QLineEdit *>();
+    }
+    return box;
+}
+
+QString savedMtu(const GpclientWidget &widget, bool *has = nullptr)
+{
+    NetworkManager::VpnSetting result;
+    result.fromMap(widget.setting());
+    if (has) {
+        *has = result.data().contains(QStringLiteral("mtu"));
+    }
+    return result.data().value(QStringLiteral("mtu"));
+}
+}
+
+void GpclientWidgetTest::mtuTyping_data()
+{
+    QTest::addColumn<QString>("stored");
+    QTest::addColumn<QString>("place"); // where the cursor is before typing
+    QTest::addColumn<QString>("typed");
+    QTest::addColumn<int>("expectedValue");
+    QTest::addColumn<QString>("expectedSaved"); // empty: no mtu key
+
+    // Positive: digits replace "Automatic", wherever the cursor is
+    QTest::newRow("automatic, cursor at end, type 1300") << "" << "end" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, Key_End, type 1300") << "" << "keyEnd" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, Key_Home, type 1300") << "" << "keyHome" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, mouse click, type 1300") << "" << "click" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, focus in (mouse), type 1300") << "" << "focusIn" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, focus in (tab), type 1300") << "" << "tab" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, select all, type 1300") << "" << "selectAll" << "1300" << 1300 << "1300";
+    QTest::newRow("automatic, cursor at end, type 1500") << "" << "end" << "1500" << 1500 << "1500";
+    QTest::newRow("automatic, cursor at end, type 1") << "" << "end" << "1" << 1 << "576";
+    QTest::newRow("automatic, cursor at end, type 0") << "" << "end" << "0" << 0 << "";
+    QTest::newRow("1400, select all, type 0") << "1400" << "selectAll" << "0" << 0 << "";
+    QTest::newRow("1400, select all, type 1200") << "1400" << "selectAll" << "1200" << 1200 << "1200";
+    // Negative: not a number, or above the maximum, is not accepted
+    QTest::newRow("automatic, end, abc") << "" << "end" << "abc" << 0 << "";
+    QTest::newRow("automatic, click, abc") << "" << "click" << "abc" << 0 << "";
+    QTest::newRow("automatic, select all, abc") << "" << "selectAll" << "abc" << 0 << "";
+    QTest::newRow("1400, select all, abc") << "1400" << "selectAll" << "abc" << 1400 << "1400";
+    QTest::newRow("automatic, 13a00") << "" << "click" << "13a00" << 1300 << "1300";
+    QTest::newRow("automatic, minus") << "" << "click" << "-5" << 5 << "576";
+    QTest::newRow("automatic, 1501") << "" << "click" << "1501" << 150 << "576";
+    QTest::newRow("automatic, 99999") << "" << "click" << "99999" << 999 << "999";
+}
+
+void GpclientWidgetTest::mtuTyping()
+{
+    QFETCH(QString, stored);
+    QFETCH(QString, place);
+    QFETCH(QString, typed);
+    QFETCH(int, expectedValue);
+    QFETCH(QString, expectedSaved);
+
+    NMStringMap data{{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}};
+    if (!stored.isEmpty()) {
+        data.insert(QStringLiteral("mtu"), stored);
+    }
+    GpclientWidget widget(makeSetting(data, 0));
+    widget.show();
+    const MtuBox box = findMtu(widget);
+    QVERIFY(box.spin);
+    QVERIFY(box.edit);
+    QCOMPARE(box.spin->value(), stored.isEmpty() ? 0 : stored.toInt());
+    if (stored.isEmpty()) {
+        QCOMPARE(box.edit->text(), QStringLiteral("Automatic"));
+    }
+
+    box.spin->setFocus();
+    if (place == QLatin1String("selectAll")) {
+        box.edit->selectAll();
+    } else if (place == QLatin1String("end")) {
+        box.edit->setCursorPosition(box.edit->text().size());
+    } else if (place == QLatin1String("keyEnd")) {
+        QTest::keyClick(box.edit, Qt::Key_End);
+    } else if (place == QLatin1String("keyHome")) {
+        QTest::keyClick(box.edit, Qt::Key_Home);
+    } else if (place == QLatin1String("click")) {
+        QTest::mouseClick(box.edit, Qt::LeftButton, Qt::NoModifier, QPoint(box.edit->width() - 3, box.edit->height() / 2));
+    } else if (place == QLatin1String("focusIn") || place == QLatin1String("tab")) {
+        QFocusEvent in(QEvent::FocusIn, place == QLatin1String("tab") ? Qt::TabFocusReason : Qt::MouseFocusReason);
+        QCoreApplication::sendEvent(box.edit, &in);
+    } else {
+        QFAIL("unknown place");
+    }
+    QTest::keyClicks(box.edit, typed);
+
+    QCOMPARE(box.spin->value(), expectedValue);
+    bool has = false;
+    const QString saved = savedMtu(widget, &has);
+    QCOMPARE(has, !expectedSaved.isEmpty());
+    QCOMPARE(saved, expectedSaved);
+}
+
+void GpclientWidgetTest::mtuDeleteOnAutomaticKeepsIt_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::addColumn<bool>("cursorAtEnd");
+
+    QTest::newRow("Backspace at end") << int(Qt::Key_Backspace) << true;
+    QTest::newRow("Delete at start") << int(Qt::Key_Delete) << false;
+    QTest::newRow("Backspace at start") << int(Qt::Key_Backspace) << false;
+    QTest::newRow("Delete at end") << int(Qt::Key_Delete) << true;
+}
+
+void GpclientWidgetTest::mtuDeleteOnAutomaticKeepsIt()
+{
+    QFETCH(int, key);
+    QFETCH(bool, cursorAtEnd);
+
+    GpclientWidget widget(makeSetting({{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}}, 0));
+    widget.show();
+    const MtuBox box = findMtu(widget);
+    QVERIFY(box.spin);
+    box.spin->setFocus();
+    QTest::keyClick(box.edit, cursorAtEnd ? Qt::Key_End : Qt::Key_Home);
+    QTest::keyClick(box.edit, Qt::Key(key));
+    QTest::keyClick(box.edit, Qt::Key_Return);
+
+    QCOMPARE(box.spin->value(), 0);
+    QCOMPARE(box.edit->text(), QStringLiteral("Automatic"));
+    bool has = true;
+    savedMtu(widget, &has);
+    QVERIFY(!has);
+    // and digits still replace it afterwards
+    QTest::keyClick(box.edit, Qt::Key_End);
+    QTest::keyClicks(box.edit, QStringLiteral("1300"));
+    QCOMPARE(box.spin->value(), 1300);
+}
+
+void GpclientWidgetTest::mtuEmptyIsAutomatic_data()
+{
+    QTest::addColumn<QString>("stored");
+    QTest::addColumn<bool>("useBackspace");
+    QTest::addColumn<bool>("finishWithReturn");
+
+    QTest::newRow("1400, Delete, Enter") << "1400" << false << true;
+    QTest::newRow("1400, Delete, focus out") << "1400" << false << false;
+    QTest::newRow("1400, Backspace, Enter") << "1400" << true << true;
+    QTest::newRow("1400, Backspace, focus out") << "1400" << true << false;
+    QTest::newRow("700, Delete, focus out") << "700" << false << false;
+}
+
+void GpclientWidgetTest::mtuEmptyIsAutomatic()
+{
+    QFETCH(QString, stored);
+    QFETCH(bool, useBackspace);
+    QFETCH(bool, finishWithReturn);
+
+    GpclientWidget widget(makeSetting({{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}, {QStringLiteral("mtu"), stored}}, 0));
+    widget.show();
+    const MtuBox box = findMtu(widget);
+    QVERIFY(box.spin);
+    QCOMPARE(box.spin->value(), stored.toInt());
+    // Positive: the stored value is saved while it is shown
+    QCOMPARE(savedMtu(widget), stored);
+
+    box.spin->setFocus();
+    box.edit->selectAll();
+    QTest::keyClick(box.edit, useBackspace ? Qt::Key_Backspace : Qt::Key_Delete);
+    if (finishWithReturn) {
+        QTest::keyClick(box.edit, Qt::Key_Return);
+    } else {
+        // The editor loses focus (the window is not active offscreen, so send the event)
+        QFocusEvent out(QEvent::FocusOut, Qt::TabFocusReason);
+        QCoreApplication::sendEvent(box.edit, &out);
+    }
+
+    // Negative: the old value is not restored, no mtu key is saved
+    QCOMPARE(box.spin->value(), 0);
+    QCOMPARE(box.edit->text(), QStringLiteral("Automatic"));
+    bool has = true;
+    savedMtu(widget, &has);
+    QVERIFY(!has);
+}
+
+void GpclientWidgetTest::mtuArrowsAndWheelStillStep()
+{
+    GpclientWidget widget(makeSetting({{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}}, 0));
+    widget.show();
+    const MtuBox box = findMtu(widget);
+    QVERIFY(box.spin);
+    QCOMPARE(box.spin->value(), 0);
+
+    box.spin->setFocus();
+    QTest::keyClick(box.spin, Qt::Key_Up);
+    QCOMPARE(box.spin->value(), 1);
+    QCOMPARE(box.edit->text(), QStringLiteral("1 bytes"));
+    QTest::keyClick(box.spin, Qt::Key_Up);
+    QCOMPARE(box.spin->value(), 2);
+    QTest::keyClick(box.spin, Qt::Key_Down);
+    QTest::keyClick(box.spin, Qt::Key_Down);
+    QCOMPARE(box.spin->value(), 0);
+    QCOMPARE(box.edit->text(), QStringLiteral("Automatic"));
+    // Negative: it does not go below the minimum
+    QTest::keyClick(box.spin, Qt::Key_Down);
+    QCOMPARE(box.spin->value(), 0);
+
+    // Mouse wheel
+    QWheelEvent up(QPointF(5, 5), QPointF(box.spin->mapToGlobal(QPoint(5, 5))), QPoint(), QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(box.spin, &up);
+    QCOMPARE(box.spin->value(), 1);
+
+    // Saved after stepping
+    QCOMPARE(savedMtu(widget), QStringLiteral("576"));
+}
 
 void GpclientWidgetTest::trimsGateway_data()
 {
