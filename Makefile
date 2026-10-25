@@ -254,6 +254,17 @@ shellcheck:
 	shellcheck --severity=warning $(SHELL_SCRIPTS)
 	shellcheck --severity=error $(SHELL_SCRIPTS_VENDORED)
 
+# Static analysis of the Python code: ruff and mypy, both configured in
+# pyproject.toml (the lint job of tests.yml pins their versions)
+.PHONY: lint
+lint:
+	ruff check .
+	mypy
+
+# Everything that runs without a desktop or network
+.PHONY: check
+check: lint shellcheck test-unit
+
 # Run the upstream contract tests (see docs/UPSTREAM.md)
 .PHONY: test-upstream
 test-upstream:
