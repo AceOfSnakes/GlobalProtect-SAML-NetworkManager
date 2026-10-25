@@ -66,9 +66,9 @@ def load_json(path):
         with open(path, encoding="utf-8") as handle:
             return json.load(handle)
     except FileNotFoundError:
-        raise ContractError(f"{path} does not exist")
+        raise ContractError(f"{path} does not exist") from None
     except ValueError as exc:
-        raise ContractError(f"{path} is not valid JSON: {exc}")
+        raise ContractError(f"{path} is not valid JSON: {exc}") from exc
 
 
 def dump_json(path, data):
@@ -142,7 +142,7 @@ def version_tuple(version):
     try:
         return tuple(int(part) for part in version.split("."))
     except ValueError:
-        raise ContractError(f"not a version: {version!r}")
+        raise ContractError(f"not a version: {version!r}") from None
 
 
 # ---------------------------------------------------------------- Rust blocks
@@ -401,7 +401,7 @@ def check_features(registry, changelog_text, contract_version, root):
             problems.append(f"not classified: {label}")
         elif count > 1:
             problems.append(f"classified {count} times: {label}")
-    for entry, key in zip(entries, keys):
+    for entry, key in zip(entries, keys, strict=True):
         label = f"{key[0]} {key[1]}: {key[2]}"
         if key not in wanted:
             problems.append(f"stale entry (not in the changelog for {baseline} < v <= {contract_version}): {label}")
@@ -974,7 +974,7 @@ def cmd_gate(args):
     try:
         labels = json.loads(args.labels) if args.labels.strip() else []
     except ValueError as exc:
-        raise ContractError(f"--labels is not a JSON array: {exc}")
+        raise ContractError(f"--labels is not a JSON array: {exc}") from exc
     if not isinstance(labels, list):
         raise ContractError("--labels is not a JSON array")
     outcome = gate(args.source, base, verification, labels, base_commit=args.base_commit or None)

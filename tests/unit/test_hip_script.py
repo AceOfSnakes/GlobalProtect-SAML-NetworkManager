@@ -16,7 +16,7 @@ import stat
 
 import pytest
 
-from test_dbus_methods import FakeProc, _conn, _plugin, connect, run
+from test_dbus_methods import FakeProc, _conn, _plugin, connect
 from test_gpclient_command import _command
 
 TRUSTED = (0, os.getuid())

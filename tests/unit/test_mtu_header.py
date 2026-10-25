@@ -123,7 +123,7 @@ def test_the_rule(header_program):
 def test_the_header_gives_what_the_service_gives(header_program, service_module):
     results = run_program(header_program, [text for text, _ in CASES])
 
-    for (text, _), result in zip(CASES, results):
+    for (text, _), result in zip(CASES, results, strict=True):
         parsed = service_module.parse_mtu(text)
         # the service: 0 = automatic, None = invalid
         assert result == (-1 if parsed is None else parsed), repr(text)

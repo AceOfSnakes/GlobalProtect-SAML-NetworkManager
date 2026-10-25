@@ -10,7 +10,6 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
-import os
 import sys
 
 import pytest

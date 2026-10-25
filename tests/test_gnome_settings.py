@@ -47,7 +47,7 @@ class TestGNOMESettings:
             )
             assert app is not None, "GNOME Settings window not found"
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_settings_opens")
             raise
 
@@ -64,7 +64,7 @@ class TestGNOMESettings:
 
             assert vpn_section is not None, "VPN section not found in network settings"
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_vpn_section_exists")
             raise
 
@@ -96,7 +96,7 @@ class TestGNOMESettings:
 
             assert add_btn is not None, "Add VPN button not found"
 
-        except Exception as e:
+        except Exception:
             take_screenshot_on_failure("test_add_vpn_button")
             raise
 
