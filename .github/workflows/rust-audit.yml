@@ -1,0 +1,99 @@
+name: Rust dependency audit
+
+# Audits the Cargo.lock of the pinned upstream (external/GlobalProtect-openconnect)
+# with cargo-audit (RustSec) and osv-scanner (OSV). We never modify external/,
+# so an advisory is reported here and fixed by an upstream bump (issue #54).
+#
+# Policy: both tools always run and write their result to the job summary.
+# The job fails on a finding only for the weekly schedule. A pull request or a
+# manual run is never blocked by an upstream advisory that the PR did not cause.
+# The OSV result goes to code scanning (SARIF) for runs that are not PRs
+# (a PR from a fork has no token to write it).
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - external/GlobalProtect-openconnect
+      - upstream/**
+      - .github/workflows/rust-audit.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-audit-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  LOCKFILE: external/GlobalProtect-openconnect/Cargo.lock
+  CARGO_AUDIT_VERSION: "0.22.2"
+  OSV_SCANNER_VERSION: "2.7.0"
+  # From osv-scanner_SHA256SUMS of the release v2.7.0
+  OSV_SCANNER_SHA256: "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload of the OSV SARIF file
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Only Cargo.lock is read: the nested submodules are not needed
+          submodules: true
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version "$CARGO_AUDIT_VERSION"
+
+      - name: Run cargo-audit
+        run: |
+          status=0
+          cargo audit --file "$LOCKFILE" --deny warnings > cargo-audit.txt 2>&1 || status=$?
+          {
+            echo "### cargo-audit (exit $status)"
+            echo '```'
+            tail -n 200 cargo-audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$status" > cargo-audit.status
+
+      - name: Install osv-scanner
+        run: |
+          curl -fsSL -o osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+
+      - name: Run osv-scanner
+        run: |
+          status=0
+          ./osv-scanner scan source --lockfile "$LOCKFILE" --format sarif --output-file osv.sarif || status=$?
+          ./osv-scanner scan source --lockfile "$LOCKFILE" > osv.txt 2>&1 || true
+          {
+            echo "### osv-scanner (exit $status)"
+            echo '```'
+            tail -n 200 osv.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$status" > osv.status
+
+      - name: Upload OSV result to code scanning
+        if: github.event_name != 'pull_request' && hashFiles('osv.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
+
+      - name: Fail on findings (weekly schedule only)
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(cat cargo-audit.status)" != 0 ] || [ "$(cat osv.status)" != 0 ]; then
+            echo "::error::An audit tool found an advisory or failed: see the job summary"
+            exit 1
+          fi
