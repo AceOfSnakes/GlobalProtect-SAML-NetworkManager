@@ -23,11 +23,19 @@ SCRIPT = os.path.join(ROOT, ".github", "scripts", "verify-release-assets.sh")
 LEGACY = os.path.join(ROOT, ".github", "legacy-unattested-releases.txt")
 REPO = "WMP/GlobalProtect-SAML-NetworkManager"
 
-# Fails for the files listed in $FAKE_DIR/bad (one name per line)
+# Fails for the files listed in $FAKE_DIR/bad (one name per line) and, like the real one, when the
+# attestation is not of the repository, of its release workflow and of the tag $FAKE_TAG
 FAKE_GH = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/gh_calls"
 [ "$1 $2" = "attestation verify" ] || exit 2
-grep -qxF "$(basename "$3")" "$FAKE_DIR/bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
+file="$3"; repo=""; signer=""; ref=""
+while [ $# -gt 0 ]; do
+    case "$1" in --repo) repo="$2" ;; --signer-workflow) signer="$2" ;; --source-ref) ref="$2" ;; esac
+    shift
+done
+[ "$repo" = "$GITHUB_REPOSITORY" ] && [ "$signer" = "$repo/.github/workflows/build-release.yml" ] \
+    && [ "$ref" = "refs/tags/$FAKE_TAG" ] || { echo "wrong repository, workflow or tag" >&2; exit 1; }
+grep -qxF "$(basename "$file")" "$FAKE_DIR/bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
 exit 0
 """
 
@@ -59,8 +67,9 @@ class Box:
             with open(self.dir / "SHA256SUMS", "a", encoding="utf-8") as handle:
                 handle.write(f"{sha(data)}  {listed_as or name}\n")
 
-    def run(self, tag="v2.0.0"):
-        env = {"PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_DIR": str(self.fake), "GITHUB_REPOSITORY": REPO}
+    def run(self, tag="v2.0.0", attested_tag=None):
+        env = {"PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_DIR": str(self.fake), "GITHUB_REPOSITORY": REPO,
+               "FAKE_TAG": attested_tag or tag}
         return subprocess.run(["bash", SCRIPT, tag, str(self.dir), str(self.legacy)], env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -80,7 +89,24 @@ def test_good_release_passes_and_every_file_is_checked_against_the_repository(bo
     result = box.run()
     assert result.returncode == 0, result.stderr
     assert sorted(box.gh_calls()) == sorted(
-        f"attestation verify {box.dir}/{name} --repo {REPO}" for name in (DEB, RPM))
+        f"attestation verify {box.dir}/{name} --repo {REPO}"
+        f" --signer-workflow {REPO}/.github/workflows/build-release.yml --source-ref refs/tags/v2.0.0"
+        for name in (DEB, RPM))
+
+
+def test_an_attestation_of_another_tag_fails(box):
+    box.add(DEB)
+    result = box.run("v2.0.0", attested_tag="v2.0.1")
+    assert result.returncode != 0
+    assert "gh attestation verify failed" in result.stderr
+
+
+def test_an_attestation_of_another_workflow_fails(box):
+    box.add(DEB)
+    (box.bin / "gh").write_text(FAKE_GH.replace("build-release.yml", "other.yml"))
+    result = box.run()
+    assert result.returncode != 0
+    assert "gh attestation verify failed" in result.stderr
 
 
 def test_github_renames_the_tilde_of_an_asset_to_a_dot(box):

@@ -7,8 +7,9 @@
 # <directory> holds the .deb and .rpm assets of the release <tag> and, if the
 # release has one, its SHA256SUMS asset. For every package:
 #   1. its SHA256 is the one in SHA256SUMS, and
-#   2. `gh attestation verify <file> --repo $GITHUB_REPOSITORY` succeeds (the
-#      build provenance written by .github/workflows/build-release.yml).
+#   2. `gh attestation verify <file> --repo $GITHUB_REPOSITORY` succeeds, with
+#      the signer workflow build-release.yml and the source ref refs/tags/<tag>
+#      (the build provenance written for that tag).
 # A tag listed in the legacy file (default
 # .github/legacy-unattested-releases.txt) is not verified: those releases are
 # older than SHA256SUMS and the attestations. Every other release without
@@ -52,7 +53,9 @@ for file in "${files[@]}"; do
     [ "$(printf '%s\n' "$expected" | wc -l)" -eq 1 ] || die "$name is more than once in SHA256SUMS"
     actual="$(sha256sum "$file")"; actual="${actual%% *}"
     [ "$actual" = "$expected" ] || die "SHA256 of $name is $actual, SHA256SUMS says $expected"
-    gh attestation verify "$file" --repo "$repo" >/dev/null \
+    gh attestation verify "$file" --repo "$repo" \
+        --signer-workflow "$repo/.github/workflows/build-release.yml" \
+        --source-ref "refs/tags/$tag" >/dev/null \
         || die "no valid build provenance for $name (gh attestation verify failed)"
     echo "verified $name"
 done

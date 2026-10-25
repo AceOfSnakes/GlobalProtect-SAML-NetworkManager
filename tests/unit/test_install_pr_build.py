@@ -10,7 +10,6 @@ rejected exits non-zero with a message and never reaches apt.
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
-import hashlib
 import json
 import os
 import shlex
@@ -175,12 +174,21 @@ done
 exit "${FAKE_RPM_EXIT:-0}"
 """
 
-# gh attestation verify <file> --repo <repo>: fails for the file names in $FAKE_DIR/gh_bad
+# gh attestation verify <file> --repo <repo> --signer-workflow <workflow>: fails for the file names in
+# $FAKE_DIR/gh_bad and, like the real one with an attestation of another workflow, when the signer
+# workflow is not the one of the release build
 FAKE_GH = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/gh_calls"
 if [ "$1 $2" = "auth status" ]; then [ ! -e "$FAKE_DIR/gh_logged_out" ]; exit; fi
 [ "$1 $2" = "attestation verify" ] || exit 2
-grep -qxF "$(basename "$3")" "$FAKE_DIR/gh_bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
+file="$3"; repo=""; signer=""
+while [ $# -gt 0 ]; do
+    case "$1" in --repo) repo="$2" ;; --signer-workflow) signer="$2" ;; esac
+    shift
+done
+[ -n "$repo" ] && [ "$signer" = "$repo/.github/workflows/build-release.yml" ] \
+    || { echo "wrong repository or signer workflow" >&2; exit 1; }
+grep -qxF "$(basename "$file")" "$FAKE_DIR/gh_bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
 exit 0
 """
 
@@ -237,21 +245,6 @@ class Sandbox:
         (self.fake / "api_body").write_text(json.dumps(body))
         for name in names:
             (self.fake / "serve" / name).write_text(f"deb:{name}\n")
-
-    def set_sums(self, tamper=(), omit=(), extra=""):
-        """The release gets a SHA256SUMS asset for the files it serves. `tamper`: names with a wrong
-        hash, `omit`: names left out, `extra`: more text for the file"""
-        serve = self.fake / "serve"
-        lines = []
-        for path in sorted(serve.iterdir()):
-            if path.name in omit:
-                continue
-            digest = "0" * 64 if path.name in tamper else hashlib.sha256(path.read_bytes()).hexdigest()
-            lines.append(f"{digest}  {path.name}\n")
-        (serve / "SHA256SUMS").write_text("".join(lines) + extra)
-        body = json.loads((self.fake / "api_body").read_text())
-        body["assets"].append({"name": "SHA256SUMS", "browser_download_url": f"{TAG_URL}/SHA256SUMS"})
-        (self.fake / "api_body").write_text(json.dumps(body))
 
     def set_plasma_nm(self, version):
         """The installed plasma-nm (None: not installed)"""
@@ -1327,86 +1320,41 @@ class TestRpmRejected:
         assert list(box.tmp.iterdir()) == []
 
 
-class TestChecksumsAndProvenance:
-    """SHA256SUMS of the release, when it has one, and `gh attestation verify`, when gh is installed"""
+class TestProvenance:
+    """`gh attestation verify`, when gh is installed and logged in"""
 
     NOBLE_GNOME = [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
+    SIGNER = f"--signer-workflow {REPO}/.github/workflows/build-release.yml"
 
-    def test_matching_checksums_and_attestations_install(self, box):
-        box.set_sums()
-
+    def test_every_package_is_verified_against_the_repository_and_the_release_workflow(self, box):
         result = box.run("24")
 
         assert result.returncode == 0, result.stderr
-        assert "Checksums match SHA256SUMS" in result.stdout
         assert "Build provenance verified" in result.stdout
         verify_calls = [c for c in box.read("gh_calls").splitlines() if c.startswith("attestation verify ")]
         assert sorted(os.path.basename(c.split()[2]) for c in verify_calls) == sorted(self.NOBLE_GNOME)
-        assert all(c.endswith(f"--repo {REPO}") for c in verify_calls)
+        assert all(c.endswith(f"--repo {REPO} {self.SIGNER}") for c in verify_calls)
+        # the source ref of a pull request build is its merge ref: not pinned
+        assert not any("--source-ref" in c for c in verify_calls)
         assert box.installed() == self.NOBLE_GNOME
 
-    def test_a_release_without_sha256sums_is_installed_with_a_note(self, box):
+    def test_the_fake_gh_refuses_another_signer_workflow(self, box):
+        """The check that the flags are passed has teeth: without the flag the fake fails"""
+        gh = subprocess.run(
+            [str(box.bin / "gh"), "attestation", "verify", "x.deb", "--repo", REPO],
+            env={"FAKE_DIR": str(box.fake)}, capture_output=True, text=True)
+        assert gh.returncode == 1
+        gh = subprocess.run(
+            [str(box.bin / "gh"), "attestation", "verify", "x.deb", "--repo", REPO,
+             "--signer-workflow", f"{REPO}/.github/workflows/other.yml"],
+            env={"FAKE_DIR": str(box.fake)}, capture_output=True, text=True)
+        assert gh.returncode == 1
+
+    def test_the_script_does_not_look_for_sha256sums(self, box):
         result = box.run("24")
 
         assert result.returncode == 0, result.stderr
-        assert "no SHA256SUMS" in result.stdout
-        assert not any(url.endswith("SHA256SUMS") for url in box.curl_urls())
-
-    def test_the_tilde_of_the_name_in_sha256sums_is_the_dot_of_the_asset(self, box):
-        box.set_sums()
-        sums = box.fake / "serve" / "SHA256SUMS"
-        sums.write_text(sums.read_text().replace(".noble1", "~noble1"))
-        assert "~noble1" in sums.read_text()
-
-        result = box.run("24")
-
-        assert result.returncode == 0, result.stderr
-
-    @pytest.mark.parametrize("name", NOBLE_GNOME)
-    def test_a_checksum_mismatch_is_refused(self, box, name):
-        box.set_sums(tamper=[name])
-
-        result = box.run("24")
-
-        assert_rejected(box, result, f"SHA256 of {name} does not match")
-
-    def test_a_package_missing_from_sha256sums_is_refused(self, box):
-        box.set_sums(omit=[self.NOBLE_GNOME[1]])
-
-        result = box.run("24")
-
-        assert_rejected(box, result, f"{self.NOBLE_GNOME[1]} is not in SHA256SUMS")
-
-    def test_a_name_that_only_ends_like_the_package_is_not_in_sha256sums(self, box):
-        box.set_sums(omit=[self.NOBLE_GNOME[0]], extra=f"{'0' * 64}  x{self.NOBLE_GNOME[0]}\n")
-
-        result = box.run("24")
-
-        assert_rejected(box, result, f"{self.NOBLE_GNOME[0]} is not in SHA256SUMS")
-
-    def test_a_duplicate_line_in_sha256sums_is_refused(self, box):
-        box.set_sums(extra=f"{'0' * 64}  {self.NOBLE_GNOME[0]}\n")
-
-        result = box.run("24")
-
-        assert_rejected(box, result, "more than once in SHA256SUMS")
-
-    def test_a_sha256sums_that_cannot_be_downloaded_is_refused(self, box):
-        box.set_sums()
-        (box.fake / "serve" / "SHA256SUMS").unlink()
-
-        result = box.run("24")
-
-        assert_rejected(box, result, "cannot download SHA256SUMS")
-
-    def test_a_wrong_download_address_of_sha256sums_is_refused_by_default(self, box):
-        box.set_assets(all_assets(build=BUILD))
-        box.set_sums()
-        box.set_api_body(box.read("api_body").replace(f"{TAG_URL}/SHA256SUMS", "https://evil.example/pr-24/SHA256SUMS"))
-
-        result = box.run("24", api=False)
-
-        assert_rejected(box, result, "unexpected download address for SHA256SUMS")
+        assert not any("SHA256SUMS" in url for url in box.curl_urls())
 
     @pytest.mark.parametrize("bad", NOBLE_GNOME)
     def test_a_failed_attestation_is_refused(self, box, bad):
@@ -1440,10 +1388,10 @@ class TestChecksumsAndProvenance:
 
     def test_rpm_packages_are_checked_too(self, box):
         box.set_rpm_target("fedora44")
-        box.set_sums(tamper=[rpm("")])
+        (box.fake / "gh_bad").write_text(rpm("") + "\n")
 
         result = box.run("24")
 
         assert result.returncode != 0
-        assert f"SHA256 of {rpm('')} does not match" in result.stderr
+        assert f"no valid build provenance for {rpm('')}" in result.stderr
         assert box.rpm_manager() is None

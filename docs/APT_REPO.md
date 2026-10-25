@@ -70,16 +70,19 @@ check a file you downloaded from a GitHub release:
 
 ```bash
 sha256sum --ignore-missing -c SHA256SUMS            # in the download directory
-gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SAML-NetworkManager
+gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SAML-NetworkManager \
+    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
 ```
 
 `publish-apt.yml` does both checks for every package before it signs it into the
 apt and RPM repositories: a package that fails, or a release without `SHA256SUMS`,
 stops the run. Only the releases listed in
 `.github/legacy-unattested-releases.txt` (v1.5.0 and older) are published without
-the checks. `scripts/install-pr-build.sh` checks the test packages of a pull
-request the same way (`SHA256SUMS` when the release has one, `gh attestation
-verify` when `gh` is installed).
+the checks. The attestation must come from `build-release.yml` and the tag of the
+release (`--signer-workflow`, `--source-ref`). `scripts/install-pr-build.sh`
+checks the build provenance of the test packages of a pull request with
+`gh attestation verify` when `gh` is installed and logged in (it has no
+`SHA256SUMS`; the source ref of a pull request build is its merge ref).
 
 ## For the maintainer
 
