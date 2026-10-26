@@ -1,0 +1,319 @@
+# Slovak translation of plasmanetworkmanagement_gpclientui.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the plasmanetworkmanagement_gpclientui package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Slovak\n"
+"Language: sk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n>=2 && n<=4 ? 1 : 2);\n"
+
+#: rc.cpp
+#, kde-format
+msgid " bytes"
+msgstr " bajtov"
+
+#: rc.cpp
+#, kde-format
+msgid " s"
+msgstr " s"
+
+#: rc.cpp
+#, kde-format
+msgid "Address is a gateway (skip the portal)"
+msgstr "Adresa je brána (preskočiť portál)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"Adresa portálu GlobalProtect (napr. vpn.company.com).\n"
+"Ak vám organizácia poskytla namiesto toho adresu brány, zaškrtnite nižšie aj „Adresa je brána“."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Always on"
+msgstr "Vždy zapnuté"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Ask every time (not saved)"
+msgstr "Pýtať sa vždy (neukladá sa)"
+
+#: rc.cpp
+#, kde-format
+msgid "Authentication:"
+msgstr "Overenie:"
+
+#: rc.cpp
+#, kde-format
+msgid "Automatic"
+msgstr "Automaticky"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automaticky (zapnúť, keď to portál vyžaduje)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Prehliadač (SAML, passkey, 2FA)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Prehliadač používaný na overenie SAML/2FA. „edge“ je najlepšie otestovaná možnosť; „default“ používa predvolený prehliadač vášho prostredia.\n"
+"Vyberte „Vlastný...“ a zadajte úplnú cestu k vlastnému spustiteľnému súboru."
+
+#: rc.cpp
+#, kde-format
+msgid "Browser:"
+msgstr "Prehliadač:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Prehliadač: portál otvorí okno prehliadača na jednotné prihlásenie (predvolené).\n"
+"Meno používateľa a heslo: portál sa pýta v termináli - prihlasovacie údaje a prípadný token sa namiesto toho vyžiadajú v dialógovom okne."
+
+#: rc.cpp
+#, kde-format
+msgid "Connect timeout:"
+msgstr "Časový limit pripojenia:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Custom..."
+msgstr "Vlastný..."
+
+#: rc.cpp
+#, kde-format
+msgid "DNS Servers:"
+msgstr "Servery DNS:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: built-in HIP report"
+msgstr "Prázdne: vstavaná správa HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Enable HIP (Host Integrity Protection) to send host information to the VPN gateway. This is required by some organizations for security compliance."
+msgstr "Zapnite HIP (Host Integrity Protection), aby sa bráne VPN odosielali informácie o hostiteľovi. Niektoré organizácie to vyžadujú kvôli súladu s bezpečnostnými predpismi."
+
+#: rc.cpp
+#, kde-format
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Zapnúť Host Integrity Protection (HIP)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Zapnite, ak je adresa vyššie brána a nie portál.\n"
+"Bez tejto voľby sa najprv skúša postup cez portál, čo môže spôsobiť dvojité overenie."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "First proposed by portal (automatic)"
+msgstr "Prvá ponúknutá portálom (automaticky)"
+
+#: rc.cpp
+#, kde-format
+msgid "GlobalProtect VPN"
+msgstr "GlobalProtect VPN"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP script:"
+msgstr "Skript HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP:"
+msgstr "HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Ako dlho NetworkManager čaká na pripojenie VPN vrátane prihlásenia v prehliadači (vpn.timeout).\n"
+"0 použije predvolenú hodnotu NetworkManagera, zvyčajne 60 s - často príliš málo pre prihlásenie SAML s MFA. Nové pripojenie s overením cez prehliadač začína na 360 s. Kým pripojenie nemá vlastný časový limit (0) a toto pole ste nezmenili, výber overenia cez prehliadač nastaví 360 s."
+
+#: rc.cpp
+#, kde-format
+msgid "Leave empty for automatic VPN DNS (recommended)"
+msgstr "Ponechajte prázdne pre automatické DNS z VPN (odporúčané)"
+
+#: rc.cpp
+#, kde-format
+msgid "Legacy TLS renegotiation:"
+msgstr "Staršia renegociácia TLS:"
+
+#: rc.cpp
+#, kde-format
+msgid "MTU:"
+msgstr "MTU:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Maximálna veľkosť paketu v tuneli.\n"
+"Automaticky (0): hodnotu zvolí openconnect. Zníženie (napríklad na 1300-1400) môže pomôcť, keď tunel prejde z ESP na HTTPS s chybou „Message too long“.\n"
+"Má účinok, len ak brána neposiela vlastné MTU. Hodnoty od 1 do 575 sa uložia ako 576, najnižšia použitá hodnota."
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager default (usually 60 s)"
+msgstr "Predvolené v NetworkManageri (zvyčajne 60 s)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Never"
+msgstr "Nikdy"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional"
+msgstr "Voliteľné"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Voliteľná absolútna cesta k vlastnému spustiteľnému súboru HIP, odovzdaná gpclient ako --hip=<path>.\n"
+"Služba ho spúšťa ako root: musí to byť súbor vlastnený rootom, do ktorého nemôže zapisovať skupina ani ostatní, v adresároch vlastnených rootom, do ktorých nemôže zapisovať skupina ani ostatní. Inak pripojenie zlyhá.\n"
+"Ignoruje sa, keď je HIP vypnuté."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Voliteľné. Používa sa pri portáloch, ktoré pýtajú prihlasovacie údaje v termináli, aby ste sa nemuseli vždy pýtať na meno používateľa."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by the \"Username and password\" authentication."
+msgstr "Voliteľné. Používa sa pri overení „Meno používateľa a heslo“."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Password"
+msgstr "Heslo"
+
+#: rc.cpp
+#, kde-format
+msgid "Password storage:"
+msgstr "Uloženie hesla:"
+
+#: rc.cpp
+#, kde-format
+msgid "Password:"
+msgstr "Heslo:"
+
+#: rc.cpp
+#, kde-format
+msgid "Portal or gateway address:"
+msgstr "Adresa portálu alebo brány:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Portály so starým zásobníkom TLS vyžadujú renegociáciu, ktorú OpenSSL 3 predvolene odmieta.\n"
+"Automaticky: raz sa skúsi obchádzka, keď to portál vyžaduje, a potom sa toto nastavenie prepne na „Vždy zapnuté“, aby sa neúspešný prvý pokus neopakoval."
+
+#: rc.cpp
+#, kde-format
+msgid "Preferred gateway:"
+msgstr "Preferovaná brána:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Odporúčané: ponechajte prázdne, aby sa použili servery DNS z VPN s automatickou konfiguráciou split DNS.\n"
+"Split DNS umožňuje preklad domén špecifických pre VPN cez DNS VPN, kým pre ostatné domény sa používa lokálny DNS.\n"
+"Prepísanie: zadajte servery DNS oddelené bodkočiarkou (napr. 8.8.8.8;8.8.4.4), aby sa namiesto toho použil vlastný DNS."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for all users (system)"
+msgstr "Uložiť pre všetkých používateľov (systém)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for this user only (agent)"
+msgstr "Uložiť iba pre tohto používateľa (agent)"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Token / one-time code"
+msgstr "Token / jednorazový kód"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Username"
+msgstr "Meno používateľa"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Username and password (RSA token)"
+msgstr "Meno používateľa a heslo (token RSA)"
+
+#: rc.cpp
+#, kde-format
+msgid "Username:"
+msgstr "Meno používateľa:"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the password is kept. \"Ask every time\" stores nothing."
+msgstr "Kde sa heslo uchováva. „Pýtať sa vždy“ neukladá nič."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Ku ktorej bráne sa pripojiť. Zoznam sa vyplní po prvom úspešnom pripojení.\n"
+"Ak portál zvolenú bránu už neponúka, použije sa namiesto nej prvý návrh."
+
+#: rc.cpp
+#, kde-format
+msgid "vpn.company.com"
+msgstr "vpn.company.com"

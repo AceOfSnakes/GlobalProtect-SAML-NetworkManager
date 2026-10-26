@@ -75,6 +75,6 @@ the Plasma session or `systemsettings` with the same variables.
 
 ## Machine translations
 
-The Polish catalogs (`pl`) are a machine translation. They carry the line
+All catalogs (the languages in `po/LINGUAS`) are machine translations. They carry the line
 `# Machine translation, needs review by a native speaker.` at the top. Native
 speakers are welcome to review them: remove the line when the review is done.

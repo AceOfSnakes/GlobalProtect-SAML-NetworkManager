@@ -1,0 +1,318 @@
+# Korean translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Korean\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "주소가 게이트웨이임 (포털 건너뛰기)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address "
+"is a gateway\" below."
+msgstr ""
+"GlobalProtect 포털의 주소입니다 (예: vpn.company.com).\n"
+"조직에서 게이트웨이 주소를 받았다면 아래의 \"주소가 게이트웨이임\"도 선택하십시오."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "항상 켜짐"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "VPN 인증: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "인증에 실패했습니다. “%s”의 자격 증명을 다시 입력하십시오."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "인증:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "자동 (포털이 필요로 할 때 사용)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "브라우저 (SAML, 패스키, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested "
+"option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"SAML/2FA 인증에 사용할 브라우저입니다. \"edge\"가 가장 많이 검증된 옵션이며, \"default\"는 데스크톱의 기본 브라우저를 사용합니다.\n"
+"직접 만든 실행 파일의 전체 경로를 지정하려면 '사용자 지정...'을 선택하십시오."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "브라우저:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and "
+"any token are requested in a dialog instead."
+msgstr ""
+"브라우저: 포털이 통합 인증(SSO)용 브라우저 창을 엽니다 (기본값).\n"
+"사용자 이름과 암호: 포털이 터미널에서 묻는 내용을 대신 대화 상자에서 자격 증명과 토큰으로 입력합니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "연결 제한 시간:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "“%s”에 연결하려면 자격 증명이 필요합니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "사용자 지정..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "DNS 서버:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "비어 있음: 내장 HIP 보고서"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN "
+"gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"HIP (Host Integrity Protection)를 사용하면 호스트 정보를 VPN 게이트웨이로 보냅니다.\n"
+"일부 조직에서는 보안 규정 준수를 위해 필요합니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Host Integrity Protection (HIP) 사용"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you "
+"authenticate twice."
+msgstr ""
+"위의 주소가 포털이 아니라 게이트웨이일 때 선택하십시오.\n"
+"선택하지 않으면 포털 절차를 먼저 시도하므로 인증을 두 번 해야 할 수 있습니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "포털이 처음 제안한 것 (자동)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "GlobalProtect VPN 클라이언트"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "HIP 스크립트:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in "
+"the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML "
+"login with MFA. A new connection with browser authentication starts with 360 "
+"s. While a connection has no timeout of its own (0) and you have not changed "
+"this field, choosing browser authentication sets 360 s."
+msgstr ""
+"브라우저 로그인을 포함하여 NetworkManager가 VPN 연결을 기다리는 시간입니다 (vpn.timeout).\n"
+"0은 NetworkManager 기본값(보통 60초)을 사용합니다. MFA를 사용하는 SAML 로그인에는 너무 짧은 경우가 많습니다. 브라우저 인증을 사용하는 새 연결은 360초로 시작합니다. 연결에 자체 제한 시간이 없고 (0) 이 필드를 변경하지 않은 동안에는, 브라우저 인증을 선택하면 360초로 설정됩니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "레거시 TLS 재협상:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the "
+"tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from "
+"1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"터널에서 패킷의 최대 크기입니다.\n"
+"0 = 자동. 값을 낮추면 (예: 1300-1400) 터널이 ESP에서 HTTPS로 전환되며 \"Message too long\"이 발생할 때 도움이 될 수 있습니다.\n"
+"게이트웨이가 자체 MTU를 보내지 않을 때만 적용됩니다. 1에서 575까지의 값은 사용할 수 있는 가장 낮은 값인 576으로 저장됩니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "사용 안 함"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --"
+"hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not "
+"writable by group or others, in root-owned directories that are not writable "
+"by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"사용자 지정 HIP 실행 파일의 절대 경로입니다 (선택 사항). gpclient에 --hip=<path>로 전달됩니다.\n"
+"서비스는 이를 root로 실행합니다. 파일은 root 소유이고 그룹이나 다른 사용자가 쓸 수 없어야 하며, root 소유이고 그룹이나 다른 사용자가 쓸 수 없는 디렉터리에 있어야 합니다. 그렇지 않으면 연결이 실패합니다.\n"
+"HIP를 사용하지 않으면 무시됩니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional. Use the icon in the field to choose where the password is kept: "
+"for this user only, for all users, or not at all (asked every time)."
+msgstr "선택 사항. 필드의 아이콘으로 암호를 보관할 위치를 선택하십시오: 이 사용자만, 모든 사용자, 또는 저장 안 함 (매번 묻기)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional. Used by portals that ask for credentials on the terminal, so you "
+"are not asked for the username every time."
+msgstr "선택 사항. 터미널에서 자격 증명을 묻는 포털에서 사용되며, 매번 사용자 이름을 묻지 않게 됩니다."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "암호"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "암호:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "포털 또는 게이트웨이 주소:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by "
+"default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and "
+"switch this setting to \"Always on\" afterwards, so the failed first attempt "
+"does not repeat."
+msgstr ""
+"오래된 TLS 스택을 쓰는 포털은 재협상이 필요한데, OpenSSL 3은 기본적으로 이를 거부합니다.\n"
+"자동: 포털이 요구하면 우회 방법으로 한 번 다시 시도하고, 이후 이 설정을 \"항상 켜짐\"으로 바꿔 실패하는 첫 시도를 반복하지 않도록 합니다."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "선호 게이트웨이:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split "
+"DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using "
+"local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to "
+"use custom DNS instead."
+msgstr ""
+"권장: 비워 두면 자동 분할 DNS 구성으로 VPN의 DNS 서버를 사용합니다.\n"
+"분할 DNS는 VPN 전용 도메인은 VPN DNS로, 다른 도메인은 로컬 DNS로 확인합니다.\n"
+"재정의: 세미콜론으로 구분한 DNS 서버(예: 8.8.8.8;8.8.4.4)를 입력하면 대신 그 서버를 사용합니다."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "토큰 / 일회용 코드"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "사용자: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "사용자 이름"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "사용자 이름과 암호 (RSA 토큰)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "사용자 이름:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first "
+"successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first "
+"proposal is used instead."
+msgstr ""
+"연결할 게이트웨이입니다. 목록은 처음 연결에 성공한 후에 채워집니다.\n"
+"선택한 게이트웨이를 포털이 더 이상 제공하지 않으면 처음 제안된 것이 대신 사용됩니다."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "취소(_C)"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "확인(_O)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid ""
+"browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser는 이름, 명령 이름 또는 공백이 없는 절대 경로여야 합니다"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "바이트 (0 = 자동)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid ""
+"dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns는 쉼표, 세미콜론 또는 공백으로 구분한 IPv4 또는 IPv6 주소여야 합니다"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "게이트웨이가 필요합니다"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "게이트웨이는 '-'로 시작하거나 공백 또는 제어 문자를 포함할 수 없습니다"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "hip-script는 절대 경로여야 합니다"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "초 (0 = NetworkManager 기본값)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "사용자 이름은 '-'로 시작하거나 제어 문자를 포함할 수 없습니다"

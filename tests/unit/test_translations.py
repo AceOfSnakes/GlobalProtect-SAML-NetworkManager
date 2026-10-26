@@ -86,7 +86,8 @@ def msgid_diff(committed, fresh):
     return {"missing": sorted(fresh - committed), "obsolete": sorted(committed - fresh)}
 
 
-PLACEHOLDER = re.compile(r"%(?:\d+\$)?[sdiufc]|</?[A-Za-z][^<>]*>|(?<!\w)[_&](?=[A-Za-z])")
+# An accelerator may stand before any letter (_Отмена, _إلغاء) and inside a word (İ_ptal)
+PLACEHOLDER = re.compile(r"%(?:\d+\$)?[sdiufc]|</?[A-Za-z][^<>]*>|[_&](?=[^\W\d_])")
 NUMBERED = re.compile(r"%\d+")
 
 
@@ -543,6 +544,7 @@ def test_the_translation_is_complete_and_keeps_the_placeholders(path):
         (("Use <b>this</b>", "Uzyj tego", ""), "placeholders"),
         (("Use <b>this</b>", "Uzyj <i>tego</i>", ""), "placeholders"),
         (("_Cancel", "Anuluj", ""), "placeholders"),
+        (("_Cancel", "Отмена", ""), "placeholders"),
         (("&Cancel", "Anuluj", ""), "placeholders"),
         (("From %1 to %2", "Od %1", ""), "numbered"),
         (("From %1", "Od %2", ""), "numbered"),
@@ -560,6 +562,9 @@ def test_a_bad_translation_is_found(entry, word):
         ("From %1 to %2", "Do %2 z %1", ""),
         ("Use <b>this</b>", "Uzyj <b>tego</b>", ""),
         ("_Cancel", "_Anuluj", ""),
+        ("_Cancel", "_Отмена", ""),
+        ("_Cancel", "İ_ptal", ""),
+        ("_OK", "OK(_O)", ""),
         ("--hip=<path>", "--hip=<path>", ""),
     ],
 )
