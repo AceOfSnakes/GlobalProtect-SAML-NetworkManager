@@ -1397,7 +1397,7 @@ def test_numeric_auth_timeout_is_kept(tmp_path, timeout):
 # --- Chromium-family start: snap profile, exit status (report on PR #115) ------
 
 
-def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0):
+def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0, body=None):
     """Run the wrapper with GP_BROWSER=<tmp>/chromium, a link to a fake browser
     called target_name (a snap browser is a link to /usr/bin/snap). With
     gpauth_seconds, a fake gpauth lives that long."""
@@ -1408,12 +1408,19 @@ def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0):
         target_dir / target_name,
         f'printf "%s\\n" "$@" > {tmp_path}/opened\n'
         "echo browser-failure-marker >&2\n"
-        f"exit {exit_code}\n",
+        + (body or f"exit {exit_code}\n"),
     )
     os.symlink(target_dir / target_name, tmp_path / "chromium")
     gpauth = None
     if gpauth_seconds:
-        gpauth = subprocess.Popen(["sleep", str(gpauth_seconds)])
+        # gpauth lives until the wrapper has seen the browser exit (at most
+        # gpauth_seconds): a slow start of the wrapper must not miss it
+        gpauth = subprocess.Popen([
+            "bash", "-c",
+            f"for _ in $(seq {gpauth_seconds * 2}); do "
+            f"grep -qs 'browser.*exited' /tmp/edge-wrapper-{FAKE_UID}*/wrapper.log && break; "
+            "sleep 0.5; done",
+        ])
         _script(
             tmp_path / "pgrep",
             f'case " $* " in *" gpauth "*) echo {gpauth.pid} ;; *) exit 1 ;; esac\n',
@@ -1450,6 +1457,16 @@ def test_a_snap_chromium_keeps_its_own_profile(tmp_path):
     assert "is a snap: using its own profile" in result.all_logs
 
 
+def test_a_script_that_runs_a_snap_keeps_its_own_profile(tmp_path):
+    """Ubuntu's /usr/bin/chromium-browser: a script that runs /snap/bin/chromium."""
+    result = _run_chromium(
+        tmp_path, "chromium-browser", body="exit 0\n# exec /snap/bin/chromium \"$@\"\n"
+    )
+
+    assert not [a for a in result.args if a.startswith("--user-data-dir")]
+    assert "is a snap: using its own profile" in result.all_logs
+
+
 def test_a_chromium_that_is_no_snap_gets_the_user_profile(tmp_path):
     result = _run_chromium(tmp_path, "chromium-bin")
 
@@ -1457,16 +1474,18 @@ def test_a_chromium_that_is_no_snap_gets_the_user_profile(tmp_path):
     assert "is a snap" not in result.all_logs
 
 
-def test_a_browser_that_fails_at_start_is_reported(tmp_path):
-    result = _run_chromium(tmp_path, "chromium-bin", exit_code=21, gpauth_seconds=4)
+@pytest.mark.parametrize("body, status", [("exit 21\n", 21), ("kill -SEGV $$\n", 139)])
+def test_a_browser_that_fails_at_start_is_reported(tmp_path, body, status):
+    result = _run_chromium(tmp_path, "chromium-bin", gpauth_seconds=20, body=body)
 
-    assert "ERROR: the browser exited with status 21" in result.wrapper_log
+    assert f"ERROR: the browser exited with status {status}" in result.wrapper_log
     assert "went to a running instance" not in result.wrapper_log
-    assert "exited with status 21" in result.syslog
+    assert f"exited with status {status}" in result.syslog
+    assert result.syslog.count(f"exited with status {status}") == 1
 
 
 def test_a_browser_that_hands_the_url_over_is_not_an_error(tmp_path):
-    result = _run_chromium(tmp_path, "chromium-bin", exit_code=0, gpauth_seconds=4)
+    result = _run_chromium(tmp_path, "chromium-bin", exit_code=0, gpauth_seconds=20)
 
     assert "the URL went to a running instance" in result.wrapper_log
     assert "ERROR" not in result.wrapper_log

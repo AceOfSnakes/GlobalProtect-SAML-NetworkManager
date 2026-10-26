@@ -501,6 +501,13 @@ if [ -z "$URL" ]; then
     exit 1
 fi
 
+is_snap() {
+    local target
+    target=$(readlink -f "$1") || return 1
+    [ "$(basename "$target")" = snap ] && return 0
+    [ "$(head -c 2 "$target" 2>/dev/null)" = "#!" ] && grep -q '/snap/bin/' "$target" 2>/dev/null
+}
+
 BROWSER_FLAGS=()
 case "$FAMILY" in
     edge|chromium)
@@ -529,9 +536,10 @@ case "$FAMILY" in
             "--app=$URL"
             "--window-size=896,964"
         )
-        # A snap browser (/snap/bin/chromium is a link to /usr/bin/snap) has its
-        # profile under ~/snap and cannot write elsewhere: let it use its own
-        if [ "$(basename "$(readlink -f "$BROWSER_BIN")")" = snap ]; then
+        # A snap browser has its profile under ~/snap and cannot write elsewhere:
+        # let it use its own. /snap/bin/chromium is a link to /usr/bin/snap;
+        # Ubuntu's /usr/bin/chromium-browser is a script that runs /snap/bin/...
+        if is_snap "$BROWSER_BIN"; then
             log "$BROWSER_BIN is a snap: using its own profile"
         else
             BROWSER_FLAGS+=("--user-data-dir=$PROFILE_DIR")
@@ -608,9 +616,10 @@ run_browser_with_monitor() {
             else
                 # It failed before it showed the page (its messages are in the
                 # log): say so where the user looks first
-                log "ERROR: the browser exited with status $status - see its messages above"
-                command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- \
-                    "ERROR: $BROWSER_BIN exited with status $status, see ${LOG_FILE:-the wrapper log}" 2>/dev/null
+                log "ERROR: the browser exited with status $status - see its messages in this log"
+                # log() reaches syslog only without a log file
+                [ -n "$LOG_FILE" ] && command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- \
+                    "ERROR: $BROWSER_BIN exited with status $status, see $LOG_FILE" 2>/dev/null
             fi
         fi
 
