@@ -358,3 +358,38 @@ msgstr "De verbinding kan niet worden geïmporteerd: %1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "De verbinding \"%1\" is niet opgeslagen in NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Het bestand is geen GlobalProtect-VPN-verbinding"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "gateway is vereist"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "gateway mag niet met '-' beginnen en geen spaties of besturingstekens bevatten"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "gebruikersnaam mag niet met '-' beginnen en geen besturingstekens bevatten"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser moet een naam, een opdrachtnaam of een absoluut pad zonder spaties zijn"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns moet bestaan uit IPv4- of IPv6-adressen gescheiden door komma's, puntkomma's of spaties"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script moet een absoluut pad zijn"

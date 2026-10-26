@@ -332,3 +332,38 @@ msgstr "Yhteyttä ei voi tuoda: %1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "Yhteyttä \"%1\" ei ole tallennettu NetworkManageriin"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Tiedosto ei ole GlobalProtect VPN -yhteys"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "yhdyskäytävä vaaditaan"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "yhdyskäytävä ei saa alkaa merkillä ”-” eikä sisältää välilyöntejä tai ohjausmerkkejä"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "käyttäjätunnus ei saa alkaa merkillä ”-” eikä sisältää ohjausmerkkejä"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "selaimen on oltava nimi, komennon nimi tai absoluuttinen polku ilman välilyöntejä"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns:n on oltava IPv4- tai IPv6-osoitteita, jotka on erotettu pilkuilla, puolipisteillä tai välilyönneillä"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script-arvon on oltava absoluuttinen polku"

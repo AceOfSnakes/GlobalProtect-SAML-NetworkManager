@@ -358,3 +358,38 @@ msgstr "연결을 가져올 수 없습니다: %1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "연결 \"%1\"이(가) NetworkManager에 저장되어 있지 않습니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "이 파일은 GlobalProtect VPN 연결이 아닙니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "게이트웨이가 필요합니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "게이트웨이는 '-'로 시작하거나 공백 또는 제어 문자를 포함할 수 없습니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "사용자 이름은 '-'로 시작하거나 제어 문자를 포함할 수 없습니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser는 이름, 명령 이름 또는 공백이 없는 절대 경로여야 합니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns는 쉼표, 세미콜론 또는 공백으로 구분한 IPv4 또는 IPv6 주소여야 합니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script는 절대 경로여야 합니다"

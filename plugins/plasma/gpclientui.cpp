@@ -63,6 +63,23 @@ SettingWidget *GpclientUiPlugin::askUser(const NetworkManager::VpnSetting::Ptr &
 
 #ifndef GPCLIENT_PLASMANM_OLD_API
 
+// The helper headers cannot translate in the Plasma build (their _() is the identity):
+// translate their English messages here. The list is for the extraction of the catalog.
+static QString translateMessage(const char *message)
+{
+    const KLocalizedString known[] = {
+        ki18n("The file is not a GlobalProtect VPN connection"),
+        ki18n("gateway is required"),
+        ki18n("gateway must not start with '-' or contain spaces or control characters"),
+        ki18n("username must not start with '-' or contain control characters"),
+        ki18n("browser must be a name, a command name or an absolute path without spaces"),
+        ki18n("dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"),
+        ki18n("hip-script must be an absolute path"),
+    };
+    Q_UNUSED(known);
+    return ki18n(message).toString();
+}
+
 QString GpclientUiPlugin::suggestedFileName(const NetworkManager::ConnectionSettings::Ptr &connection) const
 {
     char *name = nm_gpclient_keyfile_suggested_filename(connection->id().toUtf8().constData());
@@ -81,7 +98,7 @@ VpnUiPlugin::ImportResult GpclientUiPlugin::importConnectionSettings(const QStri
     GError *error = nullptr;
     NMConnection *connection = nm_gpclient_keyfile_import(QFile::encodeName(fileName).constData(), &error);
     if (!connection) {
-        const QString message = QString::fromUtf8(error->message);
+        const QString message = translateMessage(error->message);
         g_error_free(error);
         return VpnUiPlugin::ImportResult::fail(i18n("Cannot import the connection: %1", message));
     }
@@ -95,12 +112,17 @@ VpnUiPlugin::ExportResult GpclientUiPlugin::exportConnectionSettings(const Netwo
     // the file. NetworkManager hands out no secrets; the helper drops them anyway.
     GError *error = nullptr;
     QString message;
+    // the helper needs the extension: the KCM matches the files by it, but its save dialog does not add it
+    QString path = fileName;
+    if (!path.endsWith(QStringLiteral(".nmconnection"))) {
+        path += QStringLiteral(".nmconnection");
+    }
     NMClient *client = nm_client_new(nullptr, &error);
     if (client) {
         NMRemoteConnection *remote = nm_client_get_connection_by_uuid(client, connection->uuid().toUtf8().constData());
         if (!remote) {
             message = i18n("The connection \"%1\" is not saved in NetworkManager", connection->id());
-        } else if (nm_gpclient_keyfile_export(NM_CONNECTION(remote), QFile::encodeName(fileName).constData(), &error)) {
+        } else if (nm_gpclient_keyfile_export(NM_CONNECTION(remote), QFile::encodeName(path).constData(), &error)) {
             g_object_unref(client);
             return VpnUiPlugin::ExportResult::pass();
         }

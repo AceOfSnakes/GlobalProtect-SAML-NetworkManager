@@ -96,6 +96,10 @@ nm_gpclient_keyfile_import (const char *path, GError **error)
     g_object_set (s_con, NM_SETTING_CONNECTION_UUID, uuid, NULL);
     g_free (uuid);
 
+    /* The user name and the UUIDs of the source machine mean nothing here; a
+     * permission list would also make NetworkManager refuse the add for any other user */
+    g_object_set (s_con, NM_SETTING_CONNECTION_PERMISSIONS, NULL, NM_SETTING_CONNECTION_SECONDARIES, NULL, NULL);
+
     nm_connection_clear_secrets (connection);
 
     if (!nm_connection_normalize (connection, NULL, NULL, error)) {
@@ -111,6 +115,7 @@ static inline gboolean
 nm_gpclient_keyfile_export (NMConnection *connection, const char *path, GError **error)
 {
     NMConnection *copy;
+    NMSettingConnection *s_con;
     GKeyFile *keyfile;
     char *data;
     gsize length = 0;
@@ -119,6 +124,10 @@ nm_gpclient_keyfile_export (NMConnection *connection, const char *path, GError *
     /* The copy loses the secrets, the connection of the caller keeps them */
     copy = nm_simple_connection_new_clone (connection);
     nm_connection_clear_secrets (copy);
+    /* No local user name and no UUIDs of this machine in a shared file */
+    s_con = nm_connection_get_setting_connection (copy);
+    if (s_con)
+        g_object_set (s_con, NM_SETTING_CONNECTION_PERMISSIONS, NULL, NM_SETTING_CONNECTION_SECONDARIES, NULL, NULL);
     keyfile = nm_keyfile_write (copy, NM_KEYFILE_HANDLER_FLAGS_NONE, NULL, NULL, error);
     g_object_unref (copy);
     if (!keyfile)

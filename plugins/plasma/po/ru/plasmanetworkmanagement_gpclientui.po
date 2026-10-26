@@ -358,3 +358,38 @@ msgstr "Не удалось импортировать подключение: %
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "Подключение \"%1\" не сохранено в NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Файл не является VPN-подключением GlobalProtect"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "требуется шлюз"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "шлюз не должен начинаться с «-» или содержать пробелы и управляющие символы"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "имя пользователя не должно начинаться с «-» или содержать управляющие символы"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "браузер должен быть именем, именем команды или абсолютным путём без пробелов"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns должен содержать адреса IPv4 или IPv6, разделённые запятыми, точками с запятой или пробелами"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script должен быть абсолютным путём"

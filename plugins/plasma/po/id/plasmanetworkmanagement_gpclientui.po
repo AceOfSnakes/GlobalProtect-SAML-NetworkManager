@@ -332,3 +332,38 @@ msgstr "Tidak dapat mengimpor koneksi: %1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "Koneksi \"%1\" tidak disimpan di NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Berkas ini bukan koneksi VPN GlobalProtect"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "gateway wajib diisi"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "gateway tidak boleh diawali '-' atau berisi spasi atau karakter kontrol"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "username tidak boleh diawali '-' atau berisi karakter kontrol"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser harus berupa nama, nama perintah, atau path absolut tanpa spasi"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns harus berupa alamat IPv4 atau IPv6 yang dipisahkan koma, titik koma, atau spasi"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script harus berupa path absolut"

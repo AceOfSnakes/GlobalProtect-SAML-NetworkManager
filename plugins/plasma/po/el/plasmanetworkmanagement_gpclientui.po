@@ -332,3 +332,38 @@ msgstr "Δεν είναι δυνατή η εισαγωγή της σύνδεση
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "Η σύνδεση \"%1\" δεν είναι αποθηκευμένη στο NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Το αρχείο δεν είναι σύνδεση GlobalProtect VPN"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "το gateway είναι υποχρεωτικό"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "το gateway δεν πρέπει να αρχίζει με «-» ούτε να περιέχει κενά ή χαρακτήρες ελέγχου"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "το username δεν πρέπει να αρχίζει με «-» ούτε να περιέχει χαρακτήρες ελέγχου"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser πρέπει να είναι όνομα, όνομα εντολής ή απόλυτη διαδρομή χωρίς κενά"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns πρέπει να είναι διευθύνσεις IPv4 ή IPv6 χωρισμένες με κόμματα, ερωτηματικά ή κενά"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "το hip-script πρέπει να είναι απόλυτη διαδρομή"

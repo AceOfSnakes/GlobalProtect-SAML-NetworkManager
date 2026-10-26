@@ -332,3 +332,38 @@ msgstr "Povezave ni mogoče uvoziti: %1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "Povezava \"%1\" ni shranjena v NetworkManagerju"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Datoteka ni povezava GlobalProtect VPN"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "prehod je obvezen"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "prehod se ne sme začeti z »-« ali vsebovati presledkov ali kontrolnih znakov"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "uporabniško ime se ne sme začeti z »-« ali vsebovati kontrolnih znakov"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "brskalnik mora biti ime, ime ukaza ali absolutna pot brez presledkov"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns mora biti naslovi IPv4 ali IPv6, ločeni z vejicami, podpičji ali presledki"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script mora biti absolutna pot"

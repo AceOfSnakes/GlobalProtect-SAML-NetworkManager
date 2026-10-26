@@ -332,3 +332,38 @@ msgstr "无法导入连接：%1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "连接 \"%1\" 未保存在 NetworkManager 中"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "该文件不是 GlobalProtect VPN 连接"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "网关为必填项"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "网关不能以“-”开头，也不能包含空格或控制字符"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "用户名不能以“-”开头，也不能包含控制字符"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "浏览器必须是名称、命令名称或不含空格的绝对路径"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns 必须是以逗号、分号或空格分隔的 IPv4 或 IPv6 地址"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script 必须是绝对路径"

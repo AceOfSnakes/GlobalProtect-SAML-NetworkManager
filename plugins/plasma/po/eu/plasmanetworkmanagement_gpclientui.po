@@ -332,3 +332,38 @@ msgstr "Ezin da konexioa inportatu: %1"
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
 msgstr "\"%1\" konexioa ez dago NetworkManager-en gordeta"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Fitxategia ez da GlobalProtect VPN konexio bat"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "atebidea beharrezkoa da"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "atebideak ez du '-'-rekin hasi behar, ez eta zuriunerik edo kontrol-karakterik izan"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "erabiltzaile-izenak ez du '-'-rekin hasi behar, ez eta kontrol-karakterik izan"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "nabigatzailea izen bat, komando-izen bat edo zuriunerik gabeko bide absolutu bat izan behar da"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns-ak IPv4 edo IPv6 helbideak izan behar dira, komaz, puntu eta komaz edo zuriunez bereiziak"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script bide absolutu bat izan behar da"
