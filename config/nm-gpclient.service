@@ -47,9 +47,11 @@ SystemCallArchitectures=native
 #                   gpclient writes /var/run/gpclient.lock; the HIP script and
 #                   its paths are set by the user.
 #   NoNewPrivileges=
-#                   sudo/runuser (setuid root) run the browser as the user.
-#                   NoNewPrivileges blocks the gain of privilege on exec, so
-#                   setuid sudo would no longer work.
+#                   It is inherited by the whole tree, also after gpauth drops
+#                   to the desktop user: setuid programs started there lose
+#                   their effect, for example the setuid sandbox helper of
+#                   Chrome/Edge (chrome-sandbox) on systems without user
+#                   namespaces.
 #   RestrictNamespaces=
 #                   Chrome, Edge and Firefox sandbox themselves with user
 #                   namespaces.
