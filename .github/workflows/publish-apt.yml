@@ -8,9 +8,11 @@ name: Publish APT repository
 # idempotent and the repository can be recreated from scratch at any time
 # (after a key rotation, for example). Nothing is committed to the repo.
 #
-# Every package is verified before it is signed: its SHA256 against the
-# release's SHA256SUMS and its build provenance (gh attestation verify). Only
-# the releases of .github/legacy-unattested-releases.txt are exempt.
+# Every package is verified before it is signed: the release's SHA256SUMS has
+# a build provenance attestation (one gh attestation verify call per release)
+# and the SHA256 of the package is the one in it. Only the releases of
+# .github/legacy-unattested-releases.txt are exempt (today every published
+# release is one of them).
 #
 # Called by build-release.yml after a tagged release, or manually.
 
@@ -105,8 +107,8 @@ jobs:
             if grep -qx 'SHA256SUMS' <<< "$assets"; then
               gh release download "$tag" -D "verify/$tag" --pattern 'SHA256SUMS'
             fi
-            # Checksum and build provenance of every package: a failure stops
-            # the run before anything is signed.
+            # Attested SHA256SUMS and the checksum of every package: a failure
+            # stops the run before anything is signed.
             bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"
             find "verify/$tag" \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} incoming/ \;
             echo "::endgroup::"

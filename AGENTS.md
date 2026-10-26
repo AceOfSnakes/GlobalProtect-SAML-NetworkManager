@@ -22,7 +22,7 @@ GitHub Pages.
 | `plugins/gnome/`, `plugins/plasma/` | Connection editor plugins (GTK3/GTK4, Plasma 5/6) |
 | `debian/` | Packaging; `debian/control.ubuntu<version>` is copied to `debian/control` per build |
 | `rpm/` | RPM packaging: `targets`, the spec, `build.sh` (build in a container), `install-test.sh` |
-| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (Ubuntu × arch, RPM target × arch; attests the packages, uploads `SHA256SUMS`), `publish-apt.yml` (apt + RPM repositories; verifies every package first, `.github/scripts/verify-release-assets.sh`), `codeql.yml`, `zizmor.yml`, `scorecard.yml` |
+| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (Ubuntu × arch, RPM target × arch; attests the packages and `SHA256SUMS`, uploads `SHA256SUMS`), `publish-apt.yml` (apt + RPM repositories; verifies the attested `SHA256SUMS` of every release and every package against it first, `.github/scripts/verify-release-assets.sh`), `codeql.yml`, `zizmor.yml`, `scorecard.yml` |
 | `.github/scripts/build-apt-repo.sh`, `build-rpm-repo.sh` | Build the apt and RPM repositories from release assets |
 | `external/GlobalProtect-openconnect` | Git submodule (upstream `gpclient`/`gpauth`) |
 | `upstream/` | Contract with upstream: `contract.json`, `features.json`, `interfaces.json`, `verification.json` |

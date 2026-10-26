@@ -18,8 +18,8 @@ WORKFLOW = "build-release.yml"
 ATTEST_ACTION = re.compile(r"uses: actions/attest-build-provenance@[0-9a-f]{40} # v\d+\.\d+\.\d+$")
 
 
-def job_block(job):
-    text = read_workflow(WORKFLOW)
+def job_block(job, text=None):
+    text = read_workflow(WORKFLOW) if text is None else text
     start = text.index(f"\n  {job}:\n") + 1
     nxt = re.search(r"^  [a-z-]+:$", text[start + 1:], re.M)
     return text[start:start + 1 + nxt.start()] if nxt else text[start:]
@@ -49,15 +49,16 @@ def test_attestation_is_skipped_where_the_token_cannot_write(step):
     assert "workflow_dispatch" not in condition
 
 
-def test_only_the_two_package_jobs_get_attestation_rights():
+def test_only_the_package_jobs_and_the_release_job_get_attestation_rights():
     text = read_workflow(WORKFLOW)
-    assert text.count("attestations: write") == 2 and text.count("id-token: write") == 3
+    assert text.count("attestations: write") == 3 and text.count("id-token: write") == 4
+    assert "      contents: write\n      id-token: write\n      attestations: write\n" in job_block("release")
     assert "contents: read\n\n# A new push" in text or "permissions:\n  contents: read\n" in text
     for job in ("build", "build-rpm"):
         block = job_block(job)
         assert "      contents: read\n      id-token: write\n      attestations: write\n" in block
         assert "contents: write" not in block
-    for job in ("check-tag", "release", "release-notes"):
+    for job in ("check-tag", "release-notes"):
         assert "attestations: write" not in job_block(job)
     # the job that calls publish-apt only reads attestations (gh attestation verify)
     assert "attestations: read" in job_block("publish-apt")
@@ -69,6 +70,86 @@ def test_sha256sums_is_uploaded_with_the_packages():
     names = step_names(WORKFLOW)
     assert names.index("Write SHA256SUMS") < names.index("Create Release")
     assert "fail_on_unmatched_files: true" in "\n".join(lines)
+
+
+ATTEST_SUMS = "Attest build provenance of SHA256SUMS"
+SUMS_SUBJECT = "          subject-path: release-files/SHA256SUMS"
+RELEASE_RIGHTS = "      contents: write\n      id-token: write\n      attestations: write\n"
+
+
+def sums_attestation_problems(text):
+    """What is wrong with the way the release job attests SHA256SUMS in the workflow text"""
+    found = []
+    names = step_names(WORKFLOW, text)
+    if ATTEST_SUMS not in names:
+        return ["the SHA256SUMS attest step is missing"]
+    lines = step_lines(WORKFLOW, ATTEST_SUMS, text)
+    if not any(ATTEST_ACTION.search(line) for line in lines):
+        found.append("the step does not use the pinned attest action")
+    if SUMS_SUBJECT not in lines:
+        found.append("the step does not attest release-files/SHA256SUMS")
+    if [line for line in lines if line.strip().startswith("if:")]:
+        found.append("the step has a condition")
+    # after the file is final, before it is uploaded
+    if not names.index("Write SHA256SUMS") < names.index(ATTEST_SUMS) < names.index("Create Release"):
+        found.append("the step is not between Write SHA256SUMS and Create Release")
+    if ATTEST_SUMS not in job_block("release", text) or RELEASE_RIGHTS not in job_block("release", text):
+        found.append("the release job does not have the rights to attest")
+    return found
+
+
+def test_release_job_attests_the_sha256sums_it_uploads():
+    assert sums_attestation_problems(read_workflow(WORKFLOW)) == []
+
+
+def _attest_after_release(text):
+    attest = "\n".join(step_lines(WORKFLOW, ATTEST_SUMS, text)) + "\n"
+    create = "\n".join(step_lines(WORKFLOW, "Create Release", text)) + "\n"
+    assert attest + create in text
+    return text.replace(attest + create, create + attest, 1)
+
+
+def _attest_pinned_to_a_tag(text):
+    attest = "\n".join(step_lines(WORKFLOW, ATTEST_SUMS, text)) + "\n"
+    return text.replace(attest, re.sub(r"(attest-build-provenance@)\S+", r"\1v4", attest), 1)
+
+
+@pytest.mark.parametrize("name, mutate, expected", [
+    ("step after Create Release", _attest_after_release, "not between"),
+    ("subject removed", lambda t: t.replace(SUMS_SUBJECT + "\n", ""), "does not attest release-files/SHA256SUMS"),
+    ("subject elsewhere", lambda t: t.replace(SUMS_SUBJECT, SUMS_SUBJECT.replace("SHA256SUMS", "other")),
+     "does not attest release-files/SHA256SUMS"),
+    ("permission removed", lambda t: t.replace(RELEASE_RIGHTS, "      contents: write\n      id-token: write\n"),
+     "does not have the rights"),
+    ("step removed", lambda t: t.replace("      - name: " + ATTEST_SUMS, "      - name: Other"), "missing"),
+    ("condition added", lambda t: t.replace("      - name: " + ATTEST_SUMS + "\n",
+                                            "      - name: " + ATTEST_SUMS + "\n        if: false\n"),
+     "has a condition"),
+    ("tag pin", _attest_pinned_to_a_tag, "pinned attest action"),
+])
+def test_a_modified_sha256sums_attestation_is_rejected(name, mutate, expected):
+    text = read_workflow(WORKFLOW)
+    modified = mutate(text)
+    assert modified != text, name
+    found = sums_attestation_problems(modified)
+    assert any(expected in problem for problem in found), (name, found)
+
+
+def attest_pins_are_one_commit(text):
+    pins = set(re.findall(r"actions/attest-build-provenance@(\S+)", text))
+    return len(pins) == 1 and re.fullmatch(r"[0-9a-f]{40}", pins.pop()) is not None
+
+
+def test_the_attest_action_is_pinned_to_one_commit_everywhere():
+    assert attest_pins_are_one_commit(read_workflow(WORKFLOW))
+
+
+@pytest.mark.parametrize("pin", ["v4", "0" * 40])
+def test_a_second_or_tag_pin_of_the_attest_action_is_found(pin):
+    text = read_workflow(WORKFLOW)
+    modified = re.sub(r"(attest-build-provenance@)\S+", r"\g<1>" + pin, text, count=1)
+    assert modified != text
+    assert not attest_pins_are_one_commit(modified)
 
 
 def run_sums(tmp_path, files):

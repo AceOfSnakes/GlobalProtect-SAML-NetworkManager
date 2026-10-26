@@ -73,19 +73,28 @@ sudo apt update
 ### Verifying packages
 
 Every release after v1.5.0 has a `SHA256SUMS` asset and a build provenance
-attestation (SLSA, signed through Sigstore) for each `.deb` and `.rpm` file. The
-attestation names the workflow run of this repository that built the file. To
-check a file you downloaded from a GitHub release:
+attestation (SLSA, signed through Sigstore) for `SHA256SUMS` and for each `.deb`
+and `.rpm` file. The attestation names the workflow run of this repository that
+built the file. To check a file you downloaded from a GitHub release (replace
+`vX.Y.Z` with the tag of that release):
 
 ```bash
+gh attestation verify SHA256SUMS --repo WMP/GlobalProtect-SAML-NetworkManager \
+    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml \
+    --source-ref refs/tags/vX.Y.Z
 sha256sum --ignore-missing -c SHA256SUMS            # in the download directory
 gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SAML-NetworkManager \
-    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
+    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml \
+    --source-ref refs/tags/vX.Y.Z
 ```
 
-`publish-apt.yml` does both checks for every package before it signs it into the
-apt and RPM repositories: a package that fails, or a release without `SHA256SUMS`,
-stops the run. Only the releases listed in
+`--source-ref` is needed: without it, the `SHA256SUMS` of an older release, or a
+file of a pull request build, would also pass.
+
+`publish-apt.yml` verifies the attestation of `SHA256SUMS` of every release (one
+API call per release) and the SHA256 of every package against it before it signs
+the package into the apt and RPM repositories: a failure, or a release without
+`SHA256SUMS`, stops the run. Only the releases listed in
 `.github/legacy-unattested-releases.txt` (v1.5.0 and older) are published without
 the checks. The attestation must come from `build-release.yml` and the tag of the
 release (`--signer-workflow`, `--source-ref`). `scripts/install-pr-build.sh`

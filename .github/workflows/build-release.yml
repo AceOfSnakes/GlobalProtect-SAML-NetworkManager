@@ -498,6 +498,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Download all artifacts
@@ -526,6 +528,13 @@ jobs:
           sha256sum -- *.deb *.rpm > SHA256SUMS
           sed -i 's/~/./g' SHA256SUMS
           cat SHA256SUMS
+
+      # SHA256SUMS binds the hash of every package to this workflow and tag:
+      # publish-apt verifies this one attestation per release, then the hashes.
+      - name: Attest build provenance of SHA256SUMS
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-files/SHA256SUMS
 
       - name: Create Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
