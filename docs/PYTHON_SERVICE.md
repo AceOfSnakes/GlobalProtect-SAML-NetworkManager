@@ -82,7 +82,7 @@ nothing when: there is no running session (or a `Disconnect()` or a new
 `Connect()` is stopping it), the token is empty or not the current one
 (`hmac.compare_digest`; the token is never logged), the reason is unknown, a
 `connect` comes when the tunnel is already up or the session is not starting,
-a `reconnect` comes before the first `connect`, or `TUNDEV` is not the
+a `reconnect` comes before the first `connect` or after the session failed, or `TUNDEV` is not the
 interface the service asked for (`--interface`). Without a connection UUID the
 service takes any `TUNDEV` that is a valid interface name. The token is not
 a secret (gpauth and the browser run as the desktop user and inherit it, and
