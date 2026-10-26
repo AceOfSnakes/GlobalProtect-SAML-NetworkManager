@@ -287,7 +287,7 @@ class TestLandingPage:
 
         assert result.returncode == 0, result.stderr + result.stdout
         html = self.index_html(repo)
-        assert f"curl -fsSL {DEFAULT_URL}/gpclient-archive-keyring.gpg" in html
+        assert f"curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \\\n  {DEFAULT_URL}/gpclient-archive-keyring.gpg" in html
         assert "__REPO_URL__" not in html
 
     def test_apt_repo_url_replaces_the_url_on_the_page(self, repo):
@@ -297,7 +297,7 @@ class TestLandingPage:
 
         assert result.returncode == 0, result.stderr + result.stdout
         html = self.index_html(repo)
-        assert "curl -fsSL http://127.0.0.1:8000/a%20b~c_d.e-f/gpclient-archive-keyring.gpg" in html
+        assert "curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \\\n  http://127.0.0.1:8000/a%20b~c_d.e-f/gpclient-archive-keyring.gpg" in html
         assert "wmp.github.io" not in html
         assert "__REPO_URL__" not in html
 
