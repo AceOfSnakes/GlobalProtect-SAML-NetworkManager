@@ -92,7 +92,7 @@ msgstr "연결 제한 시간:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "“%s”에 연결하려면 자격 증명이 필요합니다."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "사용자 지정..."
 
@@ -126,7 +126,7 @@ msgstr ""
 "위의 주소가 포털이 아니라 게이트웨이일 때 선택하십시오.\n"
 "선택하지 않으면 포털 절차를 먼저 시도하므로 인증을 두 번 해야 할 수 있습니다."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "포털이 처음 제안한 것 (자동)"
 

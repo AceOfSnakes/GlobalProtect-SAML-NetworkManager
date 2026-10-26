@@ -92,7 +92,7 @@ msgstr "Tempo limite de ligação:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "São necessárias credenciais para ligar a “%s”."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Personalizado..."
 
@@ -126,7 +126,7 @@ msgstr ""
 "Ative quando o endereço acima for um gateway e não um portal.\n"
 "Sem isto, o fluxo do portal é tentado primeiro, o que pode obrigá-lo a autenticar-se duas vezes."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Primeiro proposto pelo portal (automático)"
 

@@ -41,12 +41,12 @@ libnm-vpn-plugin-gpclient.so: nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c 
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(PLUGIN_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient.so \
 		-o libnm-vpn-plugin-gpclient.so nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c $(PLUGIN_LIBS)
 
-libnm-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclient-editor-gtk3.c nm-gpclient-mtu.h nm-gpclient-validate.h
+libnm-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclient-editor-gtk3.c nm-gpclient-editor-common.h nm-gpclient-mtu.h nm-gpclient-validate.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(EDITOR_GTK3_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient-editor.so \
 		-o libnm-vpn-plugin-gpclient-editor.so \
 		nm-gpclient-editor-plugin.c nm-gpclient-editor-gtk3.c $(EDITOR_GTK3_LIBS)
 
-libnm-gtk4-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclient-editor.c nm-gpclient-mtu.h nm-gpclient-validate.h
+libnm-gtk4-vpn-plugin-gpclient-editor.so: nm-gpclient-editor-plugin.c nm-gpclient-editor.c nm-gpclient-editor-common.h nm-gpclient-mtu.h nm-gpclient-validate.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(EDITOR_GTK4_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-gtk4-vpn-plugin-gpclient-editor.so \
 		-o libnm-gtk4-vpn-plugin-gpclient-editor.so \
 		nm-gpclient-editor-plugin.c nm-gpclient-editor.c $(EDITOR_GTK4_LIBS)

@@ -89,7 +89,7 @@ msgstr "Délai de connexion :"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Des identifiants sont requis pour se connecter à « %s »."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Personnalisé..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "Activez cette option quand l’adresse ci-dessus est une passerelle et non un portail.\n"
 "Sans elle, le flux du portail est essayé en premier, ce qui peut vous obliger à vous authentifier deux fois."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Première proposée par le portail (automatique)"
 

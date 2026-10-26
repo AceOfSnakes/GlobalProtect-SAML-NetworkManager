@@ -89,7 +89,7 @@ msgstr "Tempo límite de conexión:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Requírense credenciais para conectar con “%s”."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Personalizado..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "Active isto cando o enderezo de enriba é unha pasarela e non un portal.\n"
 "Sen isto proba primeiro o fluxo do portal, o que pode facer que teña que autenticarse dúas veces."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "A primeira proposta polo portal (automático)"
 

@@ -1,7 +1,5 @@
 /* NetworkManager gpclient VPN connection editor - GTK3 version */
 
-#include <stdio.h>
-#include <string.h>
 #include <glib/gi18n-lib.h>
 #include <gtk/gtk.h>
 #include <NetworkManager.h>
@@ -9,6 +7,7 @@
 #include <nma-ui-utils.h>
 
 #include "nm-gpclient-editor.h"
+#include "nm-gpclient-editor-common.h"
 #include "nm-gpclient-mtu.h"
 #include "nm-gpclient-validate.h"
 
@@ -38,25 +37,6 @@ struct _NMGpclientEditor {
     GtkWidget *hip_script_label;
     GtkEntry *hip_script_entry;
     GtkComboBoxText *fix_openssl_combo;
-};
-
-/* First entry of the preferred-gateway combo: let the portal decide. Stored as
- * an empty vpn.data value, so existing profiles keep behaving the same. */
-#define GATEWAY_AUTO_LABEL _("First proposed by portal (automatic)")
-
-/* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
- * default, usually 60 s), which is too short for a SAML login with MFA. A new
- * connection with browser authentication starts with this value. While the
- * stored value is 0 and the user has not changed the field, choosing browser
- * authentication sets it (issue #46). It is longer than the limit of the
- * browser login itself (GP_AUTH_TIMEOUT, 300 s, scripts/browser-wrapper.sh)
- * plus the time to connect after the login, so that limit and its clearer
- * error come first. */
-#define SAML_TIMEOUT_DEFAULT 360
-
-/* Browser values understood by the service (see resolve_browser()) */
-static const char *browser_values[] = {
-    "edge", "firefox", "chrome", "chromium", "default", NULL
 };
 
 static void nm_gpclient_editor_interface_init (NMVpnEditorInterface *iface_class);
@@ -113,19 +93,16 @@ timeout_changed_cb (gpointer widget, gpointer user_data)
 }
 
 /* The value the user sees. Typed text is committed to the adjustment only on
- * focus-out or Enter, so read the text. Parse it as GTK does on commit (a
- * numeric spin button accepts a sign at position 0): g_strtod, then clamp to
- * the range of the adjustment ("+90" is 90, "-5" is 0, a very long number is
- * the upper limit, empty text is 0). This never changes the widget. */
+ * focus-out or Enter, so read the text (parsed in the common header). This
+ * never changes the widget. */
 static guint
 timeout_from_spin (GtkSpinButton *spin)
 {
     const char *text = gtk_entry_get_text (GTK_ENTRY (spin));
     GtkAdjustment *adj = gtk_spin_button_get_adjustment (spin);
-    double v = g_ascii_strtod (text ? text : "", NULL);
 
-    v = CLAMP (v, gtk_adjustment_get_lower (adj), gtk_adjustment_get_upper (adj));
-    return (guint) v;
+    return nm_gpclient_editor_parse_timeout (text, gtk_adjustment_get_lower (adj),
+                                             gtk_adjustment_get_upper (adj));
 }
 
 static void
@@ -170,8 +147,7 @@ build_ui (NMGpclientEditor *self)
     int row = 0;
 
     s_vpn = nm_connection_get_setting_vpn (self->connection);
-    /* A profile that exists has at least the gateway in vpn.data */
-    is_new = !s_vpn || nm_setting_vpn_get_num_data_items (s_vpn) == 0;
+    is_new = nm_gpclient_editor_is_new (s_vpn);
     self->is_new = is_new;
     stored = s_vpn ? nm_setting_vpn_get_timeout (s_vpn) : 0;
 
@@ -205,11 +181,9 @@ build_ui (NMGpclientEditor *self)
         _("Enable when the address above is a gateway rather than a portal.\n"
         "Without this the portal workflow is tried first, which can make you "
         "authenticate twice."));
-    if (s_vpn) {
-        value = nm_setting_vpn_get_data_item (s_vpn, "as-gateway");
+    if (s_vpn)
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->as_gateway_check),
-                                      g_ascii_strcasecmp (value ? value : "", "true") == 0);
-    }
+                                      nm_gpclient_editor_data_is_true (s_vpn, "as-gateway"));
     g_signal_connect (G_OBJECT (self->as_gateway_check), "toggled", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->as_gateway_check), 1, row++, 1, 1);
 
@@ -265,13 +239,8 @@ build_ui (NMGpclientEditor *self)
         _("Browser: the portal opens a browser window for single sign-on (default).\n"
         "Username and password: the portal asks on the terminal - the credentials "
         "and any token are requested in a dialog instead."));
-    if (s_vpn) {
-        value = nm_setting_vpn_get_data_item (s_vpn, "auth-mode");
-        gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_mode_combo),
-                                  g_strcmp0 (value, "credentials") == 0 ? 1 : 0);
-    } else {
-        gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_mode_combo), 0);
-    }
+    gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_mode_combo),
+                              nm_gpclient_editor_auth_index (s_vpn));
     auth_index = gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo));
     g_signal_connect (G_OBJECT (self->auth_mode_combo), "changed", G_CALLBACK (auth_mode_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->auth_mode_combo), 1, row++, 1, 1);
@@ -313,10 +282,8 @@ build_ui (NMGpclientEditor *self)
             gtk_entry_set_text (self->password_entry, value);
     }
     {
-        NMSettingSecretFlags flags = NM_SETTING_SECRET_FLAG_AGENT_OWNED;
+        NMSettingSecretFlags flags = nm_gpclient_editor_password_flags_initial (s_vpn, is_new);
 
-        if (!is_new)
-            nm_setting_get_secret_flags (NM_SETTING (s_vpn), "password", &flags, NULL);
         /* No setting: libnma would read the flags from it (none on a new
          * connection, so 0) and ignore these; update_connection() saves them */
         nma_utils_setup_password_storage (GTK_WIDGET (self->password_entry), flags, NULL, NULL, FALSE, FALSE);
@@ -404,11 +371,8 @@ build_ui (NMGpclientEditor *self)
     /* A new profile starts with 360 s for browser authentication. A stored 0
      * (new or existing) follows the authentication mode until the user sets a
      * value; an existing profile still opens with its 0. */
-    if (is_new && stored == 0)
-        gtk_spin_button_set_value (self->timeout_spin,
-                                   auth_index == 0 ? SAML_TIMEOUT_DEFAULT : 0);
-    else
-        gtk_spin_button_set_value (self->timeout_spin, (double) stored);
+    gtk_spin_button_set_value (self->timeout_spin,
+                               nm_gpclient_editor_timeout_initial (is_new, stored, auth_index));
     self->timeout_follows_auth_mode = (stored == 0);
     /* Connect after the initial value is set */
     g_signal_connect (G_OBJECT (self->timeout_spin), "changed", G_CALLBACK (timeout_changed_cb), self);
@@ -461,17 +425,8 @@ build_ui (NMGpclientEditor *self)
         "Automatic: retry once with the workaround when the portal asks for it, "
         "and switch this setting to \"Always on\" afterwards, so the failed first "
         "attempt does not repeat."));
-    if (s_vpn) {
-        value = nm_setting_vpn_get_data_item (s_vpn, "fix-openssl");
-        if (g_ascii_strcasecmp (value ? value : "", "true") == 0)
-            gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 1);
-        else if (g_ascii_strcasecmp (value ? value : "", "false") == 0)
-            gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 2);
-        else
-            gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 0);
-    } else {
-        gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo), 0);
-    }
+    gtk_combo_box_set_active (GTK_COMBO_BOX (self->fix_openssl_combo),
+                              nm_gpclient_editor_fix_openssl_index (s_vpn));
     g_signal_connect (G_OBJECT (self->fix_openssl_combo), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->fix_openssl_combo), 1, row++, 1, 1);
 
@@ -504,12 +459,7 @@ build_ui (NMGpclientEditor *self)
         _("Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
         "This is required by some organizations for security compliance."));
     /* Default: enabled */
-    gboolean hip_enabled = TRUE;
-    if (s_vpn) {
-        value = nm_setting_vpn_get_data_item (s_vpn, "hip");
-        if (value && *value)
-            hip_enabled = (g_ascii_strcasecmp (value, "true") == 0);
-    }
+    gboolean hip_enabled = nm_gpclient_editor_hip_enabled (s_vpn);
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->hip_check), hip_enabled);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->hip_check), 1, row++, 1, 1);
 
@@ -592,70 +542,38 @@ update_connection (NMVpnEditor *iface,
         g_free (gateway);
     }
 
-    if (self->as_gateway_check) {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->as_gateway_check)))
-            nm_setting_vpn_add_data_item (s_vpn, "as-gateway", "true");
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "as-gateway");
-    }
+    if (self->as_gateway_check)
+        nm_gpclient_editor_set_or_remove (s_vpn, "as-gateway",
+            gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->as_gateway_check)) ? "true" : NULL);
 
     if (self->preferred_gateway_combo) {
         str = gtk_combo_box_text_get_active_text (self->preferred_gateway_combo);
         /* The automatic entry means "let the portal decide" - store nothing */
-        if (str && strlen (str) && g_strcmp0 (str, GATEWAY_AUTO_LABEL) != 0)
-            nm_setting_vpn_add_data_item (s_vpn, "preferred-gateway", str);
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "preferred-gateway");
+        nm_gpclient_editor_set_or_remove (s_vpn, "preferred-gateway",
+            g_strcmp0 (str, GATEWAY_AUTO_LABEL) != 0 ? str : NULL);
         g_free ((char *) str);
     }
 
-    if (self->auth_mode_combo) {
-        if (gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1)
-            nm_setting_vpn_add_data_item (s_vpn, "auth-mode", "credentials");
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "auth-mode");
-    }
+    if (self->auth_mode_combo)
+        nm_gpclient_editor_set_or_remove (s_vpn, "auth-mode",
+            gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1 ? "credentials" : NULL);
 
-    if (self->username_entry) {
-        str = gtk_entry_get_text (self->username_entry);
-        if (str && strlen (str))
-            nm_setting_vpn_add_data_item (s_vpn, "username", str);
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "username");
-    }
+    if (self->username_entry)
+        nm_gpclient_editor_set_or_remove (s_vpn, "username",
+                                          gtk_entry_get_text (self->username_entry));
 
-    /* Save the password flags and the password. A new connection gets
-     * password-flags=1; an existing one without the key stays without it. The
-     * secret is kept out of the connection when it is not to be saved. An
-     * agent-owned secret goes to NetworkManager, which hands it to the agent and
-     * keeps it out of the profile file. */
-    if (self->password_entry) {
-        NMSettingSecretFlags flags = nma_utils_menu_to_secret_flags (GTK_WIDGET (self->password_entry));
+    /* Save the password flags and the password (rules in the common header) */
+    if (self->password_entry)
+        nm_gpclient_editor_save_password (s_vpn, self->is_new, self->password_menu_flags,
+            nma_utils_menu_to_secret_flags (GTK_WIDGET (self->password_entry)),
+            gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1,
+            gtk_entry_get_text (self->password_entry));
 
-        /* Only a new connection or a change in the menu writes the flags, so
-         * bits the menu cannot show (4, not required) are kept */
-        if ((self->is_new && flags != NM_SETTING_SECRET_FLAG_NONE) || flags != self->password_menu_flags)
-            nm_setting_set_secret_flags (NM_SETTING (s_vpn), "password", flags, NULL);
-        str = gtk_entry_get_text (self->password_entry);
-        if (gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1) {
-            if (str && *str && !(flags & NM_SETTING_SECRET_FLAG_NOT_SAVED))
-                nm_setting_vpn_add_secret (s_vpn, "password", str);
-            else
-                nm_setting_vpn_remove_secret (s_vpn, "password");
-        }
-    }
-
-    /* A one-time code is never stored. The service sets this after the first
-     * code too; a new connection starts with it. */
-    if (self->is_new && !nm_setting_vpn_get_data_item (s_vpn, "otp-flags"))
-        nm_setting_vpn_add_data_item (s_vpn, "otp-flags", "2");
+    nm_gpclient_editor_default_otp_flags (s_vpn, self->is_new);
 
     if (self->browser_combo) {
         str = gtk_combo_box_text_get_active_text (self->browser_combo);
-        if (str && strlen (str) && g_strcmp0(str, _("Custom...")) != 0)
-            nm_setting_vpn_add_data_item (s_vpn, "browser", str);
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "browser");
+        nm_gpclient_editor_save_browser (s_vpn, str);
         g_free ((char *)str);
     }
 
@@ -669,63 +587,27 @@ update_connection (NMVpnEditor *iface,
     if (self->mtu_spin) {
         /* 0 = automatic (no key), below 576 is saved as 576; commit typed
          * text first */
-        int mtu;
-
         gtk_spin_button_update (self->mtu_spin);
-        mtu = gtk_spin_button_get_value_as_int (self->mtu_spin);
-        if (!self->mtu_touched && nm_gpclient_mtu_parse (self->mtu_stored) < 0) {
-            /* The stored value is invalid, so the spin button shows 0, and the
-             * user did not touch it: keep the text instead of losing it */
-            nm_setting_vpn_add_data_item (s_vpn, "mtu", self->mtu_stored);
-        } else if (mtu <= 0) {
-            nm_setting_vpn_remove_data_item (s_vpn, "mtu");
-        } else {
-            char *mtu_text = g_strdup_printf ("%d", CLAMP (mtu, MTU_MIN, MTU_MAX));
-
-            nm_setting_vpn_add_data_item (s_vpn, "mtu", mtu_text);
-            g_free (mtu_text);
-        }
+        nm_gpclient_editor_save_mtu (s_vpn, gtk_spin_button_get_value_as_int (self->mtu_spin),
+                                     self->mtu_stored, self->mtu_touched);
     }
 
-    if (self->dns_entry) {
-        str = gtk_entry_get_text (self->dns_entry);
-        if (str && strlen (str))
-            nm_setting_vpn_add_data_item (s_vpn, "dns", str);
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "dns");
-    }
+    if (self->dns_entry)
+        nm_gpclient_editor_set_or_remove (s_vpn, "dns", gtk_entry_get_text (self->dns_entry));
 
-    if (self->fix_openssl_combo) {
-        /* Automatic stores nothing - the service reads a missing key as "auto"
-         * and switches the profile to "true" once a portal needs it. */
-        switch (gtk_combo_box_get_active (GTK_COMBO_BOX (self->fix_openssl_combo))) {
-        case 1:
-            nm_setting_vpn_add_data_item (s_vpn, "fix-openssl", "true");
-            break;
-        case 2:
-            nm_setting_vpn_add_data_item (s_vpn, "fix-openssl", "false");
-            break;
-        default:
-            nm_setting_vpn_remove_data_item (s_vpn, "fix-openssl");
-            break;
-        }
-    }
+    if (self->fix_openssl_combo)
+        nm_gpclient_editor_save_fix_openssl (s_vpn,
+            gtk_combo_box_get_active (GTK_COMBO_BOX (self->fix_openssl_combo)));
 
-    if (self->hip_check) {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->hip_check)))
-            nm_setting_vpn_add_data_item (s_vpn, "hip", "true");
-        else
-            nm_setting_vpn_add_data_item (s_vpn, "hip", "false");
-    }
+    if (self->hip_check)
+        nm_setting_vpn_add_data_item (s_vpn, "hip",
+            gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->hip_check)) ? "true" : "false");
 
     if (self->hip_script_entry) {
         /* Saved even when HIP is off: the service ignores it then */
         gchar *script = g_strstrip (g_strdup (gtk_entry_get_text (self->hip_script_entry)));
 
-        if (*script)
-            nm_setting_vpn_add_data_item (s_vpn, "hip-script", script);
-        else
-            nm_setting_vpn_remove_data_item (s_vpn, "hip-script");
+        nm_gpclient_editor_set_or_remove (s_vpn, "hip-script", script);
         g_free (script);
     }
 

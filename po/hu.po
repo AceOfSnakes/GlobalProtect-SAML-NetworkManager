@@ -89,7 +89,7 @@ msgstr "Kapcsolódási időkorlát:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Hitelesítő adatok szükségesek a(z) „%s” kapcsolathoz."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Egyéni..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "Engedélyezze, ha a fenti cím átjáró, nem portál.\n"
 "Ennek hiányában először a portál munkafolyamatát próbálja, ami miatt előfordulhat, hogy kétszer kell hitelesítenie."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "A portál által először javasolt (automatikus)"
 

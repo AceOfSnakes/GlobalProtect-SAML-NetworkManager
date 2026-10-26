@@ -303,10 +303,21 @@ def test_potfiles_rejects_a_wrong_list(tree, listed, word):
 
 
 @pytest.mark.parametrize(
-    "path", [p for p in potfiles(read("po/POTFILES.in")) if p.endswith(".c")]
+    "path", [p for p in potfiles(read("po/POTFILES.in")) if p.endswith((".c", ".h"))]
 )
 def test_the_c_sources_wrap_every_shown_string(path):
     assert unwrapped_strings(read(path)) == []
+
+
+def test_an_unwrapped_string_in_a_header_is_found():
+    # The shared editor header is checked like the .c files
+    header = read("plugins/gnome/nm-gpclient-editor-common.h")
+    assert "plugins/gnome/nm-gpclient-editor-common.h" in read("po/POTFILES.in")
+    assert unwrapped_strings(header) == []
+
+    broken = header + '\nstatic void f (GtkWidget *w) { gtk_widget_set_tooltip_text (w, "Raw text"); }\n'
+
+    assert unwrapped_strings(broken)
 
 
 @pytest.mark.parametrize(

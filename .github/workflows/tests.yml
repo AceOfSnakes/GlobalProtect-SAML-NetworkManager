@@ -53,6 +53,12 @@ jobs:
             command -v "$t" >/dev/null || { echo "::error::missing $t"; exit 1; }
           done
 
+      # tests/unit/test_editor_common_header.py compiles a C header against GLib
+      - name: Install the C compiler and GLib headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libglib2.0-dev
+
       - name: Run unit tests (non-root)
         if: matrix.mode == 'non-root'
         run: python -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
@@ -62,7 +68,7 @@ jobs:
       # fake tools first in the PATH they pass to the scripts.
       - name: Run unit tests (root)
         if: matrix.mode == 'root'
-        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
+        run: sudo CI="$CI" "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
 
       # The counts of this job, shown when it is opened from the checks of a
       # pull request. Runs after a failure too, and never fails the job itself.

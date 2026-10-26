@@ -89,7 +89,7 @@ msgstr "Време истека повезивања:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "За повезивање са „%s“ потребни су акредитиви."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Прилагођено..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "Укључите када је адреса изнад мрежни пролаз, а не портал.\n"
 "Без овога се прво покушава радни ток преко портала, што може довести до двоструке потврде идентитета."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Први који предложи портал (аутоматски)"
 

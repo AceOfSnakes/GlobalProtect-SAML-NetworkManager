@@ -89,7 +89,7 @@ msgstr "Време за изчакване на връзката:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Необходими са данни за вход, за да се свържете с „%s“."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Друг..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "Включете, когато адресът по-горе е шлюз, а не портал.\n"
 "Без това първо се опитва работният процес на портала, което може да ви накара да се удостоверите два пъти."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Първият предложен от портала (автоматично)"
 

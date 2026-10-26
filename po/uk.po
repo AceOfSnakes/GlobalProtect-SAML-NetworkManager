@@ -89,7 +89,7 @@ msgstr "Тайм-аут з'єднання:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Для з'єднання з «%s» потрібні облікові дані."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Інший..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "Увімкніть, якщо адреса вище є шлюзом, а не порталом.\n"
 "Без цього спочатку пробується робочий процес порталу, через що вам, можливо, доведеться автентифікуватися двічі."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Перший, запропонований порталом (автоматично)"
 

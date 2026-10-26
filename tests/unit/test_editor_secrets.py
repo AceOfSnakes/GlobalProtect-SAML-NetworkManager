@@ -18,9 +18,14 @@ def read(rel):
     return (ROOT / rel).read_text()
 
 
+def read_gtk(rel):
+    # The flags rules live in the header the two GTK editors share
+    return read(rel) + read("plugins/gnome/nm-gpclient-editor-common.h")
+
+
 @pytest.mark.parametrize("rel", GTK)
 def test_gtk_editor_uses_the_password_storage_menu(rel):
-    src = read(rel)
+    src = read_gtk(rel)
 
     assert "nma_utils_setup_password_storage" in src
     assert "nma_utils_menu_to_secret_flags" in src
@@ -43,7 +48,7 @@ def test_gtk_storage_menu_gets_no_setting(rel):
 
 
 GTK_FLAGS_RULE = re.compile(
-    r"if \(\(self->is_new && flags != NM_SETTING_SECRET_FLAG_NONE\) \|\| flags != self->password_menu_flags\)\s*"
+    r"if \(\(is_new && flags != NM_SETTING_SECRET_FLAG_NONE\) \|\| flags != menu_flags\)\s*"
     r"nm_setting_set_secret_flags"
 )
 
@@ -55,7 +60,7 @@ def gtk_flags_written_only_when_new_or_changed(src):
 @pytest.mark.parametrize("rel", GTK)
 def test_gtk_editor_writes_the_flags_only_when_new_or_changed(rel):
     # An existing profile keeps flags the menu cannot show (4, not required)
-    assert gtk_flags_written_only_when_new_or_changed(read(rel))
+    assert gtk_flags_written_only_when_new_or_changed(read_gtk(rel))
 
 
 @pytest.mark.parametrize(
@@ -73,9 +78,9 @@ def test_an_unconditional_or_old_flags_write_is_rejected(bad):
 @pytest.mark.parametrize("rel", GTK + [PLASMA])
 def test_every_editor_defaults_a_new_connection_only(rel):
     # The defaults are guarded by "new": an existing connection keeps its flags
-    src = read(rel)
+    src = read_gtk(rel) if rel in GTK else read(rel)
 
-    assert re.search(r"(self->is_new|m_isNew)\s*&&.*otp-flags|otp-flags.*(self->is_new|m_isNew)", src)
+    assert re.search(r"(\bis_new|m_isNew)\s*&&.*otp-flags|otp-flags.*(\bis_new|m_isNew)", src)
 
 
 def test_plasma_editor_has_the_password_widgets():

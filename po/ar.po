@@ -89,7 +89,7 @@ msgstr "مهلة الاتصال:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "بيانات الاعتماد مطلوبة للاتصال بـ «%s»."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "مخصص..."
 
@@ -121,7 +121,7 @@ msgstr ""
 "فعّله عندما يكون العنوان أعلاه بوابة وليس مدخلاً.\n"
 "بدونه تُجرَّب خطوات المدخل أولاً، وقد يجعلك ذلك تصادق مرتين."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "أول ما يقترحه المدخل (تلقائي)"
 
