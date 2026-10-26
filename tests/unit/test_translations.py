@@ -86,7 +86,8 @@ def msgid_diff(committed, fresh):
     return {"missing": sorted(fresh - committed), "obsolete": sorted(committed - fresh)}
 
 
-PLACEHOLDER = re.compile(r"%(?:\d+\$)?[sdiufc]|</?[A-Za-z][^<>]*>|(?<!\w)[_&](?=[A-Za-z])")
+# An accelerator may stand before any letter (_Отмена, _إلغاء) and inside a word (İ_ptal)
+PLACEHOLDER = re.compile(r"%(?:\d+\$)?[sdiufc]|</?[A-Za-z][^<>]*>|[_&](?=[^\W\d_])")
 NUMBERED = re.compile(r"%\d+")
 
 
@@ -543,6 +544,7 @@ def test_the_translation_is_complete_and_keeps_the_placeholders(path):
         (("Use <b>this</b>", "Uzyj tego", ""), "placeholders"),
         (("Use <b>this</b>", "Uzyj <i>tego</i>", ""), "placeholders"),
         (("_Cancel", "Anuluj", ""), "placeholders"),
+        (("_Cancel", "Отмена", ""), "placeholders"),
         (("&Cancel", "Anuluj", ""), "placeholders"),
         (("From %1 to %2", "Od %1", ""), "numbered"),
         (("From %1", "Od %2", ""), "numbered"),
@@ -560,6 +562,9 @@ def test_a_bad_translation_is_found(entry, word):
         ("From %1 to %2", "Do %2 z %1", ""),
         ("Use <b>this</b>", "Uzyj <b>tego</b>", ""),
         ("_Cancel", "_Anuluj", ""),
+        ("_Cancel", "_Отмена", ""),
+        ("_Cancel", "İ_ptal", ""),
+        ("_OK", "OK(_O)", ""),
         ("--hip=<path>", "--hip=<path>", ""),
     ],
 )
@@ -567,12 +572,21 @@ def test_a_good_translation_is_accepted(entry):
     assert translation_problems([entry]) == []
 
 
-@pytest.mark.parametrize("path", catalog_paths("pl"), ids=lambda p: os.path.relpath(p, ROOT))
-def test_the_polish_catalog_has_its_header_and_the_review_note(path):
+@pytest.mark.parametrize(
+    "lang, path",
+    [(lang, path) for lang in languages() for path in catalog_paths(lang)],
+    ids=lambda v: os.path.relpath(v, ROOT) if os.path.isabs(v) else v,
+)
+def test_every_catalog_has_its_header(lang, path):
+    # The review note is not checked: a reviewer removes it (docs/TRANSLATIONS.md)
     text = open(path, encoding="utf-8").read()
-    assert header_problems(text, "pl") == []
-    assert "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);" in text
-    assert "# Machine translation, needs review by a native speaker.\n" in text
+    assert header_problems(text, lang) == []
+
+
+def test_the_polish_catalogs_have_the_polish_plural_forms():
+    for path in catalog_paths("pl"):
+        text = open(path, encoding="utf-8").read()
+        assert "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);" in text
 
 
 @pytest.mark.parametrize(

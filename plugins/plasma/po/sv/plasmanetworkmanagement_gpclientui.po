@@ -1,0 +1,319 @@
+# Swedish translation of plasmanetworkmanagement_gpclientui.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the plasmanetworkmanagement_gpclientui package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Swedish\n"
+"Language: sv\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: rc.cpp
+#, kde-format
+msgid " bytes"
+msgstr " byte"
+
+#: rc.cpp
+#, kde-format
+msgid " s"
+msgstr " s"
+
+#: rc.cpp
+#, kde-format
+msgid "Address is a gateway (skip the portal)"
+msgstr "Adressen är en gateway (hoppa över portalen)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"Adress till GlobalProtect-portalen (t.ex. vpn.company.com).\n"
+"Om din organisation i stället gav dig en gateway-adress, kryssa också i ”Adressen är en gateway” nedan."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Always on"
+msgstr "Alltid på"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Ask every time (not saved)"
+msgstr "Fråga varje gång (sparas inte)"
+
+#: rc.cpp
+#, kde-format
+msgid "Authentication:"
+msgstr "Autentisering:"
+
+#: rc.cpp
+#, kde-format
+msgid "Automatic"
+msgstr "Automatisk"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automatisk (aktivera när portalen kräver det)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Webbläsare (SAML, passkey, 2FA)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Webbläsare som används för SAML/2FA-autentisering. ”edge” är det bäst testade alternativet; ”default” använder skrivbordets standardwebbläsare.\n"
+"Välj ”Anpassad...” för att ange den fullständiga sökvägen till din egen körbara fil."
+
+#: rc.cpp
+#, kde-format
+msgid "Browser:"
+msgstr "Webbläsare:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Webbläsare: portalen öppnar ett webbläsarfönster för enkel inloggning (standard).\n"
+"Användarnamn och lösenord: portalen frågar i terminalen - inloggningsuppgifterna och eventuell token begärs i stället i en dialogruta."
+
+#: rc.cpp
+#, kde-format
+msgid "Connect timeout:"
+msgstr "Tidsgräns för anslutning:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Custom..."
+msgstr "Anpassad..."
+
+#: rc.cpp
+#, kde-format
+msgid "DNS Servers:"
+msgstr "DNS-servrar:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: built-in HIP report"
+msgstr "Tomt: inbyggd HIP-rapport"
+
+#: rc.cpp
+#, kde-format
+msgid "Enable HIP (Host Integrity Protection) to send host information to the VPN gateway. This is required by some organizations for security compliance."
+msgstr "Aktivera HIP (Host Integrity Protection) för att skicka värdinformation till VPN-gatewayen. Det krävs av vissa organisationer för att uppfylla säkerhetskrav."
+
+#: rc.cpp
+#, kde-format
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Aktivera Host Integrity Protection (HIP)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Aktivera när adressen ovan är en gateway och inte en portal.\n"
+"Utan detta provas portalarbetsflödet först, vilket kan göra att du måste autentisera dig två gånger."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "First proposed by portal (automatic)"
+msgstr "Först föreslagen av portalen (automatisk)"
+
+#: rc.cpp
+#, kde-format
+msgid "GlobalProtect VPN"
+msgstr "GlobalProtect VPN"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP script:"
+msgstr "HIP-skript:"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP:"
+msgstr "HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Hur länge NetworkManager väntar på att VPN ska ansluta, inklusive inloggningen i webbläsaren (vpn.timeout).\n"
+"0 använder NetworkManagers standardvärde, vanligtvis 60 s - ofta för kort för en SAML-inloggning med MFA. En ny anslutning med webbläsarautentisering börjar med 360 s. Så länge en anslutning inte har någon egen tidsgräns (0) och du inte har ändrat det här fältet, ställer val av webbläsarautentisering in 360 s."
+
+#: rc.cpp
+#, kde-format
+msgid "Leave empty for automatic VPN DNS (recommended)"
+msgstr "Lämna tomt för automatisk VPN-DNS (rekommenderas)"
+
+#: rc.cpp
+#, kde-format
+msgid "Legacy TLS renegotiation:"
+msgstr "Äldre TLS-omförhandling:"
+
+#: rc.cpp
+#, kde-format
+msgid "MTU:"
+msgstr "MTU:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Största storlek på ett paket i tunneln.\n"
+"Automatisk (0): openconnect väljer värdet. Att sänka värdet (till exempel till 1300-1400) kan hjälpa när tunneln faller tillbaka från ESP till HTTPS med ”Message too long”.\n"
+"Det har endast effekt när gatewayen inte skickar någon egen MTU. Värden från 1 till 575 sparas som 576, det lägsta värde som används."
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager default (usually 60 s)"
+msgstr "Standard för NetworkManager (vanligtvis 60 s)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Never"
+msgstr "Aldrig"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional"
+msgstr "Valfritt"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Valfri absolut sökväg till en egen körbar HIP-fil, som skickas till gpclient som --hip=<path>.\n"
+"Tjänsten kör den som root: den måste vara en fil som ägs av root och som inte är skrivbar för grupp eller andra, i kataloger som ägs av root och som inte är skrivbara för grupp eller andra. Annars misslyckas anslutningen.\n"
+"Ignoreras när HIP är av."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Valfritt. Används av portaler som frågar efter inloggningsuppgifter i terminalen, så att du inte behöver ange användarnamnet varje gång."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by the \"Username and password\" authentication."
+msgstr "Valfritt. Används av autentiseringen ”Användarnamn och lösenord”."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Password"
+msgstr "Lösenord"
+
+#: rc.cpp
+#, kde-format
+msgid "Password storage:"
+msgstr "Lösenordslagring:"
+
+#: rc.cpp
+#, kde-format
+msgid "Password:"
+msgstr "Lösenord:"
+
+#: rc.cpp
+#, kde-format
+msgid "Portal or gateway address:"
+msgstr "Adress till portal eller gateway:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Portaler med en gammal TLS-stack kräver omförhandling som OpenSSL 3 nekar som standard.\n"
+"Automatisk: försök en gång till med lösningen när portalen begär det, och ställ sedan om den här inställningen till ”Alltid på”, så att det misslyckade första försöket inte upprepas."
+
+#: rc.cpp
+#, kde-format
+msgid "Preferred gateway:"
+msgstr "Föredragen gateway:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Rekommenderas: lämna tomt för att använda DNS-servrar från VPN med automatisk split DNS-konfiguration.\n"
+"Split DNS gör att VPN-specifika domäner kan slås upp via VPN-DNS medan lokal DNS används för andra domäner.\n"
+"Åsidosätt: ange DNS-servrar separerade med semikolon (t.ex. 8.8.8.8;8.8.4.4) för att använda egen DNS i stället."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for all users (system)"
+msgstr "Spara för alla användare (system)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for this user only (agent)"
+msgstr "Spara endast för den här användaren (agent)"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Token / one-time code"
+msgstr "Token / engångskod"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Username"
+msgstr "Användarnamn"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Username and password (RSA token)"
+msgstr "Användarnamn och lösenord (RSA-token)"
+
+#: rc.cpp
+#, kde-format
+msgid "Username:"
+msgstr "Användarnamn:"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the password is kept. \"Ask every time\" stores nothing."
+msgstr "Var lösenordet sparas. ”Fråga varje gång” sparar ingenting."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Vilken gateway som ska anslutas till. Listan fylls i efter den första lyckade anslutningen.\n"
+"Om den valda gatewayen inte längre erbjuds av portalen används det första förslaget i stället."
+
+#: rc.cpp
+#, kde-format
+msgid "vpn.company.com"
+msgstr "vpn.company.com"

@@ -1,0 +1,318 @@
+# Portuguese translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Portuguese\n"
+"Language: pt\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "O endereço é um gateway (ignorar o portal)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address "
+"is a gateway\" below."
+msgstr ""
+"Endereço do portal GlobalProtect (por exemplo, vpn.company.com).\n"
+"Se a sua organização lhe deu antes um endereço de gateway, assinale também \"O endereço é um gateway\" abaixo."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "Sempre ativo"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "Autenticar VPN: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "A autenticação falhou. Introduza novamente as credenciais de “%s”."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "Autenticação:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automático (ativar quando o portal precisar)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Navegador (SAML, chave de acesso, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested "
+"option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Navegador utilizado para a autenticação SAML/2FA. \"edge\" é a opção mais testada; \"default\" utiliza o navegador predefinido do seu ambiente de trabalho.\n"
+"Selecione 'Personalizado...' para indicar o caminho completo do seu próprio executável."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "Navegador:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and "
+"any token are requested in a dialog instead."
+msgstr ""
+"Navegador: o portal abre uma janela do navegador para início de sessão único (predefinição).\n"
+"Nome de utilizador e palavra-passe: o portal pergunta no terminal - em vez disso, as credenciais e qualquer token são pedidos numa caixa de diálogo."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "Tempo limite de ligação:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "São necessárias credenciais para ligar a “%s”."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "Personalizado..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "Servidores DNS:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "Vazio: relatório HIP incorporado"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN "
+"gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"Ative o HIP (Host Integrity Protection) para enviar informações do anfitrião ao gateway VPN.\n"
+"Isto é exigido por algumas organizações para conformidade de segurança."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Ativar Host Integrity Protection (HIP)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you "
+"authenticate twice."
+msgstr ""
+"Ative quando o endereço acima for um gateway e não um portal.\n"
+"Sem isto, o fluxo do portal é tentado primeiro, o que pode obrigá-lo a autenticar-se duas vezes."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "Primeiro proposto pelo portal (automático)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "Cliente VPN GlobalProtect"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "Script HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in "
+"the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML "
+"login with MFA. A new connection with browser authentication starts with 360 "
+"s. While a connection has no timeout of its own (0) and you have not changed "
+"this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Quanto tempo o NetworkManager espera que a VPN ligue, incluindo o início de sessão no navegador (vpn.timeout).\n"
+"0 utiliza a predefinição do NetworkManager, normalmente 60 s - muitas vezes demasiado curto para um início de sessão SAML com MFA. Uma nova ligação com autenticação por navegador começa com 360 s. Enquanto uma ligação não tiver um tempo limite próprio (0) e não tiver alterado este campo, escolher a autenticação por navegador define 360 s."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "Renegociação TLS antiga:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the "
+"tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from "
+"1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Tamanho máximo de um pacote no túnel.\n"
+"0 = automático. Reduzi-lo (por exemplo, para 1300-1400) pode ajudar quando o túnel recorre de ESP a HTTPS com \"Message too long\".\n"
+"Só tem efeito quando o gateway não envia um MTU próprio. Os valores de 1 a 575 são guardados como 576, o valor mais baixo que é utilizado."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "Nunca"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --"
+"hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not "
+"writable by group or others, in root-owned directories that are not writable "
+"by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Caminho absoluto opcional para um executável HIP personalizado, passado ao gpclient como --hip=<path>.\n"
+"O serviço executa-o como root: tem de ser um ficheiro pertencente ao root que não seja gravável pelo grupo nem por outros, em diretórios pertencentes ao root que não sejam graváveis pelo grupo nem por outros. Caso contrário, a ligação falha.\n"
+"Ignorado quando o HIP está desativado."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional. Use the icon in the field to choose where the password is kept: "
+"for this user only, for all users, or not at all (asked every time)."
+msgstr "Opcional. Utilize o ícone no campo para escolher onde a palavra-passe é guardada: só para este utilizador, para todos os utilizadores, ou em lado nenhum (pedida de cada vez)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional. Used by portals that ask for credentials on the terminal, so you "
+"are not asked for the username every time."
+msgstr "Opcional. Utilizado por portais que pedem credenciais no terminal, para que não lhe seja pedido o nome de utilizador de cada vez."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "Palavra-passe"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "Palavra-passe:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "Endereço do portal ou gateway:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by "
+"default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and "
+"switch this setting to \"Always on\" afterwards, so the failed first attempt "
+"does not repeat."
+msgstr ""
+"Os portais com uma pilha TLS antiga precisam de renegociação, que o OpenSSL 3 recusa por predefinição.\n"
+"Automático: tentar uma vez mais com a solução alternativa quando o portal a pedir e, depois, mudar esta definição para \"Sempre ativo\", para que a primeira tentativa falhada não se repita."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "Gateway preferido:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split "
+"DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using "
+"local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to "
+"use custom DNS instead."
+msgstr ""
+"Recomendado: deixe vazio para utilizar os servidores DNS da VPN com configuração automática de DNS dividido.\n"
+"O DNS dividido permite resolver domínios específicos da VPN através do DNS da VPN e utilizar o DNS local para os outros domínios.\n"
+"Substituir: introduza servidores DNS separados por ponto e vírgula (por exemplo, 8.8.8.8;8.8.4.4) para utilizar antes um DNS personalizado."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "Token / código de utilização única"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "Utilizador: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "Nome de utilizador"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "Nome de utilizador e palavra-passe (token RSA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "Nome de utilizador:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first "
+"successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first "
+"proposal is used instead."
+msgstr ""
+"A que gateway ligar. A lista é preenchida após a primeira ligação com êxito.\n"
+"Se o gateway escolhido deixar de ser oferecido pelo portal, é utilizada em seu lugar a primeira proposta."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "_Cancelar"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "_OK"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid ""
+"browser must be a name, a command name or an absolute path without spaces"
+msgstr "o navegador tem de ser um nome, um nome de comando ou um caminho absoluto sem espaços"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "bytes (0 = automático)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid ""
+"dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "o dns tem de ser endereços IPv4 ou IPv6 separados por vírgulas, pontos e vírgulas ou espaços"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "o gateway é obrigatório"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "o gateway não pode começar por '-' nem conter espaços ou carateres de controlo"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "o hip-script tem de ser um caminho absoluto"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "segundos (0 = predefinição do NetworkManager)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "o nome de utilizador não pode começar por '-' nem conter carateres de controlo"
