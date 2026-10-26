@@ -180,11 +180,11 @@ msgstr ""
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
-msgstr "Voliteľné. Pomocou ikony v poli vyberte, kde sa heslo uchová: iba pre tohto používateľa, pre všetkých používateľov alebo vôbec (pýta sa vždy)."
+msgstr "Voliteľné. Pomocou ikony v poli vyberte, kde sa heslo uchová: iba pre tohto používateľa, pre všetkých používateľov alebo nikde (pýta sa vždy)."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
-msgstr "Voliteľné. Používa sa pri portáloch, ktoré pýtajú prihlasovacie údaje v termináli, aby ste sa nemuseli vždy pýtať na meno používateľa."
+msgstr "Voliteľné. Používa sa pri portáloch, ktoré pýtajú prihlasovacie údaje v termináli, aby ste nemuseli zakaždým zadávať meno používateľa."
 
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Password"

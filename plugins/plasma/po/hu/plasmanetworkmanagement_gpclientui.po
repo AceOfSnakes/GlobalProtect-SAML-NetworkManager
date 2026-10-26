@@ -131,7 +131,7 @@ msgid ""
 "Without this the portal workflow is tried first, which can make you authenticate twice."
 msgstr ""
 "Engedélyezze, ha a fenti cím átjáró, nem portál.\n"
-"Ennek hiányában először a portál munkafolyamatát próbálja, ami miatt kétszer kell hitelesítenie."
+"Ennek hiányában először a portál munkafolyamatát próbálja, ami miatt előfordulhat, hogy kétszer kell hitelesítenie."
 
 #: gpclientwidget.cpp
 #, kde-format

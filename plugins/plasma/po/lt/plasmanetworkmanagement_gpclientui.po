@@ -291,7 +291,7 @@ msgid ""
 msgstr ""
 "Rekomenduojama: palikite tuščią, kad būtų naudojami VPN DNS serveriai su automatine suskaidyto DNS konfigūracija.\n"
 "Suskaidytas DNS leidžia VPN domenus išspręsti per VPN DNS, o kitus domenus - per vietinį DNS.\n"
-"Paneigti: įveskite kabliataškiais atskirtus DNS serverius (pvz., 8.8.8.8;8.8.4.4), kad vietoj to būtų naudojamas jūsų DNS."
+"Nepaisyti: įveskite kabliataškiais atskirtus DNS serverius (pvz., 8.8.8.8;8.8.4.4), kad vietoj to būtų naudojamas jūsų DNS."
 
 #: gpclientwidget.cpp
 #, kde-format

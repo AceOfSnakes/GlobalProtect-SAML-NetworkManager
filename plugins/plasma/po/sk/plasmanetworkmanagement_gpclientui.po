@@ -217,7 +217,7 @@ msgstr ""
 #: rc.cpp
 #, kde-format
 msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
-msgstr "Voliteľné. Používa sa pri portáloch, ktoré pýtajú prihlasovacie údaje v termináli, aby ste sa nemuseli vždy pýtať na meno používateľa."
+msgstr "Voliteľné. Používa sa pri portáloch, ktoré pýtajú prihlasovacie údaje v termináli, aby ste nemuseli zakaždým zadávať meno používateľa."
 
 #: rc.cpp
 #, kde-format

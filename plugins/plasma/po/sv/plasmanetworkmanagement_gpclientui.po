@@ -251,7 +251,7 @@ msgid ""
 "Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
 msgstr ""
 "Portaler med en gammal TLS-stack kräver omförhandling som OpenSSL 3 nekar som standard.\n"
-"Automatisk: försök en gång till med undantaget när portalen begär det, och ställ sedan om den här inställningen till ”Alltid på”, så att det misslyckade första försöket inte upprepas."
+"Automatisk: försök en gång till med lösningen när portalen begär det, och ställ sedan om den här inställningen till ”Alltid på”, så att det misslyckade första försöket inte upprepas."
 
 #: rc.cpp
 #, kde-format
