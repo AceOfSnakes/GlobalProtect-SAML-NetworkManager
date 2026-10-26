@@ -32,10 +32,7 @@ Fedora, RHEL 10 and openSUSE: see [RPM_REPO.md](RPM_REPO.md).
 
 ### Building from Source
 
-```bash
-./build-all.sh          # Build for all Ubuntu versions
-./build-all.sh 24.04    # Build for Ubuntu 24.04 only
-```
+Run `./build-all.sh`: see [BUILD.md](BUILD.md) for targets, output directories and options.
 
 ## Configuring Your VPN
 

@@ -131,7 +131,7 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     OUTPUT_DIR="$SCRIPT_DIR/output/ubuntu${VERSION}"
 
     echo "=== Building Docker image from $DOCKERFILE ==="
-    docker build -f "$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
+    docker build -f "$SCRIPT_DIR/$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
 
     echo "=== Building .deb package for Ubuntu $VERSION ==="
     mkdir -p "$OUTPUT_DIR"

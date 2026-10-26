@@ -154,7 +154,7 @@ touch ../new.deb
 """
 
 
-def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",), arch="amd64"):
+def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",), arch="amd64", cwd=None):
     """files: the targets that have a Dockerfile and a control file in the fake tree"""
     shutil.copy(os.path.join(ROOT, "build-all.sh"), tmp_path / "build-all.sh")
     (tmp_path / "debian").mkdir(exist_ok=True)
@@ -175,7 +175,7 @@ def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",), arch=
     if suffix is not None:
         env["VERSION_SUFFIX"] = suffix
     result = subprocess.run(["bash", str(tmp_path / "build-all.sh"), *([target] if target else [])], env=env,
-                            capture_output=True, text=True, timeout=30)
+                            cwd=cwd, capture_output=True, text=True, timeout=30)
     return result, out
 
 
@@ -244,12 +244,22 @@ class TestBuildAll:
 
         assert result.returncode != 0
 
+    def test_the_dockerfile_path_does_not_depend_on_the_current_directory(self, tmp_path):
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        result, _ = run_build_all(tmp_path, cwd=other)
+        build = next(c for c in (tmp_path / "docker_calls").read_text().splitlines() if c.startswith("build "))
+        dockerfile = build.split()[2]
+
+        assert result.returncode == 0, result.stderr
+        assert dockerfile == str(tmp_path / "Dockerfile.ubuntu24.04")
+
     def test_a_variant_builds_from_its_own_dockerfile_and_control_file(self, tmp_path):
         result, _ = run_build_all(tmp_path, "24.04-neon", files=("24.04", "24.04-neon"))
         calls = (tmp_path / "docker_calls").read_text()
 
         assert result.returncode == 0, result.stderr
-        assert "build -f Dockerfile.ubuntu24.04-neon -t gpclient-builder:ubuntu24.04-neon" in calls
+        assert f"build -f {tmp_path}/Dockerfile.ubuntu24.04-neon -t gpclient-builder:ubuntu24.04-neon" in calls
         assert "cp debian/control.ubuntu24.04-neon debian/control" in (tmp_path / "run_command").read_text()
         assert "Dockerfile.ubuntu24.04 " not in calls
 
