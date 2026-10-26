@@ -1,8 +1,8 @@
 """
 Tests for .github/scripts/verify-release-assets.sh, which publish-apt.yml runs on
 the assets of every release before they are signed into the apt and RPM
-repositories: the SHA256 of each package is the one in the release's SHA256SUMS
-and `gh attestation verify` accepts it. Releases of the legacy list are not
+repositories: `gh attestation verify` accepts the release's SHA256SUMS (one call per
+release, none per package) and the SHA256 of each package is the one in it. Releases of the legacy list are not
 verified; any other release without SHA256SUMS fails.
 
 `gh` is a fake found through PATH (it records its arguments); sha256sum is real.
@@ -67,10 +67,10 @@ class Box:
             with open(self.dir / "SHA256SUMS", "a", encoding="utf-8") as handle:
                 handle.write(f"{sha(data)}  {listed_as or name}\n")
 
-    def run(self, tag="v2.0.0", attested_tag=None, *options):
+    def run(self, tag="v2.0.0", attested_tag=None):
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_DIR": str(self.fake), "GITHUB_REPOSITORY": REPO,
                "FAKE_TAG": attested_tag or tag}
-        return subprocess.run(["bash", SCRIPT, *options, tag, str(self.dir), str(self.legacy)], env=env,
+        return subprocess.run(["bash", SCRIPT, tag, str(self.dir), str(self.legacy)], env=env,
                               capture_output=True, text=True, timeout=60)
 
     def gh_calls(self):
@@ -83,50 +83,24 @@ def box(tmp_path):
     return Box(tmp_path)
 
 
-def test_good_release_passes_and_every_file_is_checked_against_the_repository(box):
+def test_good_release_passes_and_sha256sums_is_verified_once_against_the_repository(box):
     box.add(DEB)
     box.add(RPM)
     result = box.run()
     assert result.returncode == 0, result.stderr
-    assert sorted(box.gh_calls()) == sorted(
-        f"attestation verify {box.dir}/{name} --repo {REPO}"
-        f" --signer-workflow {REPO}/.github/workflows/build-release.yml --source-ref refs/tags/v2.0.0"
-        for name in (DEB, RPM))
+    assert box.gh_calls() == [
+        f"attestation verify {box.dir}/SHA256SUMS --repo {REPO}"
+        f" --signer-workflow {REPO}/.github/workflows/build-release.yml --source-ref refs/tags/v2.0.0"]
 
 
-def test_checksums_only_passes_a_good_release_without_calling_gh(box):
+def test_packages_are_not_attested_one_by_one(box):
+    # a bad attestation of a package is not looked at: SHA256SUMS binds its hash
     box.add(DEB)
     box.add(RPM)
-    result = box.run("v2.0.0", None, "--checksums-only")
+    (box.fake / "bad").write_text(RPM + "\n")
+    result = box.run()
     assert result.returncode == 0, result.stderr
-    assert box.gh_calls() == []
-
-
-def test_checksums_only_fails_on_a_bad_checksum(box):
-    box.add(DEB)
-    (box.dir / DEB).write_bytes(b"tampered")
-    result = box.run("v2.0.0", None, "--checksums-only")
-    assert result.returncode != 0
-    assert "SHA256 of" in result.stderr
-
-
-def test_checksums_only_still_needs_sha256sums_and_listed_files(box):
-    box.add(DEB, listed=False)
-    result = box.run("v2.0.0", None, "--checksums-only")
-    assert result.returncode != 0
-    assert "no SHA256SUMS" in result.stderr
-    box.add(RPM, listed=False)
-    (box.dir / "SHA256SUMS").write_text(f"{sha(DEB.encode())}  {DEB}\n")
-    result = box.run("v2.0.0", None, "--checksums-only")
-    assert f"{RPM} is not in SHA256SUMS" in result.stderr
-
-
-def test_checksums_only_ignores_a_bad_attestation(box):
-    # the attestation was checked when the release was published
-    box.add(DEB)
-    (box.fake / "bad").write_text(DEB + "\n")
-    assert box.run("v2.0.0", None, "--checksums-only").returncode == 0
-    assert box.run().returncode != 0
+    assert len(box.gh_calls()) == 1
 
 
 def test_an_attestation_of_another_tag_fails(box):
@@ -152,13 +126,13 @@ def test_github_renames_the_tilde_of_an_asset_to_a_dot(box):
     assert box.run().returncode == 0
 
 
-def test_checksum_mismatch_fails_before_the_attestation(box):
+def test_checksum_mismatch_fails_after_the_attestation_of_sha256sums(box):
     box.add(DEB)
     (box.dir / DEB).write_bytes(b"tampered")
     result = box.run()
     assert result.returncode != 0
     assert "SHA256 of" in result.stderr
-    assert box.gh_calls() == []
+    assert len(box.gh_calls()) == 1
 
 
 def test_file_missing_from_sha256sums_fails(box):
@@ -184,13 +158,15 @@ def test_duplicate_line_in_sha256sums_fails(box):
     assert "more than once" in result.stderr
 
 
-def test_attestation_failure_fails(box):
+def test_sha256sums_attestation_failure_fails_before_any_package_is_checked(box):
     box.add(DEB)
     box.add(RPM)
-    (box.fake / "bad").write_text(RPM + "\n")
+    (box.dir / DEB).write_bytes(b"tampered")
+    (box.fake / "bad").write_text("SHA256SUMS\n")
     result = box.run()
     assert result.returncode != 0
-    assert "gh attestation verify failed" in result.stderr
+    assert "no valid build provenance for SHA256SUMS" in result.stderr
+    assert "SHA256 of" not in result.stderr
 
 
 @pytest.mark.parametrize("tag", ["v2.0.0", "v1.5.1", "v1.5.0-1", "1.5.0", "v1.5"])
@@ -227,5 +203,5 @@ def test_the_real_legacy_list_has_the_old_tags_only():
 def test_the_publish_workflow_verifies_every_release_before_the_repositories_are_built():
     names = workflow_steps.step_names("publish-apt.yml")
     download = "\n".join(workflow_steps.step_lines("publish-apt.yml", "Download packages from every published release"))
-    assert 'verify-release-assets.sh "${mode[@]}" "$tag"' in download
+    assert 'bash .github/scripts/verify-release-assets.sh "$tag"' in download
     assert names.index("Download packages from every published release") < names.index("Build the repository")

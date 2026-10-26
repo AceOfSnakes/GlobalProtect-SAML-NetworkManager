@@ -2,17 +2,17 @@
 # Verify the packages of one release before they are signed into the apt and
 # RPM repositories.
 #
-#   verify-release-assets.sh [--checksums-only] <tag> <directory> [<legacy tags file>]
+#   verify-release-assets.sh <tag> <directory> [<legacy tags file>]
 #
 # <directory> holds the .deb and .rpm assets of the release <tag> and, if the
-# release has one, its SHA256SUMS asset. For every package:
-#   1. its SHA256 is the one in SHA256SUMS, and
-#   2. `gh attestation verify <file> --repo $GITHUB_REPOSITORY` succeeds, with
-#      the signer workflow build-release.yml and the source ref refs/tags/<tag>
-#      (the build provenance written for that tag).
-# With --checksums-only (first argument) step 2 is left out: no GitHub API
-# call is made. publish-apt.yml uses it for the releases that were fully
-# verified when they were published, to stay under the API rate limit.
+# release has one, its SHA256SUMS asset. Two steps, one GitHub API call:
+#   1. `gh attestation verify SHA256SUMS --repo $GITHUB_REPOSITORY` succeeds,
+#      with the signer workflow build-release.yml and the source ref
+#      refs/tags/<tag> (the build provenance written for that tag), and
+#   2. the SHA256 of every package is the one in SHA256SUMS (listed once).
+# The attested SHA256SUMS binds every package to the workflow and the tag, so
+# the packages need no attestation check one by one (the API rate limit of
+# GITHUB_TOKEN would not allow it for every release on every run).
 # A tag listed in the legacy file (default
 # .github/legacy-unattested-releases.txt) is not verified: those releases are
 # older than SHA256SUMS and the attestations. Every other release without
@@ -23,9 +23,7 @@
 
 set -euo pipefail
 
-usage="usage: verify-release-assets.sh [--checksums-only] <tag> <directory> [<legacy tags file>]"
-checksums_only=0
-if [ "${1:-}" = "--checksums-only" ]; then checksums_only=1; shift; fi
+usage="usage: verify-release-assets.sh <tag> <directory> [<legacy tags file>]"
 tag="${1:?$usage}"
 dir="${2:?$usage}"
 legacy="${3:-$(dirname "${BASH_SOURCE[0]}")/../legacy-unattested-releases.txt}"
@@ -43,6 +41,10 @@ fi
 
 sums="$dir/SHA256SUMS"
 [ -f "$sums" ] || die "the release has no SHA256SUMS asset and is not in $legacy"
+gh attestation verify "$sums" --repo "$repo" \
+    --signer-workflow "$repo/.github/workflows/build-release.yml" \
+    --source-ref "refs/tags/$tag" >/dev/null \
+    || die "no valid build provenance for SHA256SUMS (gh attestation verify failed)"
 
 shopt -s nullglob
 files=("$dir"/*.deb "$dir"/*.rpm)
@@ -58,13 +60,5 @@ for file in "${files[@]}"; do
     [ "$(printf '%s\n' "$expected" | wc -l)" -eq 1 ] || die "$name is more than once in SHA256SUMS"
     actual="$(sha256sum "$file")"; actual="${actual%% *}"
     [ "$actual" = "$expected" ] || die "SHA256 of $name is $actual, SHA256SUMS says $expected"
-    if [ "$checksums_only" -eq 1 ]; then
-        echo "checksum verified $name"
-        continue
-    fi
-    gh attestation verify "$file" --repo "$repo" \
-        --signer-workflow "$repo/.github/workflows/build-release.yml" \
-        --source-ref "refs/tags/$tag" >/dev/null \
-        || die "no valid build provenance for $name (gh attestation verify failed)"
     echo "verified $name"
 done

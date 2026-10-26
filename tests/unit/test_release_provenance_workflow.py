@@ -49,15 +49,16 @@ def test_attestation_is_skipped_where_the_token_cannot_write(step):
     assert "workflow_dispatch" not in condition
 
 
-def test_only_the_two_package_jobs_get_attestation_rights():
+def test_only_the_package_jobs_and_the_release_job_get_attestation_rights():
     text = read_workflow(WORKFLOW)
-    assert text.count("attestations: write") == 2 and text.count("id-token: write") == 3
+    assert text.count("attestations: write") == 3 and text.count("id-token: write") == 4
+    assert "      contents: write\n      id-token: write\n      attestations: write\n" in job_block("release")
     assert "contents: read\n\n# A new push" in text or "permissions:\n  contents: read\n" in text
     for job in ("build", "build-rpm"):
         block = job_block(job)
         assert "      contents: read\n      id-token: write\n      attestations: write\n" in block
         assert "contents: write" not in block
-    for job in ("check-tag", "release", "release-notes"):
+    for job in ("check-tag", "release-notes"):
         assert "attestations: write" not in job_block(job)
     # the job that calls publish-apt only reads attestations (gh attestation verify)
     assert "attestations: read" in job_block("publish-apt")
@@ -69,6 +70,23 @@ def test_sha256sums_is_uploaded_with_the_packages():
     names = step_names(WORKFLOW)
     assert names.index("Write SHA256SUMS") < names.index("Create Release")
     assert "fail_on_unmatched_files: true" in "\n".join(lines)
+
+
+def test_release_job_attests_the_sha256sums_it_uploads():
+    step = "Attest build provenance of SHA256SUMS"
+    lines = step_lines(WORKFLOW, step)
+    assert any(ATTEST_ACTION.search(line) for line in lines)
+    assert "          subject-path: release-files/SHA256SUMS" in lines
+    assert not [line for line in lines if line.strip().startswith("if:")]
+    names = step_names(WORKFLOW)
+    # after the file is final, before it is uploaded
+    assert names.index("Write SHA256SUMS") < names.index(step) < names.index("Create Release")
+    assert step in job_block("release")
+
+
+def test_the_attest_action_is_pinned_to_one_commit_everywhere():
+    pins = set(re.findall(r"actions/attest-build-provenance@(\S+)", read_workflow(WORKFLOW)))
+    assert len(pins) == 1 and re.fullmatch(r"[0-9a-f]{40}", pins.pop())
 
 
 def run_sums(tmp_path, files):

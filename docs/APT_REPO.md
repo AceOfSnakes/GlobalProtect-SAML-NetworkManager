@@ -73,22 +73,22 @@ sudo apt update
 ### Verifying packages
 
 Every release after v1.5.0 has a `SHA256SUMS` asset and a build provenance
-attestation (SLSA, signed through Sigstore) for each `.deb` and `.rpm` file. The
-attestation names the workflow run of this repository that built the file. To
-check a file you downloaded from a GitHub release:
+attestation (SLSA, signed through Sigstore) for `SHA256SUMS` and for each `.deb`
+and `.rpm` file. The attestation names the workflow run of this repository that
+built the file. To check a file you downloaded from a GitHub release:
 
 ```bash
+gh attestation verify SHA256SUMS --repo WMP/GlobalProtect-SAML-NetworkManager \
+    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
 sha256sum --ignore-missing -c SHA256SUMS            # in the download directory
 gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SAML-NetworkManager \
     --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
 ```
 
-`publish-apt.yml` checks every package before it signs it into the apt and RPM
-repositories: a package that fails, or a release without `SHA256SUMS`, stops the
-run. The release of the tag that triggered the run gets both checks. The older
-releases get the SHA256 check only (they were fully verified when published; one
-attestation check per file for all releases would exhaust the API rate limit).
-A manual run verifies every release in full. Only the releases listed in
+`publish-apt.yml` verifies the attestation of `SHA256SUMS` of every release (one
+API call per release) and the SHA256 of every package against it before it signs
+the package into the apt and RPM repositories: a failure, or a release without
+`SHA256SUMS`, stops the run. Only the releases listed in
 `.github/legacy-unattested-releases.txt` (v1.5.0 and older) are published without
 the checks. The attestation must come from `build-release.yml` and the tag of the
 release (`--signer-workflow`, `--source-ref`). `scripts/install-pr-build.sh`

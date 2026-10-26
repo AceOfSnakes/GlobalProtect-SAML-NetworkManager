@@ -97,62 +97,18 @@ def test_a_modified_workflow_is_rejected(name, mutate, expected):
     assert any(expected in problem for problem in found), (name, found)
 
 
-# --- verify-tag: full verification of one release, the checksum only for the others ---
-
-DOWNLOAD = "Download packages from every published release"
-VERIFY_ENV = "          VERIFY_TAG: ${{ inputs.verify-tag }}"
-VERIFY_CALL = 'verify-release-assets.sh "${mode[@]}" "$tag"'
-MODE_LINE = "              mode=(--checksums-only)"
-UNKNOWN_CHECK = '! grep -qxF -- "$VERIFY_TAG" tags.txt'
-CALLER_LINE = "      verify-tag: ${{ github.ref_name }}"
-
-
-def verify_problems(text, caller):
-    """What is wrong with the way verify-tag reaches the verification loop"""
-    found = []
-    if "      verify-tag:" not in text.split("  workflow_dispatch:")[0]:
-        found.append("no workflow_call input verify-tag")
-    step = step_lines(WORKFLOW, DOWNLOAD, text)
-    if VERIFY_ENV not in step:
-        found.append("VERIFY_TAG is not set from inputs.verify-tag in the env")
-    if [line for line in step if "${{" in line and line not in (VERIFY_ENV, "          GH_TOKEN: ${{ github.token }}")]:
-        found.append("an expression outside the env lines")
-    if MODE_LINE not in step or '"$tag" != "$VERIFY_TAG"' not in "\n".join(step) or VERIFY_CALL not in "\n".join(step):
-        found.append("the loop does not use --checksums-only for the other tags")
-    if UNKNOWN_CHECK not in "\n".join(step) or "is not a published release" not in "\n".join(step):
-        found.append("an unknown verify-tag does not fail the job")
-    if CALLER_LINE not in caller:
-        found.append("build-release.yml does not pass github.ref_name")
-    return found
+def test_every_release_goes_through_the_same_verification():
+    # one call for every release: no verify-tag input, no second mode
+    text = read_workflow(WORKFLOW)
+    assert "verify-tag" not in text and "VERIFY_TAG" not in text and "checksums-only" not in text
+    assert "verify-tag" not in read_workflow("build-release.yml")
+    download = step_lines(WORKFLOW, "Download packages from every published release")
+    assert '            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"' in download
 
 
-def test_verify_tag_reaches_the_loop_through_the_environment():
-    assert verify_problems(read_workflow(WORKFLOW), read_workflow("build-release.yml")) == []
-
-
-@pytest.mark.parametrize("name, target, mutate, expected", [
-    ("input removed", "workflow", lambda t: t.replace("      verify-tag:", "      other-tag:"), "no workflow_call input"),
-    ("env line removed", "workflow", lambda t: t.replace(VERIFY_ENV + "\n", ""), "VERIFY_TAG is not set"),
-    ("expression pasted into the script", "workflow", lambda t: t.replace(
-        'if [ -n "$VERIFY_TAG" ] && [ "$tag"', 'if [ -n "${{ inputs.verify-tag }}" ] && [ "$tag"'),
-     "an expression outside the env lines"),
-    ("every release checksum only", "workflow", lambda t: t.replace(
-        '"$tag" != "$VERIFY_TAG"', '-n "$tag"'), "does not use --checksums-only"),
-    ("option not passed", "workflow", lambda t: t.replace('"${mode[@]}" ', ""), "does not use --checksums-only"),
-    ("unknown tag check removed", "workflow", lambda t: t.replace(UNKNOWN_CHECK, "false"),
-     "unknown verify-tag does not fail"),
-    ("caller passes nothing", "caller", lambda t: t.replace(CALLER_LINE + "\n", ""), "does not pass github.ref_name"),
-    ("caller passes another value", "caller", lambda t: t.replace("github.ref_name }}\n    secrets", "github.ref }}\n    secrets"),
-     "does not pass github.ref_name"),
-])
-def test_a_modified_verify_tag_setup_is_rejected(name, target, mutate, expected):
-    workflow, caller = read_workflow(WORKFLOW), read_workflow("build-release.yml")
-    if target == "workflow":
-        modified, found = mutate(workflow), None
-        assert modified != workflow, name
-        found = verify_problems(modified, caller)
-    else:
-        modified = mutate(caller)
-        assert modified != caller, name
-        found = verify_problems(workflow, modified)
-    assert any(expected in problem for problem in found), (name, found)
+def test_a_verification_mode_in_the_workflow_is_detected():
+    text = read_workflow(WORKFLOW).replace(
+        'verify-release-assets.sh "$tag"', 'verify-release-assets.sh --checksums-only "$tag"')
+    assert "checksums-only" in text
+    download = step_lines(WORKFLOW, "Download packages from every published release", text)
+    assert '            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"' not in download
