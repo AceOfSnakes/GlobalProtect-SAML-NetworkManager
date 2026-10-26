@@ -284,9 +284,12 @@ log "session type: $SESSION_TYPE (DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WA
 
 # xdg-open's detect_DE checks XDG_CURRENT_DESKTOP and KDE_FULL_SESSION before
 # KDE_SESSION_VERSION, and sudo resets the environment, so pass all three on.
-# A value we already have is kept when the session has none.
+# KDE finds the default browser only through its menu (XDG_MENU_PREFIX, e.g.
+# plasma-applications.menu) and the session's XDG_DATA_DIRS; without them
+# "default" shows "Choose Application". A value we already have is kept when
+# the session has none.
 DESKTOP_ENV=()
-for var in XDG_CURRENT_DESKTOP KDE_FULL_SESSION KDE_SESSION_VERSION; do
+for var in XDG_CURRENT_DESKTOP KDE_FULL_SESSION KDE_SESSION_VERSION XDG_MENU_PREFIX XDG_DATA_DIRS; do
     value=$(session_env_var "$var")
     if [ -n "$value" ]; then
         log "detected $var=$value"
@@ -525,8 +528,14 @@ case "$FAMILY" in
             "--disable-features=msEdgeSyncService,TranslateUI,EdgeCollections,msEdgeSweeperMode,ExternalProtocolDialog"
             "--app=$URL"
             "--window-size=896,964"
-            "--user-data-dir=$PROFILE_DIR"
         )
+        # A snap browser (/snap/bin/chromium is a link to /usr/bin/snap) has its
+        # profile under ~/snap and cannot write elsewhere: let it use its own
+        if [ "$(basename "$(readlink -f "$BROWSER_BIN")")" = snap ]; then
+            log "$BROWSER_BIN is a snap: using its own profile"
+        else
+            BROWSER_FLAGS+=("--user-data-dir=$PROFILE_DIR")
+        fi
         if [ "$SESSION_TYPE" = "wayland" ]; then
             BROWSER_FLAGS=("--ozone-platform=wayland" "--enable-features=UseOzonePlatform" "${BROWSER_FLAGS[@]}")
         fi
@@ -592,7 +601,17 @@ run_browser_with_monitor() {
     while kill -0 "$GPAUTH_PID" 2>/dev/null; do
         if [ "$handed_over" -eq 0 ] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
             handed_over=1
-            log "the browser we started exited - the URL went to a running instance"
+            local status=0
+            wait "$BROWSER_PID" 2>/dev/null || status=$?
+            if [ "$status" -eq 0 ]; then
+                log "the browser we started exited - the URL went to a running instance"
+            else
+                # It failed before it showed the page (its messages are in the
+                # log): say so where the user looks first
+                log "ERROR: the browser exited with status $status - see its messages above"
+                command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- \
+                    "ERROR: $BROWSER_BIN exited with status $status, see ${LOG_FILE:-the wrapper log}" 2>/dev/null
+            fi
         fi
 
         if [ "$elapsed" -ge "$MAX_WAIT" ]; then

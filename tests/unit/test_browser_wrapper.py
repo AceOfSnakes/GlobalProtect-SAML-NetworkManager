@@ -671,6 +671,8 @@ def test_root_rejects_unknown_user(tmp_path, user):
         ("XDG_CURRENT_DESKTOP", "KDE"),
         ("KDE_FULL_SESSION", "true"),
         ("KDE_SESSION_VERSION", "6"),
+        ("XDG_MENU_PREFIX", "plasma-"),
+        ("XDG_DATA_DIRS", "/usr/share/plasma:/usr/local/share:/usr/share"),
     ],
 )
 def test_root_passes_desktop_variables_through_sudo(tmp_path, var, value):
@@ -693,7 +695,13 @@ def test_root_sets_no_desktop_variables_that_it_does_not_know(tmp_path):
 
     _assert_browser_started(tmp_path, result)
     env = _browser_env(tmp_path)
-    for var in ("XDG_CURRENT_DESKTOP", "KDE_FULL_SESSION", "KDE_SESSION_VERSION"):
+    for var in (
+        "XDG_CURRENT_DESKTOP",
+        "KDE_FULL_SESSION",
+        "KDE_SESSION_VERSION",
+        "XDG_MENU_PREFIX",
+        "XDG_DATA_DIRS",
+    ):
         assert var not in env
 
 
@@ -1384,3 +1392,82 @@ def test_numeric_auth_timeout_is_kept(tmp_path, timeout):
     text = _all_logs(tmp_path, result)
     assert f"GP_AUTH_TIMEOUT={timeout}" in text
     assert "GP_AUTH_TIMEOUT is not a number" not in text
+
+
+# --- Chromium-family start: snap profile, exit status (report on PR #115) ------
+
+
+def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0):
+    """Run the wrapper with GP_BROWSER=<tmp>/chromium, a link to a fake browser
+    called target_name (a snap browser is a link to /usr/bin/snap). With
+    gpauth_seconds, a fake gpauth lives that long."""
+    _fake_logger(tmp_path)
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    _script(
+        target_dir / target_name,
+        f'printf "%s\\n" "$@" > {tmp_path}/opened\n'
+        "echo browser-failure-marker >&2\n"
+        f"exit {exit_code}\n",
+    )
+    os.symlink(target_dir / target_name, tmp_path / "chromium")
+    gpauth = None
+    if gpauth_seconds:
+        gpauth = subprocess.Popen(["sleep", str(gpauth_seconds)])
+        _script(
+            tmp_path / "pgrep",
+            f'case " $* " in *" gpauth "*) echo {gpauth.pid} ;; *) exit 1 ;; esac\n',
+        )
+    extra = {"GP_BROWSER": str(tmp_path / "chromium"), "GP_AUTH_TIMEOUT": "20"}
+    if IS_ROOT:
+        _fake_sudo(tmp_path)
+        _script(
+            tmp_path / "getent",
+            f"echo 'u:x:{FAKE_UID}:{FAKE_UID}::{tmp_path}/home:/bin/bash'\n",
+        )
+        extra["SUDO_UID"] = str(FAKE_UID)
+    else:
+        _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+    try:
+        result = _run_wrapper(_root_env(tmp_path, **extra))
+    finally:
+        if gpauth:
+            gpauth.kill()
+            gpauth.wait()
+    result.args = (tmp_path / "opened").read_text().splitlines()
+    # As root, what the root process says goes to stderr and syslog, not the file
+    result.all_logs = result.wrapper_log + result.stderr
+    syslog = tmp_path / "syslog"
+    result.syslog = syslog.read_text() if syslog.exists() else ""
+    return result
+
+
+def test_a_snap_chromium_keeps_its_own_profile(tmp_path):
+    result = _run_chromium(tmp_path, "snap")
+
+    assert f"--app={URL}" in result.args
+    assert not [a for a in result.args if a.startswith("--user-data-dir")]
+    assert "is a snap: using its own profile" in result.all_logs
+
+
+def test_a_chromium_that_is_no_snap_gets_the_user_profile(tmp_path):
+    result = _run_chromium(tmp_path, "chromium-bin")
+
+    assert [a for a in result.args if a.startswith("--user-data-dir=")]
+    assert "is a snap" not in result.all_logs
+
+
+def test_a_browser_that_fails_at_start_is_reported(tmp_path):
+    result = _run_chromium(tmp_path, "chromium-bin", exit_code=21, gpauth_seconds=4)
+
+    assert "ERROR: the browser exited with status 21" in result.wrapper_log
+    assert "went to a running instance" not in result.wrapper_log
+    assert "exited with status 21" in result.syslog
+
+
+def test_a_browser_that_hands_the_url_over_is_not_an_error(tmp_path):
+    result = _run_chromium(tmp_path, "chromium-bin", exit_code=0, gpauth_seconds=4)
+
+    assert "the URL went to a running instance" in result.wrapper_log
+    assert "ERROR" not in result.wrapper_log
+    assert "ERROR" not in result.syslog
