@@ -1131,19 +1131,21 @@ class TestUpdateProfile:
         assert "TimeoutError" in _log_text(caplog, service_module, logging.WARNING)
         assert nm.named("Update2") == []
 
-    def test_nmcli_is_never_run(self, service_module, nm, monkeypatch, tmp_path):
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        marker = tmp_path / "nmcli-ran"
-        script = bin_dir / "nmcli"
-        script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
-        script.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    def test_a_cancel_propagates_and_is_no_failure(self, service_module, nm, caplog):
+        nm.hang = True
         plugin = _connected_plugin(service_module)
 
-        asyncio.run(plugin._update_profile({"k": "new"}, drop_secrets=["otp"]))
+        async def cancel_the_write():
+            task = asyncio.ensure_future(plugin._update_profile({"k": "new"}))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await task
 
-        assert not marker.exists()
+        with caplog.at_level(logging.WARNING, logger=service_module.logger.name):
+            with pytest.raises(asyncio.CancelledError):
+                asyncio.run(cancel_the_write())
+
+        assert _log_text(caplog, service_module, logging.WARNING) == ""
 
 
 class TestUpdateProfileDropsSecrets:

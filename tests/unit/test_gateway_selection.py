@@ -744,25 +744,33 @@ class TestGatewayListCache:
         plugin._gateway_list = ["gw-a (a.example.com)"]
         plugin._stored_gateway_list = "gw-a (a.example.com)"
 
-        def fail(*_args, **_kwargs):
-            raise AssertionError("the profile must not be written")
-
+        calls = []
+        # _update_profile swallows errors: record the call instead of raising
         monkeypatch.setattr(
-            service_module.NmSettingsInterface, "new_proxy", fail, raising=False
+            service_module.NmSettingsInterface,
+            "new_proxy",
+            lambda *args, **kwargs: calls.append(args),
+            raising=False,
         )
         asyncio.run(plugin._persist_gateway_list())
+
+        assert calls == []
 
     def test_nothing_is_written_without_a_uuid(self, service_module, monkeypatch):
         plugin = service_module.GpclientVPNPlugin()
         plugin._gateway_list = ["gw-a (a.example.com)"]
 
-        def fail(*_args, **_kwargs):
-            raise AssertionError("the profile must not be written")
-
+        calls = []
+        # _update_profile swallows errors: record the call instead of raising
         monkeypatch.setattr(
-            service_module.NmSettingsInterface, "new_proxy", fail, raising=False
+            service_module.NmSettingsInterface,
+            "new_proxy",
+            lambda *args, **kwargs: calls.append(args),
+            raising=False,
         )
         asyncio.run(plugin._persist_gateway_list())
+
+        assert calls == []
 
 
 class TestGatewayCountLine:
