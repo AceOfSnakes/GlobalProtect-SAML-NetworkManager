@@ -62,8 +62,10 @@ SystemCallArchitectures=native
 #                   gpclient could no longer open /dev/net/tun, and the
 #                   browser would lose the GPU, sound and FIDO keys.
 #   ProtectHostname=
-#                   Its seccomp filter may also affect the namespace
-#                   sandbox of the browser; the gain is small.
+#                   Puts the whole tree in its own UTS namespace: after a
+#                   hostname change the browser keeps the old name, and X11
+#                   .Xauthority entries are keyed by hostname, so it may no
+#                   longer open on the display; the gain is small.
 #   CapabilityBoundingSet=, SystemCallFilter=, RestrictAddressFamilies=
 #                   The tree needs CAP_NET_ADMIN, CAP_SETUID, CAP_SETGID,
 #                   CAP_KILL, CAP_DAC_OVERRIDE and more, and AF_NETLINK,
