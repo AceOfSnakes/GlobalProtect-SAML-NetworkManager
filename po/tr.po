@@ -180,7 +180,7 @@ msgstr ""
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
-msgstr "İsteğe bağlı. Parolanın nerede saklanacağını seçmek için alandaki simgeyi kullanın: yalnızca bu kullanıcı için, tüm kullanıcılar için veya hiç (her seferinde sorulur)."
+msgstr "İsteğe bağlı. Parolanın nerede saklanacağını seçmek için alandaki simgeyi kullanın: yalnızca bu kullanıcı için, tüm kullanıcılar için veya hiç saklanmaz (her seferinde sorulur)."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."

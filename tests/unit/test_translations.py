@@ -572,12 +572,21 @@ def test_a_good_translation_is_accepted(entry):
     assert translation_problems([entry]) == []
 
 
-@pytest.mark.parametrize("path", catalog_paths("pl"), ids=lambda p: os.path.relpath(p, ROOT))
-def test_the_polish_catalog_has_its_header_and_the_review_note(path):
+@pytest.mark.parametrize(
+    "lang, path",
+    [(lang, path) for lang in languages() for path in catalog_paths(lang)],
+    ids=lambda v: os.path.relpath(v, ROOT) if os.path.isabs(v) else v,
+)
+def test_every_catalog_has_its_header_and_the_review_note(lang, path):
     text = open(path, encoding="utf-8").read()
-    assert header_problems(text, "pl") == []
-    assert "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);" in text
+    assert header_problems(text, lang) == []
     assert "# Machine translation, needs review by a native speaker.\n" in text
+
+
+def test_the_polish_catalogs_have_the_polish_plural_forms():
+    for path in catalog_paths("pl"):
+        text = open(path, encoding="utf-8").read()
+        assert "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);" in text
 
 
 @pytest.mark.parametrize(

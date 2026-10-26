@@ -196,7 +196,7 @@ msgstr ""
 msgid ""
 "Optional. Use the icon in the field to choose where the password is kept: "
 "for this user only, for all users, or not at all (asked every time)."
-msgstr "Opcional. Utilize o ícone no campo para escolher onde a palavra-passe é guardada: só para este utilizador, para todos os utilizadores, ou de todo (pedida de cada vez)."
+msgstr "Opcional. Utilize o ícone no campo para escolher onde a palavra-passe é guardada: só para este utilizador, para todos os utilizadores, ou em lado nenhum (pedida de cada vez)."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
