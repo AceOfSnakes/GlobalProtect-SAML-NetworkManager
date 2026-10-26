@@ -109,6 +109,11 @@ def _attest_after_release(text):
     return text.replace(attest + create, create + attest, 1)
 
 
+def _attest_pinned_to_a_tag(text):
+    attest = "\n".join(step_lines(WORKFLOW, ATTEST_SUMS, text)) + "\n"
+    return text.replace(attest, re.sub(r"(attest-build-provenance@)\S+", r"\1v4", attest), 1)
+
+
 @pytest.mark.parametrize("name, mutate, expected", [
     ("step after Create Release", _attest_after_release, "not between"),
     ("subject removed", lambda t: t.replace(SUMS_SUBJECT + "\n", ""), "does not attest release-files/SHA256SUMS"),
@@ -117,6 +122,10 @@ def _attest_after_release(text):
     ("permission removed", lambda t: t.replace(RELEASE_RIGHTS, "      contents: write\n      id-token: write\n"),
      "does not have the rights"),
     ("step removed", lambda t: t.replace("      - name: " + ATTEST_SUMS, "      - name: Other"), "missing"),
+    ("condition added", lambda t: t.replace("      - name: " + ATTEST_SUMS + "\n",
+                                            "      - name: " + ATTEST_SUMS + "\n        if: false\n"),
+     "has a condition"),
+    ("tag pin", _attest_pinned_to_a_tag, "pinned attest action"),
 ])
 def test_a_modified_sha256sums_attestation_is_rejected(name, mutate, expected):
     text = read_workflow(WORKFLOW)
@@ -126,9 +135,21 @@ def test_a_modified_sha256sums_attestation_is_rejected(name, mutate, expected):
     assert any(expected in problem for problem in found), (name, found)
 
 
+def attest_pins_are_one_commit(text):
+    pins = set(re.findall(r"actions/attest-build-provenance@(\S+)", text))
+    return len(pins) == 1 and re.fullmatch(r"[0-9a-f]{40}", pins.pop()) is not None
+
+
 def test_the_attest_action_is_pinned_to_one_commit_everywhere():
-    pins = set(re.findall(r"actions/attest-build-provenance@(\S+)", read_workflow(WORKFLOW)))
-    assert len(pins) == 1 and re.fullmatch(r"[0-9a-f]{40}", pins.pop())
+    assert attest_pins_are_one_commit(read_workflow(WORKFLOW))
+
+
+@pytest.mark.parametrize("pin", ["v4", "0" * 40])
+def test_a_second_or_tag_pin_of_the_attest_action_is_found(pin):
+    text = read_workflow(WORKFLOW)
+    modified = re.sub(r"(attest-build-provenance@)\S+", r"\g<1>" + pin, text, count=1)
+    assert modified != text
+    assert not attest_pins_are_one_commit(modified)
 
 
 def run_sums(tmp_path, files):
