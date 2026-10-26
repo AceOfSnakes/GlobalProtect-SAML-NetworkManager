@@ -300,8 +300,11 @@ def parse_log_record(line: str) -> Optional[Dict[str, str]]:
     Upstream writes every `log` record as one JSON object with the strings
     timestamp, level, target and message (crates/gpapi/src/log_format.rs); the
     C messages of openconnect come the same way. println! output and the
-    prompts are not records and stay plain text, so None means "a text line".
-    A newline or carriage return in the message is escaped, so a record never
+    prompts are not records and stay plain text, so None means "a text line"
+    (upstream's error report and its hints, e.g. "--fix-openssl", are records).
+    JSON escapes let ANSI sequences and control characters through the PTY
+    reader, so they are removed here as strip_ansi does for a text line. A
+    newline or carriage return in the message is escaped, so a record never
     spans several lines in our log or in a matcher.
     """
     if not line.startswith("{"):
@@ -314,7 +317,7 @@ def parse_log_record(line: str) -> Optional[Dict[str, str]]:
         return None
     if not all(isinstance(record.get(k), str) for k in ("level", "target", "message")):
         return None
-    message = record["message"].replace("\n", "\\n").replace("\r", "\\r")
+    message = strip_ansi(record["message"]).replace("\n", "\\n").replace("\r", "\\r")
     return {"level": record["level"], "target": record["target"], "message": message}
 
 

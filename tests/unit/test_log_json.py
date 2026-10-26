@@ -52,6 +52,17 @@ class TestParseLogRecord:
         assert parsed["message"] == "one\\ntwo\\rthree"
 
     @pytest.mark.parametrize(
+        "message", ["gw\x1b[31mX\x07", "g\x00w\x7fX", "\x1b]0;title\x07gwX"]
+    )
+    def test_escape_sequences_and_control_characters_are_removed(
+        self, service_module, message
+    ):
+        assert service_module.parse_log_record(record(message))["message"] == "gwX"
+
+    def test_a_tab_is_kept(self, service_module):
+        assert service_module.parse_log_record(record("a\tb"))["message"] == "a\tb"
+
+    @pytest.mark.parametrize(
         "line",
         [
             "",
@@ -151,6 +162,22 @@ class TestMatchersThroughRecords:
 
         assert plugin._gateway_list == ["gw-a (a.example.com)"]
         assert not plugin._lap_entries
+
+    def test_a_gateway_name_is_stored_without_escape_sequences(
+        self, service_module, dbus_signals, caplog
+    ):
+        plugin = _plugin(service_module)
+
+        with caplog.at_level(logging.INFO, logger=service_module.logger.name):
+            _run(
+                plugin,
+                record(
+                    "Connecting to the selected gateway: gw\x1b[31mX\x07 (a.example.com)"
+                ),
+            )
+
+        assert plugin._gateway_list == ["gwX (a.example.com)"]
+        assert "\x1b" not in caplog.text and "\x07" not in caplog.text
 
     def test_tunnel_settings(self, service_module, dbus_signals):
         plugin = _plugin(service_module)
