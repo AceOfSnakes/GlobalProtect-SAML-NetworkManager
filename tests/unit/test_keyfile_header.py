@@ -37,6 +37,9 @@ RULES = {
         "reads the keyfile with libnm": r"nm_keyfile_read \(",
         "checks the service type": r"g_strcmp0 \(nm_setting_vpn_get_service_type \(s_vpn\), NM_GPCLIENT_KEYFILE_SERVICE_TYPE\) != 0",
         "refuses a file without connection or VPN settings": r"!s_con \|\| !s_vpn",
+        "refuses a connection that is not a VPN": r"!nm_connection_is_type \(connection, NM_SETTING_VPN_SETTING_NAME\)",
+        "makes the base directory absolute for libnm": r"base_dir = g_canonicalize_filename \(dir, NULL\);.*nm_keyfile_read \(keyfile, base_dir,",
+        "never returns NULL without an error": r"if \(error && !\*error\)\s*g_set_error_literal",
         "checks the fields with the rules of the editors": r"nm_gpclient_validate_form \(",
         "translates the message of the rule": r"_\(problem\)",
         "gives a new UUID": r"nm_utils_uuid_generate \(\)[^}]*NM_SETTING_CONNECTION_UUID",
@@ -120,6 +123,37 @@ def test_calls_in_the_wrong_order_are_found(name, first, second):
     assert not comes_before(text.replace(first, ""), first, second)
 
 
+# Realistic broken sources (the code before the fix): the checker must find them
+BROKEN_IMPORT = {
+    "refuses a connection that is not a VPN": """
+    if (!s_con || !s_vpn
+        || g_strcmp0 (nm_setting_vpn_get_service_type (s_vpn), NM_GPCLIENT_KEYFILE_SERVICE_TYPE) != 0) {""",
+    # nm_keyfile_read returns NULL without an error for a relative base_dir (nmcli then crashes)
+    "makes the base directory absolute for libnm": """
+    base_dir = g_path_get_dirname (path);
+    connection = nm_keyfile_read (keyfile, base_dir, NM_KEYFILE_HANDLER_FLAGS_NONE, NULL, NULL, error);""",
+    "never returns NULL without an error": """
+    if (!connection)
+        return NULL;""",
+}
+# The directory made absolute only after the read is as broken as no directory at all
+CANONICALIZED_TOO_LATE = """
+    connection = nm_keyfile_read (keyfile, base_dir, NM_KEYFILE_HANDLER_FLAGS_NONE, NULL, NULL, error);
+    base_dir = g_canonicalize_filename (dir, NULL);"""
+
+
+@pytest.mark.parametrize("rule", BROKEN_IMPORT)
+def test_the_import_before_the_fix_is_found(rule):
+    rules = {rule: RULES["nm_gpclient_keyfile_import"][rule]}
+    assert missing(BROKEN_IMPORT[rule], rules) == [rule]
+
+
+def test_a_directory_made_absolute_after_the_read_is_found():
+    rule = "makes the base directory absolute for libnm"
+    rules = {rule: RULES["nm_gpclient_keyfile_import"][rule]}
+    assert missing(CANONICALIZED_TOO_LATE, rules) == [rule]
+
+
 def test_every_import_error_is_translated_and_has_a_code():
     text = body(read(HEADER), "nm_gpclient_keyfile_import")
     for call in re.findall(r"g_set_error_literal \(.*?\);", text, re.S):
@@ -179,6 +213,57 @@ def test_the_plasma_plugin_follows_the_rule(rule):
 def test_a_plasma_plugin_that_breaks_the_rule_is_found(rule):
     broken = re.sub(PLASMA_RULES[rule], "", PLASMA)
     assert missing(broken, {rule: PLASMA_RULES[rule]}) == [rule]
+
+
+def version_header_comes_first(text):
+    """The version header of NetworkManagerQt is included before the guard that tests its macro"""
+    include = text.find("#include <networkmanagerqt_version.h>")
+    guard = text.find("#define GPCLIENT_PLASMANM_OLD_API")
+    return 0 <= include < guard
+
+
+def test_the_plasma_plugin_includes_the_version_header_before_the_guard():
+    assert version_header_comes_first(PLASMA)
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        # no include: the macro is never defined and the guard is always true on Qt 5
+        "#include <QFile>\n#if QT_VERSION < 1 && !defined(NETWORKMANAGERQT_VERSION)\n#define GPCLIENT_PLASMANM_OLD_API 1\n#endif\n",
+        # included after the guard
+        "#if QT_VERSION < 1 && !defined(NETWORKMANAGERQT_VERSION)\n#define GPCLIENT_PLASMANM_OLD_API 1\n#endif\n#include <networkmanagerqt_version.h>\n",
+    ],
+)
+def test_a_guard_without_the_version_header_before_it_is_found(broken):
+    assert not version_header_comes_first(broken)
+
+
+def nm_errors_block_comes_first(text):
+    """nm-errors.h is included in an extern "C" block before any other include"""
+    first = re.search(r"^#include", text, re.M)
+    block = re.search(r'extern "C" \{\s*#include <nm-errors.h>\s*\}', text)
+    # <glib.h> may come before the block: it has its own C linkage
+    lead = text[: block.start()] if block else ""
+    return bool(first and block) and re.findall(r"^#include.*$", lead, re.M) in ([], ["#include <glib.h>"])
+
+
+def test_the_plasma_plugin_gives_nm_errors_c_linkage_before_other_includes():
+    assert nm_errors_block_comes_first(PLASMA)
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        # plain include: C++ linkage, undefined reference to nm_connection_error_quark()
+        '#include <glib.h>\n#include <nm-errors.h>\n#include "gpclientui.h"\n',
+        # the block comes after another include that may pull in NetworkManager.h
+        '#include "gpclientui.h"\nextern "C" {\n#include <nm-errors.h>\n}\n',
+        '#include "gpclientui.h"\n',
+    ],
+)
+def test_nm_errors_without_c_linkage_first_is_found(broken):
+    assert not nm_errors_block_comes_first(broken)
 
 
 def test_the_plasma_header_declares_the_methods_for_every_plasma_nm():

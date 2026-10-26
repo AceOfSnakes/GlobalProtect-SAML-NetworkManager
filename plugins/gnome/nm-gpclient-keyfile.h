@@ -33,6 +33,7 @@ static inline NMConnection *
 nm_gpclient_keyfile_import (const char *path, GError **error)
 {
     GKeyFile *keyfile;
+    char *dir;
     char *base_dir;
     char *uuid;
     NMConnection *connection;
@@ -48,16 +49,25 @@ nm_gpclient_keyfile_import (const char *path, GError **error)
         return NULL;
     }
 
-    base_dir = g_path_get_dirname (path);
+    /* nm_keyfile_read needs an absolute base directory; a relative path is typed as is */
+    dir = g_path_get_dirname (path);
+    base_dir = g_canonicalize_filename (dir, NULL);
+    g_free (dir);
     connection = nm_keyfile_read (keyfile, base_dir, NM_KEYFILE_HANDLER_FLAGS_NONE, NULL, NULL, error);
     g_free (base_dir);
     g_key_file_unref (keyfile);
-    if (!connection)
+    if (!connection) {
+        /* nm_keyfile_read can fail without an error: the callers read error->message */
+        if (error && !*error)
+            g_set_error_literal (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
+                                 _("The file is not a GlobalProtect VPN connection"));
         return NULL;
+    }
 
     s_con = nm_connection_get_setting_connection (connection);
     s_vpn = nm_connection_get_setting_vpn (connection);
     if (!s_con || !s_vpn
+        || !nm_connection_is_type (connection, NM_SETTING_VPN_SETTING_NAME)
         || g_strcmp0 (nm_setting_vpn_get_service_type (s_vpn), NM_GPCLIENT_KEYFILE_SERVICE_TYPE) != 0) {
         g_set_error_literal (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
                              _("The file is not a GlobalProtect VPN connection"));

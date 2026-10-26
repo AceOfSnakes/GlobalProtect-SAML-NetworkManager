@@ -327,3 +327,8 @@ msgstr "Připojení nelze exportovat: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "Připojení nelze importovat: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Připojení \"%1\" není uloženo v NetworkManageru"

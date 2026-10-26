@@ -353,3 +353,8 @@ msgstr "Не удалось экспортировать подключение:
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "Не удалось импортировать подключение: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Подключение \"%1\" не сохранено в NetworkManager"

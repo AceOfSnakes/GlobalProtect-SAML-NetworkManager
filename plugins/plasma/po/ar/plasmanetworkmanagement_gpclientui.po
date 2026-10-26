@@ -327,3 +327,8 @@ msgstr "تعذر تصدير الاتصال: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "تعذر استيراد الاتصال: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "الاتصال \"%1\" غير محفوظ في NetworkManager"

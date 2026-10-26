@@ -327,3 +327,8 @@ msgstr "無法匯出連線：%1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "無法匯入連線：%1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "連線 \"%1\" 未儲存在 NetworkManager 中"

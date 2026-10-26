@@ -327,3 +327,8 @@ msgstr "Tidak dapat mengekspor koneksi: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "Tidak dapat mengimpor koneksi: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Koneksi \"%1\" tidak disimpan di NetworkManager"

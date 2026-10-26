@@ -331,3 +331,8 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr ""
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr ""

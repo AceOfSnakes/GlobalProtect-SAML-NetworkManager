@@ -3,6 +3,12 @@
     SPDX-FileCopyrightText: 2025 GlobalProtect VPN Plugin
 */
 
+// libnm's nm-errors.h lacks G_BEGIN_DECLS: give its functions C linkage before anything includes it
+#include <glib.h>
+extern "C" {
+#include <nm-errors.h>
+}
+
 #include "gpclientui.h"
 #include "gpclientauthwidget.h"
 #include "gpclientwidget.h"
@@ -11,6 +17,8 @@
 #include <KPluginFactory>
 
 #include <QFile>
+
+#include <networkmanagerqt_version.h>
 
 // Last: it defines _() for its messages when no gettext header came first
 #include "nm-gpclient-keyfile.h"
@@ -91,7 +99,7 @@ VpnUiPlugin::ExportResult GpclientUiPlugin::exportConnectionSettings(const Netwo
     if (client) {
         NMRemoteConnection *remote = nm_client_get_connection_by_uuid(client, connection->uuid().toUtf8().constData());
         if (!remote) {
-            message = connection->id(); // not saved in NetworkManager: name the profile
+            message = i18n("The connection \"%1\" is not saved in NetworkManager", connection->id());
         } else if (nm_gpclient_keyfile_export(NM_CONNECTION(remote), QFile::encodeName(fileName).constData(), &error)) {
             g_object_unref(client);
             return VpnUiPlugin::ExportResult::pass();

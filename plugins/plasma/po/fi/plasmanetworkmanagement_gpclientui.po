@@ -327,3 +327,8 @@ msgstr "Yhteyttä ei voi viedä: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "Yhteyttä ei voi tuoda: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Yhteyttä \"%1\" ei ole tallennettu NetworkManageriin"

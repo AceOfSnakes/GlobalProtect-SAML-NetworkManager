@@ -327,3 +327,8 @@ msgstr "לא ניתן לייצא את החיבור: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "לא ניתן לייבא את החיבור: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "החיבור \"%1\" אינו שמור ב-NetworkManager"

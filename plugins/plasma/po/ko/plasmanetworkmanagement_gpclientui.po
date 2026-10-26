@@ -353,3 +353,8 @@ msgstr "연결을 내보낼 수 없습니다: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "연결을 가져올 수 없습니다: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "연결 \"%1\"이(가) NetworkManager에 저장되어 있지 않습니다"

@@ -327,3 +327,8 @@ msgstr "Forbindelsen kan ikke eksporteres: %1"
 #, kde-format
 msgid "Cannot import the connection: %1"
 msgstr "Forbindelsen kan ikke importeres: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Forbindelsen \"%1\" er ikke gemt i NetworkManager"
