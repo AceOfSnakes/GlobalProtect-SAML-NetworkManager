@@ -352,8 +352,6 @@ class TestEchoedAnswers:
 
         plugin._start_gpclient = started
         plugin._cleanup_stale_gpd0 = nothing
-        plugin._snapshot_tunnel_interfaces = nothing
-        plugin._check_tunnel_loop = nothing
         asyncio.run(
             plugin._do_connect(
                 {

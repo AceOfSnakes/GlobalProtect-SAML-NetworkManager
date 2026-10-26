@@ -27,25 +27,15 @@ def _plugin(service_module, monkeypatch, start_ok=True):
     async def cleanup_stale():
         plugin.calls.append("cleanup_stale_gpd0")
 
-    async def snapshot():
-        plugin.calls.append("snapshot")
-        return {"gpd0": ["10.0.0.1"]}
-
     async def start():
         plugin.calls.append("start_gpclient")
         return start_ok
-
-    async def tunnel_loop():
-        plugin.calls.append("tunnel_loop")
-        await asyncio.sleep(3600)
 
     async def stop():
         plugin.calls.append("stop_gpclient")
 
     monkeypatch.setattr(plugin, "_cleanup_stale_gpd0", cleanup_stale)
-    monkeypatch.setattr(plugin, "_snapshot_tunnel_interfaces", snapshot)
     monkeypatch.setattr(plugin, "_start_gpclient", start)
-    monkeypatch.setattr(plugin, "_check_tunnel_loop", tunnel_loop)
     monkeypatch.setattr(plugin, "_stop_gpclient", stop)
     monkeypatch.setattr(plugin, "_close_pty", lambda: plugin.calls.append("close_pty"))
     return plugin
@@ -69,13 +59,13 @@ def _conn(data=None, secrets=None, ipv4=None, connection=None, wrap=False):
 
 
 def connect(plugin, connection, interactive=False):
-    """Run _do_connect and cancel the tunnel task it creates."""
+    """Run _do_connect and cancel the session tasks left over."""
 
     async def go():
         try:
             await plugin._do_connect(connection, interactive=interactive)
         finally:
-            task = plugin.tunnel_check_task
+            task = plugin.profile_task
             if task:
                 task.cancel()
                 try:
@@ -93,7 +83,7 @@ def test_init_defaults(service_module):
     plugin = service_module.GpclientVPNPlugin()
 
     assert plugin.gpclient_process is None
-    assert plugin.tunnel_check_task is None
+    assert plugin.profile_task is None
     assert plugin.stdout_monitor_task is None
     assert plugin._prompt_task is None
     assert plugin._secret_future is None
@@ -114,7 +104,7 @@ def test_init_defaults(service_module):
     assert plugin._stored_gateway_count is None
     assert plugin.never_default is False
     assert plugin.ignore_auto_routes is False
-    assert plugin._preexisting_ifaces == {}
+    assert plugin._notify_token == ""
     assert plugin.vpn_username == ""
     assert plugin.vpn_password == ""
     assert plugin._interactive is False
@@ -248,22 +238,14 @@ class TestConnectEntryPoints:
         plugin = _plugin(service_module, monkeypatch)
         plugin._interactive = True
 
-        async def go():
-            await plugin.Connect(_conn())
-            plugin.tunnel_check_task.cancel()
-
-        run(go())
+        run(plugin.Connect(_conn()))
 
         assert plugin._interactive is False
 
     def test_connect_interactive_is_interactive(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
 
-        async def go():
-            await plugin.ConnectInteractive(_conn(), {})
-            plugin.tunnel_check_task.cancel()
-
-        run(go())
+        run(plugin.ConnectInteractive(_conn(), {}))
 
         assert plugin._interactive is True
 
@@ -271,24 +253,12 @@ class TestConnectEntryPoints:
 class TestConnectSuccess:
     def test_success_path(self, service_module, monkeypatch, dbus_signals):
         plugin = _plugin(service_module, monkeypatch)
-        seen = {}
 
-        async def go():
-            await plugin._do_connect(_conn(), interactive=False)
-            seen["task"] = plugin.tunnel_check_task
-            seen["done_before_cancel"] = plugin.tunnel_check_task.done()
-            plugin.tunnel_check_task.cancel()
-            try:
-                await plugin.tunnel_check_task
-            except asyncio.CancelledError:
-                pass
+        run(plugin._do_connect(_conn(), interactive=False))
 
-        run(go())
-
-        assert plugin.calls[:3] == ["cleanup_stale_gpd0", "snapshot", "start_gpclient"]
-        assert plugin._preexisting_ifaces == {"gpd0": ["10.0.0.1"]}
-        assert seen["task"] is not None
-        assert seen["done_before_cancel"] is False
+        assert plugin.calls == ["cleanup_stale_gpd0", "start_gpclient"]
+        # the tunnel is reported by the vpnc hook (Notify), not looked for
+        assert plugin.profile_task is None
         assert dbus_signals == [
             ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STARTING)
         ]
@@ -300,18 +270,6 @@ class TestConnectSuccess:
         connect(plugin, _conn(data={"gateway": "gw.example.com"}, wrap=True))
 
         assert plugin.gateway == "gw.example.com"
-
-    def test_clears_dns_state_and_round_counter(
-        self, service_module, monkeypatch, dns_state_sandbox
-    ):
-        plugin = _plugin(service_module, monkeypatch)
-        dns_state_sandbox.write_text("stale")
-        plugin._dns_state_rounds = 7
-
-        connect(plugin, _conn())
-
-        assert not dns_state_sandbox.exists()
-        assert plugin._dns_state_rounds == 0
 
     def test_per_attempt_state_is_reset(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
@@ -378,7 +336,7 @@ class TestConnectFailure:
 
         assert dbus_signals == self._failure_signals(service_module, dbus_signals)
         assert "start_gpclient" not in plugin.calls
-        assert plugin.tunnel_check_task is None
+        assert plugin.profile_task is None
 
     def test_missing_vpn_key_message(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
@@ -404,7 +362,7 @@ class TestConnectFailure:
         assert dbus_signals == [
             ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STARTING)
         ] + self._failure_signals(service_module, dbus_signals)
-        assert plugin.tunnel_check_task is None
+        assert plugin.profile_task is None
 
     def test_success_emits_no_failure(self, service_module, monkeypatch, dbus_signals):
         plugin = _plugin(service_module, monkeypatch)
@@ -768,7 +726,6 @@ def _dirty(plugin):
     """Put every per-connection attribute Disconnect resets into a non-default
     state."""
     plugin.gpclient_process = object()
-    plugin._dns_state_rounds = 4
     plugin.dns_servers = ["1.1.1.1"]
     plugin.dns_domains = ["corp.example"]
     plugin.hip_enabled = False
@@ -797,7 +754,7 @@ def _dirty(plugin):
     plugin._answered_username = True
     plugin._answered_password = True
     plugin._login_failed = True
-    plugin._preexisting_ifaces = {"gpd0": []}
+    plugin._notify_token = "token"
     plugin._answered_prompt = (5, "x")
     plugin._tunnel_up = True
 
@@ -809,12 +766,12 @@ class TestDisconnect:
         plugin = _plugin(service_module, monkeypatch)
 
         async def go():
-            plugin.tunnel_check_task = asyncio.create_task(_forever())
+            plugin.profile_task = asyncio.create_task(_forever())
             plugin._prompt_task = asyncio.create_task(_forever())
             plugin.stdout_monitor_task = asyncio.create_task(_forever())
             plugin._secret_future = asyncio.get_running_loop().create_future()
             tasks = (
-                plugin.tunnel_check_task,
+                plugin.profile_task,
                 plugin._prompt_task,
                 plugin.stdout_monitor_task,
             )
@@ -828,7 +785,7 @@ class TestDisconnect:
 
         assert all(task.cancelled() for task in tasks)
         assert future.cancelled()
-        assert plugin.tunnel_check_task is None
+        assert plugin.profile_task is None
         assert plugin._prompt_task is None
         assert plugin.stdout_monitor_task is None
         assert plugin._secret_future is None
@@ -913,7 +870,6 @@ class TestDisconnect:
         fresh = service_module.GpclientVPNPlugin()
         for name in (
             "gpclient_process",
-            "_dns_state_rounds",
             "dns_servers",
             "dns_domains",
             "hip_enabled",
@@ -942,21 +898,11 @@ class TestDisconnect:
             "_answered_username",
             "_answered_password",
             "_login_failed",
-            "_preexisting_ifaces",
+            "_notify_token",
             "_answered_prompt",
             "_tunnel_up",
         ):
             assert getattr(plugin, name) == getattr(fresh, name), name
-
-    def test_clears_the_dns_state_file(
-        self, service_module, monkeypatch, fake_exec, dns_state_sandbox
-    ):
-        plugin = _plugin(service_module, monkeypatch)
-        dns_state_sandbox.write_text("state")
-
-        run(plugin.Disconnect())
-
-        assert not dns_state_sandbox.exists()
 
     def test_emits_stopped(self, service_module, monkeypatch, fake_exec, dbus_signals):
         plugin = _plugin(service_module, monkeypatch)
@@ -971,7 +917,7 @@ class TestDisconnect:
         self, service_module, monkeypatch, fake_exec
     ):
         plugin = _plugin(service_module, monkeypatch)
-        assert plugin.tunnel_check_task is None
+        assert plugin.profile_task is None
         assert plugin._prompt_task is None
         assert plugin._secret_future is None
         assert plugin.stdout_monitor_task is None
@@ -988,14 +934,14 @@ class TestDisconnect:
 
         async def go():
             await plugin.Connect(_conn(data={"gateway": "g", "dns": "10.0.0.1"}))
-            task = plugin.tunnel_check_task
+            task = plugin.profile_task = asyncio.create_task(_forever())
             await plugin.Disconnect()
             return task
 
         task = run(go())
 
         assert task.cancelled()
-        assert plugin.tunnel_check_task is None
+        assert plugin.profile_task is None
         assert plugin.dns_servers == []
 
 
@@ -1123,7 +1069,7 @@ class TestNoOpMethods:
 
 
 class TestDisconnectSurvivesDeadTasks:
-    @pytest.mark.parametrize("attribute", ["tunnel_check_task", "stdout_monitor_task"])
+    @pytest.mark.parametrize("attribute", ["profile_task", "stdout_monitor_task"])
     def test_task_that_died_with_an_exception(
         self, service_module, monkeypatch, fake_exec, dbus_signals, caplog, attribute
     ):
@@ -1156,7 +1102,7 @@ class TestDisconnectSurvivesDeadTasks:
             raise RuntimeError("task died")
 
         async def go():
-            plugin.tunnel_check_task = asyncio.create_task(crash())
+            plugin.profile_task = asyncio.create_task(crash())
             plugin.stdout_monitor_task = asyncio.create_task(crash())
             await asyncio.sleep(0)
             await plugin.Disconnect()

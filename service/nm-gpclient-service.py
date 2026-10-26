@@ -13,11 +13,13 @@ import codecs
 import dataclasses
 import fcntl
 import functools
+import hmac
 import ipaddress
 import logging
 import os
 import pty
 import re
+import secrets
 import shutil
 import signal
 import stat
@@ -52,6 +54,9 @@ logger.setLevel(logging.INFO)
 NM_DBUS_SERVICE_GPCLIENT = "org.freedesktop.NetworkManager.gpclient"
 NM_DBUS_INTERFACE_VPN = "org.freedesktop.NetworkManager.VPN.Plugin"
 NM_DBUS_PATH_GPCLIENT = "/org/freedesktop/NetworkManager/VPN/Plugin"
+# Our own interface on the same object: the vpnc hook tells the service that
+# the tunnel is up (see "The tunnel notification" below)
+NM_DBUS_INTERFACE_TUNNEL = "org.freedesktop.NetworkManager.gpclient.Tunnel"
 
 # VPN Plugin states
 NM_VPN_SERVICE_STATE_UNKNOWN = 0
@@ -67,60 +72,52 @@ NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED = 0
 NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED = 1
 NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG = 2
 
-# --- Tunnel interface detection ---------------------------------------------
-#
-# A connection with a UUID names its tunnel (--interface=gp-xxxxxxxx) and
-# detection takes exactly that interface. The rest of this comment is about the
-# fallback without a name.
-#
-# The tunnel our gpclient brings up is either gpd0 (created exclusively by
-# gpclient) or a kernel-assigned tunN device - openconnect falls back to the
-# latter, and N is simply the first free number. A fixed candidate list used
-# to be enough, but it caps how many *foreign* tunN VPNs may be up at once:
-# with two other tun-based VPNs already holding tun0 and tun1, our own tunnel
-# lands on tun2, which no fixed list predicted, so detection polled forever
-# until NetworkManager's vpn.timeout killed the connection (issue #13).
-#
-# So the candidates are discovered at runtime instead. The safety work is done
-# by the pre-existing-interface snapshot (issue #7) and by matching the tunnel
-# against the file descriptors our own gpclient process holds - not by the
-# length of a hardcoded list.
 NET_SYSFS_PATH = "/sys/class/net"
 PROC_PATH = "/proc"
 
-# gpdN / tunN, and nothing else: "tunl0" (the always-present IPIP tunnel
-# device) must not be mistaken for a VPN tunnel.
-TUNNEL_INTERFACE_RE = re.compile(r"^(?P<kind>gpd|tun)(?P<index>\d+)$")
-
-# gpd first (only gpclient creates those), then tunN by number
-TUNNEL_INTERFACE_KIND_ORDER = ("gpd", "tun")
-
 GPCLIENT_BINARY = "/usr/bin/gpclient"
 
-# --- VPN DNS handed back from vpnc-script -----------------------------------
+# --- The tunnel notification (issue #53) --------------------------------------
 #
-# The DNS servers and search domains the gateway pushes are applied by
-# vpnc-script directly to systemd-resolved, and NetworkManager never learns
-# about them: it sees an assumed tunnel device with an empty DNS configuration.
-# The next time NetworkManager recomputes DNS for an unrelated reason (an IPv6
-# router advertisement on the physical interface is enough) it pushes that
-# empty configuration to systemd-resolved, wiping the VPN resolver while the
-# tunnel keeps running (issue #15).
+# vpnc-script, which gpclient (openconnect) runs as root, configures the tunnel:
+# address, routes and DNS. The service does not look for the tunnel. Our hook
+# /etc/vpnc/post-connect.d/90-gpclient-notify (also in reconnect.d) runs this
+# program as `nm-gpclient-service --vpnc-notify`, which calls Notify() of the
+# Tunnel interface with the reason and the vpnc environment. The service reports
+# the tunnel to NetworkManager from that environment: the address, the VPN
+# server, the MTU and the DNS the gateway pushed (the split-DNS domains as
+# routing-only "~domain"), so NetworkManager owns the resolver state and
+# reapplies it on every recalculation (issue #15).
 #
-# Our /etc/vpnc/connect.d hook therefore records INTERNAL_IP4_DNS,
-# CISCO_DEF_DOMAIN and CISCO_SPLIT_DNS in this file (the path is handed to
-# gpclient in the environment), and tunnel detection reports them to
-# NetworkManager in Ip4Config - so NetworkManager owns the resolver state and
-# reapplies the same servers on every recalculation.
-DNS_STATE_DIR = "/run/nm-gpclient"
-DNS_STATE_FILE = f"{DNS_STATE_DIR}/dns-state"
-DNS_STATE_ENV = "GPCLIENT_NM_DNS_STATE"
-
-# The hook runs before vpnc-script assigns the tunnel address, so the file is
-# normally there by the time the interface has an IP. Should it lag (or be
-# missing because the hook is not installed) detection waits at most this many
-# 500 ms rounds and then reports the tunnel without learned DNS.
-DNS_STATE_WAIT_ROUNDS = 4
+# The service hands the hook two variables in gpclient's environment: the path of
+# this program and a token, new for every start of gpclient. Notify() takes no
+# call without the current token.
+NOTIFY_PROGRAM_ENV = "GPCLIENT_NM_NOTIFY"
+NOTIFY_TOKEN_ENV = "GPCLIENT_NM_TOKEN"  # noqa: S105  # a variable name, not a token
+# The file NetworkManager started: the hook runs it again with --vpnc-notify
+SERVICE_PROGRAM = os.path.realpath(__file__)
+# vpnc-script reasons the service handles: the first one after vpnc-script
+# configured the tunnel (post-connect), and a later one for the same tunnel
+VPNC_REASON_CONNECT = "connect"
+VPNC_REASON_RECONNECT = "reconnect"
+VPNC_NOTIFY_REASONS = (VPNC_REASON_CONNECT, VPNC_REASON_RECONNECT)
+# The vpnc variables --vpnc-notify sends, and nothing else of its environment
+VPNC_NOTIFY_ENV = (
+    "TUNDEV",
+    "VPNGATEWAY",
+    "INTERNAL_IP4_ADDRESS",
+    "INTERNAL_IP4_NETMASK",
+    "INTERNAL_IP4_NETMASKLEN",
+    "INTERNAL_IP4_MTU",
+    "MTU",
+    "INTERNAL_IP4_DNS",
+    "INTERNAL_IP6_ADDRESS",
+    "INTERNAL_IP6_NETMASK",
+    "INTERNAL_IP6_DNS",
+    "CISCO_DEF_DOMAIN",
+    "CISCO_SPLIT_DNS",
+    "CISCO_BANNER",
+)
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
@@ -880,15 +877,6 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
     return target, None
 
 
-def tunnel_candidate_order(iface: str) -> Tuple[int, int]:
-    """Sort key putting gpd0 first and tunN in numeric (not lexical) order."""
-    match = TUNNEL_INTERFACE_RE.match(iface)
-    if not match:
-        return len(TUNNEL_INTERFACE_KIND_ORDER), 0
-    kind = match.group("kind")
-    return TUNNEL_INTERFACE_KIND_ORDER.index(kind), int(match.group("index"))
-
-
 def tunnel_interface_name(uuid: str) -> Optional[str]:
     """The tunnel name we ask gpclient for: gp- and the first 8 hex digits of
     the connection UUID (11 characters, the kernel allows 15). None when the
@@ -897,95 +885,6 @@ def tunnel_interface_name(uuid: str) -> Optional[str]:
     if len(digits) != 8 or any(c not in string.hexdigits for c in digits):
         return None
     return f"gp-{digits.lower()}"
-
-
-def list_tunnel_candidates() -> List[str]:
-    """Tunnel interfaces present right now, in the order detection tries them.
-
-    Replaces the old fixed ["gpd0", "tun0", "tun1"] list, which could not see
-    a tunnel that landed on tun2 or higher because other VPNs held the lower
-    numbers (issue #13).
-    """
-    try:
-        names = os.listdir(NET_SYSFS_PATH)
-    except OSError as e:
-        logger.warning(f"Cannot list {NET_SYSFS_PATH}: {e}")
-        return []
-
-    candidates = [name for name in names if TUNNEL_INTERFACE_RE.match(name)]
-    return sorted(candidates, key=tunnel_candidate_order)
-
-
-def tunnel_ifaces_held_by(pids: List[int]) -> set:
-    r"""Tunnel interfaces whose file descriptor is held by one of `pids`.
-
-    The kernel names the interface behind a tun file descriptor in
-    /proc/PID/fdinfo/N ("iff:\ttun2"), which identifies our own tunnel
-    directly instead of inferring it from what appeared since Connect()
-    started. Returns an empty set when the information is unavailable
-    (process already gone, /proc unreadable); the caller then falls back to
-    the pre-existing-interface snapshot.
-    """
-    ifaces = set()
-    for pid in pids:
-        fdinfo_dir = f"{PROC_PATH}/{pid}/fdinfo"
-        try:
-            fds = os.listdir(fdinfo_dir)
-        except OSError:
-            continue
-        for fd in fds:
-            try:
-                with open(f"{fdinfo_dir}/{fd}", "r") as handle:
-                    content = handle.read()
-            except OSError:
-                continue
-            for line in content.splitlines():
-                if line.startswith("iff:"):
-                    name = line.split(":", 1)[1].strip()
-                    if name:
-                        ifaces.add(name)
-    return ifaces
-
-
-def process_tree(root_pid: int) -> List[int]:
-    """A PID plus every descendant, so a tunnel opened by a forked helper of
-    gpclient is still recognised as ours."""
-    try:
-        pids = [int(entry) for entry in os.listdir(PROC_PATH) if entry.isdigit()]
-    except OSError:
-        return [root_pid]
-
-    children: Dict[int, List[int]] = {}
-    for pid in pids:
-        try:
-            with open(f"{PROC_PATH}/{pid}/stat", "r") as handle:
-                stat = handle.read()
-        except OSError:
-            continue
-        # Field 2 is the command name in parentheses and may itself contain
-        # spaces and parentheses, so the parent PID is read after the last ')'
-        close = stat.rfind(")")
-        if close < 0:
-            continue
-        fields = stat[close + 1 :].split()
-        if len(fields) < 2:
-            continue
-        try:
-            children.setdefault(int(fields[1]), []).append(pid)
-        except ValueError:
-            continue
-
-    tree: List[int] = []
-    seen = set()
-    queue = [root_pid]
-    while queue:
-        pid = queue.pop()
-        if pid in seen:
-            continue
-        seen.add(pid)
-        tree.append(pid)
-        queue.extend(children.get(pid, []))
-    return tree
 
 
 def parse_proc_stat(text: str) -> Optional[Tuple[str, str, int, int]]:
@@ -1084,20 +983,6 @@ def signal_if_same(pid: int, starttime: int, sig: int) -> bool:
     return True
 
 
-def parse_dns_state(text: str) -> Dict[str, str]:
-    """Parse the KEY=value lines the vpnc hook writes to DNS_STATE_FILE."""
-    state: Dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            state[key] = value.strip()
-    return state
-
-
 def _dedupe(items: List[str]) -> List[str]:
     seen = set()
     result = []
@@ -1127,7 +1012,7 @@ def learned_dns_from_state(
     state: Dict[str, str], iface: str
 ) -> Optional[Tuple[List[str], List[str], List[str]]]:
     """DNS the gateway pushed for `iface`: (ipv4 servers, domains, ipv6
-    servers), or None when the state does not describe this tunnel.
+    servers), or None when the vpnc environment `state` is for another tunnel.
 
     CISCO_DEF_DOMAIN is space-separated (vpnc-script convention, and our hook
     appends the profile's dns-domains to it); CISCO_SPLIT_DNS is the
@@ -1149,8 +1034,8 @@ def learned_dns_from_state(
 def tunnel_ipv6_from_state(
     state: Dict[str, str], iface: str
 ) -> Optional[Tuple[ipaddress.IPv6Address, int]]:
-    """The tunnel's IPv6 address and prefix the hook recorded for `iface`, or
-    None when the state is for another tunnel or holds no valid IPv6 address.
+    """The tunnel's IPv6 address and prefix of the vpnc environment `state`, or
+    None when it is for another tunnel or holds no valid IPv6 address.
 
     openconnect sets INTERNAL_IP6_ADDRESS to the bare address and
     INTERNAL_IP6_NETMASK to "address/prefix"; either may be missing.
@@ -1170,13 +1055,53 @@ def tunnel_ipv6_from_state(
 def vpn_gateway_from_state(
     state: Dict[str, str], iface: str
 ) -> Optional[ipaddress.IPv4Address]:
-    """The VPN server's IPv4 address the hook recorded for `iface`, or None
-    when the state is for another tunnel or VPNGATEWAY is no IPv4 address."""
+    """The VPN server's IPv4 address of the vpnc environment `state`, or None
+    when it is for another tunnel or VPNGATEWAY is no IPv4 address."""
     tundev = state.get("TUNDEV", "")
     if tundev and tundev != iface:
         return None
     address = parse_ip_address(state.get("VPNGATEWAY", ""))
     return address if isinstance(address, ipaddress.IPv4Address) else None
+
+
+def tunnel_ipv4_from_env(
+    env: Dict[str, str],
+) -> Optional[Tuple[ipaddress.IPv4Address, int]]:
+    """The tunnel's IPv4 address and prefix length from the vpnc environment,
+    or None when INTERNAL_IP4_ADDRESS is no IPv4 address.
+
+    The prefix is INTERNAL_IP4_NETMASKLEN, or the length of INTERNAL_IP4_NETMASK
+    ("255.255.255.0"); a point-to-point tunnel that has neither gets 32.
+    """
+    address = parse_ip_address(env.get("INTERNAL_IP4_ADDRESS", ""))
+    if not isinstance(address, ipaddress.IPv4Address):
+        return None
+    length = env.get("INTERNAL_IP4_NETMASKLEN", "")
+    if length.isascii() and length.isdigit() and int(length) <= 32:
+        return address, int(length)
+    netmask = parse_ip_address(env.get("INTERNAL_IP4_NETMASK", ""))
+    if isinstance(netmask, ipaddress.IPv4Address):
+        host_bits = int(netmask) ^ 0xFFFFFFFF
+        if host_bits & (host_bits + 1) == 0:  # ones, then zeros
+            return address, 32 - host_bits.bit_length()
+    return address, 32
+
+
+def tunnel_mtu_from_env(env: Dict[str, str]) -> Optional[int]:
+    """The tunnel's MTU from the vpnc environment (MTU, else INTERNAL_IP4_MTU),
+    or None when there is none or it is no number between 68 and 65535."""
+    for key in ("MTU", "INTERNAL_IP4_MTU"):
+        text = env.get(key, "")
+        if text.isascii() and text.isdigit() and 68 <= int(text) <= 65535:
+            return int(text)
+    return None
+
+
+def vpnc_notify_env(environ: Dict[str, str]) -> Tuple[str, str, Dict[str, str]]:
+    """What --vpnc-notify sends: (reason, token, the allow-listed vpnc
+    variables that are set). Other variables of `environ` never leave."""
+    env = {key: environ[key] for key in VPNC_NOTIFY_ENV if key in environ}
+    return environ.get("reason", ""), environ.get(NOTIFY_TOKEN_ENV, ""), env
 
 
 def parse_dns_servers(text: str) -> List[str]:
@@ -1569,8 +1494,32 @@ class LaunchFailedError(DbusFailedError):
     dbus_error_name = "org.freedesktop.NetworkManager.VPN.Error.LaunchFailed"
 
 
+class NotifyRejectedError(DbusFailedError):
+    """A tunnel notification the service does not accept"""
+
+    dbus_error_name = f"{NM_DBUS_INTERFACE_TUNNEL}.Error.Rejected"
+
+
+class GpclientTunnelInterface(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_TUNNEL
+):
+    """The interface of the vpnc hook, next to NetworkManager's VPN.Plugin one
+    on the same object. The plugin class implements _handle_notify()."""
+
+    @dbus_method_async("ssa{ss}")
+    async def Notify(self, reason: str, token: str, env: Dict[str, str]) -> None:
+        """The vpnc hook reports that vpnc-script configured the tunnel.
+
+        Args:
+            reason: vpnc-script reason, "connect" or "reconnect"
+            token: the token the service gave gpclient in its environment
+            env: the vpnc environment (the variables of VPNC_NOTIFY_ENV)
+        """
+        self._handle_notify(reason, token, env)  # type: ignore[attr-defined]
+
+
 class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
-    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN
+    GpclientTunnelInterface, interface_name=NM_DBUS_INTERFACE_VPN
 ):
     """NetworkManager VPN Plugin for gpclient using python-sdbus"""
 
@@ -1580,8 +1529,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # (pid, starttime) of the gpauth processes of our own gpclient that
         # may still run; see _remember_gpauth()
         self._gpauth_leftovers: List[Tuple[int, int]] = []
-        self.tunnel_check_task = None
+        # Writes the profile after the tunnel came up (see _handle_notify)
+        self.profile_task = None
         self.stdout_monitor_task = None
+        # The token of the running gpclient for Notify(); empty without one
+        self._notify_token = ""
         self.dns_servers = []
         self.dns_domains = []
         self.gateway = None
@@ -1634,16 +1586,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.never_default = False
         self.ignore_auto_routes = False
 
-        # Tunnel-candidate interfaces (with their IPs) that already existed
-        # when Connect() started - these must never be picked up by tunnel
-        # detection (stale gpd0 from a crashed session, another VPN's tun0;
-        # issue #7)
-        self._preexisting_ifaces = {}
-
-        # Rounds tunnel detection has waited for the vpnc hook's DNS state
-        # file (issue #15)
-        self._dns_state_rounds = 0
-        self._vpn_gateway: Optional[ipaddress.IPv4Address] = None
+        # The tunnel's IPv6 address, from the last notification
         self._tunnel_ip6: Optional[Tuple[ipaddress.IPv6Address, int]] = None
 
         # Interactive authentication state (issue #6: RSA token / standard
@@ -1755,7 +1698,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self._generation += 1
             if (
                 self.gpclient_process is not None
-                or self.tunnel_check_task
+                or self.profile_task
                 or self.stdout_monitor_task
             ):
                 logger.info("Connect() while a session is active: stopping it first")
@@ -1944,22 +1887,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # Emit state change: preparing
             self._set_state(NM_VPN_SERVICE_STATE_STARTING)
 
-            # Clean up a stale gpd0 left by a crashed previous session and
-            # snapshot the tunnel-candidate interfaces that exist BEFORE
-            # gpclient starts, so tunnel detection cannot pick up a stale
-            # or foreign interface (issue #7)
+            # Clean up a stale tunnel interface left by a crashed previous
+            # session: gpclient cannot create the tunnel over it (issue #7)
             await self._cleanup_stale_gpd0()
             if self._superseded(gen):
                 return
-            self._preexisting_ifaces = await self._snapshot_tunnel_interfaces()
-            if self._superseded(gen):
-                self._preexisting_ifaces = {}
-                return
-
-            # A DNS state file from a previous session must not be mistaken
-            # for this connection's (issue #15)
-            self._clear_dns_state()
-            self._dns_state_rounds = 0
 
             # Start gpclient process
             success = await self._start_gpclient()
@@ -1969,11 +1901,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if not success:
                 raise LaunchFailedError("Failed to start gpclient process")
 
-            # Start monitoring for tunnel interface
-            self.tunnel_check_task = self._create_task(
-                self._check_tunnel_loop(), "tunnel monitor"
-            )
-
+            # The tunnel is reported by the vpnc hook: Notify()
             logger.info("Connect() completed successfully")
 
         except Exception as e:
@@ -2068,7 +1996,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # still ran while another one is awaited could report a Failure or
         # start a prompt task for a session that is going away (issue #52)
         tasks = [
-            (self.tunnel_check_task, "Tunnel monitor"),
+            (self.profile_task, "Profile update"),
             (self._prompt_task, "Prompt"),
             (self.stdout_monitor_task, "gpclient output monitor"),
         ]
@@ -2090,7 +2018,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 pass
             except Exception:
                 logger.exception(f"{name} task had failed")
-        self.tunnel_check_task = None
+        self.profile_task = None
         self._prompt_task = None
         self.stdout_monitor_task = None
 
@@ -2114,8 +2042,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         await self._stop_remembered_gpauth()
 
         # Clean up
-        self._clear_dns_state()
-        self._dns_state_rounds = 0
+        self._notify_token = ""
         self.gpclient_process = None
         self.dns_servers = []
         self.dns_domains = []
@@ -2151,7 +2078,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._answered_username = False
         self._answered_password = False
         self._login_failed = False
-        self._preexisting_ifaces = {}
 
     @dbus_method_async("a{sv}")
     async def SetConfig(self, config: Dict[str, Tuple[str, Any]]) -> None:
@@ -2507,7 +2433,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if self.mtu:
                 cmd.extend(["--mtu", str(self.mtu)])
 
-            # Name the tunnel after the connection, so detection is exact
+            # Name the tunnel after the connection, so the notification can be
+            # checked against it
             tun_name = tunnel_interface_name(self._connection_uuid)
             if tun_name:
                 cmd.append(f"--interface={tun_name}")
@@ -2547,9 +2474,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             )
             env["GPCLIENT_NM_NEVER_DEFAULT"] = "1" if self.never_default else "0"
 
-            # Where the vpnc hook records the DNS the gateway pushes, so it
-            # can be reported to NetworkManager (issue #15)
-            env[DNS_STATE_ENV] = DNS_STATE_FILE
+            # What the vpnc hook needs to tell us that the tunnel is up: this
+            # program, and a token only this gpclient knows (new for every
+            # start, also the one after --fix-openssl)
+            env[NOTIFY_PROGRAM_ENV] = SERVICE_PROGRAM
+            self._notify_token = secrets.token_hex(16)
+            env[NOTIFY_TOKEN_ENV] = self._notify_token
 
             # Export custom DNS domains for vpnc hook
             if self.dns_domains:
@@ -2865,10 +2795,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._phase_key = None
         self._reset_phase_state()
 
-        # Same groundwork as before the first attempt: whatever the failed run
-        # left behind must not be mistaken for the new tunnel (issue #7)
+        # Same groundwork as before the first attempt
         await self._cleanup_stale_gpd0()
-        self._preexisting_ifaces = await self._snapshot_tunnel_interfaces()
 
         if await self._start_gpclient():
             return True
@@ -3792,121 +3720,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             "it without a VPN tunnel, so there is nothing to connect",
         )
 
-    async def _get_iface_ipv4(self, iface: str) -> Tuple[Any, int]:
-        """Get the first IPv4 address of an interface.
-
-        Returns:
-            (ip_address, prefix) tuple; ip_address is None when the
-            interface has no IPv4 address or the lookup failed.
-        """
-        try:
-            result = await asyncio.create_subprocess_exec(
-                "ip",
-                "-4",
-                "addr",
-                "show",
-                iface,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await result.communicate()
-        except Exception as e:
-            logger.warning(f"Failed to get tunnel IP for {iface}: {e}")
-            return None, 32
-
-        ip_addr = None
-        prefix = 32
-        for line in stdout.decode("utf-8", errors="replace").split("\n"):
-            if "inet " in line:
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    addr_with_prefix = parts[1]
-                    if "/" in addr_with_prefix:
-                        try:
-                            ip_addr, prefix_str = addr_with_prefix.split("/", 1)
-                            prefix = int(prefix_str)
-                        except ValueError:
-                            ip_addr = addr_with_prefix
-                            prefix = 32
-                    else:
-                        ip_addr = addr_with_prefix
-                break
-        return ip_addr, prefix
-
-    async def _snapshot_tunnel_interfaces(self) -> Dict[str, Any]:
-        """Record tunnel-candidate interfaces existing before gpclient starts.
-
-        An interface recorded here (with an unchanged IP) is never accepted
-        by _check_tunnel_loop: it is either a stale gpd0 from a crashed
-        session or another VPN client's tunnel (issue #7). Any number of
-        foreign tunnels may be up - the snapshot grows with them (issue #13).
-        """
-        snapshot = {}
-        for iface in list_tunnel_candidates():
-            ip_addr, _ = await self._get_iface_ipv4(iface)
-            snapshot[iface] = ip_addr
-            logger.info(
-                f"Interface {iface} (IP: {ip_addr}) already exists before "
-                "gpclient start - it will be ignored by tunnel detection "
-                "unless its address changes"
-            )
-        return snapshot
-
-    def _tunnel_ifaces_owned_by_gpclient(self) -> set:
-        """Tunnel interfaces held open by our own gpclient process tree.
-
-        Empty when the answer is unknown (gpclient already exited, /proc
-        unreadable) - the caller then relies on the snapshot alone.
-        """
-        process = self.gpclient_process
-        if process is None or process.returncode is not None:
-            return set()
-        try:
-            return tunnel_ifaces_held_by(process_tree(process.pid))
-        except Exception as e:
-            logger.debug(f"Could not determine gpclient's tunnel interfaces: {e}")
-            return set()
-
-    def _clear_dns_state(self) -> None:
-        """Remove the vpnc hook's DNS state file, if any."""
-        try:
-            os.unlink(DNS_STATE_FILE)
-            logger.debug(f"Removed DNS state file {DNS_STATE_FILE}")
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Could not remove DNS state file {DNS_STATE_FILE}: {e}")
-
-    def _read_learned_dns(
-        self, iface: str
-    ) -> Optional[Tuple[List[str], List[str], List[str]]]:
-        """DNS the gateway pushed for `iface`, as recorded by the vpnc hook.
-
-        None when the file is not there (yet) or describes another tunnel.
-        Also sets self._vpn_gateway (the state's VPNGATEWAY, or None) and
-        self._tunnel_ip6 (the tunnel's IPv6 address and prefix, or None).
-        """
-        self._vpn_gateway = None
-        self._tunnel_ip6 = None
-        try:
-            with open(DNS_STATE_FILE, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-        except FileNotFoundError:
-            return None
-        except OSError as e:
-            logger.warning(f"Could not read DNS state file {DNS_STATE_FILE}: {e}")
-            return None
-
-        state = parse_dns_state(text)
-        learned = learned_dns_from_state(state, iface)
-        self._vpn_gateway = vpn_gateway_from_state(state, iface)
-        self._tunnel_ip6 = tunnel_ipv6_from_state(state, iface)
-        if learned is None:
-            logger.debug(
-                f"DNS state file is for {state.get('TUNDEV')!r}, not {iface} - ignoring"
-            )
-        return learned
-
     def _cross_check_logged_dns(
         self,
         iface: str,
@@ -4102,8 +3915,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         only that interface is removed, when no gpclient runs. Without one it
         is gpd0, which is created by gpclient, and by gpservice for the GUI
         client. A gpd0 while neither runs is stale. A stale gpd0 blackholes
-        routing (the portal becomes unreachable) and used to be picked up by
-        tunnel detection as a live connection (issue #7). When one of them
+        routing (the portal becomes unreachable) and gpclient cannot create
+        the tunnel over it (issue #7). When one of them
         runs, gpd0 may belong to a session of the user that is not ours (CLI
         or GUI), so it is kept (issue #52). tunN devices may belong to other
         VPN clients and are never touched. No `gpclient disconnect` runs
@@ -4162,225 +3975,161 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"Stale {iface} interface removed")
 
     def _build_generic_config(
-        self, iface: str, gateway_int: Optional[int]
+        self, iface: str, gateway_int: Optional[int], tunnel_mtu: Optional[int] = None
     ) -> Dict[str, Tuple[str, Any]]:
         """The a{sv} dict of the Config signal (new-style plugin).
 
         gateway_int is the external gateway as the uint32 that Ip4Config
-        carries, or None when it could not be converted."""
+        carries, or None when it could not be converted. The MTU is the
+        tunnel's own (vpnc-script set it), else the profile's."""
         generic: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
         if gateway_int is not None:
             generic["gateway"] = ("u", gateway_int)
         generic["has-ip4"] = ("b", True)
         generic["has-ip6"] = ("b", self._tunnel_ip6 is not None)
-        if self.mtu:
-            generic["mtu"] = ("u", self.mtu)
+        mtu = tunnel_mtu or self.mtu
+        if mtu:
+            generic["mtu"] = ("u", mtu)
         return generic
 
-    async def _check_tunnel_loop(self) -> None:
-        """Periodically check for tunnel interface"""
-        try:
-            while True:
-                # Which interfaces gpclient itself holds open. Looked up at
-                # most once per round, and only once a new candidate actually
-                # turned up, so the /proc walk stays off the idle path.
-                owned_ifaces = None
+    def _check_notify(self, reason: str, token: str, env: Dict[str, str]) -> str:
+        """The tunnel interface of an accepted notification; raises
+        NotifyRejectedError (nothing changes) for any other call."""
 
-                # A named tunnel is exactly that interface: no candidate list,
-                # no snapshot, no fdinfo ownership
-                tun_name = tunnel_interface_name(self._connection_uuid)
-                candidates = [tun_name] if tun_name else list_tunnel_candidates()
+        def reject(message: str) -> NotifyRejectedError:
+            logger.warning(f"Notify({reason!r}) rejected: {message}")
+            return NotifyRejectedError(message)
 
-                for iface in candidates:
-                    # Check if interface has an IP address (not just exists)
-                    ip_addr, prefix = await self._get_iface_ipv4(iface)
+        process = self.gpclient_process
+        # The generation differs from the session's while a Disconnect() or a
+        # new Connect() is tearing the session down, before the token is gone
+        if (
+            not self._notify_token
+            or process is None
+            or process.returncode is not None
+            or self._session_gen != self._generation
+        ):
+            raise reject("no active session")
+        if not token or not hmac.compare_digest(
+            token.encode(), self._notify_token.encode()
+        ):
+            raise reject("wrong token")
+        if reason not in VPNC_NOTIFY_REASONS:
+            raise reject("unknown reason")
+        # STARTED after the first connect, STOPPED after a failure
+        if (
+            reason == VPNC_REASON_CONNECT
+            and self._state != NM_VPN_SERVICE_STATE_STARTING
+        ):
+            raise reject("the session is not starting: the tunnel is up or it failed")
+        if reason == VPNC_REASON_RECONNECT and not self._tunnel_up:
+            raise reject("there is no tunnel to reconnect")
 
-                    # Only consider interface valid if it has an IP
-                    if not ip_addr:
-                        logger.debug(
-                            f"Interface {iface} exists but has no IP, skipping"
-                        )
-                        continue
+        iface = env.get("TUNDEV", "")
+        expected = tunnel_interface_name(self._connection_uuid)
+        if expected:
+            valid = iface == expected
+        else:
+            valid = TUNNEL_LOGGED_INTERFACE_RE.fullmatch(iface) is not None
+        if not valid:
+            raise reject(f"unexpected tunnel interface {iface!r}")
+        return iface
 
-                    # Never accept an interface that already existed with the
-                    # same IP before gpclient started - it is a stale gpd0 or
-                    # another VPN's tunnel (issue #7)
-                    if (
-                        not tun_name
-                        and iface in self._preexisting_ifaces
-                        and self._preexisting_ifaces[iface] == ip_addr
-                    ):
-                        logger.debug(
-                            f"Interface {iface} pre-existed with unchanged "
-                            f"IP {ip_addr}, skipping"
-                        )
-                        continue
+    def _handle_notify(self, reason: str, token: str, env: Dict[str, str]) -> None:
+        """Report the tunnel vpnc-script configured to NetworkManager.
 
-                    # A tunnel that appeared after Connect() is normally ours,
-                    # but another VPN may well have been started at the same
-                    # moment. When gpclient's own file descriptors tell us
-                    # which interface is ours, trust that over the timing
-                    # (issue #13).
-                    if owned_ifaces is None and not tun_name:
-                        owned_ifaces = self._tunnel_ifaces_owned_by_gpclient()
-                    if owned_ifaces and iface not in owned_ifaces:
-                        logger.debug(
-                            f"Interface {iface} is new but not held by "
-                            f"gpclient (it holds {sorted(owned_ifaces)}), "
-                            "skipping"
-                        )
-                        continue
+        Everything from the checks to the signals runs without an await, so a
+        Disconnect() or Connect() cannot come in between: it bumps the
+        generation first, and _check_notify() sees that. "connect" also
+        starts the session (STARTED) and, in a task that _teardown() cancels,
+        writes what we learned to the profile; "reconnect" reports the
+        configuration again.
+        """
+        iface = self._check_notify(reason, token, env)
+        logger.info(f"VPN connected - vpnc-script reports tunnel {iface} ({reason})")
 
-                    # The gateway's DNS, as recorded by the vpnc hook. The hook
-                    # runs before the address is assigned, so the file is
-                    # normally already there; give it a moment otherwise
-                    # rather than reporting the tunnel without DNS (issue #15)
-                    learned_dns = self._read_learned_dns(iface)
-                    if (
-                        learned_dns is None
-                        and self._dns_state_rounds < DNS_STATE_WAIT_ROUNDS
-                    ):
-                        self._dns_state_rounds += 1
-                        logger.debug(
-                            f"Tunnel {iface} is up but the DNS state file is "
-                            f"not there yet, waiting "
-                            f"({self._dns_state_rounds}/{DNS_STATE_WAIT_ROUNDS})"
-                        )
-                        break
-                    if learned_dns is None:
-                        logger.warning(
-                            "No DNS state from the vpnc hook - NetworkManager "
-                            "will not know the VPN DNS servers (is "
-                            "/etc/vpnc/connect.d/90-gpclient-routing installed?)"
-                        )
-                    learned_dns = self._cross_check_logged_dns(iface, learned_dns)
+        address = tunnel_ipv4_from_env(env)
+        # NetworkManager reads "gateway" as the VPN server's address and routes
+        # it via the physical interface. Without one, point-to-point: the
+        # tunnel address itself, which NetworkManager requires
+        gateway = vpn_gateway_from_state(env, iface)
+        if gateway is None and address is not None:
+            gateway = address[0]
+            logger.debug(f"Using tunnel IP as gateway (point-to-point): {gateway}")
 
-                    logger.info(
-                        f"VPN connected - tunnel interface {iface} detected with IP {ip_addr}!"
-                    )
-                    logger.debug(f"Tunnel IP: {ip_addr}/{prefix}")
+        config: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
+        if address is None:
+            logger.warning(
+                f"Not adding address {env.get('INTERNAL_IP4_ADDRESS', '')!r}: "
+                "it is no IPv4 address"
+            )
+        else:
+            config["address"] = ("u", ipv4_to_nm_uint32(address[0]))
+            config["prefix"] = ("u", address[1])
+            logger.info(f"Added address: {address[0]}/{address[1]}")
+        gateway_int = None
+        if gateway is not None:
+            gateway_int = ipv4_to_nm_uint32(gateway)
+            config["gateway"] = ("u", gateway_int)
+            # never-default is NetworkManager's to apply; the gateway is
+            # required with it too
+            note = " (but never-default is set)" if self.never_default else ""
+            logger.info(f"Added gateway{note}: {gateway}")
 
-                    # Get gateway - for point-to-point VPN without explicit gateway,
-                    # use the tunnel IP address itself (NetworkManager requirement)
-                    # NetworkManager reads "gateway" as the VPN server's
-                    # address and routes it via the physical interface, so
-                    # prefer the one the vpnc hook recorded (VPNGATEWAY)
-                    gateway = None
-                    if self._vpn_gateway is not None:
-                        gateway = str(self._vpn_gateway)
-                        logger.debug(f"Gateway from vpnc hook state: {gateway}")
-                    if not gateway:
-                        try:
-                            result = await asyncio.create_subprocess_exec(
-                                "ip",
-                                "route",
-                                "show",
-                                "dev",
-                                iface,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE,
-                            )
-                            stdout_route, _ = await result.communicate()
+        # The gateway's DNS is in the same environment; the profile's override
+        # and domains are merged in (issue #15)
+        self._tunnel_ip6 = tunnel_ipv6_from_state(env, iface)
+        learned_dns = self._cross_check_logged_dns(
+            iface, learned_dns_from_state(env, iface)
+        )
+        self._build_dns_config(config, learned_dns)
 
-                            # Look for gateway (via X.X.X.X)
-                            for line in stdout_route.decode().split("\n"):
-                                if line.strip() and "via" in line:
-                                    parts = line.strip().split()
-                                    via_idx = parts.index("via")
-                                    if via_idx + 1 < len(parts):
-                                        gateway = parts[via_idx + 1]
-                                        break
+        # The generic Config signal first: a new-style plugin sends it before
+        # Ip4Config
+        generic_config = self._build_generic_config(
+            iface, gateway_int, tunnel_mtu_from_env(env)
+        )
+        logger.info(f"Config: {generic_config}")
+        self.Config.emit(generic_config)
+        logger.info(f"Ip4Config: {config}")
+        self.Ip4Config.emit(config)
+        # has-ip6 is set only with an address, and then NM waits for this signal
+        config6 = self._build_ip6_config(
+            iface, config.get("domains", ("as", []))[1], learned_dns
+        )
+        if config6 is not None:
+            logger.info(f"Ip6Config: {config6}")
+            self.Ip6Config.emit(config6)
 
-                            logger.debug(f"Gateway from routes: {gateway}")
-                        except Exception as e:
-                            logger.debug(f"Failed to get gateway from routes: {e}")
+        if reason == VPNC_REASON_CONNECT:
+            self._set_state(NM_VPN_SERVICE_STATE_STARTED)
+            self._tunnel_up = True
+            self.profile_task = self._create_task(
+                self._persist_profile(), "profile update"
+            )
 
-                    # For point-to-point VPN (no explicit gateway), use tunnel IP as gateway
-                    # This is required by NetworkManager
-                    if not gateway and ip_addr:
-                        gateway = ip_addr
-                        logger.debug(
-                            f"Using tunnel IP as gateway (point-to-point): {gateway}"
-                        )
+    async def _persist_profile(self) -> None:
+        """The login succeeded, so what we learned along the way is worth
+        keeping in the profile: the gateway list for the editor's drop-down,
+        and whether this portal needs the legacy TLS workaround"""
+        await self._persist_gateway_list()
+        await self._persist_fix_openssl()
 
-                    # Build IP4 config
-                    config: Dict[str, Tuple[str, Any]] = {
-                        "tundev": ("s", iface),
-                    }
 
-                    # Add IP address if found
-                    if ip_addr:
-                        # Convert IP to the uint32 NetworkManager expects
-                        try:
-                            ip_int = ipv4_to_nm_uint32(ip_addr)
-                        except ValueError as e:
-                            logger.warning(f"Not adding address {ip_addr}: {e}")
-                        else:
-                            config["address"] = ("u", ip_int)
-                            config["prefix"] = ("u", prefix)
-                            logger.info(f"Added address: {ip_addr}/{prefix}")
-
-                    # Add gateway (required by NetworkManager, even with never-default)
-                    # NetworkManager uses never-default to control routing, not plugin
-                    gateway_int = None
-                    if gateway:
-                        try:
-                            gateway_int = ipv4_to_nm_uint32(gateway)
-                        except ValueError as e:
-                            logger.warning(f"Not adding gateway {gateway}: {e}")
-                        else:
-                            config["gateway"] = ("u", gateway_int)
-                            if self.never_default:
-                                logger.info(
-                                    f"Added gateway (but never-default is set): "
-                                    f"{gateway}"
-                                )
-                            else:
-                                logger.info(f"Added gateway: {gateway}")
-
-                    # DNS servers and search domains: the profile's override
-                    # and/or what the gateway pushed (issue #15)
-                    self._build_dns_config(config, learned_dns)
-
-                    # Emit the generic Config signal first: a new-style
-                    # plugin sends it before Ip4Config
-                    generic_config = self._build_generic_config(iface, gateway_int)
-                    logger.info(f"Config: {generic_config}")
-                    self.Config.emit(generic_config)
-
-                    # Emit Ip4Config signal
-                    logger.info(f"Ip4Config: {config}")
-                    self.Ip4Config.emit(config)
-
-                    # has-ip6 is set only with an address, and then NM waits
-                    # for this signal
-                    config6 = self._build_ip6_config(
-                        iface, config.get("domains", ("as", []))[1], learned_dns
-                    )
-                    if config6 is not None:
-                        logger.info(f"Ip6Config: {config6}")
-                        self.Ip6Config.emit(config6)
-
-                    # Emit state change: activated
-                    self._set_state(NM_VPN_SERVICE_STATE_STARTED)
-                    self._tunnel_up = True
-
-                    # The login succeeded, so what we learned along the way is
-                    # worth keeping in the profile: the gateway list for the
-                    # editor's drop-down, and whether this portal needs the
-                    # legacy TLS workaround
-                    await self._persist_gateway_list()
-                    await self._persist_fix_openssl()
-
-                    # Stop checking
-                    return
-
-                # Wait 500ms before next check
-                await asyncio.sleep(0.5)
-
-        except asyncio.CancelledError:
-            logger.debug("Tunnel monitoring cancelled")
-            raise
+async def vpnc_notify(environ: Dict[str, str]) -> int:
+    """--vpnc-notify: send the vpnc environment of `environ` to the running
+    service. Returns the exit status: 0 when the service accepted it."""
+    reason, token, env = vpnc_notify_env(environ)
+    try:
+        set_default_bus(sd_bus_open_system())
+        service = GpclientTunnelInterface.new_proxy(
+            NM_DBUS_SERVICE_GPCLIENT, NM_DBUS_PATH_GPCLIENT
+        )
+        await service.Notify(reason, token, env)
+    except Exception as e:
+        print(f"nm-gpclient-service --vpnc-notify: {e}", file=sys.stderr)
+        return 1
+    return 0
 
 
 async def main_async():
@@ -4398,7 +4147,16 @@ async def main_async():
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--vpnc-notify",
+        action="store_true",
+        help="Tell the running service that vpnc-script configured the tunnel "
+        "(run by the vpnc hook, not by hand)",
+    )
     args = parser.parse_args()
+
+    if args.vpnc_notify:
+        return await vpnc_notify(dict(os.environ))
 
     # Enable debug mode: from --debug flag or GPCLIENT_DEBUG env var (default: disabled for security)
     debug_mode = args.debug or os.environ.get("GPCLIENT_DEBUG", "0") == "1"
