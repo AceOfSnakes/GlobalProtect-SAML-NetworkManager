@@ -363,11 +363,11 @@ Microsoft Edge is the recommended browser for SAML authentication because:
 
 The included `edge-wrapper` script handles:
 - Running Edge with correct Wayland/X11 display settings
-- Working around NetworkManager's sandbox (ProtectHome=read-only)
+- Working around a read-only home (ProtectHome=read-only), see the note below
 - Auto-closing Edge window after successful authentication
 - Setting up Edge policies for automatic protocol handling
 
-**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
+**Security note:** the service normally runs in its own systemd unit (`nm-gpclient.service`), where your home directory is writable. The edge-wrapper then uses **your own Edge profile** in `~/.config/microsoft-edge` (saved sign-ins, cookies, the Intune/Entra ID device registration), which single sign-on needs. Only when the home directory is read-only (the service fell back to NetworkManager's sandbox, `ProtectHome=read-only`, e.g. when `systemctl` could not start the unit) does the wrapper use a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. The journal says which profile was used ("using the user's own browser profile" or "using temp HOME").
 
 Firefox and Chrome also work but may require manual credential entry for Intune-protected portals.
 

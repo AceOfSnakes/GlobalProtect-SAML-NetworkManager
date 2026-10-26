@@ -325,7 +325,11 @@ VPN connected - vpnc-script reports tunnel gp-1a2b3c4d (connect)
 - `INFO` - normal operations
 - `WARNING` - issues that don't block operation
 - `ERROR` - critical errors
-- `DEBUG` - detailed information (with `--debug`, `GPCLIENT_DEBUG=1`, or `NM_VPN_LOG_LEVEL` 7 or higher)
+- `DEBUG` - detailed information (with `--debug` or `GPCLIENT_DEBUG=1`; in the unit:
+  `sudo systemctl edit nm-gpclient` with `[Service]` / `Environment=GPCLIENT_DEBUG=1`).
+  NetworkManager's level (`NM_VPN_LOG_LEVEL` 7 or higher) only counts when the
+  service runs without the unit (no systemd, or `systemctl` failed): the unit
+  does not get NetworkManager's environment.
 
 ## Troubleshooting
 
