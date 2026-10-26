@@ -1528,6 +1528,13 @@ def test_a_fifo_as_the_browser_does_not_block_the_snap_check(tmp_path):
     else:
         _script(tmp_path / "id", f"echo {FAKE_UID}\n")
 
-    result = _run_wrapper(_root_env(tmp_path, **extra))  # times out if it blocks
+    try:
+        result = _run_wrapper(_root_env(tmp_path, **extra))  # times out if it blocks
+    finally:
+        # A reader left blocked on the FIFO (the bug) gets EOF and exits
+        try:
+            os.close(os.open(tmp_path / "chromium", os.O_WRONLY | os.O_NONBLOCK))
+        except OSError:
+            pass  # no reader: nothing is blocked
 
     assert "is a snap" not in result.wrapper_log + result.stderr
