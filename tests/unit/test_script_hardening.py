@@ -261,7 +261,7 @@ class TestBuildAll:
         assert "-t gpclient-builder:ubuntu24.04 " in calls
         assert "-t gpclient-builder:ubuntu24.04-neon " in calls
 
-    @pytest.mark.parametrize("target", ["24.04-nope", "20.04", "neon", "24.04-", "../24.04"])
+    @pytest.mark.parametrize("target", ["24.04-nope", "20.04", "neon", "24.04-", "../24.04", "24.04 24.04-neon", "22.04 24.04", " 24.04", "24.04 "])
     def test_an_unknown_target_is_rejected_and_nothing_is_built(self, tmp_path, target):
         result, _ = run_build_all(tmp_path, target, files=("24.04", "24.04-neon"))
 
@@ -291,6 +291,19 @@ class TestBuildAll:
 
         assert result.returncode == 1
         assert "built for amd64 only, not for arm64" in result.stdout
+        assert not (tmp_path / "docker_calls").exists()
+
+    def test_a_variant_without_an_architecture_field_is_an_error(self, tmp_path):
+        result, _ = run_build_all(tmp_path, None, files=("24.04", "24.04-neon"))
+        # the first run built; now remove the field and run again
+        (tmp_path / "docker_calls").unlink()
+        control = tmp_path / "debian" / "control.ubuntu24.04-neon"
+        control.write_text(re.sub(r"^Architecture:.*\n", "", control.read_text(), flags=re.M))
+        result = subprocess.run(["bash", str(tmp_path / "build-all.sh")], capture_output=True, text=True,
+                                env={"PATH": f"{tmp_path / 'bin'}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path)})
+
+        assert result.returncode == 1
+        assert "debian/control.ubuntu24.04-neon" in result.stdout
         assert not (tmp_path / "docker_calls").exists()
 
     def test_on_amd64_the_amd64_only_variant_is_built(self, tmp_path):

@@ -50,6 +50,10 @@ can_build() {
         tolower($1) == "package:" { binary = 1 }
         binary && tolower($1) == "architecture:" { for (i = 2; i <= NF; i++) print $i }
     ' "$SCRIPT_DIR/debian/control.ubuntu$1" | sort -u | tr '\n' ' ')
+    if [ -z "$arches" ]; then
+        echo "ERROR: variant $1 has no Architecture field in its binary packages in debian/control.ubuntu$1"
+        exit 1
+    fi
     case " $arches " in
         *" any "* | *" $HOST_ARCH "*) return 0 ;;
     esac
@@ -85,14 +89,15 @@ fi
 
 if [ -n "$1" ]; then
     # Validate version
-    case " $SUPPORTED " in
-        *" $1 "*) ;;
-        *)
-            echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: ${SUPPORTED// /, }"
-            echo "Run '$0 --help' for usage information"
-            exit 1
-            ;;
-    esac
+    FOUND=""
+    for name in "${ALL_TARGETS[@]}"; do
+        [ "$name" = "$1" ] && FOUND=1
+    done
+    if [ -z "$FOUND" ]; then
+        echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: ${SUPPORTED// /, }"
+        echo "Run '$0 --help' for usage information"
+        exit 1
+    fi
     if ! can_build "$1"; then
         echo "ERROR: $1 is built for ${BUILD_ARCHES:-no architecture} only, not for $HOST_ARCH"
         exit 1
