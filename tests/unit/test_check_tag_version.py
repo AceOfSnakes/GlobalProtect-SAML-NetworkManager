@@ -62,6 +62,8 @@ def test_mismatching_tag_fails(tag, version, tmp_path):
     ("v2.1", "2.1-1"),
     ("v2.1.3", "2.1.3-2"),
     ("v10.0.0", "10.0.0-1"),
+    ("v2.0", "2.0-1"),
+    ("v2", "2-1"),
 ])
 def test_a_revision_from_2_0_0_on_fails(tag, version, tmp_path):
     result = run(tag, entry(version), tmp_path)

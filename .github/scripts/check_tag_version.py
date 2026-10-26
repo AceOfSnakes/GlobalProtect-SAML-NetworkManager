@@ -39,6 +39,8 @@ def check(tag, text):
         raise ValueError(f"tag {tag} does not match the version {version} in debian/changelog")
     # Pure Python: dpkg may be missing where this runs. Only the numeric parts matter here.
     numbers = tuple(int(n) for n in re.match(r"[0-9]+(?:\.[0-9]+)*", version).group().split("."))
+    # 2 and 2.0 count as 2.0.0 (a shorter tuple would compare lower)
+    numbers += (0,) * (3 - len(numbers))
     if revision is not None and numbers >= (2, 0, 0):
         raise ValueError(
             f"from 2.0.0 on the version is native: write {version}, not {version}-{revision}"
