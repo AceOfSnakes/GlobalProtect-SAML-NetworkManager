@@ -196,7 +196,8 @@ waits for the browser to exit or for the safety timeout (`GP_AUTH_TIMEOUT`,
 --disable-background-networking   # Don't fetch data in background
 --app=$URL                        # Open in app mode (minimal UI)
 --window-size=896,964             # Fixed window size
---user-data-dir=$PROFILE_DIR      # Custom profile directory
+--user-data-dir=$PROFILE_DIR      # Custom profile directory (not for a snap
+                                  # browser: it keeps its own under ~/snap)
 ```
 
 ## Log Files
@@ -324,7 +325,9 @@ Two caveats for non-Edge browsers:
   so the first authentication shows a "open GlobalProtect callback?" prompt that
   you have to confirm.
 - Browsers that hand the URL to an already running instance exit immediately, so
-  the wrapper cannot close the window afterwards.
+  the wrapper cannot close the window afterwards. A browser that exits with a
+  non-zero status did not open the page: the wrapper logs it as `ERROR` in
+  `wrapper.log` and in syslog (`journalctl -t gpclient-browser-wrapper`).
 
 ## Installation Paths
 

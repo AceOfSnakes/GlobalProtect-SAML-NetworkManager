@@ -1397,7 +1397,9 @@ def test_numeric_auth_timeout_is_kept(tmp_path, timeout):
 # --- Chromium-family start: snap profile, exit status (report on PR #115) ------
 
 
-def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0, body=None):
+def _run_chromium(
+    tmp_path, target_name, exit_code=0, gpauth_seconds=0, body=None, writable_home=True
+):
     """Run the wrapper with GP_BROWSER=<tmp>/chromium, a link to a fake browser
     called target_name (a snap browser is a link to /usr/bin/snap). With
     gpauth_seconds, a fake gpauth lives that long."""
@@ -1413,6 +1415,8 @@ def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0, body=Non
     os.symlink(target_dir / target_name, tmp_path / "chromium")
     gpauth = None
     if gpauth_seconds:
+        # A wrapper.log left by an interrupted run would end the fake gpauth at once
+        _remove_wrapper_files(FAKE_UID)
         # gpauth lives until the wrapper has seen the browser exit (at most
         # gpauth_seconds): a slow start of the wrapper must not miss it
         gpauth = subprocess.Popen([
@@ -1425,7 +1429,13 @@ def _run_chromium(tmp_path, target_name, exit_code=0, gpauth_seconds=0, body=Non
             tmp_path / "pgrep",
             f'case " $* " in *" gpauth "*) echo {gpauth.pid} ;; *) exit 1 ;; esac\n',
         )
-    extra = {"GP_BROWSER": str(tmp_path / "chromium"), "GP_AUTH_TIMEOUT": "20"}
+    if writable_home:
+        (tmp_path / "home").mkdir()
+    extra = {
+        "GP_BROWSER": str(tmp_path / "chromium"),
+        "GP_AUTH_TIMEOUT": "20",
+        "HOME": str(tmp_path / "home"),
+    }
     if IS_ROOT:
         _fake_sudo(tmp_path)
         _script(
@@ -1455,6 +1465,14 @@ def test_a_snap_chromium_keeps_its_own_profile(tmp_path):
     assert f"--app={URL}" in result.args
     assert not [a for a in result.args if a.startswith("--user-data-dir")]
     assert "is a snap: using its own profile" in result.all_logs
+
+
+def test_a_snap_with_a_read_only_home_gets_the_temp_profile(tmp_path):
+    """No writable home: the profile stays in the wrapper's temp dir, as before."""
+    result = _run_chromium(tmp_path, "snap", writable_home=False)
+
+    assert [a for a in result.args if a.startswith("--user-data-dir=/tmp/edge-wrapper-")]
+    assert "is a snap" not in result.all_logs
 
 
 def test_a_script_that_runs_a_snap_keeps_its_own_profile(tmp_path):

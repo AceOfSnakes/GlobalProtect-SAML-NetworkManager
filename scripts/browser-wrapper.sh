@@ -539,7 +539,8 @@ case "$FAMILY" in
         # A snap browser has its profile under ~/snap and cannot write elsewhere:
         # let it use its own. /snap/bin/chromium is a link to /usr/bin/snap;
         # Ubuntu's /usr/bin/chromium-browser is a script that runs /snap/bin/...
-        if is_snap "$BROWSER_BIN"; then
+        # (with a read-only home the profile is in our temp dir, as before)
+        if [ "$HOME_IS_RO" -eq 0 ] && is_snap "$BROWSER_BIN"; then
             log "$BROWSER_BIN is a snap: using its own profile"
         else
             BROWSER_FLAGS+=("--user-data-dir=$PROFILE_DIR")
@@ -616,7 +617,11 @@ run_browser_with_monitor() {
             else
                 # It failed before it showed the page (its messages are in the
                 # log): say so where the user looks first
-                log "ERROR: the browser exited with status $status - see its messages in this log"
+                if [ -n "$LOG_FILE" ]; then
+                    log "ERROR: the browser exited with status $status - see its messages in this log"
+                else
+                    log "ERROR: the browser exited with status $status (its output was not kept: no log file)"
+                fi
                 # log() reaches syslog only without a log file
                 [ -n "$LOG_FILE" ] && command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- \
                     "ERROR: $BROWSER_BIN exited with status $status, see $LOG_FILE" 2>/dev/null
