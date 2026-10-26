@@ -1,0 +1,45 @@
+# shellcheck shell=sh
+# IMPORTANT: This script is sourced by vpnc-script which uses /bin/sh
+# Therefore we MUST use POSIX-compatible shell syntax only (no bash-isms), and
+# it must not `exit` or `set -e`: that would end vpnc-script itself.
+# No shebang: vpnc-script sources this file, nothing runs it.
+#
+# Installed as /etc/vpnc/post-connect.d/90-gpclient-notify and
+# /etc/vpnc/reconnect.d/90-gpclient-notify. vpnc-script has configured the
+# tunnel (address, routes, DNS) when it runs, so it tells nm-gpclient-service,
+# which reports the tunnel to NetworkManager (issue #53). The service runs
+# gpclient with two variables:
+#   GPCLIENT_NM_NOTIFY  the absolute path of the service program
+#   GPCLIENT_NM_TOKEN   a token that only this gpclient knows
+# A gpclient run by hand has neither, and this hook does nothing then.
+#
+# The program takes the vpnc environment (reason, TUNDEV, VPNGATEWAY,
+# INTERNAL_IP4_*, ...) and the token from its own environment, which it
+# inherits from vpnc-script. This hook changes nothing in that environment.
+
+gpclient_nm_notify() {
+  [ -n "${GPCLIENT_NM_NOTIFY:-}" ] && [ -n "${GPCLIENT_NM_TOKEN:-}" ] || return 0
+
+  case "$GPCLIENT_NM_NOTIFY" in
+    /*) ;;
+    *)
+      echo "vpnc hook: GPCLIENT_NM_NOTIFY is not an absolute path - not notifying" >&2
+      return 0
+      ;;
+  esac
+  if [ ! -f "$GPCLIENT_NM_NOTIFY" ] || [ ! -x "$GPCLIENT_NM_NOTIFY" ]; then
+    echo "vpnc hook: $GPCLIENT_NM_NOTIFY is not an executable file - not notifying" >&2
+    return 0
+  fi
+
+  # A call that hangs (the service is stuck) must not block vpnc-script
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 10 "$GPCLIENT_NM_NOTIFY" --vpnc-notify
+  else
+    "$GPCLIENT_NM_NOTIFY" --vpnc-notify
+  fi || echo "vpnc hook: could not tell nm-gpclient-service about the tunnel ${TUNDEV:-} (reason ${reason:-})" >&2
+  return 0
+}
+
+gpclient_nm_notify
+unset -f gpclient_nm_notify
