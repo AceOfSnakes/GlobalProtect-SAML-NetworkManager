@@ -343,3 +343,53 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Nepavyko eksportuoti ryšio: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Nepavyko importuoti ryšio: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Ryšys \"%1\" neišsaugotas NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Failas nėra „GlobalProtect“ VPN ryšys"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "reikalingas šliuzas"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "šliuzas negali prasidėti „-“ ar turėti tarpų arba valdymo simbolių"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "naudotojo vardas negali prasidėti „-“ ar turėti valdymo simbolių"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "naršyklė turi būti pavadinimas, komandos pavadinimas arba absoliutusis kelias be tarpų"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns turi būti kableliais, kabliataškiais ar tarpais atskirti IPv4 arba IPv6 adresai"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script turi būti absoliutusis kelias"

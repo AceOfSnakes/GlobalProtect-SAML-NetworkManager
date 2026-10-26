@@ -288,3 +288,7 @@ msgstr "שניות (0 = ברירת המחדל של NetworkManager)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "username אינו יכול להתחיל ב־'-' או להכיל תווי בקרה"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "הקובץ אינו חיבור VPN של GlobalProtect"

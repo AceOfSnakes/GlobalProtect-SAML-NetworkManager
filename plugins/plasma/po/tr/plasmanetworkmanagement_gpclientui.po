@@ -317,3 +317,53 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Bağlantı dışa aktarılamıyor: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Bağlantı içe aktarılamıyor: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "\"%1\" bağlantısı NetworkManager'a kaydedilmemiş"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Dosya bir GlobalProtect VPN bağlantısı değil"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "ağ geçidi gereklidir"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "ağ geçidi '-' ile başlamamalı, boşluk veya denetim karakteri içermemelidir"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "kullanıcı adı '-' ile başlamamalı veya denetim karakteri içermemelidir"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "tarayıcı bir ad, bir komut adı veya boşluksuz mutlak bir yol olmalıdır"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns, virgül, noktalı virgül veya boşlukla ayrılmış IPv4 veya IPv6 adresleri olmalıdır"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script mutlak bir yol olmalıdır"

@@ -288,3 +288,7 @@ msgstr "ثانية (0 = افتراضي NetworkManager)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "يجب ألا يبدأ username بـ «-» ولا يحتوي على محارف تحكم"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "الملف ليس اتصال GlobalProtect VPN"

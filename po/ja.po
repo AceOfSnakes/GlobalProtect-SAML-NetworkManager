@@ -316,3 +316,7 @@ msgstr "秒 (0 = NetworkManager の既定値)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "ユーザー名は '-' で始まってはならず、制御文字を含んではなりません"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "このファイルは GlobalProtect VPN 接続ではありません"

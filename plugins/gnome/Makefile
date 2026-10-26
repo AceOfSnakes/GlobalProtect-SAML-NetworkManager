@@ -37,7 +37,7 @@ endif
 
 all: $(ALL_TARGETS)
 
-libnm-vpn-plugin-gpclient.so: nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c
+libnm-vpn-plugin-gpclient.so: nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c nm-gpclient-keyfile.h nm-gpclient-validate.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(PLUGIN_CFLAGS) $(LDFLAGS) -shared -Wl,-soname,libnm-vpn-plugin-gpclient.so \
 		-o libnm-vpn-plugin-gpclient.so nm-gpclient-plugin-simple.c nm-vpn-plugin-utils.c $(PLUGIN_LIBS)
 

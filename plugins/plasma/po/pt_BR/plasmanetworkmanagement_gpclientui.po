@@ -343,3 +343,53 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Não foi possível exportar a conexão: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Não foi possível importar a conexão: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "A conexão \"%1\" não está salva no NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "O arquivo não é uma conexão VPN do GlobalProtect"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "o gateway é obrigatório"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "o gateway não pode começar com '-' nem conter espaços ou caracteres de controle"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "o nome de usuário não pode começar com '-' nem conter caracteres de controle"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "o navegador deve ser um nome, um nome de comando ou um caminho absoluto sem espaços"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "o dns deve ser endereços IPv4 ou IPv6 separados por vírgulas, pontos e vírgulas ou espaços"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "o hip-script deve ser um caminho absoluto"

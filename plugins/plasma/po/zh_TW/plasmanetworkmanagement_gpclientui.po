@@ -317,3 +317,53 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "無法匯出連線：%1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "無法匯入連線：%1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "連線 \"%1\" 未儲存在 NetworkManager 中"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "此檔案不是 GlobalProtect VPN 連線"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "閘道為必填"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "閘道不能以「-」開頭，也不能包含空格或控制字元"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "使用者名稱不能以「-」開頭，也不能包含控制字元"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "瀏覽器必須是名稱、指令名稱或不含空格的絕對路徑"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns 必須是以逗號、分號或空格分隔的 IPv4 或 IPv6 位址"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script 必須是絕對路徑"

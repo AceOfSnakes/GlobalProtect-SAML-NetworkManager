@@ -288,3 +288,7 @@ msgstr "sekundit (0 = NetworkManageri vaikeväärtus)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "username ei tohi algada märgiga „-“ ega sisaldada juhtmärke"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Fail ei ole GlobalProtecti VPN-ühendus"

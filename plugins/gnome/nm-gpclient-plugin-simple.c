@@ -5,6 +5,7 @@
 #include <gmodule.h>
 #include <NetworkManager.h>
 #include "nm-vpn-plugin-utils.h"
+#include "nm-gpclient-keyfile.h"
 
 typedef struct {
     GObject parent;
@@ -120,7 +121,26 @@ get_editor (NMVpnEditorPlugin *plugin, NMConnection *connection, GError **error)
 static guint32
 get_capabilities (NMVpnEditorPlugin *plugin)
 {
-    return 0;
+    return NM_VPN_EDITOR_PLUGIN_CAPABILITY_IMPORT | NM_VPN_EDITOR_PLUGIN_CAPABILITY_EXPORT;
+}
+
+static NMConnection *
+import_from_file (NMVpnEditorPlugin *plugin, const char *path, GError **error)
+{
+    return nm_gpclient_keyfile_import (path, error);
+}
+
+static gboolean
+export_to_file (NMVpnEditorPlugin *plugin, const char *path,
+                NMConnection *connection, GError **error)
+{
+    return nm_gpclient_keyfile_export (connection, path, error);
+}
+
+static char *
+get_suggested_filename (NMVpnEditorPlugin *plugin, NMConnection *connection)
+{
+    return nm_gpclient_keyfile_suggested_filename (nm_connection_get_id (connection));
 }
 
 static void
@@ -128,6 +148,9 @@ gpclient_plugin_interface_init (NMVpnEditorPluginInterface *iface)
 {
     iface->get_editor = get_editor;
     iface->get_capabilities = get_capabilities;
+    iface->import_from_file = import_from_file;
+    iface->export_to_file = export_to_file;
+    iface->get_suggested_filename = get_suggested_filename;
 }
 
 G_MODULE_EXPORT NMVpnEditorPlugin *

@@ -288,3 +288,7 @@ msgstr "másodperc (0 = a NetworkManager alapértelmezése)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "a felhasználónév nem kezdődhet „-” karakterrel, és nem tartalmazhat vezérlőkaraktert"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "A fájl nem GlobalProtect VPN-kapcsolat"

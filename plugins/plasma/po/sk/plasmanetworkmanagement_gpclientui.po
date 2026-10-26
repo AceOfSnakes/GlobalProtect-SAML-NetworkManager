@@ -317,3 +317,53 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Pripojenie nie je možné exportovať: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Pripojenie nie je možné importovať: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Pripojenie \"%1\" nie je uložené v NetworkManageri"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Súbor nie je pripojenie GlobalProtect VPN"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "brána je povinná"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "brána nesmie začínať znakom „-“ ani obsahovať medzery alebo riadiace znaky"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "meno používateľa nesmie začínať znakom „-“ ani obsahovať riadiace znaky"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "prehliadač musí byť názov, názov príkazu alebo absolútna cesta bez medzier"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns musí byť adresy IPv4 alebo IPv6 oddelené čiarkami, bodkočiarkami alebo medzerami"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script musí byť absolútna cesta"

@@ -316,3 +316,7 @@ msgstr "secunde (0 = valoarea implicită din NetworkManager)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "numele de utilizator nu trebuie să înceapă cu „-” și nu trebuie să conțină caractere de control"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Fișierul nu este o conexiune VPN GlobalProtect"

@@ -288,3 +288,7 @@ msgstr "sekúnd (0 = predvolené v NetworkManageri)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "meno používateľa nesmie začínať znakom „-“ ani obsahovať riadiace znaky"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Súbor nie je pripojenie GlobalProtect VPN"

@@ -317,3 +317,53 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Die Verbindung kann nicht exportiert werden: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Die Verbindung kann nicht importiert werden: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Die Verbindung \"%1\" ist nicht in NetworkManager gespeichert"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Die Datei ist keine GlobalProtect-VPN-Verbindung"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "Gateway ist erforderlich"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "Gateway darf nicht mit „-“ beginnen und keine Leerzeichen oder Steuerzeichen enthalten"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "Benutzername darf nicht mit „-“ beginnen und keine Steuerzeichen enthalten"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "Browser muss ein Name, ein Befehlsname oder ein absoluter Pfad ohne Leerzeichen sein"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "DNS muss aus IPv4- oder IPv6-Adressen bestehen, getrennt durch Kommas, Semikolons oder Leerzeichen"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script muss ein absoluter Pfad sein"
