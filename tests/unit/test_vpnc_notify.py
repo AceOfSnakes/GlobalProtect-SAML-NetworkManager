@@ -533,7 +533,9 @@ class TestIpv4FromEnv:
         assert config["has-ip4"] == ("b", False)
         assert ip4_config(dbus_signals) is None
 
-    @pytest.mark.parametrize("method", ["disabled", "ignore"])
+    @pytest.mark.parametrize(
+        "method", ["manual", "link-local", "dhcp", "shared", "disabled", "ignore"]
+    )
     def test_an_ipv6_only_tunnel_fails_when_the_profile_has_no_ipv6(
         self, service_module, dbus_signals, method
     ):
@@ -544,17 +546,16 @@ class TestIpv4FromEnv:
         assert _names(dbus_signals) == ["Failure", "StateChanged"]
         assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
 
-    @pytest.mark.parametrize("method", ["auto", "manual", "link-local"])
-    def test_an_ipv6_only_tunnel_starts_with_another_method(
-        self, service_module, dbus_signals, method
+    def test_an_ipv6_only_tunnel_starts_with_ipv6_method_auto(
+        self, service_module, dbus_signals
     ):
-        plugin = active_plugin(service_module, ipv6_method=method)
+        plugin = active_plugin(service_module, ipv6_method="auto")
 
         notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"))
 
         assert _names(dbus_signals) == ["Config", "Ip6Config", "StateChanged"]
 
-    @pytest.mark.parametrize("method", ["disabled", "ignore"])
+    @pytest.mark.parametrize("method", ["manual", "disabled", "ignore"])
     def test_an_ipv4_tunnel_does_not_care_about_ipv6_method(
         self, service_module, dbus_signals, method
     ):

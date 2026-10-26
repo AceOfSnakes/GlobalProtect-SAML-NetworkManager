@@ -41,8 +41,9 @@ Starts VPN connection.
 4. Waits for the vpnc hook to call `Notify` (see "Tunnel Notification"); the
    service has no timer of its own, NetworkManager's `vpn.timeout` ends an
    activation that never gets there
-5. On `Notify`, emits `Config` and `Ip4Config` (and `Ip6Config` for a dual-stack
-   tunnel), then `StateChanged(STARTED)`
+5. On `Notify`, emits `Config`, `Ip4Config` only with an IPv4 address and
+   `Ip6Config` only with an IPv6 address, then `StateChanged(STARTED)`. With
+   neither address it emits `Failure(BAD_IP_CONFIG)` instead
 
 #### `Disconnect()`
 Disconnects VPN.
@@ -109,7 +110,8 @@ Informs NetworkManager about service state change.
 - `6` - STOPPED
 
 #### `Ip4Config(a{sv})`
-Passes IP configuration to NetworkManager.
+Passes IP configuration to NetworkManager. Skipped for an IPv6-only tunnel
+(`has-ip4` is false then).
 
 **Parameters:**
 - `tundev` (string) - tunnel interface name (e.g., "gp-1a2b3c4d")
@@ -238,8 +240,10 @@ On `connect` the service:
 2. Emits `Config`, `Ip4Config` only when the tunnel has an IPv4 address
    (`has-ip4`), and `Ip6Config` when it has an IPv6 address (`has-ip6`). A
    tunnel with neither address fails with `BAD_IP_CONFIG`; so does an
-   IPv6-only tunnel when the profile's `ipv6.method` is `disabled` or
-   `ignore` (NetworkManager would ignore `has-ip6`). The `Config`
+   IPv6-only tunnel when the profile's `ipv6.method` is not `auto`
+   (NetworkManager 1.46 and newer ignore `has-ip6` then; on 1.36 this refuses
+   a tunnel NetworkManager would have brought up, which is accepted: the
+   profile does not ask for automatic IPv6). The `Config`
    `gateway` is the VPN server: `u` for IPv4, `ay` for IPv6 (NetworkManager
    1.36 and 1.46 read both from that key); without a server address, the
    tunnel's own address
@@ -247,7 +251,10 @@ On `connect` the service:
 4. Starts a task that writes the gateway list and `fix-openssl` to the
    profile. `Disconnect()` cancels it.
 
-On `reconnect` it only emits `Config`, `Ip4Config` and `Ip6Config` again.
+On `reconnect` it only emits `Config` again, `Ip4Config` only with an IPv4
+address, and `Ip6Config` only with an IPv6 address. A `reconnect` without a
+usable address (or IPv6-only with a non-`auto` `ipv6.method`) fails the
+connection: `Failure`, `STOPPED`, and gpclient is terminated.
 
 Everything from the checks to the signals runs without an `await`, so a
 `Disconnect()` or `Connect()` cannot come in between. Both raise the

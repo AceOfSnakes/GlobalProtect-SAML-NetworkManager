@@ -399,6 +399,7 @@ class TestConnectRouting:
     )
     def test_ipv6_method(self, service_module, monkeypatch, ipv6, expected):
         plugin = _plugin(service_module, monkeypatch)
+        plugin.ipv6_method = "ignore"  # a stale value of an earlier Connect
         conn = _conn()
         if ipv6 is not None:
             conn["ipv6"] = ipv6

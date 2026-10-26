@@ -4239,9 +4239,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 "vpnc-script reports no usable tunnel address (IPv4 or IPv6)",
             )
             return
-        # NetworkManager ignores has-ip6 when ipv6.method is not auto, so an
-        # IPv6-only tunnel would come up with no IP configuration at all
-        if address is None and self.ipv6_method in ("disabled", "ignore"):
+        # NetworkManager 1.46 and newer ignore has-ip6 unless ipv6.method is
+        # "auto", so an IPv6-only tunnel would come up with no IP configuration.
+        # On 1.36 (Ubuntu 22.04) this refuses a tunnel NM would have brought up
+        # with another method: accepted, the profile does not ask for automatic
+        # IPv6.
+        if address is None and self.ipv6_method != "auto":
             self._fail(
                 NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
                 "The tunnel has only an IPv6 address, but the profile's "
