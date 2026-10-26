@@ -41,7 +41,7 @@ which the repository does not publish. The key file is binary (not armored), so
 
 Migration: earlier versions of these instructions created a one-line
 `/etc/apt/sources.list.d/gpclient.list` and the key
-`/usr/share/keyrings/gpclient-archive-keyring.gpg`. The first line of the commands
+`/usr/share/keyrings/gpclient-archive-keyring.gpg`. The `sudo rm -f` line of the commands
 above deletes them (and does nothing on a new system). If you keep the old `.list`
 file next to the new `.sources` file, `apt update` stops with
 `E: Conflicting values set for option Signed-By`. The earlier instructions also offered
@@ -66,7 +66,7 @@ Removal:
 ```bash
 # the desktop packages depend on the core package and are removed with it
 sudo apt remove network-manager-gpclient
-sudo rm /etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg
+sudo rm -f /etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update
 ```
 

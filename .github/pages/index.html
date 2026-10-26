@@ -113,7 +113,7 @@ sudo zypper install network-manager-gpclient-gnome</code></pre>
 
 <pre><code># the desktop packages depend on the core package and are removed with it
 sudo apt remove network-manager-gpclient
-sudo rm /etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg
+sudo rm -f /etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo apt update</code></pre>
 
 <!-- RPM-BEGIN -->

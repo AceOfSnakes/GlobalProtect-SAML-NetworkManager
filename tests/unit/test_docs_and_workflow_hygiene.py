@@ -69,20 +69,6 @@ OLD_FILES = "/etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-
 NEW_FILES = "/etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg"
 
 
-def install_section(doc):
-    """The apt install commands: from the key download to `sudo apt update`"""
-    with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
-        return install_commands(handle.read())
-
-
-def removal_block(doc):
-    """The commands from `sudo apt remove network-manager-gpclient` to `sudo apt update`"""
-    with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
-        text = handle.read()
-    start = text.index("sudo apt remove network-manager-gpclient\n")
-    return text[start:text.index("sudo apt update", start)]
-
-
 CLEANUP = "# old one-line setup from earlier instructions, if present\nsudo rm -f " + OLD_FILES + "\n"
 FIELDS = ["Types", "URIs", "Suites", "Components", "Architectures", "Signed-By"]
 URL = "https://wmp.github.io/GlobalProtect-SAML-NetworkManager"
@@ -95,6 +81,23 @@ def read_doc(doc):
     return html.unescape(text).replace("__REPO_URL__", URL) if doc.endswith(".html") else text
 
 
+def install_commands(text):
+    start = text.rfind("\n", 0, text.index("curl -fsSL")) + 1
+    return text[start:text.index("sudo apt update", start)]
+
+
+def install_section(doc):
+    """The apt install commands: from the key download to `sudo apt update`"""
+    return install_commands(read_doc(doc))
+
+
+def removal_block(doc):
+    """The commands from `sudo apt remove network-manager-gpclient` to `sudo apt update`"""
+    text = read_doc(doc)
+    start = text.index("sudo apt remove network-manager-gpclient\n")
+    return text[start:text.index("sudo apt update", start)]
+
+
 def cleanup_first(text):
     """True when the old files are deleted before the key is downloaded"""
     return CLEANUP in text and text.index(CLEANUP) < text.index("sudo curl -fsSLo")
@@ -103,11 +106,6 @@ def cleanup_first(text):
 def snippet_fields(text):
     body = text[text.index("Types:"):text.index("\nEOF")]
     return [line.split(":", 1)[0] for line in body.splitlines()]
-
-
-def install_commands(text):
-    start = text.rfind("\n", 0, text.index("curl -fsSL")) + 1
-    return text[start:text.index("sudo apt update", start)]
 
 
 class TestAptInstallSteps:
@@ -163,17 +161,18 @@ class TestAptInstallSteps:
         assert block(".github/pages/index.html") == block("README.md")
 
     @pytest.mark.parametrize("doc", ["docs/APT_REPO.md", ".github/pages/index.html"])
-    def test_the_removal_block_removes_the_new_files(self, doc):
-        block = removal_block(doc)
-        assert "sudo rm " + NEW_FILES + "\n" in block
-        assert "gpclient.list" not in block
-        assert "/usr/share/keyrings" not in block
+    def test_the_removal_block_removes_the_new_and_the_old_files(self, doc):
+        assert "sudo rm -f " + NEW_FILES + " " + OLD_FILES + "\n" in removal_block(doc)
 
-    def test_a_removal_block_of_the_old_files_is_detected(self, tmp_path):
+    @pytest.mark.parametrize("line", [
+        "sudo rm " + NEW_FILES + " " + OLD_FILES,
+        "sudo rm -f " + NEW_FILES,
+        "sudo rm -f " + OLD_FILES,
+    ])
+    def test_an_incomplete_removal_block_is_detected(self, tmp_path, line):
         old = tmp_path / "old.md"
-        old.write_text("sudo apt remove network-manager-gpclient\nsudo rm " + OLD_FILES + "\nsudo apt update\n")
-        block = removal_block(str(old))
-        assert "gpclient.list" in block and "sudo rm " + NEW_FILES not in block
+        old.write_text("sudo apt remove network-manager-gpclient\n" + line + "\nsudo apt update\n")
+        assert "sudo rm -f " + NEW_FILES + " " + OLD_FILES + "\n" not in removal_block(str(old))
 
 
 class TestReleaseList:
