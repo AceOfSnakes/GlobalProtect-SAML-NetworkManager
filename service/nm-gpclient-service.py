@@ -59,6 +59,13 @@ NM_DBUS_PATH_GPCLIENT = "/org/freedesktop/NetworkManager/VPN/Plugin"
 # the tunnel is up (see "The tunnel notification" below)
 NM_DBUS_INTERFACE_TUNNEL = "org.freedesktop.NetworkManager.gpclient.Tunnel"
 
+# NetworkManager's own API, used to write the connection profile
+NM_DBUS_SERVICE = "org.freedesktop.NetworkManager"
+NM_DBUS_INTERFACE_SETTINGS = "org.freedesktop.NetworkManager.Settings"
+NM_DBUS_PATH_SETTINGS = "/org/freedesktop/NetworkManager/Settings"
+NM_DBUS_INTERFACE_CONNECTION = "org.freedesktop.NetworkManager.Settings.Connection"
+PROFILE_UPDATE_TIMEOUT = 10  # seconds for all D-Bus calls of one profile write
+
 # VPN Plugin states
 NM_VPN_SERVICE_STATE_UNKNOWN = 0
 NM_VPN_SERVICE_STATE_INIT = 1
@@ -291,7 +298,8 @@ SELECT_REDRAW_TIMEOUT = 1.5
 SELECT_POLL_INTERVAL = 0.05
 
 # Separator for the cached gateway list in vpn.data. Commas cannot be used:
-# `nmcli connection modify ... +vpn.data` splits key=value pairs on them.
+# `nmcli connection modify ... +vpn.data`, which users run on the profile,
+# splits key=value pairs on them.
 GATEWAY_LIST_SEPARATOR = ";"
 
 def parse_log_record(line: str) -> Optional[Dict[str, str]]:
@@ -1524,6 +1532,49 @@ class LaunchFailedError(DbusFailedError):
     """gpclient could not be started"""
 
     dbus_error_name = "org.freedesktop.NetworkManager.VPN.Error.LaunchFailed"
+
+
+class NmSettingsInterface(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_SETTINGS
+):
+    """Client side of NetworkManager's Settings object (only what we call)"""
+
+    @dbus_method_async("s", "o")
+    async def GetConnectionByUuid(self, uuid: str) -> str:
+        raise NotImplementedError
+
+
+NmSettings = Dict[str, Dict[str, Tuple[str, Any]]]
+
+
+class NmConnectionInterface(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_CONNECTION
+):
+    """Client side of one connection profile (only what we call)"""
+
+    @dbus_method_async("", "a{sa{sv}}")
+    async def GetSettings(self) -> NmSettings:
+        raise NotImplementedError
+
+    @dbus_method_async("s", "a{sa{sv}}")
+    async def GetSecrets(self, setting_name: str) -> NmSettings:
+        raise NotImplementedError
+
+    @dbus_method_async("a{sa{sv}}ua{sv}", "a{sv}")
+    async def Update2(
+        self, settings: NmSettings, flags: int, args: Dict[str, Tuple[str, Any]]
+    ) -> Dict[str, Tuple[str, Any]]:
+        raise NotImplementedError
+
+    @dbus_property_async("t")
+    def VersionId(self) -> int:  # NetworkManager 1.44 and later
+        raise NotImplementedError
+
+
+class VersionIdMismatchError(DbusFailedError):
+    """Update2 refused: the profile changed since it was read (NM 1.44+)"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.Settings.VersionIdMismatch"
 
 
 class NotifyRejectedError(DbusFailedError):
@@ -3167,8 +3218,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
     @staticmethod
     def _gateway_entry(option: str) -> str:
         """A gateway as it is cached in the profile ("" if nothing is left)"""
-        # ';' separates cached entries and nmcli splits +vpn.data values on
-        # commas, so neither may survive inside an entry
+        # ';' separates cached entries and nmcli (run by users on the profile)
+        # splits +vpn.data values on commas, so neither may survive inside an
+        # entry
         entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
         return " ".join(entry.split())
 
@@ -3504,45 +3556,99 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             previous, KEY_DOWN, "move down the gateway list"
         )
 
-    async def _nmcli_modify(self, *arguments: str) -> bool:
-        """Run `nmcli connection modify <uuid> ...` (best effort).
+    async def _update_profile_once(
+        self, data: Dict[str, str], drop_secrets: Sequence[str]
+    ) -> None:
+        """One read-modify-write of the profile over NetworkManager's D-Bus API.
 
-        `+vpn.data` sets a single key and leaves the rest of the dictionary
-        alone, and NetworkManager writes the profile back wherever it lives
-        (including netplan on Ubuntu). Nothing in the connect path depends on
-        this succeeding, so failures are logged and swallowed.
+        Update2 with flags 0 keeps the profile where it is stored (disk,
+        netplan). Settings without any secret make NetworkManager keep the
+        stored secrets, so secrets are sent only to drop some, and then all the
+        others are sent back with them.
+        """
+        settings_proxy = NmSettingsInterface.new_proxy(
+            NM_DBUS_SERVICE, NM_DBUS_PATH_SETTINGS
+        )
+        path = await settings_proxy.GetConnectionByUuid(self._connection_uuid)
+        connection = NmConnectionInterface.new_proxy(NM_DBUS_SERVICE, path)
+
+        secrets: Optional[Dict[str, str]] = None
+        if drop_secrets:
+            # Root has no secret agent: with no system secret stored, NM fails
+            # the call ("No agents were available"). Then nothing is stored to
+            # drop, and the data (e.g. the not-saved flag, which keeps a code
+            # off the disk) is still written.
+            try:
+                vpn_secrets = (await connection.GetSecrets("vpn")).get("vpn", {})
+            except Exception as e:  # an unmapped NM error is no DbusFailedError
+                logger.debug(f"No stored vpn secrets to drop: {e}")
+                vpn_secrets = {}
+            stored = dict(vpn_secrets["secrets"][1]) if "secrets" in vpn_secrets else {}
+            # A key already blanked by an earlier drop is not stored any more
+            dropped = [key for key in drop_secrets if stored.get(key)]
+            if dropped:
+                for key in dropped:
+                    del stored[key]
+                # NetworkManager reads an empty secrets dict as "no secrets"
+                # and keeps the stored ones: send the dropped keys empty then
+                # (allowed since NM 1.24)
+                secrets = stored or {key: "" for key in dropped}
+
+        # After GetSecrets (which bumps the version) and before GetSettings: a
+        # change after the read fails the check
+        try:
+            version = await connection.VersionId.get_async()
+        except Exception:
+            version = None  # NetworkManager before 1.44 has no VersionId
+
+        read = await connection.GetSettings()
+        settings = {name: dict(props) for name, props in read.items()}
+        vpn = settings["vpn"]
+        old_data = vpn["data"][1] if "data" in vpn else {}
+        vpn["data"] = ("a{ss}", {**old_data, **data})
+        if secrets is not None:
+            vpn["secrets"] = ("a{ss}", secrets)
+
+        args = {} if version is None else {"version-id": ("t", version)}
+        await connection.Update2(settings, 0, args)
+
+    async def _update_profile(
+        self, data: Dict[str, str], drop_secrets: Sequence[str] = ()
+    ) -> bool:
+        """Set vpn.data keys and drop vpn.secrets keys in the connection profile.
+
+        Best effort: nothing in the connect path depends on this succeeding, so
+        failures are logged and swallowed. Every other key and setting is
+        written back as it was read.
         """
         if not self._connection_uuid:
-            logger.debug(f"No connection UUID, skipping nmcli {arguments}")
+            logger.debug(f"No connection UUID, skipping profile update {sorted(data)}")
             return False
 
+        logger.debug(f"Updating the connection profile: {sorted(data)}")
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "nmcli",
-                "connection",
-                "modify",
-                self._connection_uuid,
-                *arguments,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            for attempt in (1, 2):
+                try:
+                    await asyncio.wait_for(
+                        self._update_profile_once(data, drop_secrets),
+                        timeout=PROFILE_UPDATE_TIMEOUT,
+                    )
+                    return True
+                except VersionIdMismatchError:
+                    # The profile changed between the read and the write: read
+                    # it again, once
+                    if attempt == 2:
+                        raise
         except Exception as e:
-            logger.warning(f"nmcli modify {arguments} failed: {e}")
-            return False
-
-        if proc.returncode != 0:
             logger.warning(
-                f"nmcli modify {arguments} failed with {proc.returncode}: "
-                f"{stderr.decode('utf-8', errors='replace').strip()}"
+                f"Updating the connection profile {sorted(data)} failed: "
+                f"{type(e).__name__}: {e}"
             )
-            return False
-
-        return True
+        return False
 
     async def _write_vpn_data(self, key: str, value: str) -> bool:
         """Store one vpn.data key in the connection profile (best effort)"""
-        return await self._nmcli_modify("+vpn.data", f"{key}={value}")
+        return await self._update_profile({key: value})
 
     async def _forget_one_time_secret(self) -> None:
         """Keep one-time codes out of the connection profile.
@@ -3563,14 +3669,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             "Marking the one-time code as not-saved in the profile and dropping "
             "any stored value"
         )
-        flagged = await self._write_vpn_data(f"{OTP_SECRET_KEY}-flags", "2")
-        # Without the flag dropping the value would not hold: skip it and try
-        # both again at a later prompt
-        dropped = flagged and await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
-        # Only after both succeeded: on a failure the code may still be in the
+        # One write, so the flag and the dropped value change together. Only
+        # after it succeeded: on a failure the code may still be in the
         # profile, so the next one-time prompt has to try again - a few times,
-        # not at every prompt (each nmcli call may wait 10 s)
-        self._otp_flags_written = flagged and dropped
+        # not at every prompt (each write may wait 10 s)
+        self._otp_flags_written = await self._update_profile(
+            {f"{OTP_SECRET_KEY}-flags": "2"}, drop_secrets=[OTP_SECRET_KEY]
+        )
         if not self._otp_flags_written and (
             self._otp_flag_attempts >= OTP_FLAG_MAX_ATTEMPTS
         ):
@@ -3608,25 +3713,27 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             ]
 
         value = GATEWAY_LIST_SEPARATOR.join(entries)
-        changed = False
+        data = {}
         if value != self._stored_gateway_list:
             logger.info(f"Caching gateway list in the connection profile: {value}")
-            if not await self._write_vpn_data("gateway-list", value):
-                return
-            self._stored_gateway_list = value
-            changed = True
+            data["gateway-list"] = value
         # The count marks the list as complete, so it follows the list
         if count is not None and count != self._stored_gateway_count:
-            if await self._write_vpn_data("gateway-list-count", str(count)):
-                self._stored_gateway_count = count
-            else:
-                logger.warning(
-                    "Could not store the gateway count - the next connection "
-                    "reads the gateway list again"
-                )
-            changed = True
-        if not changed:
+            data["gateway-list-count"] = str(count)
+        if not data:
             logger.debug("Gateway list unchanged, leaving the profile alone")
+            return
+        # One write: either both are stored or neither is recorded as stored
+        if not await self._update_profile(data):
+            logger.warning(
+                "Could not store the gateway list and count - the next connection "
+                "reads the gateway list again"
+            )
+            return
+        if "gateway-list" in data:
+            self._stored_gateway_list = value
+        if "gateway-list-count" in data:
+            self._stored_gateway_count = count
 
     async def _persist_fix_openssl(self) -> None:
         """Remember that this portal needs the legacy TLS workaround.
