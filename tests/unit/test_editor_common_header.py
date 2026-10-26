@@ -29,11 +29,13 @@ typedef int NMSettingSecretFlags;
 #define NM_SETTING_SECRET_FLAG_AGENT_OWNED 1
 #define NM_SETTING_SECRET_FLAG_NOT_SAVED 2
 #define NM_SETTING(x) ((NMSetting *) (x))
-static inline int nm_setting_vpn_get_num_data_items (NMSettingVpn *s) { return g_hash_table_size (s->data); }
+/* libnm keeps secret flags as "<name>-flags" data items, so they count here */
+static inline int nm_setting_vpn_get_num_data_items (NMSettingVpn *s) { return g_hash_table_size (s->data) + g_hash_table_size (s->flags); }
 static inline const char *nm_setting_vpn_get_data_item (NMSettingVpn *s, const char *k) { return g_hash_table_lookup (s->data, k); }
-static inline void nm_setting_vpn_add_data_item (NMSettingVpn *s, const char *k, const char *v) { g_hash_table_replace (s->data, g_strdup (k), g_strdup (v)); }
+/* libnm: adding NULL removes the item */
+static inline void nm_setting_vpn_add_data_item (NMSettingVpn *s, const char *k, const char *v) { if (v) g_hash_table_replace (s->data, g_strdup (k), g_strdup (v)); else g_hash_table_remove (s->data, k); }
 static inline void nm_setting_vpn_remove_data_item (NMSettingVpn *s, const char *k) { g_hash_table_remove (s->data, k); }
-static inline void nm_setting_vpn_add_secret (NMSettingVpn *s, const char *k, const char *v) { g_hash_table_replace (s->secrets, g_strdup (k), g_strdup (v)); }
+static inline void nm_setting_vpn_add_secret (NMSettingVpn *s, const char *k, const char *v) { if (v) g_hash_table_replace (s->secrets, g_strdup (k), g_strdup (v)); else g_hash_table_remove (s->secrets, k); }
 static inline void nm_setting_vpn_remove_secret (NMSettingVpn *s, const char *k) { g_hash_table_remove (s->secrets, k); }
 /* libnm: a secret without flags has the flags 0 */
 static inline gboolean nm_setting_get_secret_flags (NMSetting *s, const char *k, NMSettingSecretFlags *f, void *e)

@@ -68,7 +68,7 @@ jobs:
       # fake tools first in the PATH they pass to the scripts.
       - name: Run unit tests (root)
         if: matrix.mode == 'root'
-        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
+        run: sudo CI="$CI" "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
 
       # The counts of this job, shown when it is opened from the checks of a
       # pull request. Runs after a failure too, and never fails the job itself.
