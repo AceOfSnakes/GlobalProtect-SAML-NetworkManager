@@ -27,7 +27,6 @@ sys.exit(0)
 UNSUPPORTED_FLAGS = [
     "--background",
     "--dashboard",
-    "--log-format",
     "--log-file",
     "--cookie-only",
 ]
@@ -80,6 +79,8 @@ def test_connect_command_passes_expected_flags(service_module, monkeypatch, tmp_
     )
 
     assert argv.index("--fix-openssl") < argv.index("connect")
+    assert argv[argv.index("--log-format") + 1] == "json"
+    assert argv.index("--log-format") < argv.index("connect")
     for flag in ("--hip", "--as-gateway"):
         assert argv.index("connect") < argv.index(flag)
     assert "--user=alice" in argv
@@ -102,7 +103,14 @@ def test_connect_command_omits_optional_flags_by_default(
 
     for flag in ("--fix-openssl", "--hip", "--as-gateway", "--user"):
         assert flag not in argv
-    assert argv == ["connect", f"--browser={wrapper}", "--", "portal.example.com"]
+    assert argv == [
+        "--log-format",
+        "json",
+        "connect",
+        f"--browser={wrapper}",
+        "--",
+        "portal.example.com",
+    ]
 
 
 BROWSER_SETTINGS = [
@@ -448,3 +456,16 @@ def test_connect_ignores_an_invalid_mtu_with_a_warning(
     assert plugin.mtu is None
     assert "Invalid mtu" in caplog.text
     assert "MTU: automatic" in caplog.text
+
+
+@pytest.mark.parametrize("settings", [TYPICAL, dict(fix_openssl=False, hip_enabled=False)])
+def test_log_format_is_one_global_option_before_the_subcommand(
+    service_module, monkeypatch, tmp_path, settings
+):
+    argv, _ = _command(service_module, monkeypatch, tmp_path, **settings)
+
+    assert argv.count("--log-format") == 1
+    assert argv.count("json") == 1
+    assert not any(a.startswith("--log-format=") for a in argv)
+    # After `connect` it would be an unknown option for gpclient
+    assert "--log-format" not in argv[argv.index("connect") :]

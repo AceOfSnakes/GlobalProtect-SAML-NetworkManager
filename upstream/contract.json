@@ -4,6 +4,27 @@
   "version": "3.2.0",
   "items": [
     {
+      "id": "log-json-level",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/log_format.rs",
+      "text": "\"level\": record.level().as_str(),",
+      "used_by": "service/nm-gpclient-service.py: parse_log_record"
+    },
+    {
+      "id": "log-json-target",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/log_format.rs",
+      "text": "\"target\": record.target(),",
+      "used_by": "service/nm-gpclient-service.py: parse_log_record"
+    },
+    {
+      "id": "log-json-message",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/log_format.rs",
+      "text": "\"message\": record.args().to_string(),",
+      "used_by": "service/nm-gpclient-service.py: parse_log_record"
+    },
+    {
       "id": "gateway-count",
       "kind": "anchor",
       "path": "crates/gpapi/src/portal/config.rs",

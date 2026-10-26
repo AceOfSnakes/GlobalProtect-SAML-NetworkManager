@@ -98,6 +98,8 @@ def test_start_gpclient_passes_flags_and_environment(start_env):
 
     dumped = json.loads(start_env.dump.read_text())
     assert dumped["argv"] == [
+        "--log-format",
+        "json",
         "--fix-openssl",
         "connect",
         "--hip",
