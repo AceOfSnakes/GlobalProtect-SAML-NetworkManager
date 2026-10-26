@@ -1,7 +1,8 @@
 """
 Tests for .github/scripts/check_tag_version.py, which stops a release build when
 the tag (v2.0.0) differs from the upstream version in the top line of
-debian/changelog (2.0.0-1). Every positive test has negative counterparts.
+debian/changelog (2.0.0, native; older entries have a
+revision: 1.5.0-1). Every positive test has negative counterparts.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -28,11 +29,9 @@ def entry(version):
 
 
 @pytest.mark.parametrize("tag, version", [
-    ("v2.0.0", "2.0.0-1"),
-    ("v2.0.0", "2.0.0-3"),
     ("v1.5.0", "1.5.0-1"),
-    ("v2.0.0", "1:2.0.0-1"),
-    ("v2.1", "2.1-1"),
+    ("v2.0.0", "2.0.0"),
+    ("v2.1", "2.1"),
 ])
 def test_matching_tag_passes(tag, version, tmp_path):
     result = run(tag, entry(version), tmp_path)
@@ -45,11 +44,31 @@ def test_matching_tag_passes(tag, version, tmp_path):
     ("v2.0.0", "2.0.0.1-1"),
     ("v1.5.0", "2.0.0-1"),
     ("v2.0.0", "2.0.0~rc1-1"),
+    ("v2.0.1", "2.0.0"),
+    ("v1.5.0", "2.0.0"),
+    ("v2.0.0", "2.0.0~rc1"),
+    ("v2.0.0", "2.0.0.1"),
 ])
 def test_mismatching_tag_fails(tag, version, tmp_path):
     result = run(tag, entry(version), tmp_path)
     assert result.returncode == 1
     assert "does not match" in result.stderr
+
+
+@pytest.mark.parametrize("tag, version", [
+    ("v2.0.0", "2.0.0-1"),
+    ("v2.0.0", "2.0.0-3"),
+    ("v2.0.0", "1:2.0.0-1"),
+    ("v2.1", "2.1-1"),
+    ("v2.1.3", "2.1.3-2"),
+    ("v10.0.0", "10.0.0-1"),
+    ("v2.0", "2.0-1"),
+    ("v2", "2-1"),
+])
+def test_a_revision_from_2_0_0_on_fails(tag, version, tmp_path):
+    result = run(tag, entry(version), tmp_path)
+    assert result.returncode == 1
+    assert "from 2.0.0 on the version is native" in result.stderr
 
 
 @pytest.mark.parametrize("tag", ["2.0.0", "v", "v2.0.0-1", "v2.0.0\n", "vx", "v2..0", "refs/tags/v2.0.0", ""])

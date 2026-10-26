@@ -612,9 +612,14 @@ def test_spec_strips_the_rust_binaries():
 CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
 
 
+def cargo_build_lines(text):
+    """The shell lines that run `cargo build`, with backslash-continued lines joined"""
+    return [line.strip() for line in text.replace("\\\n", " ").splitlines()
+            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)]
+
+
 def cargo_build_lines_without_locked(text):
-    return [line.strip() for line in text.splitlines()
-            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I) and "--locked" not in line]
+    return [line for line in cargo_build_lines(text) if "--locked" not in line]
 
 
 @pytest.mark.parametrize("path", CARGO_BUILD_FILES)
@@ -629,6 +634,49 @@ def test_every_cargo_build_is_locked(path):
 def test_a_cargo_build_without_locked_is_reported(path):
     text = read(path).replace(" --locked", "")
     assert cargo_build_lines_without_locked(text)
+
+
+# Each flag as a whole token; -F also takes its value attached (-Fwebview-auth)
+FEATURE_FLAG_PATTERNS = {
+    "--no-default-features": r"(?<!\S)--no-default-features(?![\w-])",
+    "--features": r"(?<!\S)--features(?![\w-])",
+    "--all-features": r"(?<!\S)--all-features(?![\w-])",
+    "-F": r"(?<!\S)-F",
+}
+FEATURE_FLAGS = tuple(FEATURE_FLAG_PATTERNS)
+
+
+def cargo_build_feature_flags(text):
+    return [flag for line in cargo_build_lines(text)
+            for flag, pattern in FEATURE_FLAG_PATTERNS.items() if re.search(pattern, line)]
+
+
+@pytest.mark.parametrize("path", CARGO_BUILD_FILES)
+def test_every_cargo_build_uses_the_default_features(path):
+    # the packages ship gpauth with upstream's default webview-auth; a local
+    # `make` build must be the same program (issue #54)
+    assert cargo_build_feature_flags(read(path)) == []
+
+
+@pytest.mark.parametrize("flag", FEATURE_FLAGS)
+def test_a_cargo_build_with_other_features_is_reported(flag):
+    text = read("Makefile").replace(" --locked", f" --locked {flag}")
+    assert flag in cargo_build_feature_flags(text)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("cargo build --locked -Fwebview-auth", ["-F"]),
+    ("cargo build --locked --features=webview-auth", ["--features"]),
+    ("cargo build --locked --release", []),
+    ("cargo build --locked -FOO", ["-F"]),
+])
+def test_feature_flag_forms(text, expected):
+    assert cargo_build_feature_flags(text) == expected
+
+
+def test_a_feature_flag_on_a_continued_line_is_reported():
+    text = "\tcd x && cargo build --locked --release \\\n\t\t--no-default-features\n"
+    assert cargo_build_feature_flags(text) == ["--no-default-features"]
 
 
 def test_spec_neither_builds_nor_installs_nor_packages_gpservice():

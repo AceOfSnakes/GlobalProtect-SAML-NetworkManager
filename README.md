@@ -41,11 +41,20 @@ Add the apt repository and install - dependencies, upgrades and the GNOME/Plasma
 choice are handled by apt:
 
 ```bash
-curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
-  | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg > /dev/null
+# old one-line setup from earlier instructions, if present
+sudo rm -f /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \
+  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") main" \
-  | sudo tee /etc/apt/sources.list.d/gpclient.list
+sudo tee /etc/apt/sources.list.d/gpclient.sources > /dev/null <<EOF
+Types: deb
+URIs: https://wmp.github.io/GlobalProtect-SAML-NetworkManager
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: main
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/gpclient-archive-keyring.gpg
+EOF
 
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
@@ -57,8 +66,8 @@ sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with
 
 `network-manager-gpclient-plasma` is built for the Plasma of the release (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 26.04). On Ubuntu 24.04 with Plasma 6 it does not fit. For **KDE neon** (Ubuntu 24.04 with Plasma 6 from `archive.neon.kde.org`) install `network-manager-gpclient-plasma-6` instead: it is built against the neon repository, for `amd64` only, and conflicts with `network-manager-gpclient-plasma` (only one Plasma generation can use the plugin). Ubuntu 24.04 with Plasma 6 from other sources (for example Kubuntu Backports) is not tested.
 
-Supported: Ubuntu 22.04, 24.04 and 26.04, `amd64` and `arm64`. Details, deb822 format and
-removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
+Supported: Ubuntu 22.04, 24.04 and 26.04, `amd64` and `arm64`. Details, removal and
+migration from the old `.list` file (the `sudo rm -f` line of the commands above deletes it; `apt update` stops with "Conflicting values set for option Signed-By" otherwise): [docs/APT_REPO.md](docs/APT_REPO.md).
 
 **Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first.
 NetworkManager runs the service as root, so install it system-wide with `sudo`
@@ -299,9 +308,11 @@ Older versions added `resolve [!UNAVAIL=return]` to the `hosts:` line of `/etc/n
 ### Build
 
 ```bash
-./build-all.sh          # Build for all Ubuntu versions (22.04, 24.04, 26.04)
+./build-all.sh          # Build for all Ubuntu versions and variants (22.04, 24.04, 26.04, 24.04-neon on amd64 hosts only)
 ./build-all.sh 24.04    # Build for Ubuntu 24.04 only
 ./build-all.sh 26.04    # Build for Ubuntu 26.04 only (Plasma 6 / Qt6 / KF6)
+./build-all.sh 24.04-neon  # Build the KDE neon variant (amd64 only)
+VERSION_SUFFIX=+pr54.1 ./build-all.sh 24.04  # Add the suffix of CI pull request builds to the version
 ```
 
 Notes for Ubuntu 26.04:
