@@ -40,17 +40,24 @@ Contents:
 The unit `config/nm-gpclient.service` (used for D-Bus activation) runs the
 service as root with a small set of sandbox options (issue #54):
 `ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups`,
-`ProtectClock`, `LockPersonality`, `RestrictRealtime`, `RestrictSUIDSGID` and
+`LockPersonality`, `RestrictRealtime`, `RestrictSUIDSGID` and
 `SystemCallArchitectures=native`. The unit file lists, with reasons, the
 options it does not use: the browser runs inside this unit's process tree, so
 `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, `RestrictNamespaces`,
 `MemoryDenyWriteExecute`, `PrivateNetwork`, `ProtectProc`, `PrivateDevices`
-and `ProtectSystem=strict` stay off.
+and `ProtectSystem=strict` stay off. `ProtectClock` stays off too: systemd
+before 252 (Ubuntu 22.04) turns it into a device allow-list that blocks
+`/dev/net/tun`.
 
-How to test a change of the sandbox options (on a real machine):
+How to test a change of the sandbox options (on a real machine, on Ubuntu
+22.04 with systemd 249 as well as on a current release, because some options
+behave differently in older systemd):
 
 - [ ] `systemd-analyze security nm-gpclient.service` before and after.
-- [ ] SAML login with each browser: Edge, Firefox, Chrome and the default one.
+- [ ] `systemctl show nm-gpclient.service -p DeviceAllow -p DevicePolicy`
+      while connected: `DeviceAllow` is empty and `DevicePolicy=auto`.
+- [ ] SAML login with each browser: Edge, Firefox (also the snap on Ubuntu),
+      Chrome and the default one.
 - [ ] Login with credentials and with RSA or another one-time password.
 - [ ] Login with a HIP script.
 - [ ] DNS with systemd-resolved, and with a plain `/etc/resolv.conf`.

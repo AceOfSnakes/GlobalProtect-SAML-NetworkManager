@@ -20,8 +20,6 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 # Makes /sys/fs/cgroup read-only. Nothing writes cgroups.
 ProtectControlGroups=yes
-# Drops CAP_SYS_TIME and CAP_WAKE_ALARM and denies the clock and RTC devices.
-ProtectClock=yes
 # Seccomp: forbids personality() changes. Not used by gpclient or browsers.
 LockPersonality=yes
 # Seccomp: forbids realtime scheduling. A browser that asks for it gets an
@@ -32,7 +30,7 @@ RestrictRealtime=yes
 # stop setuid()/setgid() calls.
 RestrictSUIDSGID=yes
 # Seccomp: only native-ABI system calls. gpclient, gpauth and the browsers are
-# native programs.
+# native programs (a 32-bit HIP script binary would be killed).
 SystemCallArchitectures=native
 
 # Options deliberately NOT used (they would break part of the tree):
@@ -57,6 +55,12 @@ SystemCallArchitectures=native
 #                   namespaces.
 #   MemoryDenyWriteExecute=
 #                   Browsers use a JIT compiler.
+#   ProtectClock=, DeviceAllow=
+#                   systemd before 252 (Ubuntu 22.04 has 249) adds
+#                   DeviceAllow=char-rtc r for ProtectClock=yes, and any
+#                   DeviceAllow= turns the device policy into an allow-list:
+#                   gpclient could no longer open /dev/net/tun, and the
+#                   browser would lose the GPU, sound and FIDO keys.
 #   ProtectHostname=
 #                   Its seccomp filter may also affect the namespace
 #                   sandbox of the browser; the gain is small.

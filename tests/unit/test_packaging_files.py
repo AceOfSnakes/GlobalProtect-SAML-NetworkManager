@@ -67,7 +67,7 @@ def test_the_rpm_does_not_restart_the_service_on_upgrade_or_enable_it():
 
 SANDBOX = {
     "ProtectKernelModules": "yes", "ProtectKernelLogs": "yes", "ProtectControlGroups": "yes",
-    "ProtectClock": "yes", "LockPersonality": "yes", "RestrictRealtime": "yes",
+    "LockPersonality": "yes", "RestrictRealtime": "yes",
     "RestrictSUIDSGID": "yes", "SystemCallArchitectures": "native",
 }
 UNIT_KEYS = {line.split("=", 1)[0] for line in UNIT.splitlines() if "=" in line and not line.startswith("#")}
@@ -82,7 +82,9 @@ def test_the_unit_sets_each_sandbox_option(key, value):
 @pytest.mark.parametrize("key", ["ProtectHome", "PrivateTmp", "NoNewPrivileges", "RestrictNamespaces",
                                  "MemoryDenyWriteExecute", "PrivateNetwork", "ProtectProc", "PrivateDevices",
                                  "ProtectHostname", "DevicePolicy", "CapabilityBoundingSet",
-                                 "SystemCallFilter", "RestrictAddressFamilies", "ReadWritePaths"])
+                                 "SystemCallFilter", "RestrictAddressFamilies", "ReadWritePaths",
+                                 # systemd < 252 implies DeviceAllow=char-rtc for ProtectClock: no /dev/net/tun
+                                 "ProtectClock", "DeviceAllow"])
 def test_the_unit_does_not_set_options_that_break_the_process_tree(key):
     assert key not in UNIT_KEYS
 
