@@ -89,13 +89,15 @@ checks the build provenance of the test packages of a pull request with
 
 ### Cutting a release
 
-1. Add an entry to `debian/changelog` with the new version (`1.4.0-1`).
-2. Commit, then tag and push. The tag is `v` and the upstream version of the top
-   changelog entry (`1.4.0-1` gives `v1.4.0`); `build-release.yml` stops at once
-   when they differ:
+1. Add an entry to `debian/changelog` with the new version, native from 2.0.0 on
+   (`network-manager-gpclient (2.0.0) unstable; urgency=medium`, no `-1`; see
+   [PACKAGING.md](PACKAGING.md#version-in-debianchangelog)).
+2. Commit, then tag and push. The tag is `v` and the version of the top changelog
+   entry (`2.0.0` gives `v2.0.0`); `build-release.yml` stops at once when they
+   differ, or when a version from 2.0.0 on has a Debian revision (`2.0.0-1`):
    ```bash
-   git tag v1.4.0
-   git push origin v1.4.0
+   git tag v2.0.0
+   git push origin v2.0.0
    ```
 3. `build-release.yml` builds every Ubuntu release for `amd64` and `arm64`, creates the GitHub
    release with the `.deb` and `.rpm` files and `SHA256SUMS` attached (the build jobs
@@ -104,7 +106,7 @@ checks the build provenance of the test packages of a pull request with
 
 The build appends the release codename to the version, so the same upstream
 version never means different binaries:
-`network-manager-gpclient_1.4.0-1~noble1_amd64.deb`.
+`network-manager-gpclient_2.0.0~noble1_amd64.deb`.
 
 ### How publishing works
 
