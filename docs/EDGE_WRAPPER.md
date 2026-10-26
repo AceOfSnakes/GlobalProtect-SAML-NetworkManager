@@ -3,9 +3,10 @@
 ## Overview
 
 `browser-wrapper` handles the awkward requirements of running a browser for
-SAML/2FA authentication from inside NetworkManager's sandboxed environment: a
-session environment that has to be reconstructed, a read-only home directory,
-privilege dropping, and knowing when the authentication window may be closed.
+SAML/2FA authentication from a root system service: a session environment that
+has to be reconstructed, privilege dropping, a home directory that may be
+read-only (only when the service runs in NetworkManager's sandbox), and knowing
+when the authentication window may be closed.
 
 It works with Edge, Chrome, Chromium, Firefox and your desktop's default
 browser; `edge-wrapper` remains as a thin shim (`GP_BROWSER=edge`) so profiles
@@ -42,8 +43,8 @@ Edge (with the wrapper's policy configuration) automatically handles this protoc
 
 ### 1. Display Detection
 
-NetworkManager runs VPN services in a sandboxed environment with no session
-context, so display variables are missing or wrong. The wrapper reads them from
+The VPN service runs as a system service with no session context, so display
+variables are missing or wrong. The wrapper reads them from
 the processes that own the session:
 
 ```bash
@@ -68,7 +69,11 @@ gets the full environment from upstream.
 
 ### 2. Sandbox Workaround (ProtectHome)
 
-NetworkManager uses systemd's `ProtectHome=read-only` for security, making the user's home directory read-only. Edge needs writable directories for:
+The service normally runs in its own unit (`nm-gpclient.service`), where the home
+directory is writable: the wrapper then uses the user's own browser profile. Only
+when the service runs in NetworkManager's sandbox (the fallback when `systemctl`
+cannot start the unit), systemd's `ProtectHome=read-only` makes the user's home
+directory read-only. Edge needs writable directories for:
 - User profile
 - Cache
 - Crash reports
@@ -105,15 +110,14 @@ after the privilege drop, as the desktop user.
 
 #### Security Considerations
 
-**Why temporary profile?**
-- NetworkManager's `ProtectHome=read-only` is a security feature that prevents VPN services from reading/writing user's home directory
-- Edge cannot function without a writable profile directory
-- The wrapper uses a separate profile in a private directory (see above), not your normal one. It is reused until you delete it
+**Which profile?**
+- Normally (service in `nm-gpclient.service`): your own Edge profile (`~/.config/microsoft-edge`) with its saved sign-ins, cookies and Intune/Entra registration, which single sign-on needs. The journal says "home is writable; using the user's own browser profile".
+- Fallback (service in NetworkManager's sandbox, `ProtectHome=read-only`): Edge cannot write its profile, so the wrapper uses a separate profile in a private directory (see above), not your normal one. It is reused until you delete it. The journal says "home is read-only (sandboxed); using temp HOME".
 
-**Implications:**
-- Your main Edge profile (`~/.config/microsoft-edge`) with saved passwords, cookies, and browsing history is **not used**
+**Implications of the fallback profile:**
+- Your main Edge profile with saved passwords, cookies, and browsing history is **not used**
 - The browser profile does not contain your normal browsing data
-- Intune/Entra authentication still works because it uses device certificates (stored in system keychain, not browser profile)
+- Intune/Entra authentication may need a new sign-in in that profile
 
 **Security tradeoffs:**
 - `/tmp` is shared between all users, so the wrapper never trusts a directory there that it did not create with mode 700 for the right user
@@ -215,7 +219,7 @@ Example log:
 [2025-01-26 10:30:15] called with args: https://vpn.company.com/SAML
 [2025-01-26 10:30:15] resolved real user: john (uid=1000) home=/home/john
 [2025-01-26 10:30:15] using wayland socket: /run/user/1000/wayland-0
-[2025-01-26 10:30:15] home is read-only (sandboxed); using temp HOME
+[2025-01-26 10:30:15] home is writable; using the user's own browser profile
 [2025-01-26 10:30:15] tracking gpauth PID 12344
 [2025-01-26 10:30:16] started browser with PID=12345
 [2025-01-26 10:31:22] done: gpauth (12344) exited - authentication finished, closing browser
