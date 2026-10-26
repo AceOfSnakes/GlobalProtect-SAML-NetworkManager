@@ -65,7 +65,9 @@ catalog), then start the program with the language:
 
 ```bash
 LANGUAGE=pl LC_ALL=pl_PL.UTF-8 nm-connection-editor
-LANGUAGE=pl python3 auth-dialog/nm-gpclient-auth-dialog.py -u x -n Test -s org.freedesktop.NetworkManager.gpclient -i
+printf 'DONE\n' | LANGUAGE=pl python3 auth-dialog/nm-gpclient-auth-dialog.py -u x -n Test -s org.freedesktop.NetworkManager.gpclient -i -t password
+# without GTK, the texts as NetworkManager's external UI gets them:
+printf 'DONE\n' | LANGUAGE=pl python3 auth-dialog/nm-gpclient-auth-dialog.py -u x -n Test -s org.freedesktop.NetworkManager.gpclient -i -t password --external-ui-mode
 ```
 
 The locale must exist on the system (`locale -a`). For the Plasma editor, start
