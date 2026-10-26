@@ -83,9 +83,12 @@ gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SA
     --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
 ```
 
-`publish-apt.yml` does both checks for every package before it signs it into the
-apt and RPM repositories: a package that fails, or a release without `SHA256SUMS`,
-stops the run. Only the releases listed in
+`publish-apt.yml` checks every package before it signs it into the apt and RPM
+repositories: a package that fails, or a release without `SHA256SUMS`, stops the
+run. The release of the tag that triggered the run gets both checks. The older
+releases get the SHA256 check only (they were fully verified when published; one
+attestation check per file for all releases would exhaust the API rate limit).
+A manual run verifies every release in full. Only the releases listed in
 `.github/legacy-unattested-releases.txt` (v1.5.0 and older) are published without
 the checks. The attestation must come from `build-release.yml` and the tag of the
 release (`--signer-workflow`, `--source-ref`). `scripts/install-pr-build.sh`

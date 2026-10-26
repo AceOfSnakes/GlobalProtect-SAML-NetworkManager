@@ -577,4 +577,6 @@ jobs:
       pages: write
       id-token: write
     uses: ./.github/workflows/publish-apt.yml
+    with:
+      verify-tag: ${{ github.ref_name }}
     secrets: inherit

@@ -8,14 +8,25 @@ name: Publish APT repository
 # idempotent and the repository can be recreated from scratch at any time
 # (after a key rotation, for example). Nothing is committed to the repo.
 #
-# Every package is verified before it is signed: its SHA256 against the
-# release's SHA256SUMS and its build provenance (gh attestation verify). Only
-# the releases of .github/legacy-unattested-releases.txt are exempt.
+# Every package is verified before it is signed. The release named by the
+# input verify-tag (build-release.yml passes the tag it just built) gets the
+# full check: its SHA256 against the release's SHA256SUMS and its build
+# provenance (gh attestation verify). Every other release gets the SHA256 check
+# only: it was fully verified when it was published, and one attestation check
+# per file for all releases would exhaust the API rate limit of GITHUB_TOKEN.
+# A manual run has no verify-tag and fully verifies every release. A verify-tag
+# that is not a published release fails the run. Only the releases of
+# .github/legacy-unattested-releases.txt are exempt.
 #
 # Called by build-release.yml after a tagged release, or manually.
 
 on:
   workflow_call:
+    inputs:
+      verify-tag:
+        description: "Release tag to verify in full (attestations); the other releases get the SHA256 check only. Empty: verify every release in full"
+        type: string
+        default: ""
   workflow_dispatch:
 
 permissions:
@@ -73,6 +84,7 @@ jobs:
       - name: Download packages from every published release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFY_TAG: ${{ inputs.verify-tag }}
         run: |
           mkdir -p incoming verify
           # --paginate: no fixed limit, so an old release is never dropped from
@@ -81,6 +93,10 @@ jobs:
             -q '.[] | select(.draft == false and .prerelease == false) | .tag_name' > tags.txt
           if [ ! -s tags.txt ]; then
             echo "::error::No published releases to build the repository from"
+            exit 1
+          fi
+          if [ -n "$VERIFY_TAG" ] && ! grep -qxF -- "$VERIFY_TAG" tags.txt; then
+            echo "::error::verify-tag $VERIFY_TAG is not a published release: nothing would be verified in full"
             exit 1
           fi
           while read -r tag; do
@@ -105,9 +121,14 @@ jobs:
             if grep -qx 'SHA256SUMS' <<< "$assets"; then
               gh release download "$tag" -D "verify/$tag" --pattern 'SHA256SUMS'
             fi
-            # Checksum and build provenance of every package: a failure stops
-            # the run before anything is signed.
-            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"
+            # Checksum and build provenance of every package of the release
+            # verify-tag (every release when it is empty), the checksum only
+            # for the others: a failure stops the run before anything is signed.
+            mode=()
+            if [ -n "$VERIFY_TAG" ] && [ "$tag" != "$VERIFY_TAG" ]; then
+              mode=(--checksums-only)
+            fi
+            bash .github/scripts/verify-release-assets.sh "${mode[@]}" "$tag" "verify/$tag"
             find "verify/$tag" \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} incoming/ \;
             echo "::endgroup::"
           done < tags.txt

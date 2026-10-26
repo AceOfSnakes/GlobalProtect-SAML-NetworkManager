@@ -67,10 +67,10 @@ class Box:
             with open(self.dir / "SHA256SUMS", "a", encoding="utf-8") as handle:
                 handle.write(f"{sha(data)}  {listed_as or name}\n")
 
-    def run(self, tag="v2.0.0", attested_tag=None):
+    def run(self, tag="v2.0.0", attested_tag=None, *options):
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_DIR": str(self.fake), "GITHUB_REPOSITORY": REPO,
                "FAKE_TAG": attested_tag or tag}
-        return subprocess.run(["bash", SCRIPT, tag, str(self.dir), str(self.legacy)], env=env,
+        return subprocess.run(["bash", SCRIPT, *options, tag, str(self.dir), str(self.legacy)], env=env,
                               capture_output=True, text=True, timeout=60)
 
     def gh_calls(self):
@@ -92,6 +92,41 @@ def test_good_release_passes_and_every_file_is_checked_against_the_repository(bo
         f"attestation verify {box.dir}/{name} --repo {REPO}"
         f" --signer-workflow {REPO}/.github/workflows/build-release.yml --source-ref refs/tags/v2.0.0"
         for name in (DEB, RPM))
+
+
+def test_checksums_only_passes_a_good_release_without_calling_gh(box):
+    box.add(DEB)
+    box.add(RPM)
+    result = box.run("v2.0.0", None, "--checksums-only")
+    assert result.returncode == 0, result.stderr
+    assert box.gh_calls() == []
+
+
+def test_checksums_only_fails_on_a_bad_checksum(box):
+    box.add(DEB)
+    (box.dir / DEB).write_bytes(b"tampered")
+    result = box.run("v2.0.0", None, "--checksums-only")
+    assert result.returncode != 0
+    assert "SHA256 of" in result.stderr
+
+
+def test_checksums_only_still_needs_sha256sums_and_listed_files(box):
+    box.add(DEB, listed=False)
+    result = box.run("v2.0.0", None, "--checksums-only")
+    assert result.returncode != 0
+    assert "no SHA256SUMS" in result.stderr
+    box.add(RPM, listed=False)
+    (box.dir / "SHA256SUMS").write_text(f"{sha(DEB.encode())}  {DEB}\n")
+    result = box.run("v2.0.0", None, "--checksums-only")
+    assert f"{RPM} is not in SHA256SUMS" in result.stderr
+
+
+def test_checksums_only_ignores_a_bad_attestation(box):
+    # the attestation was checked when the release was published
+    box.add(DEB)
+    (box.fake / "bad").write_text(DEB + "\n")
+    assert box.run("v2.0.0", None, "--checksums-only").returncode == 0
+    assert box.run().returncode != 0
 
 
 def test_an_attestation_of_another_tag_fails(box):
@@ -192,5 +227,5 @@ def test_the_real_legacy_list_has_the_old_tags_only():
 def test_the_publish_workflow_verifies_every_release_before_the_repositories_are_built():
     names = workflow_steps.step_names("publish-apt.yml")
     download = "\n".join(workflow_steps.step_lines("publish-apt.yml", "Download packages from every published release"))
-    assert 'bash .github/scripts/verify-release-assets.sh "$tag"' in download
+    assert 'verify-release-assets.sh "${mode[@]}" "$tag"' in download
     assert names.index("Download packages from every published release") < names.index("Build the repository")
