@@ -602,13 +602,15 @@ def test_a_cargo_build_without_locked_is_reported(path):
     assert cargo_build_lines_without_locked(text)
 
 
-FEATURE_FLAGS = ("--no-default-features", "--features", "--all-features")
+FEATURE_FLAGS = ("--no-default-features", "--features", "--all-features", "-F")
 
 
 def cargo_build_feature_flags(text):
-    return [flag for line in text.splitlines()
+    # one logical line per command: a flag may follow on a backslash-continued line
+    lines = text.replace("\\\n", " ").splitlines()
+    return [flag for line in lines
             if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)
-            for flag in FEATURE_FLAGS if flag in line]
+            for flag in FEATURE_FLAGS if re.search(rf"(?<!\S){flag}(?![\w-])", line)]
 
 
 @pytest.mark.parametrize("path", CARGO_BUILD_FILES)
@@ -622,6 +624,11 @@ def test_every_cargo_build_uses_the_default_features(path):
 def test_a_cargo_build_with_other_features_is_reported(flag):
     text = read("Makefile").replace(" --locked", f" --locked {flag}")
     assert flag in cargo_build_feature_flags(text)
+
+
+def test_a_feature_flag_on_a_continued_line_is_reported():
+    text = "\tcd x && cargo build --locked --release \\\n\t\t--no-default-features\n"
+    assert cargo_build_feature_flags(text) == ["--no-default-features"]
 
 
 def test_spec_neither_builds_nor_installs_nor_packages_gpservice():
