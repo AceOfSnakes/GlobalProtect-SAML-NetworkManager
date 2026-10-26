@@ -9,11 +9,18 @@ never could ([#5](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issue
 ## For users
 
 ```bash
-curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
-  | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg > /dev/null
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \
+  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") main" \
-  | sudo tee /etc/apt/sources.list.d/gpclient.list
+sudo tee /etc/apt/sources.list.d/gpclient.sources > /dev/null <<EOF
+Types: deb
+URIs: https://wmp.github.io/GlobalProtect-SAML-NetworkManager
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: main
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/gpclient-archive-keyring.gpg
+EOF
 
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
@@ -26,20 +33,18 @@ next to the others, built against the neon repository, and conflicts with
 `network-manager-gpclient-plasma` (Plasma 5): only one Plasma generation can use the
 plugin.
 
-Same thing in deb822 format, if you prefer `/etc/apt/sources.list.d/*.sources`:
+The `Architectures` line makes apt skip foreign-architecture indexes such as `i386`,
+which the repository does not publish. The key file is binary (not armored), so
+`Signed-By` takes it as it is on Ubuntu 22.04 and later without extra packages.
 
-```
-Types: deb
-URIs: https://wmp.github.io/GlobalProtect-SAML-NetworkManager
-Suites: noble
-Components: main
-Architectures: amd64
-Signed-By: /usr/share/keyrings/gpclient-archive-keyring.gpg
-```
+Migration: earlier versions of these instructions created a one-line
+`/etc/apt/sources.list.d/gpclient.list` and the key
+`/usr/share/keyrings/gpclient-archive-keyring.gpg`. If you have them, delete them
+after you create the files above. Otherwise apt warns about a duplicate source:
 
-Use the value of `dpkg --print-architecture` (`arm64` on ARM); without the line apt
-also asks for foreign-architecture indexes such as `i386`, which the repository
-does not publish.
+```bash
+sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
+```
 
 `apt changelog network-manager-gpclient` shows the changelog: it is published under
 `/changelogs/<component>/<prefix>/<source>/<source>_<version>_changelog` (not next to
@@ -58,7 +63,7 @@ Removal:
 ```bash
 # the desktop packages depend on the core package and are removed with it
 sudo apt remove network-manager-gpclient
-sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
+sudo rm /etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg
 sudo apt update
 ```
 

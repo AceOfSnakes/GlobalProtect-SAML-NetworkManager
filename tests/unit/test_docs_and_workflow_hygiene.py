@@ -62,6 +62,50 @@ class TestCodename:
         assert codename_problems("deb ... " + CODENAME + " main") == []
 
 
+INSTALL_DOCS = DOCS + [".github/pages/index.html"]
+OLD_STEPS = ["| sudo tee", "sources.list.d/gpclient.list\n", "/usr/share/keyrings/gpclient-archive-keyring.gpg]"]
+
+
+def install_section(doc):
+    """The apt install commands: from the key download to `sudo apt update`"""
+    with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
+        text = handle.read()
+    start = text.rfind("\n", 0, text.index("curl -fsSL")) + 1
+    return text[start:text.index("sudo apt update", start)]
+
+
+class TestAptInstallSteps:
+    @pytest.mark.parametrize("doc", INSTALL_DOCS)
+    @pytest.mark.parametrize("needed", [
+        "sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg",
+        "/etc/apt/sources.list.d/gpclient.sources",
+        "Types: deb", "Suites:", "Components: main",
+        "Signed-By: /etc/apt/keyrings/gpclient-archive-keyring.gpg",
+    ])
+    def test_the_install_steps_use_a_deb822_file(self, doc, needed):
+        assert needed in install_section(doc)
+
+    @pytest.mark.parametrize("doc", INSTALL_DOCS)
+    @pytest.mark.parametrize("old", OLD_STEPS + ["lsb_release", "gpclient.list", "signed-by=", "deb ["])
+    def test_the_install_steps_do_not_use_the_old_way(self, doc, old):
+        assert old not in install_section(doc)
+
+    def test_the_old_way_is_detected(self):
+        old = "curl -fsSL URL \\\n  | sudo tee /usr/share/keyrings/k.gpg\necho deb | sudo tee /etc/apt/sources.list.d/gpclient.list\n"
+        assert any(step in old for step in OLD_STEPS)
+
+    def test_the_deb822_snippet_has_the_expected_fields(self):
+        text = install_section("README.md")
+        body = text[text.index("Types:"):text.index("\nEOF")]
+        fields = [line.split(":", 1)[0] for line in body.splitlines()]
+        assert fields == ["Types", "URIs", "Suites", "Components", "Architectures", "Signed-By"]
+
+    def test_the_docs_tell_how_to_delete_the_old_files(self):
+        with open(os.path.join(ROOT, "docs/APT_REPO.md"), encoding="utf-8") as handle:
+            text = handle.read()
+        assert "sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg" in text
+
+
 class TestReleaseList:
     def test_publish_apt_has_no_fixed_limit(self):
         assert limit_problems(read_workflow("publish-apt.yml")) == []
