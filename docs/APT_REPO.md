@@ -9,7 +9,7 @@ never could ([#5](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issue
 ## For users
 
 ```bash
-# old one-line setup (before 2.0.0), if present
+# old one-line setup from earlier instructions, if present
 sudo rm -f /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo install -d -m 0755 /etc/apt/keyrings
 sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \
@@ -44,7 +44,10 @@ Migration: earlier versions of these instructions created a one-line
 `/usr/share/keyrings/gpclient-archive-keyring.gpg`. The first line of the commands
 above deletes them (and does nothing on a new system). If you keep the old `.list`
 file next to the new `.sources` file, `apt update` stops with
-`E: Conflicting values set for option Signed-By`.
+`E: Conflicting values set for option Signed-By`. The earlier instructions also offered
+a deb822 form with a free file name and `Signed-By: /usr/share/keyrings/gpclient-archive-keyring.gpg`:
+if you used it under a name other than `gpclient.sources`, delete that file too (the same
+conflict).
 
 `apt changelog network-manager-gpclient` shows the changelog: it is published under
 `/changelogs/<component>/<prefix>/<source>/<source>_<version>_changelog` (not next to

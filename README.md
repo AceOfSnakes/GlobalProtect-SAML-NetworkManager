@@ -41,7 +41,7 @@ Add the apt repository and install - dependencies, upgrades and the GNOME/Plasma
 choice are handled by apt:
 
 ```bash
-# old one-line setup (before 2.0.0), if present
+# old one-line setup from earlier instructions, if present
 sudo rm -f /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo install -d -m 0755 /etc/apt/keyrings
 sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \

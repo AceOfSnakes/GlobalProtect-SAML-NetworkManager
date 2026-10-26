@@ -9,6 +9,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import glob
+import html
 import os
 import re
 
@@ -82,6 +83,28 @@ def removal_block(doc):
     return text[start:text.index("sudo apt update", start)]
 
 
+CLEANUP = "# old one-line setup from earlier instructions, if present\nsudo rm -f " + OLD_FILES + "\n"
+FIELDS = ["Types", "URIs", "Suites", "Components", "Architectures", "Signed-By"]
+URL = "https://wmp.github.io/GlobalProtect-SAML-NetworkManager"
+
+
+def read_doc(doc):
+    """The text of a doc; the landing page is unescaped and gets the default URL"""
+    with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
+        text = handle.read()
+    return html.unescape(text).replace("__REPO_URL__", URL) if doc.endswith(".html") else text
+
+
+def cleanup_first(text):
+    """True when the old files are deleted before the key is downloaded"""
+    return CLEANUP in text and text.index(CLEANUP) < text.index("sudo curl -fsSLo")
+
+
+def snippet_fields(text):
+    body = text[text.index("Types:"):text.index("\nEOF")]
+    return [line.split(":", 1)[0] for line in body.splitlines()]
+
+
 def install_commands(text):
     start = text.rfind("\n", 0, text.index("curl -fsSL")) + 1
     return text[start:text.index("sudo apt update", start)]
@@ -110,19 +133,34 @@ class TestAptInstallSteps:
         section = install_section(str(old))
         assert [step for step in OLD_STEPS if step in section] == ["| sudo tee", "sources.list.d/gpclient.list\n"]
 
-    def test_the_deb822_snippet_has_the_expected_fields(self):
-        text = install_section("README.md")
-        body = text[text.index("Types:"):text.index("\nEOF")]
-        fields = [line.split(":", 1)[0] for line in body.splitlines()]
-        assert fields == ["Types", "URIs", "Suites", "Components", "Architectures", "Signed-By"]
+    @pytest.mark.parametrize("doc", INSTALL_DOCS)
+    def test_the_deb822_snippet_has_the_expected_fields(self, doc):
+        assert snippet_fields(read_doc(doc)) == FIELDS
+
+    @pytest.mark.parametrize("snippet", [
+        "Types: deb\nURIs: u\nSuites: s\nComponents: main\nSigned-By: k\nEOF",
+        "Types: deb\nURIs: u\nSuites: s\nComponents: main\nArchitectures: a\nSigned-By: k\nTrusted: yes\nEOF",
+    ])
+    def test_a_snippet_with_missing_or_extra_fields_is_rejected(self, snippet):
+        assert snippet_fields(snippet) != FIELDS
 
     @pytest.mark.parametrize("doc", INSTALL_DOCS)
     def test_the_old_files_are_deleted_before_the_new_ones_are_written(self, doc):
-        with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
-            text = handle.read()
-        cleanup = "# old one-line setup (before 2.0.0), if present\nsudo rm -f " + OLD_FILES + "\n"
-        assert cleanup in text
-        assert text.index(cleanup) < text.index("sudo curl -fsSLo") < text.index("gpclient.sources")
+        assert cleanup_first(read_doc(doc))
+
+    @pytest.mark.parametrize("text", [
+        "sudo curl -fsSLo k url\n",
+        "sudo curl -fsSLo k url\n" + CLEANUP,
+        CLEANUP.replace("rm -f", "rm") + "sudo curl -fsSLo k url\n",
+    ])
+    def test_a_missing_or_late_cleanup_is_rejected(self, text):
+        assert not cleanup_first(text)
+
+    def test_the_landing_page_install_block_equals_the_readme(self):
+        def block(doc):
+            text = read_doc(doc)
+            return text[text.index(CLEANUP):text.index("sudo apt update")]
+        assert block(".github/pages/index.html") == block("README.md")
 
     @pytest.mark.parametrize("doc", ["docs/APT_REPO.md", ".github/pages/index.html"])
     def test_the_removal_block_removes_the_new_files(self, doc):
