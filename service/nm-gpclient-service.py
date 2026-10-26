@@ -189,6 +189,15 @@ INTERNAL_NETWORK_RE = re.compile(
 GPCLIENT_TERMINATE_TIMEOUT = 10
 # Exit when no session exists for this many seconds (not with --persist)
 IDLE_EXIT_TIMEOUT = 180
+
+# NetworkManager starts the program= of the .name file itself (g_spawn_async in
+# nm-vpn-connection.c), not through D-Bus activation, so the service would run
+# in NetworkManager's cgroup with its sandbox (no CAP_SYS_ADMIN, read-only
+# /home: the SAML browser crashes). Started that way, it hands over to its
+# own unit. Only NetworkManager sets NM_VPN_LOG_SYSLOG.
+SYSTEMD_RUNTIME_DIR = "/run/systemd/system"  # exists when systemd is PID 1
+SERVICE_UNIT = "nm-gpclient.service"
+UNIT_START_TIMEOUT = 4  # NetworkManager waits 5 s for the bus name
 # How long our own gpauth processes get to exit after SIGTERM before SIGKILL
 GPAUTH_TERMINATE_TIMEOUT = 2
 
@@ -4286,6 +4295,43 @@ async def vpnc_notify(environ: Dict[str, str]) -> int:
     return 0
 
 
+async def hand_over_to_unit() -> bool:
+    """Start the systemd unit when NetworkManager spawned this process.
+
+    True when the unit runs the service now (this process exits). False when
+    this process should be the service: not started by NetworkManager, no
+    systemd, or the unit failed to start (then it works as before).
+    """
+    if "NM_VPN_LOG_SYSLOG" not in os.environ:
+        return False
+    if not os.path.isdir(SYSTEMD_RUNTIME_DIR):  # noqa: ASYNC240  # once, at startup
+        return False
+    proc = None
+    try:
+        # Type=dbus: returns once the unit owns the bus name
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl",
+            "start",
+            SERVICE_UNIT,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), UNIT_START_TIMEOUT)
+    except Exception as e:
+        if proc is not None and proc.returncode is None:
+            proc.kill()  # the start job goes on; systemctl only waits for it
+        logger.warning(f"Could not start {SERVICE_UNIT}, running here: {e!r}")
+        return False
+    if proc.returncode != 0:
+        logger.warning(
+            f"Could not start {SERVICE_UNIT} (status {proc.returncode}), running "
+            f"here: {stderr.decode('utf-8', errors='replace').strip()}"
+        )
+        return False
+    logger.info(f"Started by NetworkManager: {SERVICE_UNIT} runs the service")
+    return True
+
+
 async def main_async():
     """Async main entry point"""
     import argparse
@@ -4311,6 +4357,9 @@ async def main_async():
 
     if args.vpnc_notify:
         return await vpnc_notify(dict(os.environ))
+
+    if await hand_over_to_unit():
+        return 0
 
     # Enable debug mode: from --debug flag or GPCLIENT_DEBUG env var (default: disabled for security)
     debug_mode = args.debug or os.environ.get("GPCLIENT_DEBUG", "0") == "1"
@@ -4353,8 +4402,8 @@ async def main_async():
     logger.debug("Set system bus as default")
 
     # Request service name FIRST. If another instance already owns the name
-    # (typical: systemd/D-Bus auto-activated us when NetworkManager first
-    # touched the VPN) we exit with a clear message instead of dumping a
+    # (typical: the unit runs while this was started by hand) we exit with a
+    # clear message instead of dumping a
     # raw sd-bus traceback that users tend to read as "VPN broken".
     try:
         await request_default_bus_name_async(NM_DBUS_SERVICE_GPCLIENT)
@@ -4362,11 +4411,13 @@ async def main_async():
         if type(e).__name__ == "SdBusRequestNameExistsError":
             print(
                 f"ERROR: D-Bus name {NM_DBUS_SERVICE_GPCLIENT} is already owned\n"
-                "by another nm-gpclient-service instance (likely auto-started\n"
-                "by systemd/D-Bus). To run this binary manually for debugging,\n"
-                "stop the auto-started instance first:\n"
+                "by another nm-gpclient-service instance. To run this binary\n"
+                "manually for debugging, stop that instance first:\n"
                 "    sudo systemctl stop nm-gpclient\n"
-                "and to watch its live logs without stopping it, use:\n"
+                "If it still runs (an older version started by NetworkManager\n"
+                "outside the unit), find its PID and stop it:\n"
+                f"    busctl status {NM_DBUS_SERVICE_GPCLIENT}\n"
+                "To watch the live logs without stopping it, use:\n"
                 "    sudo journalctl -u nm-gpclient -f",
                 file=sys.stderr,
             )
