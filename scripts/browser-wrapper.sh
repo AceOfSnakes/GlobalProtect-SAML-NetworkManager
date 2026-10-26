@@ -283,7 +283,7 @@ fi
 log "session type: $SESSION_TYPE (DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset})"
 
 # xdg-open's detect_DE checks XDG_CURRENT_DESKTOP and KDE_FULL_SESSION before
-# KDE_SESSION_VERSION, and sudo resets the environment, so pass all three on.
+# KDE_SESSION_VERSION, and sudo resets the environment, so pass them on.
 # KDE finds the default browser only through its menu (XDG_MENU_PREFIX, e.g.
 # plasma-applications.menu) and the session's XDG_DATA_DIRS; without them
 # "default" shows "Choose Application". A value we already have is kept when
@@ -504,6 +504,8 @@ fi
 is_snap() {
     local target
     target=$(readlink -f "$1") || return 1
+    # Read only a regular file: a FIFO would block us (as root, before the drop)
+    [ -f "$target" ] || return 1
     [ "$(basename "$target")" = snap ] && return 0
     [ "$(head -c 2 "$target" 2>/dev/null)" = "#!" ] && grep -q '/snap/bin/' "$target" 2>/dev/null
 }

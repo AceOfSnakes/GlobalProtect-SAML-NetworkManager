@@ -1508,3 +1508,26 @@ def test_a_browser_that_hands_the_url_over_is_not_an_error(tmp_path):
     assert "the URL went to a running instance" in result.wrapper_log
     assert "ERROR" not in result.wrapper_log
     assert "ERROR" not in result.syslog
+
+
+def test_a_fifo_as_the_browser_does_not_block_the_snap_check(tmp_path):
+    """is_snap reads the browser file (as root before the drop): a FIFO with the
+    x bit must not block it."""
+    _fake_logger(tmp_path)
+    os.mkfifo(tmp_path / "chromium", 0o755)
+    os.chmod(tmp_path / "chromium", 0o755)
+    (tmp_path / "home").mkdir()
+    extra = {"GP_BROWSER": str(tmp_path / "chromium"), "HOME": str(tmp_path / "home")}
+    if IS_ROOT:
+        _fake_sudo(tmp_path)
+        _script(
+            tmp_path / "getent",
+            f"echo 'u:x:{FAKE_UID}:{FAKE_UID}::{tmp_path}/home:/bin/bash'\n",
+        )
+        extra["SUDO_UID"] = str(FAKE_UID)
+    else:
+        _script(tmp_path / "id", f"echo {FAKE_UID}\n")
+
+    result = _run_wrapper(_root_env(tmp_path, **extra))  # times out if it blocks
+
+    assert "is a snap" not in result.wrapper_log + result.stderr
