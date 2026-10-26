@@ -7,11 +7,12 @@
 #include "gpclientauthwidget.h"
 #include "gpclientwidget.h"
 
-#include "nm-gpclient-keyfile.h"
-
 #include <KPluginFactory>
 
 #include <QFile>
+
+// Last: it defines _() for its messages when no gettext header came first
+#include "nm-gpclient-keyfile.h"
 
 GpclientUiPlugin::GpclientUiPlugin(QObject *parent, const QVariantList &)
     : VpnUiPlugin(parent)
@@ -89,7 +90,7 @@ VpnUiPlugin::ExportResult GpclientUiPlugin::exportConnectionSettings(const Netwo
     if (client) {
         NMRemoteConnection *remote = nm_client_get_connection_by_uuid(client, connection->uuid().toUtf8().constData());
         if (!remote) {
-            message = QStringLiteral("the connection is not saved in NetworkManager");
+            message = connection->id(); // not saved in NetworkManager: name the profile
         } else if (nm_gpclient_keyfile_export(NM_CONNECTION(remote), QFile::encodeName(fileName).constData(), &error)) {
             g_object_unref(client);
             return VpnUiPlugin::ExportResult::pass();
