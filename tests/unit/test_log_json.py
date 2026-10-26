@@ -59,6 +59,26 @@ class TestParseLogRecord:
     ):
         assert service_module.parse_log_record(record(message))["message"] == "gwX"
 
+    def test_deeply_nested_json_is_a_text_line(self, service_module):
+        # the auth banner starts with the portal's message: it can be anything
+        line = '{"a":' + "[" * 100000 + " (Portal: vpn.example.com)"
+
+        assert service_module.parse_log_record(line) is None
+
+    def test_deeply_nested_json_does_not_stop_the_monitor(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        # a long line through the PTY reader is slow: fake the decoder's error
+        def too_deep(_line):
+            raise RecursionError("maximum recursion depth exceeded")
+
+        monkeypatch.setattr(service_module.json, "loads", too_deep)
+        plugin = _plugin(service_module)
+
+        _run(plugin, '{"a": [[[', "Found 3 gateways in portal config")
+
+        assert plugin._gateway_count == 3
+
     def test_a_tab_is_kept(self, service_module):
         assert service_module.parse_log_record(record("a\tb"))["message"] == "a\tb"
 

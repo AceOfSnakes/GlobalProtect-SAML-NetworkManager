@@ -311,7 +311,7 @@ def parse_log_record(line: str) -> Optional[Dict[str, str]]:
         return None
     try:
         record = json.loads(line)
-    except ValueError:
+    except (ValueError, RecursionError):  # deep nesting: a line the portal controls
         return None
     if not isinstance(record, dict):
         return None
