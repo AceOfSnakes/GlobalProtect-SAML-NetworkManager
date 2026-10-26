@@ -21,9 +21,10 @@ class FakeGpclient:
 
     pid = 4242
     returncode = None
+    terminated = False
 
     def terminate(self):
-        pass
+        self.terminated = True
 
 
 def vpnc_env(**overrides):

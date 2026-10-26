@@ -43,7 +43,8 @@ Starts VPN connection.
    activation that never gets there
 5. On `Notify`, emits `Config`, `Ip4Config` only with an IPv4 address and
    `Ip6Config` only with an IPv6 address, then `StateChanged(STARTED)`. With
-   neither address it emits `Failure(BAD_IP_CONFIG)` instead
+   neither address, or with only an IPv6 address and an `ipv6.method` other
+   than `auto`, it emits `Failure(BAD_IP_CONFIG)` instead
 
 #### `Disconnect()`
 Disconnects VPN.

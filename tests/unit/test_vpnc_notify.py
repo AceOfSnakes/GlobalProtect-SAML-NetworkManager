@@ -573,6 +573,41 @@ class TestIpv4FromEnv:
         assert _names(dbus_signals) == ["Failure", "StateChanged"]
         assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
         assert dbus_signals[1][1] == service_module.NM_VPN_SERVICE_STATE_STOPPED
+        assert plugin.gpclient_process.terminated and plugin._login_failed
+
+    @pytest.mark.parametrize("method", ["ignore", "manual"])
+    def test_an_ipv6_only_reconnect_fails_without_ipv6_method_auto(
+        self, service_module, dbus_signals, method
+    ):
+        plugin = active_plugin(service_module, ipv6_method=method)
+        notify(plugin)
+        dbus_signals.clear()
+
+        notify(
+            plugin,
+            vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"),
+            reason="reconnect",
+        )
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+        assert plugin.gpclient_process.terminated
+
+    def test_an_ipv6_only_reconnect_with_ipv6_method_auto_goes_on(
+        self, service_module, dbus_signals
+    ):
+        plugin = active_plugin(service_module, ipv6_method="auto")
+        notify(plugin)
+        dbus_signals.clear()
+
+        notify(
+            plugin,
+            vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"),
+            reason="reconnect",
+        )
+
+        assert "Failure" not in _names(dbus_signals)
+        assert not plugin.gpclient_process.terminated
 
     def test_an_ipv4_tunnel_has_ip4_in_config(self, service_module, dbus_signals):
         notify(active_plugin(service_module))
@@ -594,6 +629,7 @@ class TestIpv4FromEnv:
         assert dbus_signals[1][1] == service_module.NM_VPN_SERVICE_STATE_STOPPED
         assert plugin._tunnel_up is False
         assert "no usable tunnel address" in caplog.text
+        assert plugin.gpclient_process.terminated and plugin._login_failed
 
 
 class TestGatewayFromEnv:
