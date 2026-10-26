@@ -446,7 +446,7 @@ def run_postinst(tmp_path, args):
 
 
 class TestPostinstSystemd:
-    @pytest.mark.parametrize("old", ["1.5.0-1", "1.4.1-1", "1.5.0-1~noble1", "1.5.0-1~jammy1~pr90"])
+    @pytest.mark.parametrize("old", ["1.5.0-1", "1.4.1-1", "1.5.0-1~noble1", "1.5.0-1~jammy1~pr90", "1.5.0-1~noble1+pr5.1"])
     def test_an_upgrade_from_before_2_0_0_disables_the_unit(self, tmp_path, old):
         result, calls = run_postinst(tmp_path, ["configure", old])
 
@@ -455,7 +455,8 @@ class TestPostinstSystemd:
 
     @pytest.mark.parametrize("args", [["configure"], ["configure", "2.0.0-1"], ["configure", "2.1.0-1"],
                                       ["configure", "2.0.0-1~noble1"], ["configure", "2.0.0-1~jammy1~pr96"],
-                                      ["reconfigure", "2.0.0-1"]])
+                                      ["reconfigure", "2.0.0-1"], ["configure", "2.0.0"], ["configure", "2.0.0~noble1"],
+                                      ["configure", "2.0.0~noble1+pr5.1"], ["reconfigure", "2.0.0"]])
     def test_a_first_install_and_a_newer_upgrade_leave_the_unit_alone(self, tmp_path, args):
         result, calls = run_postinst(tmp_path, args)
 
