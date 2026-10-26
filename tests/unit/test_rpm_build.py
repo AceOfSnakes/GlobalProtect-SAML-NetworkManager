@@ -610,7 +610,8 @@ def cargo_build_feature_flags(text):
     lines = text.replace("\\\n", " ").splitlines()
     return [flag for line in lines
             if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)
-            for flag in FEATURE_FLAGS if re.search(rf"(?<!\S){flag}(?![\w-])", line)]
+            # -F also takes its value attached (-Fwebview-auth)
+            for flag in FEATURE_FLAGS if re.search(rf"(?<!\S){flag}" + ("" if flag == "-F" else r"(?![\w-])"), line)]
 
 
 @pytest.mark.parametrize("path", CARGO_BUILD_FILES)
@@ -624,6 +625,16 @@ def test_every_cargo_build_uses_the_default_features(path):
 def test_a_cargo_build_with_other_features_is_reported(flag):
     text = read("Makefile").replace(" --locked", f" --locked {flag}")
     assert flag in cargo_build_feature_flags(text)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("cargo build --locked -Fwebview-auth", ["-F"]),
+    ("cargo build --locked --features=webview-auth", ["--features"]),
+    ("cargo build --locked --release", []),
+    ("cargo build --locked -FOO", ["-F"]),
+])
+def test_feature_flag_forms(text, expected):
+    assert cargo_build_feature_flags(text) == expected
 
 
 def test_a_feature_flag_on_a_continued_line_is_reported():
