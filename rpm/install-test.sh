@@ -61,7 +61,7 @@ PY
 
 # check_vpnc_script [root]: a vpnc-script that gpclient finds (the list of
 # crates/openconnect/src/vpn_utils.rs) is executable and runs the hooks of /etc/vpnc,
-# where 90-gpclient-routing is.
+# where 90-gpclient-routing and 90-gpclient-notify are.
 # shellcheck disable=SC2120 # the argument is optional
 check_vpnc_script() {
     local root=${1:-} path script="" hooks
@@ -77,8 +77,13 @@ check_vpnc_script() {
     [ -n "$script" ] || fail "no executable vpnc-script in a path gpclient searches"
     hooks=$(sed -n 's/^HOOKS_DIR=//p' "$script" | head -n1)
     [ -n "$hooks" ] || fail "$script has no HOOKS_DIR"
-    [ -x "$root$hooks/connect.d/90-gpclient-routing" ] \
-        || fail "$script runs the hooks of $hooks, but $hooks/connect.d/90-gpclient-routing is not there"
+    # Without post-connect hooks the service is never told that the tunnel is up
+    grep -q 'run_hooks post-connect' "$script" \
+        || fail "$script does not run post-connect hooks: the connection would never be reported as up"
+    for hook in connect.d/90-gpclient-routing post-connect.d/90-gpclient-notify reconnect.d/90-gpclient-notify; do
+        [ -x "$root$hooks/$hook" ] \
+            || fail "$script runs the hooks of $hooks, but $hooks/$hook is not there"
+    done
 }
 
 # Sourced by the unit tests: only the functions above are needed
@@ -137,6 +142,8 @@ for path in \
     /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service \
     /usr/share/dbus-1/system.d/nm-gpclient.conf \
     /etc/vpnc/connect.d/90-gpclient-routing \
+    /etc/vpnc/post-connect.d/90-gpclient-notify \
+    /etc/vpnc/reconnect.d/90-gpclient-notify \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient-editor.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so" \

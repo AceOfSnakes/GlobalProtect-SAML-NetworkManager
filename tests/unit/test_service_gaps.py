@@ -726,7 +726,6 @@ class TestRetryWithOpensslFix:
             return start_result
 
         plugin._cleanup_stale_gpd0 = noop
-        plugin._snapshot_tunnel_interfaces = noop
         plugin._start_gpclient = start
         return plugin, starts
 

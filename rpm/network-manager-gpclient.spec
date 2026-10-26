@@ -85,7 +85,8 @@ Requires:       openconnect
 Requires:       python3
 Requires:       xdg-utils
 # openconnect needs a vpnc-script, which also runs /etc/vpnc/connect.d/90-gpclient-routing
-# (HOOKS_DIR=/etc/vpnc); openSUSE installs none with openconnect
+# and the 90-gpclient-notify hooks (HOOKS_DIR=/etc/vpnc); openSUSE installs none with
+# openconnect
 %if 0%{?suse_version}
 Requires:       vpnc
 %else
@@ -207,6 +208,12 @@ install -D -m 0644 config/nm-gpclient.conf \
   %{buildroot}%{_datadir}/dbus-1/system.d/nm-gpclient.conf
 install -D -m 0755 config/90-gpclient-routing \
   %{buildroot}%{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
+# The hook that tells the service the tunnel is up: after vpnc-script configured
+# it, and again on a reconnect
+install -D -m 0755 config/gpclient-nm-notify \
+  %{buildroot}%{_sysconfdir}/vpnc/post-connect.d/90-gpclient-notify
+install -D -m 0755 config/gpclient-nm-notify \
+  %{buildroot}%{_sysconfdir}/vpnc/reconnect.d/90-gpclient-notify
 
 %if 0%{?suse_version}
 # sdbus and PyGObject are in the site-packages of this python3.X: do not follow a
@@ -297,6 +304,10 @@ fi
 %dir %{_sysconfdir}/vpnc
 %dir %{_sysconfdir}/vpnc/connect.d
 %config(noreplace) %{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
+%dir %{_sysconfdir}/vpnc/post-connect.d
+%config(noreplace) %{_sysconfdir}/vpnc/post-connect.d/90-gpclient-notify
+%dir %{_sysconfdir}/vpnc/reconnect.d
+%config(noreplace) %{_sysconfdir}/vpnc/reconnect.d/90-gpclient-notify
 %{python3_sitearch}/sdbus*
 
 %files gnome

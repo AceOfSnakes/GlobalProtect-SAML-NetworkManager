@@ -480,17 +480,27 @@ def test_check_openssl_rejects_other_libraries(tmp_path, ldd_output):
     assert "FAIL" in result.stderr
 
 
-def make_vpnc_root(tmp_path, hooks="/etc/vpnc", hook=True, script_mode=0o755, where="/etc/vpnc/vpnc-script"):
+# The hooks of the package: the routing policy, and the two that tell the service
+# the tunnel is up
+HOOKS = [
+    ("connect.d", "90-gpclient-routing"),
+    ("post-connect.d", "90-gpclient-notify"),
+    ("reconnect.d", "90-gpclient-notify"),
+]
+
+
+def make_vpnc_root(tmp_path, hooks="/etc/vpnc", hook=True, post_connect=True, script_mode=0o755, where="/etc/vpnc/vpnc-script"):
     root = tmp_path / "root"
     script = root / where.lstrip("/")
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(f"#!/bin/sh\nHOOKS_DIR={hooks}\n")
+    script.write_text(f"#!/bin/sh\nHOOKS_DIR={hooks}\n" + ("run_hooks post-connect\n" if post_connect else ""))
     script.chmod(script_mode)
     if hook:
-        hook_file = root / hooks.lstrip("/") / "connect.d" / "90-gpclient-routing"
-        hook_file.parent.mkdir(parents=True, exist_ok=True)
-        hook_file.write_text("#!/bin/sh\n")
-        hook_file.chmod(0o755)
+        for hook_dir, name in HOOKS:
+            hook_file = root / hooks.lstrip("/") / hook_dir / name
+            hook_file.parent.mkdir(parents=True, exist_ok=True)
+            hook_file.write_text("#!/bin/sh\n")
+            hook_file.chmod(0o755)
     return root
 
 
@@ -504,6 +514,7 @@ def test_check_vpnc_script_accepts(tmp_path, where):
 @pytest.mark.parametrize(
     "kwargs",
     [
+        {"post_connect": False},  # the script never runs post-connect hooks
         {"hook": False},  # our hook is not in the directory the script runs
         {"hooks": "/usr/share/vpnc", "hook": False},
         {"script_mode": 0o644},  # not executable
@@ -518,6 +529,24 @@ def test_check_vpnc_script_rejects(tmp_path, kwargs):
         hook.parent.mkdir(parents=True)
         hook.write_text("")
         hook.chmod(0o755)
+    result = run_function(tmp_path, f'check_vpnc_script "{root}"')
+    assert result.returncode == 1
+    assert "FAIL" in result.stderr
+
+
+@pytest.mark.parametrize("missing", HOOKS)
+def test_check_vpnc_script_rejects_a_missing_hook(tmp_path, missing):
+    root = make_vpnc_root(tmp_path)
+    (root / "etc/vpnc" / missing[0] / missing[1]).unlink()
+    result = run_function(tmp_path, f'check_vpnc_script "{root}"')
+    assert result.returncode == 1
+    assert "FAIL" in result.stderr and f"{missing[0]}/{missing[1]}" in result.stderr
+
+
+@pytest.mark.parametrize("missing", HOOKS)
+def test_check_vpnc_script_rejects_a_hook_that_is_not_executable(tmp_path, missing):
+    root = make_vpnc_root(tmp_path)
+    (root / "etc/vpnc" / missing[0] / missing[1]).chmod(0o644)
     result = run_function(tmp_path, f'check_vpnc_script "{root}"')
     assert result.returncode == 1
     assert "FAIL" in result.stderr

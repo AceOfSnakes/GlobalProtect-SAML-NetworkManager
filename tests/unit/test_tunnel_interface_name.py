@@ -2,9 +2,9 @@
 Tests for naming the tunnel (issue #53, item 1.1).
 
 The service asks gpclient for `--interface=gp-<first 8 hex digits of the
-connection UUID>`, so it knows the tunnel by name instead of guessing it from
-gpd0/tunN, a snapshot and the file descriptors of gpclient. Without a usable
-UUID the old heuristics stay (their tests are in test_tunnel_detection.py).
+connection UUID>`, so it knows the tunnel by name and takes a notification of
+the vpnc hook for no other interface. Without a usable UUID it takes any
+interface name the hook reports.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -13,17 +13,15 @@ import asyncio
 import json
 
 import pytest
-from test_tunnel_detection import (
-    _FakeProcess,
-    _fake_proc,
-    _ip4_config,
-    _plugin_with_tunnels,
-    _run_loop,
-)
 from test_upstream_interfaces import fake_exec, net_sysfs, start_env  # noqa: F401
-
-UUID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
-NAME = "gp-1a2b3c4d"
+from vpnc_notify_helpers import (
+    NAME,
+    UUID,
+    active_plugin,
+    ip4_config,
+    notify,
+    vpnc_env,
+)
 
 
 class TestName:
@@ -67,90 +65,47 @@ class TestCommandLine:
         assert not [a for a in argv if a.startswith("--interface")]
 
 
-class TestDetection:
-    def test_picks_the_named_interface_among_other_tunnels(
-        self, service_module, monkeypatch, tmp_path, dbus_signals
+class TestNotifiedInterface:
+    def test_takes_the_named_interface(self, service_module, dbus_signals):
+        plugin = active_plugin(service_module, uuid=UUID)
+
+        notify(plugin, vpnc_env(TUNDEV=NAME))
+
+        assert ip4_config(dbus_signals)["tundev"] == ("s", NAME)
+
+    @pytest.mark.parametrize("tundev", ["gpd0", "tun0", "gp-ffffffff", "", None])
+    def test_rejects_any_other_interface_when_the_tunnel_has_a_name(
+        self, service_module, dbus_signals, tundev
     ):
-        plugin = _plugin_with_tunnels(
-            service_module,
-            monkeypatch,
-            tmp_path,
-            ips={"gpd0": "10.9.9.9", "tun0": "10.8.0.3", NAME: "10.100.7.42"},
-            preexisting={},
-        )
-        plugin._connection_uuid = UUID
+        plugin = active_plugin(service_module, uuid=UUID)
 
-        assert _run_loop(plugin) is True
+        with pytest.raises(service_module.NotifyRejectedError):
+            notify(plugin, vpnc_env(TUNDEV=tundev))
 
-        assert _ip4_config(dbus_signals)["tundev"] == ("s", NAME)
-
-    def test_ignores_gpd0_and_tun0_when_the_named_one_is_missing(
-        self, service_module, monkeypatch, tmp_path, dbus_signals
-    ):
-        plugin = _plugin_with_tunnels(
-            service_module,
-            monkeypatch,
-            tmp_path,
-            ips={"gpd0": "10.9.9.9", "tun0": "10.8.0.3"},
-            preexisting={},
-        )
-        plugin._connection_uuid = UUID
-
-        assert _run_loop(plugin) is False
         assert dbus_signals == []
+        assert plugin._tunnel_up is False
 
-    def test_waits_while_the_named_interface_has_no_address(
-        self, service_module, monkeypatch, tmp_path, dbus_signals
+    @pytest.mark.parametrize("tundev", ["gpd0", "tun0", "tun12", "vpn.test", NAME])
+    def test_takes_the_reported_interface_without_a_name(
+        self, service_module, dbus_signals, tundev
     ):
-        plugin = _plugin_with_tunnels(
-            service_module,
-            monkeypatch,
-            tmp_path,
-            ips={NAME: None, "tun0": "10.8.0.3"},
-            preexisting={},
-        )
-        plugin._connection_uuid = UUID
+        plugin = active_plugin(service_module, uuid="")
 
-        assert _run_loop(plugin) is False
-        assert dbus_signals == []
+        notify(plugin, vpnc_env(TUNDEV=tundev))
 
-    def test_ignores_the_snapshot_and_the_fd_ownership(
-        self, service_module, monkeypatch, tmp_path, dbus_signals
+        assert ip4_config(dbus_signals)["tundev"] == ("s", tundev)
+
+    @pytest.mark.parametrize(
+        "tundev", ["", None, "a" * 16, "tun 0", "tun0\n", "../tun0", "tun0;reboot"]
+    )
+    def test_rejects_an_interface_that_is_no_name_without_a_name(
+        self, service_module, dbus_signals, tundev
     ):
-        plugin = _plugin_with_tunnels(
-            service_module,
-            monkeypatch,
-            tmp_path,
-            ips={NAME: "10.100.7.42", "tun0": "10.8.0.3"},
-            # Heuristics would reject NAME (same IP before the start), and
-            # gpclient holds tun0 only
-            preexisting={NAME: "10.100.7.42"},
-        )
-        monkeypatch.setattr(
-            service_module,
-            "PROC_PATH",
-            _fake_proc(tmp_path, {4242: ("gpclient", 1, ["tun0"])}),
-        )
-        plugin.gpclient_process = _FakeProcess(4242)
-        plugin._connection_uuid = UUID
+        plugin = active_plugin(service_module, uuid="")
 
-        assert _run_loop(plugin) is True
-        assert _ip4_config(dbus_signals)["tundev"] == ("s", NAME)
+        with pytest.raises(service_module.NotifyRejectedError):
+            notify(plugin, vpnc_env(TUNDEV=tundev))
 
-    def test_without_a_uuid_the_old_candidate_list_applies(
-        self, service_module, monkeypatch, tmp_path, dbus_signals
-    ):
-        plugin = _plugin_with_tunnels(
-            service_module,
-            monkeypatch,
-            tmp_path,
-            ips={NAME: "10.100.7.42", "tun0": "10.8.0.3"},
-            preexisting={"tun0": "10.8.0.3"},
-        )
-        plugin._connection_uuid = ""
-
-        # NAME is no candidate; tun0 pre-existed unchanged
-        assert _run_loop(plugin) is False
         assert dbus_signals == []
 
 

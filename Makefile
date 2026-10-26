@@ -68,6 +68,8 @@ install: all
 	install -D -m 755 gpauth /usr/bin/gpauth
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
+	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
+	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 	# Install D-Bus policy, D-Bus activation file and systemd unit
 	install -D -m 644 config/nm-gpclient.conf /usr/share/dbus-1/system.d/nm-gpclient.conf
 	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
@@ -149,8 +151,10 @@ install-dev: gnome-plugins
 	# Install systemd service
 	sudo install -m 644 config/nm-gpclient.service $(SYSTEMD_DIR)/
 
-	# Install vpnc routing hook
+	# Install the vpnc hooks: routing, and the tunnel notification
 	sudo install -m 755 config/90-gpclient-routing $(VPNC_DIR)/
+	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
+	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 
 	@echo "=== Installation complete ==="
 	@echo "Run 'make restart-nm' to restart NetworkManager"
@@ -171,6 +175,7 @@ uninstall-dev:
 	sudo rm -f $(DBUS_CONF_DIR)/nm-gpclient.conf
 	sudo rm -f $(SYSTEMD_DIR)/nm-gpclient.service
 	sudo rm -f $(VPNC_DIR)/90-gpclient-routing
+	sudo rm -f /etc/vpnc/post-connect.d/90-gpclient-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 	@echo "=== Uninstall complete ==="
 
 # Restart NetworkManager to reload plugins
@@ -221,6 +226,7 @@ SHELL_SCRIPTS := \
 	.github/scripts/verify-release-assets.sh \
 	build-all.sh \
 	config/90-gpclient-routing \
+	config/gpclient-nm-notify \
 	debian/network-manager-gpclient.postinst \
 	debian/network-manager-gpclient.postrm \
 	plugins/plasma/build.sh \
