@@ -37,6 +37,28 @@ Contents:
 - `/usr/bin/gpclient`, `/usr/bin/gpauth` - VPN client binaries
 - D-Bus and systemd configuration files
 
+The unit `config/nm-gpclient.service` (used for D-Bus activation) runs the
+service as root with a small set of sandbox options (issue #54):
+`ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups`,
+`ProtectClock`, `LockPersonality`, `RestrictRealtime`, `RestrictSUIDSGID` and
+`SystemCallArchitectures=native`. The unit file lists, with reasons, the
+options it does not use: the browser runs inside this unit's process tree, so
+`ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, `RestrictNamespaces`,
+`MemoryDenyWriteExecute`, `PrivateNetwork`, `ProtectProc`, `PrivateDevices`
+and `ProtectSystem=strict` stay off.
+
+How to test a change of the sandbox options (on a real machine):
+
+- [ ] `systemd-analyze security nm-gpclient.service` before and after.
+- [ ] SAML login with each browser: Edge, Firefox, Chrome and the default one.
+- [ ] Login with credentials and with RSA or another one-time password.
+- [ ] Login with a HIP script.
+- [ ] DNS with systemd-resolved, and with a plain `/etc/resolv.conf`.
+- [ ] A connection with `never-default`: the default route stays unchanged.
+- [ ] Disconnect: the tun device, routes and DNS settings are removed.
+- [ ] `journalctl -b -u nm-gpclient.service` and `journalctl -b -k` show no
+      "Operation not permitted" or `seccomp` denials.
+
 Dependencies:
 - `network-manager`
 - `openconnect`
