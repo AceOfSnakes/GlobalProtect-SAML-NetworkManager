@@ -368,6 +368,14 @@ class TestInstall:
         assert "-y" not in box.apt_args()
         assert list(box.tmp.iterdir()) == []
 
+    @pytest.mark.parametrize("tilde, build", [(False, ""), (True, ""), (False, BUILD), (True, BUILD)])
+    def test_a_native_version_without_a_revision_is_accepted(self, box, tilde, build):
+        box.set_assets([deb(s, "noble", "amd64", tilde, build, "2.0.0") for s in ("", "-gnome", "-plasma")])
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+
     def test_the_release_api_url_is_the_one_of_the_pr(self, box):
         result = box.run("24")
 
@@ -743,14 +751,6 @@ class TestRejected:
         result = box.run("24")
 
         assert_rejected(box, result, "more than one")
-
-    @pytest.mark.parametrize("tilde, build", [(False, ""), (True, ""), (False, BUILD), (True, BUILD)])
-    def test_a_native_version_without_a_revision_is_accepted(self, box, tilde, build):
-        box.set_assets([deb(s, "noble", "amd64", tilde, build, "2.0.0") for s in ("", "-gnome", "-plasma")])
-
-        result = box.run("24")
-
-        assert result.returncode == 0, result.stderr
 
     def test_a_native_version_of_another_pr_is_not_accepted(self, box):
         box.set_assets([deb(s, "noble", "amd64", False, "+pr25.57", "2.0.0") for s in ("", "-gnome", "-plasma")])

@@ -29,11 +29,7 @@ def entry(version):
 
 
 @pytest.mark.parametrize("tag, version", [
-    ("v2.0.0", "2.0.0-1"),
-    ("v2.0.0", "2.0.0-3"),
     ("v1.5.0", "1.5.0-1"),
-    ("v2.0.0", "1:2.0.0-1"),
-    ("v2.1", "2.1-1"),
     ("v2.0.0", "2.0.0"),
     ("v2.1", "2.1"),
 ])
@@ -57,6 +53,20 @@ def test_mismatching_tag_fails(tag, version, tmp_path):
     result = run(tag, entry(version), tmp_path)
     assert result.returncode == 1
     assert "does not match" in result.stderr
+
+
+@pytest.mark.parametrize("tag, version", [
+    ("v2.0.0", "2.0.0-1"),
+    ("v2.0.0", "2.0.0-3"),
+    ("v2.0.0", "1:2.0.0-1"),
+    ("v2.1", "2.1-1"),
+    ("v2.1.3", "2.1.3-2"),
+    ("v10.0.0", "10.0.0-1"),
+])
+def test_a_revision_from_2_0_0_on_fails(tag, version, tmp_path):
+    result = run(tag, entry(version), tmp_path)
+    assert result.returncode == 1
+    assert "from 2.0.0 on the version is native" in result.stderr
 
 
 @pytest.mark.parametrize("tag", ["2.0.0", "v", "v2.0.0-1", "v2.0.0\n", "vx", "v2..0", "refs/tags/v2.0.0", ""])
