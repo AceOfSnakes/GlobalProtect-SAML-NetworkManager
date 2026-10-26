@@ -3522,7 +3522,30 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         )
         path = await settings_proxy.GetConnectionByUuid(self._connection_uuid)
         connection = NmConnectionInterface.new_proxy(NM_DBUS_SERVICE, path)
-        # Read before GetSettings: a change in between fails the check
+
+        secrets: Optional[Dict[str, str]] = None
+        if drop_secrets:
+            # Root has no secret agent: with no system secret stored, NM fails
+            # the call ("No agents were available"). Then nothing is stored to
+            # drop, and the data (e.g. the not-saved flag, which keeps a code
+            # off the disk) is still written.
+            try:
+                vpn_secrets = (await connection.GetSecrets("vpn")).get("vpn", {})
+            except Exception as e:  # an unmapped NM error is no DbusFailedError
+                logger.debug(f"No stored vpn secrets to drop: {e}")
+                vpn_secrets = {}
+            stored = dict(vpn_secrets["secrets"][1]) if "secrets" in vpn_secrets else {}
+            dropped = [key for key in drop_secrets if key in stored]
+            if dropped:
+                for key in dropped:
+                    del stored[key]
+                # NetworkManager reads an empty secrets dict as "no secrets"
+                # and keeps the stored ones: send the dropped keys empty then
+                # (allowed since NM 1.24)
+                secrets = stored or {key: "" for key in dropped}
+
+        # After GetSecrets (which bumps the version) and before GetSettings: a
+        # change after the read fails the check
         try:
             version = await connection.VersionId.get_async()
         except Exception:
@@ -3533,18 +3556,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         vpn = settings["vpn"]
         old_data = vpn["data"][1] if "data" in vpn else {}
         vpn["data"] = ("a{ss}", {**old_data, **data})
-
-        if drop_secrets:
-            secrets_vpn = (await connection.GetSecrets("vpn")).get("vpn", {})
-            stored = dict(secrets_vpn["secrets"][1]) if "secrets" in secrets_vpn else {}
-            dropped = [key for key in drop_secrets if key in stored]
-            if dropped:
-                for key in dropped:
-                    del stored[key]
-                # NetworkManager reads an empty secrets dict as "no secrets"
-                # and keeps the stored ones: send the dropped keys empty then
-                # (allowed since NM 1.24)
-                vpn["secrets"] = ("a{ss}", stored or {key: "" for key in dropped})
+        if secrets is not None:
+            vpn["secrets"] = ("a{ss}", secrets)
 
         args = {} if version is None else {"version-id": ("t", version)}
         await connection.Update2(settings, 0, args)

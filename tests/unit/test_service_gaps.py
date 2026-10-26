@@ -907,6 +907,7 @@ class FakeNM:
     def __init__(self):
         self.calls = []
         self.version_readable = True
+        self.version = self.VERSION
         self.errors = {}  # method name -> exception to raise
         self.mismatches = 0  # Update2 calls that fail with VersionIdMismatch
         self.hang = False
@@ -945,7 +946,7 @@ class FakeNM:
                 nm._call("VersionId")
                 if not nm.version_readable:
                     raise RuntimeError("no such property")
-                return nm.VERSION
+                return nm.version
 
         class Connection:
             VersionId = VersionProperty()
@@ -961,6 +962,12 @@ class FakeNM:
 
             async def GetSecrets(self, name):  # noqa: N802
                 nm._call("GetSecrets", name)
+                # Root has no agent: without a system secret NM asks the
+                # agents and fails; a successful request updates the profile
+                # and bumps its version
+                if not nm.secrets:
+                    raise RuntimeError("No agents were available for this request.")
+                nm.version += 1
                 return {"vpn": {"secrets": ("a{ss}", dict(nm.secrets))}}
 
             async def Update2(self, settings, flags, args):  # noqa: N802
@@ -968,6 +975,9 @@ class FakeNM:
                 if nm.mismatches:
                     nm.mismatches -= 1
                     raise service_module.VersionIdMismatchError("version-id mismatches")
+                if "version-id" in args and args["version-id"] != ("t", nm.version):
+                    raise service_module.VersionIdMismatchError("version-id mismatches")
+                nm.version += 1
                 secrets = settings.get("vpn", {}).get("secrets")
                 # NM: an empty secrets dict is "no secrets", the stored ones stay
                 if secrets is not None and secrets[1]:
@@ -1160,18 +1170,30 @@ class TestUpdateProfileDropsSecrets:
 
         assert nm.named("GetSecrets") == []
 
-    def test_failing_secret_read_sends_nothing(self, service_module, nm, caplog):
-        nm.errors["GetSecrets"] = RuntimeError("GetSecrets refused")
+    def test_failing_secret_read_still_writes_the_data(self, service_module, nm):
+        # no system secret stored: root has no agent and NM fails GetSecrets
+        nm.secrets = {}
         plugin = _connected_plugin(service_module)
 
-        with caplog.at_level(logging.INFO, logger=service_module.logger.name):
-            assert not asyncio.run(
-                plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
-            )
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
 
-        assert nm.named("Update2") == []
-        assert nm.secrets == {"password": "s3cret", "otp": "123456"}
-        assert "GetSecrets refused" in _log_text(caplog, service_module, logging.WARNING)
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["data"][1]["otp-flags"] == "2"
+        assert all("secrets" not in props for props in sent.values())
+
+    def test_a_secret_read_that_bumps_the_version_is_no_mismatch(
+        self, service_module, nm
+    ):
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        assert len(nm.named("Update2")) == 1
+        assert nm.named("Update2")[0][3] == {"version-id": ("t", FakeNM.VERSION + 1)}
 
     def test_no_stored_code_means_no_secrets_are_sent(self, service_module, nm):
         nm.secrets = {"password": "s3cret"}
@@ -1197,7 +1219,7 @@ class TestUpdateProfileDropsSecrets:
         assert sent["vpn"]["secrets"] == ("a{ss}", {"otp": ""})
         assert nm.secrets == {"otp": ""}
 
-    def test_an_empty_secrets_dict_would_keep_the_code(self, service_module, nm):
+    def test_a_write_without_a_drop_keeps_a_stored_code(self, service_module, nm):
         # what the fake models: NetworkManager keeps stored secrets then
         nm.secrets = {"otp": "123456"}
         plugin = _connected_plugin(service_module)
@@ -1206,7 +1228,9 @@ class TestUpdateProfileDropsSecrets:
 
         assert nm.secrets == {"otp": "123456"}
 
-    def test_another_error_is_not_retried(self, service_module, nm):
+    def test_an_error_naming_the_mismatch_in_its_text_is_not_retried(
+        self, service_module, nm
+    ):
         nm.errors["Update2"] = RuntimeError(
             "org.freedesktop.NetworkManager.Settings.VersionIdMismatch in a message"
         )
