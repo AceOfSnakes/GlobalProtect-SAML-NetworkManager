@@ -967,11 +967,10 @@ class FakeNM:
                 nm._call("Update2", copy.deepcopy(settings), flags, dict(args))
                 if nm.mismatches:
                     nm.mismatches -= 1
-                    raise RuntimeError(
-                        "org.freedesktop.NetworkManager.Settings.VersionIdMismatch"
-                    )
+                    raise service_module.VersionIdMismatchError("version-id mismatches")
                 secrets = settings.get("vpn", {}).get("secrets")
-                if secrets is not None:
+                # NM: an empty secrets dict is "no secrets", the stored ones stay
+                if secrets is not None and secrets[1]:
                     nm.secrets = dict(secrets[1])
                 stored = copy.deepcopy(settings)
                 stored["vpn"].pop("secrets", None)
@@ -1185,6 +1184,37 @@ class TestUpdateProfileDropsSecrets:
         (_, sent, _flags, _args) = nm.named("Update2")[0]
         assert all("secrets" not in props for props in sent.values())
         assert nm.secrets == {"password": "s3cret"}
+
+    def test_a_code_stored_alone_is_dropped(self, service_module, nm):
+        nm.secrets = {"otp": "123456"}
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["secrets"] == ("a{ss}", {"otp": ""})
+        assert nm.secrets == {"otp": ""}
+
+    def test_an_empty_secrets_dict_would_keep_the_code(self, service_module, nm):
+        # what the fake models: NetworkManager keeps stored secrets then
+        nm.secrets = {"otp": "123456"}
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "v"}))
+
+        assert nm.secrets == {"otp": "123456"}
+
+    def test_another_error_is_not_retried(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError(
+            "org.freedesktop.NetworkManager.Settings.VersionIdMismatch in a message"
+        )
+        plugin = _connected_plugin(service_module)
+
+        assert not asyncio.run(plugin._update_profile({"k": "v"}))
+
+        assert len(nm.named("Update2")) == 1
 
     def test_the_secrets_are_read_again_after_a_mismatch(self, service_module, nm):
         nm.mismatches = 1

@@ -63,9 +63,6 @@ NM_DBUS_SERVICE = "org.freedesktop.NetworkManager"
 NM_DBUS_INTERFACE_SETTINGS = "org.freedesktop.NetworkManager.Settings"
 NM_DBUS_PATH_SETTINGS = "/org/freedesktop/NetworkManager/Settings"
 NM_DBUS_INTERFACE_CONNECTION = "org.freedesktop.NetworkManager.Settings.Connection"
-NM_DBUS_ERROR_VERSION_ID_MISMATCH = (
-    "org.freedesktop.NetworkManager.Settings.VersionIdMismatch"
-)
 PROFILE_UPDATE_TIMEOUT = 10  # seconds for all D-Bus calls of one profile write
 
 # VPN Plugin states
@@ -300,7 +297,8 @@ SELECT_REDRAW_TIMEOUT = 1.5
 SELECT_POLL_INTERVAL = 0.05
 
 # Separator for the cached gateway list in vpn.data. Commas cannot be used:
-# the editors read the stored list and treat ',' as a separator of their own.
+# `nmcli connection modify ... +vpn.data`, which users run on the profile,
+# splits key=value pairs on them.
 GATEWAY_LIST_SEPARATOR = ";"
 
 # gpclient logs the gateway it picked when it did not have to ask
@@ -1533,6 +1531,12 @@ class NmConnectionInterface(  # type: ignore[call-arg]  # sdbus metaclass keywor
     @dbus_property_async("t")
     def VersionId(self) -> int:  # NetworkManager 1.44 and later
         raise NotImplementedError
+
+
+class VersionIdMismatchError(DbusFailedError):
+    """Update2 refused: the profile changed since it was read (NM 1.44+)"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.Settings.VersionIdMismatch"
 
 
 class NotifyRejectedError(DbusFailedError):
@@ -3165,8 +3169,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
     @staticmethod
     def _gateway_entry(option: str) -> str:
         """A gateway as it is cached in the profile ("" if nothing is left)"""
-        # ';' separates cached entries and the editors treat ',' as a
-        # separator too, so neither may survive inside an entry
+        # ';' separates cached entries and nmcli (run by users on the profile)
+        # splits +vpn.data values on commas, so neither may survive inside an
+        # entry
         entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
         return " ".join(entry.split())
 
@@ -3532,10 +3537,14 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         if drop_secrets:
             secrets_vpn = (await connection.GetSecrets("vpn")).get("vpn", {})
             stored = dict(secrets_vpn["secrets"][1]) if "secrets" in secrets_vpn else {}
-            if any(key in stored for key in drop_secrets):
-                for key in drop_secrets:
-                    stored.pop(key, None)
-                vpn["secrets"] = ("a{ss}", stored)
+            dropped = [key for key in drop_secrets if key in stored]
+            if dropped:
+                for key in dropped:
+                    del stored[key]
+                # NetworkManager reads an empty secrets dict as "no secrets"
+                # and keeps the stored ones: send the dropped keys empty then
+                # (allowed since NM 1.24)
+                vpn["secrets"] = ("a{ss}", stored or {key: "" for key in dropped})
 
         args = {} if version is None else {"version-id": ("t", version)}
         await connection.Update2(settings, 0, args)
@@ -3562,11 +3571,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                         timeout=PROFILE_UPDATE_TIMEOUT,
                     )
                     return True
-                except Exception as e:
+                except VersionIdMismatchError:
                     # The profile changed between the read and the write: read
                     # it again, once
-                    mismatch = NM_DBUS_ERROR_VERSION_ID_MISMATCH in f"{e!r} {e.args}"
-                    if not (mismatch and attempt == 1):
+                    if attempt == 2:
                         raise
         except Exception as e:
             logger.warning(
