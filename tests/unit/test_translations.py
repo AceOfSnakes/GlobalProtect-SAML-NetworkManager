@@ -577,10 +577,10 @@ def test_a_good_translation_is_accepted(entry):
     [(lang, path) for lang in languages() for path in catalog_paths(lang)],
     ids=lambda v: os.path.relpath(v, ROOT) if os.path.isabs(v) else v,
 )
-def test_every_catalog_has_its_header_and_the_review_note(lang, path):
+def test_every_catalog_has_its_header(lang, path):
+    # The review note is not checked: a reviewer removes it (docs/TRANSLATIONS.md)
     text = open(path, encoding="utf-8").read()
     assert header_problems(text, lang) == []
-    assert "# Machine translation, needs review by a native speaker.\n" in text
 
 
 def test_the_polish_catalogs_have_the_polish_plural_forms():

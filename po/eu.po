@@ -119,7 +119,7 @@ msgid ""
 "Without this the portal workflow is tried first, which can make you authenticate twice."
 msgstr ""
 "Gaitu goiko helbidea ataria ez baina atebidea denean.\n"
-"Hau gabe, atariaren lan-fluxua probatzen da lehenengo, eta bi aldiz autentifikatu beharko zenuke."
+"Hau gabe, atariaren lan-fluxua probatzen da lehenengo, eta baliteke bi aldiz autentifikatu behar izatea."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "First proposed by portal (automatic)"

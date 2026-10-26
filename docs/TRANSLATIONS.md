@@ -34,9 +34,12 @@ text that the service sends to NetworkManager.
 
 3. Translate every entry. Keep the placeholders (`%s`, `%d`, `%1`), the markup
    and the keyboard accelerators (`_` in the GNOME catalog) as in the original.
-4. Check the files: `msgfmt -c --check-format -o /dev/null po/de.po`
+4. Add the translated plugin description to the Plasma metadata:
+   `Comment[de]=` in `plugins/plasma/plasmanetworkmanagement_gpclientui.desktop` and
+   `"Description[de]"` in `plugins/plasma/plasmanetworkmanagement_gpclientui.json`.
+5. Check the files: `msgfmt -c --check-format -o /dev/null po/de.po`
    (and the same for the Plasma file).
-5. Run `python3 -m pytest tests/unit/test_translations.py -q`.
+6. Run `python3 -m pytest tests/unit/test_translations.py -q`.
 
 ## Change the source texts: `make pot`
 

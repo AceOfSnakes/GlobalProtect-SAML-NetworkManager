@@ -235,7 +235,7 @@ msgstr ""
 msgid ""
 "Optional. Used by portals that ask for credentials on the terminal, so you "
 "are not asked for the username every time."
-msgstr "Neprivaloma. Naudoja portalai, kurie prisijungimo duomenų klausia terminale, kad nereikėtų kaskart klausti naudotojo vardo."
+msgstr "Neprivaloma. Naudoja portalai, kurie prisijungimo duomenų klausia terminale, kad naudotojo vardo nebūtų klausiama kaskart."
 
 #: rc.cpp
 #, kde-format
