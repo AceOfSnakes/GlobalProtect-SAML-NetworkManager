@@ -146,7 +146,7 @@ SYSTEMD_DIR = /lib/systemd/system
 VPNC_DIR = /etc/vpnc/connect.d
 
 # Build and install for development/testing (requires sudo)
-install-dev: gnome-plugins
+install-dev: gnome-plugins mo
 	$(CHECK_NM_VPN_DIR)
 	@echo "=== Installing GlobalProtect plugin for development ==="
 	@echo "This requires sudo privileges..."

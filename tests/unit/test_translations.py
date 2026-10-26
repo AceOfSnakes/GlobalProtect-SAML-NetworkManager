@@ -197,19 +197,22 @@ def split_args(text, start):
 SHOWN = (
     "gtk_label_new|gtk_label_set_text|gtk_label_set_markup|gtk_button_new_with_label|"
     "gtk_check_button_new_with_label|gtk_widget_set_tooltip_text|gtk_entry_set_placeholder_text|"
-    "gtk_combo_box_text_append_text|gtk_window_set_title|g_set_error_literal|g_set_error"
+    "gtk_combo_box_text_append_text|gtk_window_set_title|g_set_error_literal|g_set_error|"
+    "g_value_set_string"
 )
 SHOWN_CALL = re.compile(rf"\b({SHOWN})\s*\(")
-# an empty text shows nothing, so it needs no translation (gtk_editable_set_text (entry, ""))
-ALLOWED_LITERALS = {'""'}
+# an empty text shows nothing, so it needs no translation (gtk_editable_set_text (entry, ""));
+# the plugin's name (a proper noun) and its D-Bus service name are not translated
+ALLOWED_LITERALS = {'""', '"GlobalProtect"', '"org.freedesktop.NetworkManager.gpclient"'}
 
 
 def unwrapped_strings(text):
-    """The text literals that a call shows to the user without _() or N_()"""
+    """The text literals that a call shows to the user without _() (N_() only
+    marks a text, it does not translate it)"""
     found = []
     for match in SHOWN_CALL.finditer(text):
         for arg in split_args(text, match.end() - 1):
-            if arg.startswith('"') and arg not in ALLOWED_LITERALS:
+            if (arg.startswith('"') and arg not in ALLOWED_LITERALS) or arg.startswith("N_("):
                 found.append(f"{match.group(1)}: {arg[:50]}")
     return found
 
@@ -298,8 +301,10 @@ def test_potfiles_rejects_a_wrong_list(tree, listed, word):
     assert word in potfiles_problems(tree, listed)
 
 
-@pytest.mark.parametrize("path", GNOME_EDITORS)
-def test_the_editors_wrap_every_shown_string(path):
+@pytest.mark.parametrize(
+    "path", [p for p in potfiles(read("po/POTFILES.in")) if p.endswith(".c")]
+)
+def test_the_c_sources_wrap_every_shown_string(path):
     assert unwrapped_strings(read(path)) == []
 
 
@@ -311,6 +316,8 @@ def test_the_editors_wrap_every_shown_string(path):
         'gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (c), "Never");',
         'g_set_error_literal (error, NM_VPN_PLUGIN_ERROR, 1, "bad value");',
         'gtk_entry_set_placeholder_text (GTK_ENTRY (e), "Optional");',
+        'gtk_combo_box_text_append_text (c, N_("Never"));',
+        'g_value_set_string (value, "GlobalProtect VPN Client");',
     ],
 )
 def test_an_unwrapped_shown_string_is_found(snippet):
@@ -324,8 +331,8 @@ def test_an_unwrapped_shown_string_is_found(snippet):
         'gtk_widget_set_tooltip_text (w,\n    _("Tip one "\n    "tip two"));',
         'gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (c), browser_values[i]);',
         'gtk_editable_set_text (GTK_EDITABLE (entry), "");',
-        'gtk_combo_box_text_append_text (c, N_("Never"));',
         'g_set_error_literal (error, NM_VPN_PLUGIN_ERROR, 1, _(problem));',
+        'g_value_set_string (value, "GlobalProtect");',
     ],
 )
 def test_a_wrapped_or_not_shown_string_is_fine(snippet):
