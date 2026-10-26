@@ -1,10 +1,10 @@
 """
 Tests for branches of the nm-gpclient service that no other unit test reaches
 (issue #55): gpclient start-up and output monitor, the OpenSSL retry, stopping
-gpclient, closing the PTY, the debounced prompt checks, `nmcli` writes to the
-profile, the interactive secret request and a few small helpers.
+gpclient, closing the PTY, the debounced prompt checks, profile writes over D-Bus,
+the interactive secret request and a few small helpers.
 
-External tools are faked: `nmcli` through PATH, gpclient with a stand-in
+External tools are faked: NetworkManager with a fake proxy, gpclient with a stand-in
 script, and the PTY, the processes and the clock with small fakes. Nothing here
 depends on the uid of the test process.
 
@@ -12,11 +12,11 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import copy
 import gc
 import json
 import logging
 import os
-import stat
 import sys
 
 import pytest
@@ -892,142 +892,388 @@ class TestPendingPromptCheck:
             assert plugin._prompt_task is None
 
 
-# --- _nmcli_modify and the writes built on it ----------------------------------
+# --- _update_profile and the writes built on it --------------------------------
 
-FAKE_NMCLI = """#!/bin/sh
-printf '%s\\n' "$*" >> "{log}"
-if [ -n "$NMCLI_FAIL" ]; then
-    echo "$NMCLI_FAIL" >&2
-    exit 4
-fi
-exit 0
-"""
+
+class FakeNM:
+    """NetworkManager's Settings and Settings.Connection objects.
+
+    Like NetworkManager, it keeps the secrets apart from the settings, and
+    Update2 without any secret keeps the stored ones.
+    """
+
+    VERSION = 7
+
+    def __init__(self):
+        self.calls = []
+        self.version_readable = True
+        self.errors = {}  # method name -> exception to raise
+        self.mismatches = 0  # Update2 calls that fail with VersionIdMismatch
+        self.hang = False
+        self.settings = {
+            "connection": {"id": ("s", "My VPN"), "uuid": ("s", "uuid-1234")},
+            "vpn": {
+                "service-type": ("s", "org.freedesktop.NetworkManager.gpclient"),
+                "data": ("a{ss}", {"gateway": "vpn.example.com", "k": "old"}),
+            },
+            "ipv4": {"method": ("s", "auto")},
+        }
+        self.secrets = {"password": "s3cret", "otp": "123456"}
+
+    def _call(self, name, *args):
+        self.calls.append((name, *args))
+        if name in self.errors:
+            raise self.errors[name]
+
+    def install(self, monkeypatch, service_module):
+        nm = self
+
+        class Settings:
+            @classmethod
+            def new_proxy(cls, service, path):
+                nm.calls.append(("settings_proxy", service, path))
+                return cls()
+
+            async def GetConnectionByUuid(self, uuid):  # noqa: N802
+                nm._call("GetConnectionByUuid", uuid)
+                if nm.hang:
+                    await asyncio.sleep(60)
+                return "/org/freedesktop/NetworkManager/Settings/3"
+
+        class VersionProperty:
+            async def get_async(self):
+                nm._call("VersionId")
+                if not nm.version_readable:
+                    raise RuntimeError("no such property")
+                return nm.VERSION
+
+        class Connection:
+            VersionId = VersionProperty()
+
+            @classmethod
+            def new_proxy(cls, service, path):
+                nm.calls.append(("connection_proxy", service, path))
+                return cls()
+
+            async def GetSettings(self):  # noqa: N802
+                nm._call("GetSettings")
+                return copy.deepcopy(nm.settings)
+
+            async def GetSecrets(self, name):  # noqa: N802
+                nm._call("GetSecrets", name)
+                return {"vpn": {"secrets": ("a{ss}", dict(nm.secrets))}}
+
+            async def Update2(self, settings, flags, args):  # noqa: N802
+                nm._call("Update2", copy.deepcopy(settings), flags, dict(args))
+                if nm.mismatches:
+                    nm.mismatches -= 1
+                    raise RuntimeError(
+                        "org.freedesktop.NetworkManager.Settings.VersionIdMismatch"
+                    )
+                secrets = settings.get("vpn", {}).get("secrets")
+                if secrets is not None:
+                    nm.secrets = dict(secrets[1])
+                stored = copy.deepcopy(settings)
+                stored["vpn"].pop("secrets", None)
+                nm.settings = stored
+                return {}
+
+        monkeypatch.setattr(service_module, "NmSettingsInterface", Settings)
+        monkeypatch.setattr(service_module, "NmConnectionInterface", Connection)
+
+    def named(self, name):
+        return [call for call in self.calls if call[0] == name]
 
 
 @pytest.fixture
-def fake_nmcli(monkeypatch, tmp_path):
-    """A fake `nmcli` first (and only) on PATH; returns the file of its calls"""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "nmcli.log"
-    script = bin_dir / "nmcli"
-    script.write_text(FAKE_NMCLI.format(log=log))
-    script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    monkeypatch.setenv("PATH", str(bin_dir))
-    monkeypatch.delenv("NMCLI_FAIL", raising=False)
+def nm(monkeypatch, service_module):
+    fake = FakeNM()
+    fake.install(monkeypatch, service_module)
 
-    def calls():
-        return log.read_text().splitlines() if log.exists() else []
+    def no_nmcli(*args, **kwargs):
+        raise AssertionError(f"a subprocess was started: {args}")
 
-    calls.fail = lambda message: monkeypatch.setenv("NMCLI_FAIL", message)
-    calls.bin_dir = bin_dir
-    return calls
+    # `nmcli` is not used any more: no subprocess for a profile write
+    monkeypatch.setattr(service_module.asyncio, "create_subprocess_exec", no_nmcli)
+    monkeypatch.setattr(service_module.subprocess, "run", no_nmcli)
+    return fake
 
 
-class TestNmcliModify:
-    def test_runs_nmcli_with_the_connection_uuid(self, service_module, fake_nmcli):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+def _connected_plugin(service_module):
+    plugin = _plugin(service_module)
+    plugin._connection_uuid = "uuid-1234"
+    return plugin
 
-        assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is True
 
-        assert fake_nmcli() == ["connection modify uuid-1234 +vpn.data k=v"]
+class TestUpdateProfile:
+    def test_one_key_changes_and_everything_else_is_sent_back_as_read(
+        self, service_module, nm
+    ):
+        before = copy.deepcopy(nm.settings)
+        plugin = _connected_plugin(service_module)
 
-    def test_no_uuid_runs_nothing(self, service_module, fake_nmcli):
+        assert asyncio.run(plugin._update_profile({"k": "new", "added": "1"})) is True
+
+        (_, sent, flags, _args) = nm.named("Update2")[0]
+        expected = copy.deepcopy(before)
+        expected["vpn"]["data"] = (
+            "a{ss}",
+            {"gateway": "vpn.example.com", "k": "new", "added": "1"},
+        )
+        assert sent == expected
+        assert flags == 0
+        assert nm.named("GetConnectionByUuid") == [("GetConnectionByUuid", "uuid-1234")]
+
+    def test_no_secrets_are_sent_so_the_stored_ones_stay(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}))
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert all("secrets" not in props for props in sent.values())
+        assert nm.secrets == {"password": "s3cret", "otp": "123456"}
+        assert nm.named("GetSecrets") == []
+
+    def test_version_id_is_passed_when_readable(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}))
+
+        assert nm.named("Update2")[0][3] == {"version-id": ("t", FakeNM.VERSION)}
+
+    def test_no_version_id_is_passed_when_it_cannot_be_read(self, service_module, nm):
+        nm.version_readable = False
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is True
+
+        assert nm.named("Update2")[0][3] == {}
+
+    def test_version_is_read_before_the_settings(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}))
+
+        names = [call[0] for call in nm.calls]
+        assert names.index("VersionId") < names.index("GetSettings")
+
+    def test_a_version_mismatch_is_read_again_once(self, service_module, nm):
+        nm.mismatches = 1
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is True
+
+        assert len(nm.named("Update2")) == 2
+        assert len(nm.named("GetSettings")) == 2
+        assert nm.settings["vpn"]["data"][1]["k"] == "new"
+
+    def test_a_second_mismatch_gives_up(self, service_module, nm, caplog):
+        nm.mismatches = 5
+        plugin = _connected_plugin(service_module)
+
+        with caplog.at_level(logging.INFO, logger=service_module.logger.name):
+            assert asyncio.run(plugin._update_profile({"k": "new"})) is False
+
+        assert len(nm.named("Update2")) == 2  # no third call
+        assert "VersionIdMismatch" in _log_text(caplog, service_module, logging.WARNING)
+        assert nm.settings["vpn"]["data"][1]["k"] == "old"
+
+    def test_another_error_is_not_retried(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("org.freedesktop.DBus.Error.AccessDenied")
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is False
+
+        assert len(nm.named("Update2")) == 1
+
+    def test_no_uuid_makes_no_call(self, service_module, nm):
         plugin = _plugin(service_module)
         plugin._connection_uuid = ""
 
-        assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is False
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is False
 
-        assert fake_nmcli() == []
+        assert nm.calls == []
 
-    def test_failing_nmcli_is_logged_and_reported_false(
-        self, service_module, fake_nmcli, caplog
+    @pytest.mark.parametrize(
+        "method", ["GetConnectionByUuid", "GetSettings", "Update2"]
+    )
+    def test_a_dbus_error_is_logged_and_reported_false(
+        self, service_module, nm, caplog, method
     ):
-        fake_nmcli.fail("Error: unknown connection")
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+        nm.errors[method] = RuntimeError(f"{method} refused")
+        plugin = _connected_plugin(service_module)
 
         with caplog.at_level(logging.INFO, logger=service_module.logger.name):
-            assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is False
+            assert asyncio.run(plugin._update_profile({"k": "new"})) is False
 
-        text = _log_text(caplog, service_module, logging.WARNING)
-        assert "failed with 4: Error: unknown connection" in text
+        assert f"{method} refused" in _log_text(caplog, service_module, logging.WARNING)
+        assert nm.settings["vpn"]["data"][1]["k"] == "old"
 
-    def test_missing_nmcli_is_swallowed(self, service_module, fake_nmcli, caplog):
-        (fake_nmcli.bin_dir / "nmcli").unlink()
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_a_timeout_is_logged_and_reported_false(
+        self, service_module, nm, caplog, monkeypatch
+    ):
+        nm.hang = True
+        monkeypatch.setattr(service_module, "PROFILE_UPDATE_TIMEOUT", 0.05)
+        plugin = _connected_plugin(service_module)
 
         with caplog.at_level(logging.INFO, logger=service_module.logger.name):
-            assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is False
+            assert asyncio.run(plugin._update_profile({"k": "new"})) is False
 
-        assert "nmcli modify" in _log_text(caplog, service_module, logging.WARNING)
+        assert "TimeoutError" in _log_text(caplog, service_module, logging.WARNING)
+        assert nm.named("Update2") == []
 
-    def test_write_vpn_data_builds_one_key_assignment(self, service_module, fake_nmcli):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_nmcli_is_never_run(self, service_module, nm, monkeypatch, tmp_path):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        marker = tmp_path / "nmcli-ran"
+        script = bin_dir / "nmcli"
+        script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+        script.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}, drop_secrets=["otp"]))
+
+        assert not marker.exists()
+
+
+class TestUpdateProfileDropsSecrets:
+    def test_the_secret_is_removed_and_the_others_are_sent_back(
+        self, service_module, nm
+    ):
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        assert nm.named("GetSecrets") == [("GetSecrets", "vpn")]
+        (_, sent, flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["secrets"] == ("a{ss}", {"password": "s3cret"})
+        assert sent["vpn"]["data"][1]["otp-flags"] == "2"
+        assert flags == 0
+        assert nm.secrets == {"password": "s3cret"}
+
+    def test_without_a_drop_the_secrets_are_never_read(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"otp-flags": "2"}))
+
+        assert nm.named("GetSecrets") == []
+
+    def test_failing_secret_read_sends_nothing(self, service_module, nm, caplog):
+        nm.errors["GetSecrets"] = RuntimeError("GetSecrets refused")
+        plugin = _connected_plugin(service_module)
+
+        with caplog.at_level(logging.INFO, logger=service_module.logger.name):
+            assert not asyncio.run(
+                plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+            )
+
+        assert nm.named("Update2") == []
+        assert nm.secrets == {"password": "s3cret", "otp": "123456"}
+        assert "GetSecrets refused" in _log_text(caplog, service_module, logging.WARNING)
+
+    def test_no_stored_code_means_no_secrets_are_sent(self, service_module, nm):
+        nm.secrets = {"password": "s3cret"}
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert all("secrets" not in props for props in sent.values())
+        assert nm.secrets == {"password": "s3cret"}
+
+    def test_the_secrets_are_read_again_after_a_mismatch(self, service_module, nm):
+        nm.mismatches = 1
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({}, drop_secrets=["otp"]))
+
+        assert len(nm.named("GetSecrets")) == 2
+        assert nm.secrets == {"password": "s3cret"}
+
+
+class TestWriteVpnData:
+    def test_one_key_is_one_update(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
 
         assert asyncio.run(plugin._write_vpn_data("fix-openssl", "true")) is True
 
-        assert fake_nmcli() == ["connection modify uuid-1234 +vpn.data fix-openssl=true"]
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["data"][1]["fix-openssl"] == "true"
+        assert len(nm.named("Update2")) == 1
+
+    def test_a_failed_write_is_false(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._write_vpn_data("fix-openssl", "true")) is False
 
 
-class TestPersistThroughNmcli:
+class TestPersistThroughUpdate2:
     def _plugin(self, service_module):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+        plugin = _connected_plugin(service_module)
         plugin._gateway_list = ["gw-a", "gw-b"]
         plugin._lap_entries = ["gw-a", "gw-b"]
         plugin._gateway_count = 2
         return plugin
 
-    def test_whole_list_and_count_are_written(self, service_module, fake_nmcli):
+    def test_whole_list_and_count_are_one_update(self, service_module, nm):
         plugin = self._plugin(service_module)
 
         asyncio.run(plugin._persist_gateway_list())
 
-        assert fake_nmcli() == [
-            "connection modify uuid-1234 +vpn.data gateway-list=gw-a;gw-b",
-            "connection modify uuid-1234 +vpn.data gateway-list-count=2",
-        ]
+        assert len(nm.named("Update2")) == 1
+        data = nm.settings["vpn"]["data"][1]
+        assert data["gateway-list"] == "gw-a;gw-b"
+        assert data["gateway-list-count"] == "2"
+        assert data["gateway"] == "vpn.example.com"
         assert plugin._stored_gateway_list == "gw-a;gw-b"
         assert plugin._stored_gateway_count == 2
 
-    def test_failed_write_keeps_the_stored_list(self, service_module, fake_nmcli):
-        fake_nmcli.fail("Error: denied")
+    def test_failed_update_stores_neither_list_nor_count(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
         plugin = self._plugin(service_module)
         plugin._stored_gateway_list = "gw-old"
 
         asyncio.run(plugin._persist_gateway_list())
 
-        assert fake_nmcli() == [
-            "connection modify uuid-1234 +vpn.data gateway-list=gw-a;gw-b"
-        ]
+        assert len(nm.named("Update2")) == 1
         assert plugin._stored_gateway_list == "gw-old"
         assert plugin._stored_gateway_count is None
+        assert "gateway-list" not in nm.settings["vpn"]["data"][1]
 
-    def test_unchanged_list_writes_nothing(self, service_module, fake_nmcli):
+    def test_only_the_changed_count_is_written(self, service_module, nm):
+        plugin = self._plugin(service_module)
+        plugin._stored_gateway_list = "gw-a;gw-b"
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        data = nm.settings["vpn"]["data"][1]
+        assert data["gateway-list-count"] == "2"
+        assert "gateway-list" not in data
+
+    def test_unchanged_list_writes_nothing(self, service_module, nm):
         plugin = self._plugin(service_module)
         plugin._stored_gateway_list = "gw-a;gw-b"
         plugin._stored_gateway_count = 2
 
         asyncio.run(plugin._persist_gateway_list())
 
-        assert fake_nmcli() == []
+        assert nm.calls == []
 
-    def test_fix_openssl_is_stored_after_a_retry(self, service_module, fake_nmcli):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_fix_openssl_is_stored_after_a_retry(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
         plugin._openssl_retried = True
         plugin.fix_openssl = True
         plugin.fix_openssl_mode = "auto"
 
         asyncio.run(plugin._persist_fix_openssl())
 
-        assert fake_nmcli() == [
-            "connection modify uuid-1234 +vpn.data fix-openssl=true"
-        ]
+        assert nm.settings["vpn"]["data"][1]["fix-openssl"] == "true"
         assert plugin.fix_openssl_mode == "true"
 
     @pytest.mark.parametrize(
@@ -1039,22 +1285,20 @@ class TestPersistThroughNmcli:
         ],
     )
     def test_fix_openssl_is_not_stored_otherwise(
-        self, service_module, fake_nmcli, retried, fix, mode
+        self, service_module, nm, retried, fix, mode
     ):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+        plugin = _connected_plugin(service_module)
         plugin._openssl_retried = retried
         plugin.fix_openssl = fix
         plugin.fix_openssl_mode = mode
 
         asyncio.run(plugin._persist_fix_openssl())
 
-        assert fake_nmcli() == []
+        assert nm.calls == []
 
-    def test_failed_fix_openssl_write_keeps_the_mode(self, service_module, fake_nmcli):
-        fake_nmcli.fail("Error: denied")
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_failed_fix_openssl_write_keeps_the_mode(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
+        plugin = _connected_plugin(service_module)
         plugin._openssl_retried = True
         plugin.fix_openssl = True
         plugin.fix_openssl_mode = "auto"
@@ -1062,6 +1306,28 @@ class TestPersistThroughNmcli:
         asyncio.run(plugin._persist_fix_openssl())
 
         assert plugin.fix_openssl_mode == "auto"
+
+
+class TestForgetOneTimeSecretThroughUpdate2:
+    def test_flag_and_drop_are_one_update(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(nm.named("Update2")) == 1
+        assert nm.settings["vpn"]["data"][1]["otp-flags"] == "2"
+        assert nm.secrets == {"password": "s3cret"}
+        assert plugin._otp_flags_written is True
+
+    def test_failed_update_leaves_flag_and_secret_alone(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert "otp-flags" not in nm.settings["vpn"]["data"][1]
+        assert "otp" in nm.secrets
+        assert plugin._otp_flags_written is False
 
 
 # --- _request_secret_interactive and the prompts that use it --------------------
