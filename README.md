@@ -41,6 +41,8 @@ Add the apt repository and install - dependencies, upgrades and the GNOME/Plasma
 choice are handled by apt:
 
 ```bash
+# old one-line setup (before 2.0.0), if present
+sudo rm -f /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
 sudo install -d -m 0755 /etc/apt/keyrings
 sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \
   https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg
@@ -65,7 +67,7 @@ sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with
 `network-manager-gpclient-plasma` is built for the Plasma of the release (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 26.04). On Ubuntu 24.04 with Plasma 6 it does not fit. For **KDE neon** (Ubuntu 24.04 with Plasma 6 from `archive.neon.kde.org`) install `network-manager-gpclient-plasma-6` instead: it is built against the neon repository, for `amd64` only, and conflicts with `network-manager-gpclient-plasma` (only one Plasma generation can use the plugin). Ubuntu 24.04 with Plasma 6 from other sources (for example Kubuntu Backports) is not tested.
 
 Supported: Ubuntu 22.04, 24.04 and 26.04, `amd64` and `arm64`. Details, removal and
-migration from the old `.list` file (delete it, apt warns about a duplicate source otherwise): [docs/APT_REPO.md](docs/APT_REPO.md).
+migration from the old `.list` file (the first line of the commands above deletes it; `apt update` stops with "Conflicting values set for option Signed-By" otherwise): [docs/APT_REPO.md](docs/APT_REPO.md).
 
 **Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first.
 NetworkManager runs the service as root, so install it system-wide with `sudo`

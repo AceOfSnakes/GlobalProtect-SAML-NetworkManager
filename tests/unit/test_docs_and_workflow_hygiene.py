@@ -64,12 +64,25 @@ class TestCodename:
 
 INSTALL_DOCS = DOCS + [".github/pages/index.html"]
 OLD_STEPS = ["| sudo tee", "sources.list.d/gpclient.list\n", "/usr/share/keyrings/gpclient-archive-keyring.gpg]"]
+OLD_FILES = "/etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg"
+NEW_FILES = "/etc/apt/sources.list.d/gpclient.sources /etc/apt/keyrings/gpclient-archive-keyring.gpg"
 
 
 def install_section(doc):
     """The apt install commands: from the key download to `sudo apt update`"""
     with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
+        return install_commands(handle.read())
+
+
+def removal_block(doc):
+    """The commands from `sudo apt remove network-manager-gpclient` to `sudo apt update`"""
+    with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
         text = handle.read()
+    start = text.index("sudo apt remove network-manager-gpclient\n")
+    return text[start:text.index("sudo apt update", start)]
+
+
+def install_commands(text):
     start = text.rfind("\n", 0, text.index("curl -fsSL")) + 1
     return text[start:text.index("sudo apt update", start)]
 
@@ -90,9 +103,12 @@ class TestAptInstallSteps:
     def test_the_install_steps_do_not_use_the_old_way(self, doc, old):
         assert old not in install_section(doc)
 
-    def test_the_old_way_is_detected(self):
-        old = "curl -fsSL URL \\\n  | sudo tee /usr/share/keyrings/k.gpg\necho deb | sudo tee /etc/apt/sources.list.d/gpclient.list\n"
-        assert any(step in old for step in OLD_STEPS)
+    def test_the_old_way_is_detected(self, tmp_path):
+        old = tmp_path / "old.md"
+        old.write_text("curl -fsSL URL \\\n  | sudo tee /usr/share/keyrings/k.gpg\n"
+                       "echo deb | sudo tee /etc/apt/sources.list.d/gpclient.list\n\nsudo apt update\n")
+        section = install_section(str(old))
+        assert [step for step in OLD_STEPS if step in section] == ["| sudo tee", "sources.list.d/gpclient.list\n"]
 
     def test_the_deb822_snippet_has_the_expected_fields(self):
         text = install_section("README.md")
@@ -100,10 +116,26 @@ class TestAptInstallSteps:
         fields = [line.split(":", 1)[0] for line in body.splitlines()]
         assert fields == ["Types", "URIs", "Suites", "Components", "Architectures", "Signed-By"]
 
-    def test_the_docs_tell_how_to_delete_the_old_files(self):
-        with open(os.path.join(ROOT, "docs/APT_REPO.md"), encoding="utf-8") as handle:
+    @pytest.mark.parametrize("doc", INSTALL_DOCS)
+    def test_the_old_files_are_deleted_before_the_new_ones_are_written(self, doc):
+        with open(os.path.join(ROOT, doc), encoding="utf-8") as handle:
             text = handle.read()
-        assert "sudo rm /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg" in text
+        cleanup = "# old one-line setup (before 2.0.0), if present\nsudo rm -f " + OLD_FILES + "\n"
+        assert cleanup in text
+        assert text.index(cleanup) < text.index("sudo curl -fsSLo") < text.index("gpclient.sources")
+
+    @pytest.mark.parametrize("doc", ["docs/APT_REPO.md", ".github/pages/index.html"])
+    def test_the_removal_block_removes_the_new_files(self, doc):
+        block = removal_block(doc)
+        assert "sudo rm " + NEW_FILES + "\n" in block
+        assert "gpclient.list" not in block
+        assert "/usr/share/keyrings" not in block
+
+    def test_a_removal_block_of_the_old_files_is_detected(self, tmp_path):
+        old = tmp_path / "old.md"
+        old.write_text("sudo apt remove network-manager-gpclient\nsudo rm " + OLD_FILES + "\nsudo apt update\n")
+        block = removal_block(str(old))
+        assert "gpclient.list" in block and "sudo rm " + NEW_FILES not in block
 
 
 class TestReleaseList:
