@@ -2,8 +2,8 @@
 Tests for .github/scripts/verify-release-assets.sh, which publish-apt.yml runs on
 the assets of every release before they are signed into the apt and RPM
 repositories: `gh attestation verify` accepts the release's SHA256SUMS (one call per
-release, none per package) and the SHA256 of each package is the one in it. Releases of the legacy list are not
-verified; any other release without SHA256SUMS fails.
+release, none per package) and the SHA256 of each package is the one in it. Releases
+of the legacy list are not verified; any other release without SHA256SUMS fails.
 
 `gh` is a fake found through PATH (it records its arguments); sha256sum is real.
 Every positive test has negative counterparts.

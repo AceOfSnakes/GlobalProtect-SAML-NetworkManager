@@ -75,15 +75,21 @@ sudo apt update
 Every release after v1.5.0 has a `SHA256SUMS` asset and a build provenance
 attestation (SLSA, signed through Sigstore) for `SHA256SUMS` and for each `.deb`
 and `.rpm` file. The attestation names the workflow run of this repository that
-built the file. To check a file you downloaded from a GitHub release:
+built the file. To check a file you downloaded from a GitHub release (replace
+`vX.Y.Z` with the tag of that release):
 
 ```bash
 gh attestation verify SHA256SUMS --repo WMP/GlobalProtect-SAML-NetworkManager \
-    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
+    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml \
+    --source-ref refs/tags/vX.Y.Z
 sha256sum --ignore-missing -c SHA256SUMS            # in the download directory
 gh attestation verify network-manager-gpclient_*.deb --repo WMP/GlobalProtect-SAML-NetworkManager \
-    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml
+    --signer-workflow WMP/GlobalProtect-SAML-NetworkManager/.github/workflows/build-release.yml \
+    --source-ref refs/tags/vX.Y.Z
 ```
+
+`--source-ref` is needed: without it, the `SHA256SUMS` of an older release, or a
+file of a pull request build, would also pass.
 
 `publish-apt.yml` verifies the attestation of `SHA256SUMS` of every release (one
 API call per release) and the SHA256 of every package against it before it signs

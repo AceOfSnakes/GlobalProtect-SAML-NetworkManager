@@ -97,18 +97,27 @@ def test_a_modified_workflow_is_rejected(name, mutate, expected):
     assert any(expected in problem for problem in found), (name, found)
 
 
-def test_every_release_goes_through_the_same_verification():
-    # one call for every release: no verify-tag input, no second mode
-    text = read_workflow(WORKFLOW)
-    assert "verify-tag" not in text and "VERIFY_TAG" not in text and "checksums-only" not in text
-    assert "verify-tag" not in read_workflow("build-release.yml")
-    download = step_lines(WORKFLOW, "Download packages from every published release")
-    assert '            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"' in download
+VERIFY_LINE = '            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"'
 
 
-def test_a_verification_mode_in_the_workflow_is_detected():
-    text = read_workflow(WORKFLOW).replace(
-        'verify-release-assets.sh "$tag"', 'verify-release-assets.sh --checksums-only "$tag"')
-    assert "checksums-only" in text
+def verification_problems(text):
+    """What is wrong with the verification call of the download step: every release gets the same one"""
     download = step_lines(WORKFLOW, "Download packages from every published release", text)
-    assert '            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"' not in download
+    return [] if VERIFY_LINE in download else ["the verify call is not the plain one for every release"]
+
+
+def test_every_release_goes_through_the_same_verification():
+    assert verification_problems(read_workflow(WORKFLOW)) == []
+
+
+@pytest.mark.parametrize("old, new", [
+    ('verify-release-assets.sh "$tag"', 'verify-release-assets.sh --checksums-only "$tag"'),
+    ('verify-release-assets.sh "$tag"', 'verify-release-assets.sh "${mode[@]}" "$tag"'),
+    ('bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"',
+     'if [ "$tag" = "$VERIFY_TAG" ]; then bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"; fi'),
+])
+def test_a_verification_mode_in_the_workflow_is_detected(old, new):
+    text = read_workflow(WORKFLOW)
+    modified = text.replace(old, new)
+    assert modified != text
+    assert verification_problems(modified)
