@@ -154,18 +154,24 @@ touch ../new.deb
 """
 
 
-def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",)):
+def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",), arch="amd64"):
     """files: the targets that have a Dockerfile and a control file in the fake tree"""
     shutil.copy(os.path.join(ROOT, "build-all.sh"), tmp_path / "build-all.sh")
     (tmp_path / "debian").mkdir(exist_ok=True)
     for name in files:
         shutil.copy(os.path.join(ROOT, f"Dockerfile.ubuntu{name}"), tmp_path / f"Dockerfile.ubuntu{name}")
-        (tmp_path / "debian" / f"control.ubuntu{name}").write_text("x")
+        shutil.copy(os.path.join(ROOT, "debian", f"control.ubuntu{name}"), tmp_path / "debian")
     out = tmp_path / "output" / "ubuntu24.04"
     out.mkdir(parents=True)
     (out / "stale.deb").write_text("old")
     (out / "stale.ddeb").write_text("old")
-    env = {"PATH": f"{fake_bin(tmp_path, {'docker': FAKE_DOCKER})}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path)}
+    tools = {"docker": FAKE_DOCKER}
+    if arch == "uname-aarch64":  # no dpkg: fall back to uname -m
+        tools["dpkg"] = "exit 127"
+        tools["uname"] = "echo aarch64"
+    else:
+        tools["dpkg"] = f"echo {arch}"
+    env = {"PATH": f"{fake_bin(tmp_path, tools)}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path)}
     if suffix is not None:
         env["VERSION_SUFFIX"] = suffix
     result = subprocess.run(["bash", str(tmp_path / "build-all.sh"), *([target] if target else [])], env=env,
@@ -265,11 +271,39 @@ class TestBuildAll:
         assert not (tmp_path / "docker_calls").exists()
 
     def test_a_dockerfile_without_a_control_file_is_not_a_target(self, tmp_path):
-        shutil.copy(os.path.join(ROOT, "Dockerfile.ubuntu24.04"), tmp_path / "Dockerfile.ubuntu24.04-neon")
-        result, _ = run_build_all(tmp_path, "24.04-neon")
+        shutil.copy(os.path.join(ROOT, "Dockerfile.ubuntu22.04"), tmp_path / "Dockerfile.ubuntu22.04")
+        result, _ = run_build_all(tmp_path, "22.04")
 
         assert result.returncode == 1
         assert not (tmp_path / "docker_calls").exists()
+
+    def test_on_arm64_building_all_skips_the_amd64_only_variant(self, tmp_path):
+        result, _ = run_build_all(tmp_path, None, files=("24.04", "24.04-neon"), arch="arm64")
+        calls = (tmp_path / "docker_calls").read_text()
+
+        assert result.returncode == 0, result.stderr
+        assert "24.04-neon is built for amd64 only, not for arm64: skipped" in result.stdout.replace("Variant ", "")
+        assert "-t gpclient-builder:ubuntu24.04 " in calls
+        assert "ubuntu24.04-neon" not in calls
+
+    def test_on_arm64_the_amd64_only_variant_chosen_explicitly_is_an_error(self, tmp_path):
+        result, _ = run_build_all(tmp_path, "24.04-neon", files=("24.04", "24.04-neon"), arch="arm64")
+
+        assert result.returncode == 1
+        assert "built for amd64 only, not for arm64" in result.stdout
+        assert not (tmp_path / "docker_calls").exists()
+
+    def test_on_amd64_the_amd64_only_variant_is_built(self, tmp_path):
+        result, _ = run_build_all(tmp_path, None, files=("24.04", "24.04-neon"), arch="amd64")
+
+        assert result.returncode == 0, result.stderr
+        assert "-t gpclient-builder:ubuntu24.04-neon " in (tmp_path / "docker_calls").read_text()
+
+    def test_without_dpkg_the_architecture_comes_from_uname(self, tmp_path):
+        result, _ = run_build_all(tmp_path, "24.04-neon", files=("24.04", "24.04-neon"), arch="uname-aarch64")
+
+        assert result.returncode == 1
+        assert "not for arm64" in result.stdout
 
     def test_the_suffix_is_added_to_the_version_in_the_container(self, tmp_path):
         _, out = run_build_all(tmp_path, suffix="+pr54.7")
