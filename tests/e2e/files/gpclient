@@ -12,14 +12,15 @@ Only what nm-gpclient-service.py uses is implemented:
 would take for a prompt or a gateway list), runs the fake gpauth as the desktop
 user (uid from SUDO_UID) and waits for it, then does what the real tool and
 real openconnect does: create the tun device (the --interface name, else
-gpd0) and keep its file
-descriptor open (the service reads /proc/PID/fdinfo "iff:"), then run the real
+gpd0) and keep its file descriptor open, then run the real
 /usr/share/vpnc-scripts/vpnc-script with reason pre-init and connect and the
 environment openconnect sets (address, DNS, a full-tunnel split-include list).
-The vpnc hook of the plugin and vpnc-script itself set up addresses, routes
-and DNS; nothing is faked there. SIGTERM/SIGINT/SIGHUP run vpnc-script with
-reason disconnect, close the descriptor (which removes the interface) and
-exit 0.
+The vpnc hooks of the plugin and vpnc-script itself set up addresses, routes
+and DNS and tell the service that the tunnel is up (the post-connect hook
+90-gpclient-notify runs the service with --vpnc-notify, with the token in
+GPCLIENT_NM_TOKEN); nothing is faked there. SIGTERM/SIGINT/SIGHUP run
+vpnc-script with reason disconnect, close the descriptor (which removes the
+interface) and exit 0.
 
 Environment: GPCLIENT_NM_* (set by the service, passed on to vpnc-script),
 SUDO_UID (desktop user). Runtime files live in /run/gp-demo/ (gpclient.pid, auth-done).

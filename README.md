@@ -207,7 +207,8 @@ NetworkManager as part of the VPN's IP configuration, so they survive
 NetworkManager's own DNS recalculations (they used to be applied only by
 vpnc-script and were wiped on the next recalculation - see
 [#15](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/15)).
-This needs the vpnc hook `/etc/vpnc/connect.d/90-gpclient-routing` that the
+This needs the vpnc hooks `/etc/vpnc/connect.d/90-gpclient-routing` and
+`/etc/vpnc/post-connect.d/90-gpclient-notify` (also in `reconnect.d`) that the
 package installs. The gateway's split-DNS domains are routing-only (`~domain`):
 names under them go to the VPN DNS servers, but a short name is not completed
 with them. Add a domain to `dns-domains` to make it a search domain as well.

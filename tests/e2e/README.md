@@ -7,8 +7,8 @@ are recorded.
 Everything on the screen is real: the desktop (GNOME 46 on Ubuntu 24.04 or KDE
 Plasma 6.6 on Ubuntu 26.04, both on X11), NetworkManager, systemd-resolved, the
 connection editor plugins and the VPN service built from this repository, the
-vpnc hook of the plugin, the browser wrapper and Microsoft Edge. Only these
-parts are fake:
+vpnc hooks of the plugin (they tell the service that the tunnel is up),
+the browser wrapper and Microsoft Edge. Only these parts are fake:
 
 - `files/gpclient` and `files/gpauth` replace the upstream tools. The fake
   `gpclient` creates the tunnel device and runs the real
