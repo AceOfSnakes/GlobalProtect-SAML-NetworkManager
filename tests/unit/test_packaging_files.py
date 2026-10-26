@@ -6,6 +6,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import os
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -55,7 +57,29 @@ def test_the_dbus_policy_is_installed_in_usr_share_only(name):
 
 def test_the_old_policy_conffile_is_removed_on_upgrade():
     assert read("debian/network-manager-gpclient.maintscript").splitlines() == [
-        "rm_conffile /etc/dbus-1/system.d/nm-gpclient.conf 2.0.0-1~"]
+        "rm_conffile /etc/dbus-1/system.d/nm-gpclient.conf 2.0.0~"]
+
+
+def _maintscript_version():
+    return read("debian/network-manager-gpclient.maintscript").split()[-1]
+
+
+def _dpkg_lt(left, right):
+    return subprocess.run(["dpkg", "--compare-versions", left, "lt", right]).returncode == 0
+
+
+# The conffile goes when upgrading from a version below the prior-version. 2.0.0 is a native
+# version (no Debian revision): dpkg orders it below "2.0.0-1~", so that key would be wrong.
+@pytest.mark.skipif(not shutil.which("dpkg"), reason="dpkg is needed to compare versions")
+@pytest.mark.parametrize("old", ["1.5.0-1", "1.5.0-1~noble1", "1.4.2-1~jammy1+pr24.57"])
+def test_the_maintscript_removes_the_conffile_when_upgrading_from_1_x(old):
+    assert _dpkg_lt(old, _maintscript_version())
+
+
+@pytest.mark.skipif(not shutil.which("dpkg"), reason="dpkg is needed to compare versions")
+@pytest.mark.parametrize("old", ["2.0.0", "2.0.0~noble1", "2.0.0~noble1+pr5.1", "2.0.1", "2.1.0~noble1"])
+def test_the_maintscript_keeps_the_native_2_0_0_and_later_alone(old):
+    assert not _dpkg_lt(old, _maintscript_version())
 
 
 def test_the_rpm_does_not_restart_the_service_on_upgrade_or_enable_it():

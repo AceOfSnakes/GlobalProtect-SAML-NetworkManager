@@ -203,6 +203,27 @@ class TestPlasma6ForKdeNeon:
         assert "cannot tell which Ubuntu release" in result.stderr
         assert not (repo.out / "dists" / "noble" / "Release").exists()
 
+    @pytest.mark.parametrize("old", ["1.5.0-1~noble1", "1.9.9-1~noble1"])
+    def test_a_native_version_goes_to_its_suite_and_is_newer_than_a_revision(self, repo, old):
+        repo.add(CORE, old)
+        repo.add(CORE, "2.0.0~noble1")
+
+        result = repo.build()
+
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert f"{CORE}_2.0.0~noble1_amd64.deb" in repo.pool("noble")
+        assert "<tr><td><code>noble</code></td><td><code>2.0.0~noble1</code></td></tr>" in (
+            repo.out / "index.html").read_text()
+
+    @pytest.mark.parametrize("version", ["2.0.0", "2.0.0~focal1", "2.0.0+noble"])
+    def test_a_native_version_without_a_known_codename_stops_the_script(self, repo, version):
+        repo.add(PLASMA6, version)
+
+        result = repo.build()
+
+        assert result.returncode != 0
+        assert "cannot tell which Ubuntu release" in result.stderr
+
     @pytest.mark.parametrize("version", ["1.5.0-1", "1.5.0-1~focal1", "1.5.0-1+noble"])
     def test_a_version_without_a_known_codename_stops_the_script(self, repo, version):
         repo.add(PLASMA6, version)

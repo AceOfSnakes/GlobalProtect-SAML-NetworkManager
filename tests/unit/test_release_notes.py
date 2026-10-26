@@ -119,6 +119,8 @@ def test_links_are_the_urls_of_the_assets(tmp_path):
 @pytest.mark.parametrize("name", [
     "network-manager-gpclient-plasma_1.4.1-1.noble1_amd64.deb",
     "network-manager-gpclient_1.4.1-1~noble1_arm64.deb",
+    "network-manager-gpclient-plasma_2.0.0.noble1_amd64.deb",
+    "network-manager-gpclient_2.0.0~noble1_arm64.deb",
 ])
 def test_both_spellings_of_the_asset_name_are_parsed(name):
     codename, arch, short = release_notes.parse(name)

@@ -124,6 +124,14 @@ VPN service needs access to its PTY (`ptmx`/`devpts`) and to inspect the
 desktop session bus socket while starting SAML authentication. The module is
 loaded by the RPM scriptlets and removed when the package is removed.
 
+### Version in `debian/changelog`
+
+The package is native (`debian/source/format` is `3.0 (native)`), so a new entry has the
+form `X.Y.Z` with no Debian revision (`2.0.0`, not `2.0.0-1`). Entries up to `1.5.0-1` keep
+their revision. The release tag is `vX.Y.Z`. CI adds `~<codename>1` (and `+pr<N>.<run>` for a
+pull request). When a file lists a version, such as `debian/*.maintscript`, write it so that
+`dpkg --compare-versions` orders it correctly: use `2.0.0~`, not `2.0.0-1~`.
+
 ### Local build:
 
 ```bash

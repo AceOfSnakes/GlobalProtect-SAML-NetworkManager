@@ -3,7 +3,7 @@
     check_tag_version.py v2.0.0 debian/changelog
 
 The tag is v<version>. The version is the one in the top line of the changelog
-without the Debian revision (2.0.0-1 gives 2.0.0). Used by
+without the Debian revision, if there is one (1.5.0-1 gives 1.5.0, a native 2.0.0 stays 2.0.0). Used by
 .github/workflows/build-release.yml for tag pushes. Standard library only.
 """
 

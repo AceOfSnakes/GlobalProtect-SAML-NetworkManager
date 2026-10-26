@@ -41,11 +41,11 @@ CORE = "network-manager-gpclient"
 BUILD = "+pr24.57"
 
 
-def deb(suffix, codename, arch, tilde=False, build=""):
+def deb(suffix, codename, arch, tilde=False, build="", version=None):
     """File name of a release asset. GitHub stores the "~" of the version as ".".
     `build` is the suffix of a pull request's build (BUILD), none for a release's."""
     sep = "~" if tilde else "."
-    return f"{CORE}{suffix}_{VERSION}{sep}{codename}1{build}_{arch}.deb"
+    return f"{CORE}{suffix}_{version or VERSION}{sep}{codename}1{build}_{arch}.deb"
 
 
 TARGETS_FILE = os.path.join(os.path.dirname(SCRIPT), "..", "rpm", "targets")
@@ -743,6 +743,21 @@ class TestRejected:
         result = box.run("24")
 
         assert_rejected(box, result, "more than one")
+
+    @pytest.mark.parametrize("tilde, build", [(False, ""), (True, ""), (False, BUILD), (True, BUILD)])
+    def test_a_native_version_without_a_revision_is_accepted(self, box, tilde, build):
+        box.set_assets([deb(s, "noble", "amd64", tilde, build, "2.0.0") for s in ("", "-gnome", "-plasma")])
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+
+    def test_a_native_version_of_another_pr_is_not_accepted(self, box):
+        box.set_assets([deb(s, "noble", "amd64", False, "+pr25.57", "2.0.0") for s in ("", "-gnome", "-plasma")])
+
+        result = box.run("24")
+
+        assert_rejected(box, result, f"no {CORE} package for noble/amd64")
 
     def test_two_candidates_are_ambiguous(self, box):
         box.set_assets(all_assets() + [f"{CORE}_1.5.0-1.noble1_amd64.deb"])
