@@ -34,6 +34,15 @@ static QString customBrowserLabel()
     return i18n("Custom...");
 }
 
+/* The browser to store: empty for the "Custom..." entry itself. In another
+ * language that label is not a valid browser name ("Własna..."), so it must not
+ * reach the validator either. */
+static QString browserValue(const QString &text)
+{
+    const QString browser = text.trimmed();
+    return browser == customBrowserLabel() ? QString() : browser;
+}
+
 /* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
  * connection with browser authentication starts with this value (issue #46).
@@ -358,8 +367,8 @@ QVariantMap GpclientWidget::setting() const
     }
 
     // Save Browser
-    const QString browserText = m_ui->browserComboBox->currentText().trimmed();
-    if (!browserText.isEmpty() && browserText != customBrowserLabel()) {
+    const QString browserText = browserValue(m_ui->browserComboBox->currentText());
+    if (!browserText.isEmpty()) {
         data.insert(QLatin1String("browser"), browserText);
     } else {
         data.remove(QLatin1String("browser"));
@@ -438,7 +447,7 @@ bool GpclientWidget::isValid() const
     // gateway must be set, the other fields must be what the service accepts
     return nm_gpclient_validate_form(m_ui->gatewayLineEdit->text().toUtf8().constData(),
                                      m_ui->usernameLineEdit->text().toUtf8().constData(),
-                                     m_ui->browserComboBox->currentText().toUtf8().constData(),
+                                     browserValue(m_ui->browserComboBox->currentText()).toUtf8().constData(),
                                      m_ui->dnsLineEdit->text().toUtf8().constData(),
                                      m_ui->hipCheckBox->isChecked(),
                                      m_ui->hipScriptLineEdit->text().toUtf8().constData())

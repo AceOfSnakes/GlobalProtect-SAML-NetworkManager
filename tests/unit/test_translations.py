@@ -405,8 +405,13 @@ def test_a_makefile_without_the_define_fails(old, new):
     assert gettext_define_problems(text.replace(old, new, 1))
 
 
-def test_the_editor_plugin_binds_the_text_domain():
-    text = read("plugins/gnome/nm-gpclient-editor-plugin.c")
+@pytest.mark.parametrize(
+    # NM loads the simple plugin (the .name file), which loads the editor
+    "path",
+    ["plugins/gnome/nm-gpclient-editor-plugin.c", "plugins/gnome/nm-gpclient-plugin-simple.c"],
+)
+def test_the_plugins_bind_the_text_domain(path):
+    text = read(path)
     assert "#include <glib/gi18n-lib.h>" in text
     assert "bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR)" in text
     assert 'bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8")' in text
@@ -616,8 +621,11 @@ def test_the_auth_dialog_shows_polish_text_with_the_catalog(tmp_path):
     assert module.header_text("Praca", None, True).startswith("Uwierzytelnianie nie powiodło się.")
 
 
-def test_the_auth_dialog_stays_english_without_a_catalog():
-    module = load_dialog()  # no catalog is installed in the test environment
+def test_the_auth_dialog_stays_english_without_a_catalog(monkeypatch):
+    # an installed catalog in the developer's locale must not change the result
+    monkeypatch.setenv("LANGUAGE", "C")
+    monkeypatch.setenv("LC_ALL", "C")
+    module = load_dialog()
     assert module.secret_label("password") == "Password"
     assert module.secret_label("some-key") == "Some key"  # a key of the service has no text
     assert module.header_text("Work", None, False) == "Credentials are required to connect to “Work”."
@@ -787,3 +795,28 @@ def test_the_kde_extraction_script_names_the_plasma_domain():
     assert text.startswith("#!/bin/sh\n")
     assert f"/{PLASMA_DOMAIN}.pot" in text
     assert "plugins/plasma/Messages.sh" in read("Makefile")  # shellcheck covers it
+
+
+def plasma_browser_problems(text):
+    """The Plasma editor must treat its "Custom..." entry as no browser, in
+    isValid() as in setting() (a translated label is no valid browser name)"""
+    problems = []
+    valid = text[text.index("bool GpclientWidget::isValid()"):]
+    valid = valid[: valid.index("\n}\n")]
+    if "browserValue(m_ui->browserComboBox->currentText())" not in valid:
+        problems.append("isValid() validates the raw browser combo text")
+    if text.count("browserValue(m_ui->browserComboBox->currentText())") < 2:
+        problems.append("setting() and isValid() do not share browserValue()")
+    return problems
+
+
+def test_the_plasma_custom_browser_entry_is_no_browser():
+    assert plasma_browser_problems(read("plugins/plasma/gpclientwidget.cpp")) == []
+
+
+def test_validating_the_raw_combo_text_is_reported():
+    text = read("plugins/plasma/gpclientwidget.cpp").replace(
+        "browserValue(m_ui->browserComboBox->currentText()).toUtf8()",
+        "m_ui->browserComboBox->currentText().toUtf8()",
+    )
+    assert plasma_browser_problems(text)
