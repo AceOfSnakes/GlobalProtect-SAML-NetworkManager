@@ -70,7 +70,9 @@ SANDBOX = {
     "LockPersonality": "yes", "RestrictRealtime": "yes",
     "RestrictSUIDSGID": "yes", "SystemCallArchitectures": "native",
 }
-UNIT_KEYS = {line.split("=", 1)[0] for line in UNIT.splitlines() if "=" in line and not line.startswith("#")}
+# systemd also accepts leading blanks and blanks around "="; "#" and ";" start comments
+UNIT_KEYS = {line.split("=", 1)[0].strip() for line in UNIT.splitlines()
+             if "=" in line and not line.strip().startswith(("#", ";"))}
 
 
 @pytest.mark.parametrize("key,value", sorted(SANDBOX.items()))
@@ -90,4 +92,4 @@ def test_the_unit_does_not_set_options_that_break_the_process_tree(key):
 
 
 def test_the_unit_does_not_make_the_file_system_read_only():
-    assert not re.search(r"^ProtectSystem=", UNIT, re.M)
+    assert not re.search(r"^\s*ProtectSystem\s*=", UNIT, re.M)

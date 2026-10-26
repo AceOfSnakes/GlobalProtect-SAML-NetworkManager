@@ -49,11 +49,17 @@ and `ProtectSystem=strict` stay off. `ProtectClock` stays off too: systemd
 before 252 (Ubuntu 22.04) turns it into a device allow-list that blocks
 `/dev/net/tun`.
 
+An upgrade does not reload systemd (the unit is installed with `--no-restart-after-upgrade`
+and is not enabled), so the new options apply from the next start of the service after
+`systemctl daemon-reload` or a reboot.
+
 How to test a change of the sandbox options (on a real machine, on Ubuntu
 22.04 with systemd 249 as well as on a current release, because some options
 behave differently in older systemd):
 
 - [ ] `systemd-analyze security nm-gpclient.service` before and after.
+- [ ] After an upgrade and `systemctl daemon-reload`:
+      `systemctl show nm-gpclient.service -p ProtectKernelModules` shows `yes`.
 - [ ] `systemctl show nm-gpclient.service -p DeviceAllow -p DevicePolicy`
       while connected: `DeviceAllow` is empty and `DevicePolicy=auto`.
 - [ ] SAML login with each browser: Edge, Firefox (also the snap on Ubuntu),
