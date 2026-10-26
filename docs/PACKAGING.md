@@ -102,18 +102,8 @@ on `plasma-nm (<< 4:6)`, so apt refuses it on Plasma 6.
 
 ### Recommended method (Docker-based):
 
-```bash
-# Build for all Ubuntu versions
-./build-all.sh
-
-# Build for specific version
-./build-all.sh 24.04
-./build-all.sh 22.04
-```
-
-Packages will be in:
-- `output/ubuntu24.04/*.deb`
-- `output/ubuntu22.04/*.deb`
+Run `./build-all.sh` (all targets) or `./build-all.sh <target>`. Targets, the
+neon variant, output directories and `VERSION_SUFFIX` are in [BUILD.md](BUILD.md).
 
 RPM packages (Fedora, EL 10, openSUSE; the same three packages, Plasma 6 only)
 are built with `rpm/build.sh <target> <amd64|arm64>`: see [RPM_REPO.md](RPM_REPO.md).

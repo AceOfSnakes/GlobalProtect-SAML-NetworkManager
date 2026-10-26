@@ -298,9 +298,11 @@ Older versions added `resolve [!UNAVAIL=return]` to the `hosts:` line of `/etc/n
 ### Build
 
 ```bash
-./build-all.sh          # Build for all Ubuntu versions (22.04, 24.04, 26.04)
+./build-all.sh          # Build for all Ubuntu versions and variants (22.04, 24.04, 26.04, 24.04-neon on amd64 hosts only)
 ./build-all.sh 24.04    # Build for Ubuntu 24.04 only
 ./build-all.sh 26.04    # Build for Ubuntu 26.04 only (Plasma 6 / Qt6 / KF6)
+./build-all.sh 24.04-neon  # Build the KDE neon variant (amd64 only)
+VERSION_SUFFIX=+pr54.1 ./build-all.sh 24.04  # Add the suffix of CI pull request builds to the version
 ```
 
 Notes for Ubuntu 26.04:
