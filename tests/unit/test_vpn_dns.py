@@ -217,7 +217,7 @@ class TestVpnGatewayFromState:
             ({"TUNDEV": "tun0", "VPNGATEWAY": "2001:db8::1"}, "2001:db8::1"),
         ],
     )
-    def test_ipv4_gateway_of_this_tunnel(self, service_module, state, expected):
+    def test_gateway_of_this_tunnel(self, service_module, state, expected):
         got = service_module.vpn_gateway_from_state(state, "tun0")
         assert str(got) == expected
 

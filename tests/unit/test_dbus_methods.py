@@ -387,6 +387,26 @@ class TestConnectFailure:
 
 
 class TestConnectRouting:
+    @pytest.mark.parametrize(
+        "ipv6, expected",
+        [
+            ({"method": ("s", "ignore")}, "ignore"),
+            ({"method": "disabled"}, "disabled"),
+            ({"method": ("s", "auto")}, "auto"),
+            ({}, "auto"),
+            (None, "auto"),
+        ],
+    )
+    def test_ipv6_method(self, service_module, monkeypatch, ipv6, expected):
+        plugin = _plugin(service_module, monkeypatch)
+        conn = _conn()
+        if ipv6 is not None:
+            conn["ipv6"] = ipv6
+
+        connect(plugin, conn)
+
+        assert plugin.ipv6_method == expected
+
     def test_never_default_and_ignore_auto_routes(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
 

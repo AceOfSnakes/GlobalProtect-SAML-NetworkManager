@@ -517,6 +517,62 @@ class TestIpv4FromEnv:
         if address:
             assert "Not adding address" in caplog.text
 
+    def test_an_ipv6_only_tunnel_with_an_ipv4_server(self, service_module, dbus_signals):
+        env = vpnc_env(
+            INTERNAL_IP4_ADDRESS=None,
+            VPNGATEWAY="198.51.100.7",
+            INTERNAL_IP6_ADDRESS="fd00::5",
+        )
+        notify(active_plugin(service_module), env)
+
+        config = signals_named(dbus_signals, "Config")[0]
+        assert config["gateway"] == (
+            "u",
+            service_module.ipv4_to_nm_uint32("198.51.100.7"),
+        )
+        assert config["has-ip4"] == ("b", False)
+        assert ip4_config(dbus_signals) is None
+
+    @pytest.mark.parametrize("method", ["disabled", "ignore"])
+    def test_an_ipv6_only_tunnel_fails_when_the_profile_has_no_ipv6(
+        self, service_module, dbus_signals, method
+    ):
+        plugin = active_plugin(service_module, ipv6_method=method)
+
+        notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+
+    @pytest.mark.parametrize("method", ["auto", "manual", "link-local"])
+    def test_an_ipv6_only_tunnel_starts_with_another_method(
+        self, service_module, dbus_signals, method
+    ):
+        plugin = active_plugin(service_module, ipv6_method=method)
+
+        notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Config", "Ip6Config", "StateChanged"]
+
+    @pytest.mark.parametrize("method", ["disabled", "ignore"])
+    def test_an_ipv4_tunnel_does_not_care_about_ipv6_method(
+        self, service_module, dbus_signals, method
+    ):
+        notify(active_plugin(service_module, ipv6_method=method))
+
+        assert _names(dbus_signals) == ["Config", "Ip4Config", "StateChanged"]
+
+    def test_a_reconnect_without_any_address_fails(self, service_module, dbus_signals):
+        plugin = active_plugin(service_module)
+        notify(plugin)
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=None), reason="reconnect")
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+        assert dbus_signals[1][1] == service_module.NM_VPN_SERVICE_STATE_STOPPED
+
     def test_an_ipv4_tunnel_has_ip4_in_config(self, service_module, dbus_signals):
         notify(active_plugin(service_module))
 
@@ -605,46 +661,6 @@ class TestGatewayFromEnv:
         assert "gateway" in ip4_config(dbus_signals)
         assert ("never-default is set" in caplog.text) is never_default
         assert ("Added gateway: 198.51.100.7" in caplog.text) is not never_default
-
-
-class TestBanner:
-    def test_the_banner_is_in_config_and_a_login_banner_signal(
-        self, service_module, dbus_signals
-    ):
-        notify(active_plugin(service_module), vpnc_env(CISCO_BANNER="Welcome\nto corp"))
-
-        assert signals_named(dbus_signals, "Config")[0]["banner"] == (
-            "s",
-            "Welcome\nto corp",
-        )
-        assert signals_named(dbus_signals, "LoginBanner") == ["Welcome\nto corp"]
-        names = _names(dbus_signals)
-        assert names.index("Config") < names.index("LoginBanner")
-
-    @pytest.mark.parametrize("banner", [None, "", "  \n", "\x00\x07"])
-    def test_no_banner_means_no_key_and_no_signal(
-        self, service_module, dbus_signals, banner
-    ):
-        notify(active_plugin(service_module), vpnc_env(CISCO_BANNER=banner))
-
-        assert "banner" not in signals_named(dbus_signals, "Config")[0]
-        assert signals_named(dbus_signals, "LoginBanner") == []
-
-    @pytest.mark.parametrize(
-        "text, expected",
-        [
-            ("a\x1b[31mb\x00c", "a[31mbc"),
-            ("x" * 5000, "x" * 4096),
-            ("  hi \t", "hi"),
-        ],
-    )
-    def test_the_banner_is_cleaned(self, service_module, text, expected):
-        assert service_module.banner_from_env({"CISCO_BANNER": text}) == expected
-
-    def test_the_banner_is_forwarded_by_the_hook(self, service_module):
-        assert "CISCO_BANNER" in service_module.VPNC_NOTIFY_ENV
-        _, _, env = service_module.vpnc_notify_env({"CISCO_BANNER": "hi", "OTHER": "x"})
-        assert env == {"CISCO_BANNER": "hi"}
 
 
 class TestMtu:
@@ -804,7 +820,6 @@ class TestVpncNotifyMode:
                     "VPNGATEWAY": "203.0.113.9",
                     "CISCO_SPLIT_DNS": "a.example",
                     "INTERNAL_IP4_NETMASKLEN": "24",
-                    "CISCO_BANNER": "hello",
                 },
             ),
         ]
@@ -812,7 +827,7 @@ class TestVpncNotifyMode:
     @pytest.mark.parametrize(
         "name",
         ["PATH", "HOME", "SUDO_USER", "GPCLIENT_NM_NOTIFY", "GPCLIENT_NM_TOKEN",
-         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU"],
+         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU", "CISCO_BANNER"],
     )
     def test_a_variable_that_is_not_listed_is_not_sent(
         self, service_module, proxy, name
