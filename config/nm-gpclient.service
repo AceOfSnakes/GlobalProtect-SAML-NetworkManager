@@ -6,3 +6,68 @@ Type=dbus
 BusName=org.freedesktop.NetworkManager.gpclient
 ExecStart=/usr/lib/NetworkManager/nm-gpclient-service
 User=root
+
+# Sandboxing (issue #54). The process tree is: this service (root) -> gpclient
+# (root, tun device, vpnc-script, resolv.conf or systemd-resolved) -> gpauth
+# (the desktop user) -> the user's browser. Every option below is a narrow
+# deny that none of these programs needs. Each one is kept only if it is safe
+# for the whole tree, browser included.
+
+# Forbids loading kernel modules and hides /lib/modules. Nothing here loads
+# modules; the kernel itself loads "tun" when /dev/net/tun is opened.
+ProtectKernelModules=yes
+# Hides /dev/kmsg and drops CAP_SYSLOG. Nothing reads the kernel log.
+ProtectKernelLogs=yes
+# Makes /sys/fs/cgroup read-only. Nothing writes cgroups.
+ProtectControlGroups=yes
+# Seccomp: forbids personality() changes. Not used by gpclient or browsers.
+LockPersonality=yes
+# Seccomp: forbids realtime scheduling. A browser that asks for it gets an
+# error and continues without it.
+RestrictRealtime=yes
+# Seccomp: forbids CREATING files with the set-user-ID or set-group-ID bit.
+# It does not stop running setuid programs such as sudo, and it does not
+# stop setuid()/setgid() calls.
+RestrictSUIDSGID=yes
+# Seccomp: only native-ABI system calls. gpclient, gpauth and the browsers are
+# native programs (a 32-bit HIP script binary would be killed).
+SystemCallArchitectures=native
+
+# Options deliberately NOT used (they would break part of the tree):
+#   ProtectHome=, ProtectProc=, PrivateTmp=, PrivateDevices=, PrivateNetwork=,
+#   DevicePolicy=   The browser runs in the user's session and uses the user's
+#                   home, /run/user/<uid>, X11/Wayland sockets and /tmp
+#                   (/tmp/edge-wrapper-<uid>); the service reads /proc of
+#                   other processes; gpclient needs /dev/net/tun and /dev/ptmx;
+#                   the VPN needs the host network.
+#   ProtectSystem=strict, ReadWritePaths=
+#                   vpnc-script writes /etc/resolv.conf and /run/nm-gpclient;
+#                   gpclient writes /var/run/gpclient.lock; the HIP script and
+#                   its paths are set by the user.
+#   NoNewPrivileges=
+#                   It is inherited by the whole tree, also after gpauth drops
+#                   to the desktop user: setuid programs started there lose
+#                   their effect, for example the setuid sandbox helper of
+#                   Chrome/Edge (chrome-sandbox) on systems without user
+#                   namespaces.
+#   RestrictNamespaces=
+#                   Chrome, Edge and Firefox sandbox themselves with user
+#                   namespaces.
+#   MemoryDenyWriteExecute=
+#                   Browsers use a JIT compiler.
+#   ProtectClock=, DeviceAllow=
+#                   systemd before 252 (Ubuntu 22.04 has 249) adds
+#                   DeviceAllow=char-rtc r for ProtectClock=yes, and any
+#                   DeviceAllow= turns the device policy into an allow-list:
+#                   gpclient could no longer open /dev/net/tun, and the
+#                   browser would lose the GPU, sound and FIDO keys.
+#   ProtectHostname=
+#                   Puts the whole tree in its own UTS namespace: after a
+#                   hostname change the browser keeps the old name, and X11
+#                   .Xauthority entries are keyed by hostname, so it may no
+#                   longer open on the display; the gain is small.
+#   CapabilityBoundingSet=, SystemCallFilter=, RestrictAddressFamilies=
+#                   The tree needs CAP_NET_ADMIN, CAP_SETUID, CAP_SETGID,
+#                   CAP_KILL, CAP_DAC_OVERRIDE and more, and AF_NETLINK,
+#                   AF_UNIX, AF_INET, AF_INET6, AF_PACKET; a list was not
+#                   proven complete on a real machine.

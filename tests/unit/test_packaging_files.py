@@ -87,3 +87,33 @@ def test_the_rpm_does_not_restart_the_service_on_upgrade_or_enable_it():
     assert "%systemd_postun nm-gpclient.service" in spec
     assert "%systemd_postun_with_restart" not in spec
     assert not re.search(r"systemctl\s+(enable|start|restart)", spec)
+
+
+SANDBOX = {
+    "ProtectKernelModules": "yes", "ProtectKernelLogs": "yes", "ProtectControlGroups": "yes",
+    "LockPersonality": "yes", "RestrictRealtime": "yes",
+    "RestrictSUIDSGID": "yes", "SystemCallArchitectures": "native",
+}
+# systemd also accepts leading blanks and blanks around "="; "#" and ";" start comments
+UNIT_KEYS = {line.split("=", 1)[0].strip() for line in UNIT.splitlines()
+             if "=" in line and not line.strip().startswith(("#", ";"))}
+
+
+@pytest.mark.parametrize("key,value", sorted(SANDBOX.items()))
+def test_the_unit_sets_each_sandbox_option(key, value):
+    assert f"{key}={value}" in UNIT.splitlines()
+
+
+# The browser, the user session, resolv.conf, the tun device and sudo need all of these (issue #54)
+@pytest.mark.parametrize("key", ["ProtectHome", "PrivateTmp", "NoNewPrivileges", "RestrictNamespaces",
+                                 "MemoryDenyWriteExecute", "PrivateNetwork", "ProtectProc", "PrivateDevices",
+                                 "ProtectHostname", "DevicePolicy", "CapabilityBoundingSet",
+                                 "SystemCallFilter", "RestrictAddressFamilies", "ReadWritePaths",
+                                 # systemd < 252 implies DeviceAllow=char-rtc for ProtectClock: no /dev/net/tun
+                                 "ProtectClock", "DeviceAllow"])
+def test_the_unit_does_not_set_options_that_break_the_process_tree(key):
+    assert key not in UNIT_KEYS
+
+
+def test_the_unit_does_not_make_the_file_system_read_only():
+    assert not re.search(r"^\s*ProtectSystem\s*=", UNIT, re.M)
