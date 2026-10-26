@@ -343,3 +343,13 @@ msgstr ""
 #, kde-format
 msgid "vpn.company.com"
 msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Kan ikke eksportere tilkoblingen: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Kan ikke importere tilkoblingen: %1"

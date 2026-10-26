@@ -288,3 +288,7 @@ msgstr "секунди (0 = подразумевано за NetworkManager)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "корисничко име не сме почињати са „-“ нити садржати контролне знакове"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Датотека није GlobalProtect VPN веза"

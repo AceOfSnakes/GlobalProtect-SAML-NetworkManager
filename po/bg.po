@@ -288,3 +288,7 @@ msgstr "секунди (0 = стандартната стойност на Netwo
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "username не трябва да започва с „-“ или да съдържа управляващи знаци"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Файлът не е връзка GlobalProtect VPN"

@@ -288,3 +288,7 @@ msgstr "detik (0 = bawaan NetworkManager)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "username tidak boleh diawali '-' atau berisi karakter kontrol"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Berkas ini bukan koneksi VPN GlobalProtect"

@@ -316,3 +316,7 @@ msgstr "sekundės (0 = numatytoji NetworkManager reikšmė)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "naudotojo vardas negali prasidėti „-“ ar turėti valdymo simbolių"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Failas nėra „GlobalProtect“ VPN ryšys"

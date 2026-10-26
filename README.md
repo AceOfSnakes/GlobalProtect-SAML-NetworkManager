@@ -249,7 +249,7 @@ A profile is a NetworkManager keyfile (`.nmconnection`), so you can copy it to
 another machine.
 
 - **GNOME**: in the network settings (or `nm-connection-editor`) use the *Import from file...* entry of the VPN list, and *Export...* in the editor of a connection.
-- **Plasma**: in the network settings (KCM) use the import button of the connection list and *Export* in the menu of a connection. This works with Plasma 5.27 and newer; Plasma 5.24 (Ubuntu 22.04) does not call the plugin for this.
+- **Plasma**: in the network settings (KCM) use the import button of the connection list and *Export* in the menu of a connection. This works with Plasma 5.27 and newer; Plasma 5.24 (Ubuntu 22.04) does not call the plugin for this. The export writes the saved connection as NetworkManager has it, so export a new connection after you save it.
 - **Command line**:
 
 ```bash

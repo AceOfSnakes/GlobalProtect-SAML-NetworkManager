@@ -288,3 +288,7 @@ msgstr "segundo (0 = NetworkManager-en lehenetsia)"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr "erabiltzaile-izenak ez du '-'-rekin hasi behar, ez eta kontrol-karakterik izan"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Fitxategia ez da GlobalProtect VPN konexio bat"

@@ -159,6 +159,10 @@ PLASMA_RULES = {
     "exports with the helper": r"nm_gpclient_keyfile_export\(",
     "suggests a name with the helper": r"nm_gpclient_keyfile_suggested_filename\(",
     "offers the extension": r'QStringLiteral\("\*\.nmconnection"\)',
+    "gets the saved profile from NetworkManager": r"nm_client_new\(",
+    "looks it up by UUID": r"nm_client_get_connection_by_uuid\(client, connection->uuid\(\)",
+    "exports the remote connection": r"nm_gpclient_keyfile_export\(NM_CONNECTION\(remote\)",
+    "releases the client": r"g_object_unref\(client\)",
     "passes the connection": r"ImportResult::pass\(connection\)",
     "fails an import with a translated text": r"ImportResult::fail\(i18n\(",
     "fails an export with a translated text": r"ExportResult::fail\(i18n\(",
@@ -184,7 +188,12 @@ def test_the_plasma_header_declares_the_methods_for_every_plasma_nm():
     assert "#if" not in header.replace("#ifndef PLASMA_NM_GPCLIENT_UI_H", "")
 
 
-def test_the_plasma_export_does_not_copy_secrets():
-    # the profile of the KCM carries the data only; the secrets are the secrets() of the setting
+def test_the_plasma_export_does_not_build_a_connection_by_hand():
+    # a hand-made connection drops the settings that the user set (routes, IPv6, ...)
+    assert "nm_simple_connection_new" not in PLASMA
+    assert "nm_setting_vpn_add_data_item" not in PLASMA
     assert "secrets()" not in PLASMA
-    assert "data()" in PLASMA
+
+
+def test_a_plasma_export_with_a_hand_made_connection_is_found():
+    assert "nm_simple_connection_new" in "NMConnection *nm = nm_simple_connection_new();"

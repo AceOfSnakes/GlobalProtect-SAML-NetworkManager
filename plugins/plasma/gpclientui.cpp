@@ -10,7 +10,6 @@
 #include "nm-gpclient-keyfile.h"
 
 #include <KPluginFactory>
-#include <NetworkManagerQt/Ipv4Setting>
 
 #include <QFile>
 
@@ -54,48 +53,6 @@ SettingWidget *GpclientUiPlugin::askUser(const NetworkManager::VpnSetting::Ptr &
 
 #ifndef GPCLIENT_PLASMANM_OLD_API
 
-namespace
-{
-// The profile as a libnm connection for the helper. Only what a profile of
-// this plugin has: the connection and VPN settings and the IPv4 search domains.
-// The secrets are not copied (the helper drops them anyway).
-NMConnection *toNMConnection(const NetworkManager::ConnectionSettings::Ptr &connection)
-{
-    NMConnection *nm = nm_simple_connection_new();
-
-    NMSetting *s_con = nm_setting_connection_new();
-    g_object_set(s_con,
-                 NM_SETTING_CONNECTION_ID, connection->id().toUtf8().constData(),
-                 NM_SETTING_CONNECTION_UUID, connection->uuid().toUtf8().constData(),
-                 NM_SETTING_CONNECTION_TYPE, NM_SETTING_VPN_SETTING_NAME,
-                 nullptr);
-    nm_connection_add_setting(nm, s_con);
-
-    NMSetting *s_vpn = nm_setting_vpn_new();
-    g_object_set(s_vpn, NM_SETTING_VPN_SERVICE_TYPE, NM_GPCLIENT_KEYFILE_SERVICE_TYPE, nullptr);
-    const auto vpnSetting = connection->setting(NetworkManager::Setting::Vpn).dynamicCast<NetworkManager::VpnSetting>();
-    if (vpnSetting) {
-        const NMStringMap data = vpnSetting->data();
-        for (auto it = data.constBegin(); it != data.constEnd(); ++it) {
-            nm_setting_vpn_add_data_item(NM_SETTING_VPN(s_vpn), it.key().toUtf8().constData(), it.value().toUtf8().constData());
-        }
-    }
-    nm_connection_add_setting(nm, s_vpn);
-
-    const auto ipv4Setting = connection->setting(NetworkManager::Setting::Ipv4).dynamicCast<NetworkManager::Ipv4Setting>();
-    if (ipv4Setting && !ipv4Setting->dnsSearch().isEmpty()) {
-        NMSetting *s_ip4 = nm_setting_ip4_config_new();
-        g_object_set(s_ip4, NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO, nullptr);
-        const QStringList search = ipv4Setting->dnsSearch();
-        for (const QString &domain : search) {
-            nm_setting_ip_config_add_dns_search(NM_SETTING_IP_CONFIG(s_ip4), domain.toUtf8().constData());
-        }
-        nm_connection_add_setting(nm, s_ip4);
-    }
-    return nm;
-}
-}
-
 QString GpclientUiPlugin::suggestedFileName(const NetworkManager::ConnectionSettings::Ptr &connection) const
 {
     char *name = nm_gpclient_keyfile_suggested_filename(connection->id().toUtf8().constData());
@@ -123,16 +80,27 @@ VpnUiPlugin::ImportResult GpclientUiPlugin::importConnectionSettings(const QStri
 
 VpnUiPlugin::ExportResult GpclientUiPlugin::exportConnectionSettings(const NetworkManager::ConnectionSettings::Ptr &connection, const QString &fileName)
 {
+    // The KCM exports a saved connection: take it from NetworkManager by its
+    // UUID, so that all its settings (routes, IPv6, never-default, ...) go into
+    // the file. NetworkManager hands out no secrets; the helper drops them anyway.
     GError *error = nullptr;
-    NMConnection *nm = toNMConnection(connection);
-    const bool ok = nm_gpclient_keyfile_export(nm, QFile::encodeName(fileName).constData(), &error);
-    g_object_unref(nm);
-    if (!ok) {
-        const QString message = QString::fromUtf8(error->message);
-        g_error_free(error);
-        return VpnUiPlugin::ExportResult::fail(i18n("Cannot export the connection: %1", message));
+    QString message;
+    NMClient *client = nm_client_new(nullptr, &error);
+    if (client) {
+        NMRemoteConnection *remote = nm_client_get_connection_by_uuid(client, connection->uuid().toUtf8().constData());
+        if (!remote) {
+            message = QStringLiteral("the connection is not saved in NetworkManager");
+        } else if (nm_gpclient_keyfile_export(NM_CONNECTION(remote), QFile::encodeName(fileName).constData(), &error)) {
+            g_object_unref(client);
+            return VpnUiPlugin::ExportResult::pass();
+        }
+        g_object_unref(client);
     }
-    return VpnUiPlugin::ExportResult::pass();
+    if (error) {
+        message = QString::fromUtf8(error->message);
+        g_error_free(error);
+    }
+    return VpnUiPlugin::ExportResult::fail(i18n("Cannot export the connection: %1", message));
 }
 
 #else // GPCLIENT_PLASMANM_OLD_API
