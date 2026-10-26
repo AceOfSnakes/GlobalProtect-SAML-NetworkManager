@@ -3535,7 +3535,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 logger.debug(f"No stored vpn secrets to drop: {e}")
                 vpn_secrets = {}
             stored = dict(vpn_secrets["secrets"][1]) if "secrets" in vpn_secrets else {}
-            dropped = [key for key in drop_secrets if key in stored]
+            # A key already blanked by an earlier drop is not stored any more
+            dropped = [key for key in drop_secrets if stored.get(key)]
             if dropped:
                 for key in dropped:
                     del stored[key]

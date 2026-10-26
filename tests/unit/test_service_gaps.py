@@ -1219,6 +1219,17 @@ class TestUpdateProfileDropsSecrets:
         assert sent["vpn"]["secrets"] == ("a{ss}", {"otp": ""})
         assert nm.secrets == {"otp": ""}
 
+    def test_a_blanked_code_is_not_sent_again(self, service_module, nm):
+        nm.secrets = {"otp": ""}  # what the drop of a code stored alone left
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert all("secrets" not in props for props in sent.values())
+
     def test_a_write_without_a_drop_keeps_a_stored_code(self, service_module, nm):
         # what the fake models: NetworkManager keeps stored secrets then
         nm.secrets = {"otp": "123456"}
