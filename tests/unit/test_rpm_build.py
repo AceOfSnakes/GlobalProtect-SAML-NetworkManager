@@ -583,9 +583,14 @@ def test_spec_strips_the_rust_binaries():
 CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
 
 
+def cargo_build_lines(text):
+    """The shell lines that run `cargo build`, with backslash-continued lines joined"""
+    return [line.strip() for line in text.replace("\\\n", " ").splitlines()
+            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)]
+
+
 def cargo_build_lines_without_locked(text):
-    return [line.strip() for line in text.splitlines()
-            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I) and "--locked" not in line]
+    return [line for line in cargo_build_lines(text) if "--locked" not in line]
 
 
 @pytest.mark.parametrize("path", CARGO_BUILD_FILES)
@@ -602,16 +607,19 @@ def test_a_cargo_build_without_locked_is_reported(path):
     assert cargo_build_lines_without_locked(text)
 
 
-FEATURE_FLAGS = ("--no-default-features", "--features", "--all-features", "-F")
+# Each flag as a whole token; -F also takes its value attached (-Fwebview-auth)
+FEATURE_FLAG_PATTERNS = {
+    "--no-default-features": r"(?<!\S)--no-default-features(?![\w-])",
+    "--features": r"(?<!\S)--features(?![\w-])",
+    "--all-features": r"(?<!\S)--all-features(?![\w-])",
+    "-F": r"(?<!\S)-F",
+}
+FEATURE_FLAGS = tuple(FEATURE_FLAG_PATTERNS)
 
 
 def cargo_build_feature_flags(text):
-    # one logical line per command: a flag may follow on a backslash-continued line
-    lines = text.replace("\\\n", " ").splitlines()
-    return [flag for line in lines
-            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)
-            # -F also takes its value attached (-Fwebview-auth)
-            for flag in FEATURE_FLAGS if re.search(rf"(?<!\S){flag}" + ("" if flag == "-F" else r"(?![\w-])"), line)]
+    return [flag for line in cargo_build_lines(text)
+            for flag, pattern in FEATURE_FLAG_PATTERNS.items() if re.search(pattern, line)]
 
 
 @pytest.mark.parametrize("path", CARGO_BUILD_FILES)
