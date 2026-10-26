@@ -3,7 +3,7 @@
 
 Only what nm-gpclient-service.py uses is implemented:
 
-  gpclient [--fix-openssl] connect [--hip] [--as-gateway] [--user U]
+  gpclient [--log-format json] [--fix-openssl] connect [--hip] [--as-gateway] [--user U]
            [--interface I]
            --browser <path> <server>
   gpclient disconnect
@@ -29,6 +29,7 @@ SUDO_UID (desktop user). Runtime files live in /run/gp-demo/ (gpclient.pid, auth
 import argparse
 import datetime
 import fcntl
+import json
 import os
 import signal
 import struct
@@ -83,12 +84,19 @@ PRESERVED_ENV = (
 )
 
 stop_requested = False
+log_json = False  # --log-format json: one JSON object per log record, as upstream
 
 
 def log(level, module, message):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if log_json:
+        line = json.dumps(
+            {"timestamp": now, "level": level, "target": module, "message": message}
+        )
+    else:
+        line = f"[{now} {level:<5} {module}] {message}"
     try:
-        print(f"[{now} {level:<5} {module}] {message}", flush=True)
+        print(line, flush=True)
     except OSError:
         pass  # the terminal is gone (service closed the PTY)
 
@@ -300,6 +308,7 @@ def disconnect(_args):
 def main():
     parser = argparse.ArgumentParser(prog="gpclient")
     parser.add_argument("--fix-openssl", action="store_true")
+    parser.add_argument("--log-format", choices=("text", "json"), default="text")
     sub = parser.add_subparsers(dest="command", required=True)
     conn = sub.add_parser("connect")
     conn.add_argument("--hip", action="store_true")
@@ -311,6 +320,8 @@ def main():
     conn.set_defaults(func=connect)
     sub.add_parser("disconnect").set_defaults(func=disconnect)
     args, _unknown = parser.parse_known_args()
+    global log_json
+    log_json = args.log_format == "json"
 
     if args.command == "connect":
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):

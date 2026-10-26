@@ -388,10 +388,13 @@
       "section": "Added",
       "text": "JSON log output for CLI integrations and automation.",
       "status": "tested",
-      "reason": "The service relies on text output, a foreground process and its own browser wrapper: it never passes --log-format json.",
+      "reason": "The service passes --log-format json once, before the subcommand, and reads the level and the message of each log record (parse_log_record). A line that is no record (println! output, prompts) is read as text.",
       "tests": [
-        "tests/unit/test_gpclient_command.py::test_connect_command_never_uses_unsupported_modes",
-        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags"
+        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags",
+        "tests/unit/test_gpclient_command.py::test_log_format_is_one_global_option_before_the_subcommand",
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_a_record",
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_anything_else_is_a_text_line",
+        "tests/unit/test_log_json.py::TestMatchersThroughRecords::test_text_lines_take_the_old_path"
       ]
     },
     {

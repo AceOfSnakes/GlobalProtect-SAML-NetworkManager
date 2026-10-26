@@ -1,6 +1,19 @@
 {
   "functions": [
     {
+      "function": "service/nm-gpclient-service.py::parse_log_record",
+      "kind": "reads-output",
+      "upstream": [
+        "log-json-level",
+        "log-json-target",
+        "log-json-message"
+      ],
+      "tests": [
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_a_record",
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_anything_else_is_a_text_line"
+      ]
+    },
+    {
       "function": "service/nm-gpclient-service.py::parse_tunnel_settings_line",
       "kind": "reads-output",
       "upstream": [
