@@ -1,45 +1,73 @@
 #!/bin/bash
 # Build script for creating .deb packages for multiple Ubuntu versions
 # Usage: ./build-all.sh [VERSION]
-#   VERSION: Optional Ubuntu version (22.04, 24.04 or 26.04). If not specified, builds for all versions.
+#   VERSION: Optional target: an Ubuntu version (22.04, 24.04, 26.04) or a release
+#            variant (24.04-neon). A target is valid when Dockerfile.ubuntu<VERSION>
+#            and debian/control.ubuntu<VERSION> exist. If not specified, builds all.
+# Environment:
+#   VERSION_SUFFIX  Optional, like the pull request suffix of CI (+pr<PR>.<run>):
+#                   added to the package version, after the release codename tag.
 # Examples:
-#   ./build-all.sh          # Build for all versions
-#   ./build-all.sh 22.04    # Build only for Ubuntu 22.04
-#   ./build-all.sh 24.04    # Build only for Ubuntu 24.04
-#   ./build-all.sh 26.04    # Build only for Ubuntu 26.04
+#   ./build-all.sh                               # Build for all versions and variants
+#   ./build-all.sh 24.04                         # Build only for Ubuntu 24.04
+#   ./build-all.sh 24.04-neon                    # Build only the KDE neon variant
+#   VERSION_SUFFIX=+pr54.1 ./build-all.sh 24.04  # Version gets the suffix +pr54.1
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Check if specific version was requested
+# A target has a Dockerfile and a control file (the same rule as CI).
+ALL_TARGETS=()
+for file in "$SCRIPT_DIR"/Dockerfile.ubuntu*; do
+    name="${file##*/Dockerfile.ubuntu}"
+    if [ -f "$SCRIPT_DIR/debian/control.ubuntu${name}" ]; then
+        ALL_TARGETS+=("$name")
+    fi
+done
+SUPPORTED="${ALL_TARGETS[*]}"
+
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo "Usage: $0 [VERSION]"
     echo ""
-    echo "Build .deb packages for Ubuntu versions."
+    echo "Build .deb packages for Ubuntu versions and release variants."
     echo ""
     echo "Arguments:"
-    echo "  VERSION    Optional Ubuntu version (22.04, 24.04 or 26.04)"
-    echo "             If not specified, builds for all supported versions"
+    echo "  VERSION    Optional target (${SUPPORTED// /, })"
+    echo "             If not specified, builds all of them"
+    echo ""
+    echo "Environment:"
+    echo "  VERSION_SUFFIX    Optional version suffix, for example +pr54.1 (as CI does for pull requests)"
     echo ""
     echo "Examples:"
-    echo "  $0          # Build for all versions (22.04, 24.04 and 26.04)"
-    echo "  $0 22.04    # Build only for Ubuntu 22.04"
-    echo "  $0 24.04    # Build only for Ubuntu 24.04"
-    echo "  $0 26.04    # Build only for Ubuntu 26.04"
+    echo "  $0                    # Build all targets"
+    echo "  $0 24.04              # Build only for Ubuntu 24.04"
+    echo "  $0 24.04-neon         # Build only the KDE neon variant"
     exit 0
-elif [ -n "$1" ]; then
+fi
+
+# The suffix goes into a sed command in the container: allow a plus sign, letters, digits and dots only.
+VERSION_SUFFIX="${VERSION_SUFFIX:-}"
+if ! [[ "$VERSION_SUFFIX" =~ ^(\+[A-Za-z0-9.]+)?$ ]]; then
+    echo "ERROR: Invalid VERSION_SUFFIX '$VERSION_SUFFIX'. Use a plus sign, then letters, digits or dots (for example +pr54.1)"
+    exit 1
+fi
+
+if [ -n "$1" ]; then
     # Validate version
-    if [ "$1" != "22.04" ] && [ "$1" != "24.04" ] && [ "$1" != "26.04" ]; then
-        echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: 22.04, 24.04, 26.04"
-        echo "Run '$0 --help' for usage information"
-        exit 1
-    fi
+    case " $SUPPORTED " in
+        *" $1 "*) ;;
+        *)
+            echo "ERROR: Invalid Ubuntu version '$1'. Supported versions: ${SUPPORTED// /, }"
+            echo "Run '$0 --help' for usage information"
+            exit 1
+            ;;
+    esac
     UBUNTU_VERSIONS=("$1")
     echo "=== Building package for Ubuntu $1 only ==="
 else
-    # Build for all versions
-    UBUNTU_VERSIONS=("22.04" "24.04" "26.04")
+    # Build for all versions and variants
+    UBUNTU_VERSIONS=("${ALL_TARGETS[@]}")
     echo "=== Building packages for Ubuntu ${UBUNTU_VERSIONS[*]} ==="
 fi
 
@@ -56,12 +84,6 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     DOCKERFILE="Dockerfile.ubuntu${VERSION}"
     OUTPUT_DIR="$SCRIPT_DIR/output/ubuntu${VERSION}"
 
-    # Check if Dockerfile exists
-    if [ ! -f "$SCRIPT_DIR/$DOCKERFILE" ]; then
-        echo "ERROR: $DOCKERFILE not found"
-        exit 1
-    fi
-
     echo "=== Building Docker image from $DOCKERFILE ==="
     docker build -f "$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
 
@@ -71,14 +93,16 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     chmod 777 "$OUTPUT_DIR"
 
     # Run with cache mounts for Cargo registry and Rust target directory
-    # Copy version-specific control file before building
+    # Copy version-specific control file before building. With a suffix, tag the
+    # version as CI does (1.4.0-1~noble1+pr54.1): the same sed as build-release.yml.
     docker run --rm \
         --name "gpclient-build-ubuntu${VERSION}-$$" \
+        -e PR_SUFFIX="$VERSION_SUFFIX" \
         -v "$OUTPUT_DIR:/output" \
         -v "gpclient-cargo-cache-${VERSION}:/cargo-cache" \
         -v "gpclient-target-cache-${VERSION}:/build/source/external/GlobalProtect-openconnect/target" \
         "$IMAGE_NAME" \
-        bash -c "cp debian/control.ubuntu${VERSION} debian/control && fakeroot dpkg-buildpackage -us -uc -b && cp -v ../*.deb /output/ && { cp -v ../*.ddeb /output/ || true; }"
+        bash -c "cp debian/control.ubuntu${VERSION} debian/control && { [ -z \"\$PR_SUFFIX\" ] || { . /etc/os-release && sed -i \"1s/(\\([^)]*\\))/(\\1~\${VERSION_CODENAME}1\${PR_SUFFIX})/\" debian/changelog; }; } && fakeroot dpkg-buildpackage -us -uc -b && cp -v ../*.deb /output/ && { cp -v ../*.ddeb /output/ || true; }"
 
     echo "=== Build complete for Ubuntu $VERSION ==="
     echo "Packages available in: $OUTPUT_DIR/"

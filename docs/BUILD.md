@@ -81,6 +81,12 @@ source $HOME/.cargo/env
 ./build-all.sh 26.04
 ./build-all.sh 24.04
 ./build-all.sh 22.04
+
+# Build a release variant (Dockerfile.ubuntu<version>-<variant>), for example KDE neon
+./build-all.sh 24.04-neon
+
+# Add the version suffix that CI adds to pull request builds
+VERSION_SUFFIX=+pr54.1 ./build-all.sh 24.04
 ```
 
 Packages will be in `output/ubuntu26.04/`, `output/ubuntu24.04/` or `output/ubuntu22.04/`.

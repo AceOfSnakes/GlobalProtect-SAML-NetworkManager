@@ -154,15 +154,21 @@ touch ../new.deb
 """
 
 
-def run_build_all(tmp_path):
+def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",)):
+    """files: the targets that have a Dockerfile and a control file in the fake tree"""
     shutil.copy(os.path.join(ROOT, "build-all.sh"), tmp_path / "build-all.sh")
-    shutil.copy(os.path.join(ROOT, "Dockerfile.ubuntu24.04"), tmp_path / "Dockerfile.ubuntu24.04")
+    (tmp_path / "debian").mkdir(exist_ok=True)
+    for name in files:
+        shutil.copy(os.path.join(ROOT, f"Dockerfile.ubuntu{name}"), tmp_path / f"Dockerfile.ubuntu{name}")
+        (tmp_path / "debian" / f"control.ubuntu{name}").write_text("x")
     out = tmp_path / "output" / "ubuntu24.04"
     out.mkdir(parents=True)
     (out / "stale.deb").write_text("old")
     (out / "stale.ddeb").write_text("old")
     env = {"PATH": f"{fake_bin(tmp_path, {'docker': FAKE_DOCKER})}:{SAFE_PATH}", "FAKE_DIR": str(tmp_path)}
-    result = subprocess.run(["bash", str(tmp_path / "build-all.sh"), "24.04"], env=env,
+    if suffix is not None:
+        env["VERSION_SUFFIX"] = suffix
+    result = subprocess.run(["bash", str(tmp_path / "build-all.sh"), *([target] if target else [])], env=env,
                             capture_output=True, text=True, timeout=30)
     return result, out
 
@@ -170,11 +176,11 @@ def run_build_all(tmp_path):
 def run_container_command(tmp_path, out, **fake_env):
     """Run the command that build-all.sh gives the container, in a fake source tree"""
     source = tmp_path / "ctr" / "build" / "source"
-    (source / "debian").mkdir(parents=True)
+    (source / "debian").mkdir(parents=True, exist_ok=True)
     (source / "debian" / "control.ubuntu24.04").write_text("x")
     command = (tmp_path / "run_command").read_text().replace("/output/", f"{out}/")
     env = {"PATH": f"{fake_bin(tmp_path, {'fakeroot': FAKE_FAKEROOT, 'dpkg-buildpackage': 'exit 0'})}:{SAFE_PATH}",
-           **fake_env}
+           "PR_SUFFIX": "", **fake_env}
     return subprocess.run(["bash", "-c", command], cwd=source, env=env, capture_output=True, text=True, timeout=30)
 
 
@@ -231,6 +237,72 @@ class TestBuildAll:
         result = subprocess.run(["bash", "-c", command], cwd=source, env=env, capture_output=True, text=True)
 
         assert result.returncode != 0
+
+    def test_a_variant_builds_from_its_own_dockerfile_and_control_file(self, tmp_path):
+        result, _ = run_build_all(tmp_path, "24.04-neon", files=("24.04", "24.04-neon"))
+        calls = (tmp_path / "docker_calls").read_text()
+
+        assert result.returncode == 0, result.stderr
+        assert "build -f Dockerfile.ubuntu24.04-neon -t gpclient-builder:ubuntu24.04-neon" in calls
+        assert "cp debian/control.ubuntu24.04-neon debian/control" in (tmp_path / "run_command").read_text()
+        assert "Dockerfile.ubuntu24.04 " not in calls
+
+    def test_building_all_includes_the_variants(self, tmp_path):
+        result, _ = run_build_all(tmp_path, None, files=("24.04", "24.04-neon"))
+        calls = (tmp_path / "docker_calls").read_text()
+
+        assert result.returncode == 0, result.stderr
+        assert "-t gpclient-builder:ubuntu24.04 " in calls
+        assert "-t gpclient-builder:ubuntu24.04-neon " in calls
+
+    @pytest.mark.parametrize("target", ["24.04-nope", "20.04", "neon", "24.04-", "../24.04"])
+    def test_an_unknown_target_is_rejected_and_nothing_is_built(self, tmp_path, target):
+        result, _ = run_build_all(tmp_path, target, files=("24.04", "24.04-neon"))
+
+        assert result.returncode == 1
+        assert f"Invalid Ubuntu version '{target}'" in result.stdout
+        assert "24.04, 24.04-neon" in result.stdout
+        assert not (tmp_path / "docker_calls").exists()
+
+    def test_a_dockerfile_without_a_control_file_is_not_a_target(self, tmp_path):
+        shutil.copy(os.path.join(ROOT, "Dockerfile.ubuntu24.04"), tmp_path / "Dockerfile.ubuntu24.04-neon")
+        result, _ = run_build_all(tmp_path, "24.04-neon")
+
+        assert result.returncode == 1
+        assert not (tmp_path / "docker_calls").exists()
+
+    def test_the_suffix_is_added_to_the_version_in_the_container(self, tmp_path):
+        _, out = run_build_all(tmp_path, suffix="+pr54.7")
+        assert "PR_SUFFIX=+pr54.7" in (tmp_path / "docker_calls").read_text()
+        source = tmp_path / "ctr" / "build" / "source"
+        (source / "debian").mkdir(parents=True)
+        (source / "debian" / "changelog").write_text("pkg (1.4.2-1) noble; urgency=medium\n")
+        (tmp_path / "osr").write_text("VERSION_CODENAME=noble\n")
+        command = (tmp_path / "run_command").read_text().replace("/etc/os-release", str(tmp_path / "osr"))
+        (tmp_path / "run_command").write_text(command)
+        result = run_container_command(tmp_path, out, PR_SUFFIX="+pr54.7")
+
+        assert result.returncode == 0, result.stderr
+        assert (source / "debian" / "changelog").read_text().startswith("pkg (1.4.2-1~noble1+pr54.7) noble")
+
+    def test_without_a_suffix_the_changelog_is_not_touched(self, tmp_path):
+        _, out = run_build_all(tmp_path)
+        assert "PR_SUFFIX= " in (tmp_path / "docker_calls").read_text()
+        source = tmp_path / "ctr" / "build" / "source"
+        (source / "debian").mkdir(parents=True)
+        (source / "debian" / "changelog").write_text("pkg (1.4.2-1) noble; urgency=medium\n")
+        result = run_container_command(tmp_path, out)
+
+        assert result.returncode == 0, result.stderr
+        assert (source / "debian" / "changelog").read_text().startswith("pkg (1.4.2-1) noble")
+
+    @pytest.mark.parametrize("suffix", ["pr54", "+pr54;id", "+a b", "+$(id)", "+pr/1", "+"])
+    def test_a_bad_suffix_is_rejected_and_nothing_is_built(self, tmp_path, suffix):
+        result, _ = run_build_all(tmp_path, suffix=suffix)
+
+        assert result.returncode == 1
+        assert "Invalid VERSION_SUFFIX" in result.stdout
+        assert not (tmp_path / "docker_calls").exists()
 
 
 # --- clean-cache.sh ----------------------------------------------------------
