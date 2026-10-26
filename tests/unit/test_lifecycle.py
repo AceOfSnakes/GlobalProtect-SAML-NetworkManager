@@ -32,44 +32,45 @@ class FakeProc:
         return 0
 
 
-def _plugin(service_module, monkeypatch, tunnel_loop=None):
+def _plugin(service_module, monkeypatch, monitor=None):
     """A plugin whose system-facing methods are fakes.
 
-    `plugin.spawned` lists the processes the fake _start_gpclient created;
+    `plugin.spawned` lists the processes the fake _start_gpclient created (it
+    also starts the output monitor task, `monitor` or one that runs forever);
     `plugin.closed` counts _close_pty calls.
     """
     plugin = service_module.GpclientVPNPlugin()
     plugin.spawned = []
     plugin.closed = 0
-    plugin.blocker = None  # an Event that _snapshot_tunnel_interfaces waits for
+    plugin.blocker = None  # an Event that _cleanup_stale_gpd0 waits for
     plugin.stop_called = []
 
     async def noop():
         pass
 
-    async def snapshot():
+    async def cleanup():
         if plugin.blocker is not None:
             await plugin.blocker.wait()
-        return {}
+
+    async def forever():
+        await asyncio.sleep(3600)
 
     async def start():
         proc = FakeProc()
         plugin.spawned.append(proc)
         plugin.gpclient_process = proc
         plugin._pty_master = 1000 + len(plugin.spawned)
+        plugin.stdout_monitor_task = plugin._create_task(
+            (monitor or forever)(), "gpclient output monitor"
+        )
         return True
-
-    async def forever():
-        await asyncio.sleep(3600)
 
     def close_pty():
         plugin.closed += 1
         plugin._pty_master = None
 
-    monkeypatch.setattr(plugin, "_cleanup_stale_gpd0", noop)
-    monkeypatch.setattr(plugin, "_snapshot_tunnel_interfaces", snapshot)
+    monkeypatch.setattr(plugin, "_cleanup_stale_gpd0", cleanup)
     monkeypatch.setattr(plugin, "_start_gpclient", start)
-    monkeypatch.setattr(plugin, "_check_tunnel_loop", tunnel_loop or forever)
     monkeypatch.setattr(plugin, "_remember_gpauth", noop)
     monkeypatch.setattr(plugin, "_stop_remembered_gpauth", noop)
     monkeypatch.setattr(plugin, "_close_pty", close_pty)
@@ -83,7 +84,7 @@ async def _settle(rounds=5):
 
 async def _finish(plugin):
     """Stop the tasks of a test session"""
-    for task in (plugin.tunnel_check_task, plugin.stdout_monitor_task):
+    for task in (plugin.profile_task, plugin.stdout_monitor_task):
         if task:
             task.cancel()
     await _settle()
@@ -194,7 +195,7 @@ class TestTeardownOrder:
 
         async def go():
             plugin._state = service_module.NM_VPN_SERVICE_STATE_STARTED
-            plugin.tunnel_check_task = asyncio.create_task(tunnel())
+            plugin.profile_task = asyncio.create_task(tunnel())
             plugin.stdout_monitor_task = asyncio.create_task(monitor())
             await asyncio.sleep(0)
             disconnect = asyncio.create_task(plugin.Disconnect())
@@ -210,7 +211,7 @@ class TestTeardownOrder:
 
 class TestDisconnectDuringConnect:
     @pytest.mark.parametrize(
-        "step", ["_cleanup_stale_gpd0", "_snapshot_tunnel_interfaces", "_start_gpclient"]
+        "step", ["_cleanup_stale_gpd0", "_start_gpclient"]
     )
     def test_gpclient_is_not_started(
         self, service_module, monkeypatch, dbus_signals, step
@@ -221,7 +222,7 @@ class TestDisconnectDuringConnect:
         async def blocked(*_args):
             await blocker.wait()
             # What the real _start_gpclient does when it was superseded
-            return False if step == "_start_gpclient" else {}
+            return step != "_start_gpclient"
 
         monkeypatch.setattr(plugin, step, blocked)
 
@@ -236,7 +237,7 @@ class TestDisconnectDuringConnect:
         asyncio.run(go())
 
         assert plugin.spawned == []
-        assert plugin.tunnel_check_task is None
+        assert plugin.stdout_monitor_task is None
         assert _failures(dbus_signals) == []
         assert plugin._state == service_module.NM_VPN_SERVICE_STATE_STOPPED
         assert dbus_signals[-1] == (
@@ -274,7 +275,7 @@ class TestDisconnectDuringConnect:
         asyncio.run(go())
 
         assert plugin.stop_called == plugin.spawned and len(plugin.spawned) == 1
-        assert plugin.tunnel_check_task is None
+        assert plugin.stdout_monitor_task is None
         assert _failures(dbus_signals) == []
         assert dbus_signals[-1] == ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED)
 
@@ -378,7 +379,7 @@ class TestTaskCrash:
         async def crash():
             raise RuntimeError("boom")
 
-        plugin = _plugin(service_module, monkeypatch, tunnel_loop=crash)
+        plugin = _plugin(service_module, monkeypatch, monitor=crash)
 
         async def go():
             with caplog.at_level("ERROR", logger=service_module.logger.name):
@@ -392,7 +393,7 @@ class TestTaskCrash:
             ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
         ]
         assert plugin.spawned[0].terminated == 1
-        assert "internal error in tunnel monitor: boom" in caplog.text
+        assert "internal error in gpclient output monitor: boom" in caplog.text
         assert "Traceback" in caplog.text
 
     def test_cancelled_task_reports_nothing(
@@ -402,7 +403,7 @@ class TestTaskCrash:
 
         async def go():
             await plugin._do_connect(CONNECTION, False)
-            plugin.tunnel_check_task.cancel()
+            plugin.stdout_monitor_task.cancel()
             await _settle()
 
         asyncio.run(go())
@@ -436,7 +437,7 @@ class TestTaskCrash:
         async def finish():
             return None
 
-        plugin = _plugin(service_module, monkeypatch, tunnel_loop=finish)
+        plugin = _plugin(service_module, monkeypatch, monitor=finish)
 
         async def go():
             await plugin._do_connect(CONNECTION, False)
@@ -455,7 +456,7 @@ class TestTaskCrash:
             await release.wait()
             raise RuntimeError("late")
 
-        plugin = _plugin(service_module, monkeypatch, tunnel_loop=crash_later)
+        plugin = _plugin(service_module, monkeypatch, monitor=crash_later)
 
         async def go():
             nonlocal release

@@ -68,6 +68,7 @@ def env(service_module, monkeypatch):
     monkeypatch.setattr(service_module.sys, "argv", ["nm-gpclient-service"])
     monkeypatch.delenv("GPCLIENT_DEBUG", raising=False)
     monkeypatch.delenv("NM_VPN_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("NM_VPN_LOG_SYSLOG", raising=False)
     calls.bus = bus
     yield calls
     logger.setLevel(saved_level)
@@ -367,3 +368,114 @@ class TestLogLevelFromNetworkManager:
         run_service(service_module)
 
         assert service_module.logger.level == logging.INFO
+
+
+class FakeSystemctl:
+    """asyncio.create_subprocess_exec for `systemctl start`"""
+
+    def __init__(self, returncode=0, error=None, hang=False):
+        self.calls = []
+        self.killed = False
+        self.returncode = returncode
+        self.error = error
+        self.hang = hang
+
+    async def __call__(self, *argv, **kwargs):
+        self.calls.append(argv)
+        if self.error is not None:
+            raise self.error
+        fake = self
+
+        class Proc:
+            returncode = None if fake.hang else fake.returncode
+            killed = False
+
+            def kill(self):
+                Proc.killed = True
+                fake.killed = True
+
+            async def communicate(self):
+                if fake.hang:
+                    await asyncio.sleep(60)
+                return b"", b"Job for nm-gpclient.service failed."
+
+        return Proc()
+
+
+@pytest.fixture
+def spawned_by_nm(service_module, monkeypatch, tmp_path):
+    """NetworkManager's environment, with systemd running"""
+    monkeypatch.setenv("NM_VPN_LOG_SYSLOG", "1")
+    monkeypatch.setattr(service_module, "SYSTEMD_RUNTIME_DIR", str(tmp_path))
+    systemctl = FakeSystemctl()
+    monkeypatch.setattr(
+        service_module.asyncio, "create_subprocess_exec", systemctl
+    )
+    return systemctl
+
+
+class TestHandOverToUnit:
+    def test_started_by_networkmanager_the_unit_takes_over(
+        self, service_module, env, spawned_by_nm
+    ):
+        result, _ = run_service(service_module)
+
+        assert result == 0
+        assert spawned_by_nm.calls == [("systemctl", "start", "nm-gpclient.service")]
+        # This process neither takes the bus name nor runs a plugin
+        assert env.opened == []
+        assert env.names == []
+        assert FakePlugin.instances == []
+
+    def test_not_started_by_networkmanager_runs_here(
+        self, service_module, env, spawned_by_nm, monkeypatch
+    ):
+        # systemd starts the unit (D-Bus activation, systemctl): no NM variable
+        monkeypatch.delenv("NM_VPN_LOG_SYSLOG")
+
+        run_service(service_module)
+
+        assert spawned_by_nm.calls == []
+        assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
+
+    def test_without_systemd_runs_here(
+        self, service_module, env, spawned_by_nm, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            service_module, "SYSTEMD_RUNTIME_DIR", str(tmp_path / "missing")
+        )
+
+        run_service(service_module)
+
+        assert spawned_by_nm.calls == []
+        assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"returncode": 1},
+            {"returncode": 5},  # unit not installed
+            {"error": FileNotFoundError("systemctl")},
+            {"hang": True},
+        ],
+    )
+    def test_a_failed_unit_start_runs_here(
+        self, service_module, env, spawned_by_nm, monkeypatch, caplog, kwargs
+    ):
+        systemctl = FakeSystemctl(**kwargs)
+        monkeypatch.setattr(
+            service_module.asyncio, "create_subprocess_exec", systemctl
+        )
+        monkeypatch.setattr(service_module, "UNIT_START_TIMEOUT", 0.05)
+
+        with caplog.at_level(logging.WARNING, logger=service_module.logger.name):
+            result, _ = run_service(service_module)
+
+        assert result == 0
+        assert len(systemctl.calls) == 1
+        assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
+        assert "Could not start nm-gpclient.service" in caplog.text
+        if kwargs.get("returncode"):
+            assert "Job for nm-gpclient.service failed." in caplog.text
+        # a systemctl that still waits is stopped, none other is
+        assert systemctl.killed == bool(kwargs.get("hang"))

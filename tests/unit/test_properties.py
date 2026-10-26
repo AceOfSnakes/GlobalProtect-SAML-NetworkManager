@@ -261,7 +261,7 @@ class TestDetectPrompt:
         assert service_module.detect_select_prompt(lines) == result
 
 
-# --- vpnc hook state file ----------------------------------------------------
+# --- vpnc environment ---------------------------------------------------------
 
 ip4 = st.ip_addresses(v=4).map(str)
 ip6 = st.ip_addresses(v=6).map(str)
@@ -270,20 +270,52 @@ domain = st.from_regex(
 )
 
 
-class TestDnsState:
-    @given(text=st.text(max_size=200))
-    def test_parse_never_raises_and_keys_are_identifiers(self, service_module, text):
-        state = service_module.parse_dns_state(text)
-        for key, value in state.items():
-            assert key.isidentifier() and key.isascii()
-            assert value == value.strip()
-
-    @given(text=st.text(max_size=200), iface=st.text(max_size=8))
-    def test_learned_dns_never_raises(self, service_module, text, iface):
-        state = service_module.parse_dns_state(text)
-        result = service_module.learned_dns_from_state(state, iface)
+class TestVpncEnv:
+    @given(
+        env=st.dictionaries(st.text(max_size=24), st.text(max_size=40), max_size=10),
+        iface=st.text(max_size=8),
+    )
+    def test_readers_never_raise(self, service_module, env, iface):
+        result = service_module.learned_dns_from_state(env, iface)
         assert result is None or len(result) == 3
-        service_module.vpn_gateway_from_state(state, iface)
+        service_module.vpn_gateway_from_state(env, iface)
+        service_module.tunnel_ipv6_from_state(env, iface)
+        service_module.tunnel_ipv4_from_env(env)
+        service_module.tunnel_mtu_from_env(env)
+
+    @given(
+        env=st.dictionaries(
+            st.sampled_from(
+                [
+                    "INTERNAL_IP4_ADDRESS",
+                    "INTERNAL_IP4_NETMASK",
+                    "INTERNAL_IP4_NETMASKLEN",
+                    "INTERNAL_IP4_MTU",
+                ]
+            ),
+            st.text(max_size=20),
+        )
+    )
+    def test_ipv4_and_mtu_are_valid_or_none(self, service_module, env):
+        found = service_module.tunnel_ipv4_from_env(env)
+        if found is not None:
+            address, prefix = found
+            assert isinstance(address, ipaddress.IPv4Address)
+            assert 0 <= prefix <= 32
+        mtu = service_module.tunnel_mtu_from_env(env)
+        assert mtu is None or 68 <= mtu <= 65535
+
+    @given(address=ip4, prefix=st.integers(0, 32))
+    def test_the_prefix_is_always_32(self, service_module, address, prefix):
+        mask = str(ipaddress.IPv4Network(f"0.0.0.0/{prefix}").netmask)
+        found = service_module.tunnel_ipv4_from_env(
+            {
+                "INTERNAL_IP4_ADDRESS": address,
+                "INTERNAL_IP4_NETMASKLEN": str(prefix),
+                "INTERNAL_IP4_NETMASK": mask,
+            }
+        )
+        assert found == (ipaddress.IPv4Address(address), 32)
 
     @given(
         servers=st.lists(ip4, max_size=4),
@@ -291,21 +323,17 @@ class TestDnsState:
         domains=st.lists(domain, max_size=4),
         split=st.lists(domain, max_size=4),
     )
-    def test_generated_state_round_trips(
+    def test_generated_env_round_trips(
         self, service_module, servers, servers6, domains, split
     ):
-        text = "\n".join(
-            [
-                "# written by the hook",
-                "TUNDEV=gpd0",
-                "INTERNAL_IP4_DNS=" + " ".join(servers),
-                "INTERNAL_IP6_DNS=" + " ".join(servers6),
-                "CISCO_DEF_DOMAIN=" + " ".join(domains),
-                "CISCO_SPLIT_DNS=" + ",".join(split),
-            ]
-        )
-        state = service_module.parse_dns_state(text)
-        found = service_module.learned_dns_from_state(state, "gpd0")
+        env = {
+            "TUNDEV": "gpd0",
+            "INTERNAL_IP4_DNS": " ".join(servers),
+            "INTERNAL_IP6_DNS": " ".join(servers6),
+            "CISCO_DEF_DOMAIN": " ".join(domains),
+            "CISCO_SPLIT_DNS": ",".join(split),
+        }
+        found = service_module.learned_dns_from_state(env, "gpd0")
         dedupe = service_module._dedupe
         assert found == (
             dedupe(servers),
@@ -314,29 +342,18 @@ class TestDnsState:
         )
         for address in found[0] + found[2]:
             ipaddress.ip_address(address)
-        # a state of another tunnel is not ours
-        assert service_module.learned_dns_from_state(state, "tun9") is None
+        # the environment of another tunnel is not ours
+        assert service_module.learned_dns_from_state(env, "tun9") is None
 
     @given(
-        key=st.from_regex(r"[A-Za-z_][A-Za-z0-9_]*", fullmatch=True),
-        value=st.text(
-            alphabet=st.characters(blacklist_categories=("Cs", "Zl", "Zp", "Cc")),
-            max_size=20,
-        ),
+        environ=st.dictionaries(st.text(max_size=12), st.text(max_size=20), max_size=12)
     )
-    def test_key_value_round_trips(self, service_module, key, value):
-        state = service_module.parse_dns_state("%s=%s\n" % (key, value))
-        assert state == {key: value.strip()}
-
-    @given(
-        line=st.text(max_size=30).filter(
-            lambda s: "=" not in s
-            and not any(c in s for c in "\r\n\x0b\x0c\x1c\x1d\x1e\x85  ")
-        )
-    )
-    def test_lines_without_equals_and_comments_are_ignored(self, service_module, line):
-        assert service_module.parse_dns_state(line) == {}
-        assert service_module.parse_dns_state("#" + line + "=1") == {}
+    def test_notify_sends_only_the_allow_list(self, service_module, environ):
+        reason, token, env = service_module.vpnc_notify_env(environ)
+        assert set(env) <= set(service_module.VPNC_NOTIFY_ENV)
+        assert all(env[key] == environ[key] for key in env)
+        assert reason == environ.get("reason", "")
+        assert token == environ.get(service_module.NOTIFY_TOKEN_ENV, "")
 
 
 # --- parse_mtu ---------------------------------------------------------------

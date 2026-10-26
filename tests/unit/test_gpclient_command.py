@@ -240,13 +240,9 @@ def _drive_connect(service_module, monkeypatch, data):
 
     async def nothing(*args, **kwargs):
         return None
-    async def idle():
-        return None
 
     monkeypatch.setattr(plugin, "_start_gpclient", fake_start)
     monkeypatch.setattr(plugin, "_cleanup_stale_gpd0", nothing)
-    monkeypatch.setattr(plugin, "_snapshot_tunnel_interfaces", nothing)
-    monkeypatch.setattr(plugin, "_check_tunnel_loop", idle)
 
     async def run():
         try:
@@ -392,13 +388,8 @@ def _do_connect(service_module, monkeypatch, vpn_data):
     async def started():
         return True
 
-    async def idle():
-        pass
-
     plugin._cleanup_stale_gpd0 = nothing
-    plugin._snapshot_tunnel_interfaces = nothing
     plugin._start_gpclient = started
-    plugin._check_tunnel_loop = idle
 
     async def run():
         data = {"gateway": "portal.example.com", **vpn_data}

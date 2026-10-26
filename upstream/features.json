@@ -62,7 +62,7 @@
       "section": "Added",
       "text": "Added a Connection Details panel showing VPN information and live upload and download activity.",
       "status": "tested",
-      "reason": "The panel is GUI only. The service reads the matching CLI log lines (VPN interface, DNS, search domains, split DNS, MTU) as a cross-check and a fallback for the DNS state of the vpnc hook, never for routing (issue 37).",
+      "reason": "The panel is GUI only. The service reads the matching CLI log lines (VPN interface, DNS, search domains, split DNS, MTU) as a cross-check and a fallback for the DNS the vpnc hook reports, never for routing (issue 37).",
       "tests": [
         "tests/unit/test_tunnel_settings_log.py::TestParseLines::test_each_line_kind",
         "tests/unit/test_tunnel_settings_log.py::TestRejectedValues::test_dns_that_cannot_be_trusted_is_not_used",

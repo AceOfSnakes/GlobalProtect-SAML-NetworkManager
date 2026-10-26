@@ -10,13 +10,10 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import ipaddress
-import os
-import stat
 import sys
 
 import pytest
-
-from test_tunnel_detection import _ip4_config, _plugin_with_tunnels, _run_loop
+from vpnc_notify_helpers import active_plugin, ip4_config, notify, vpnc_env
 
 # Not symmetric: the big-endian and the native value differ on little-endian
 ADDRESSES = ["10.124.0.15", "192.168.1.5", "172.16.254.1", "10.100.7.42", "1.2.3.4"]
@@ -35,29 +32,12 @@ def _big_endian(address):
     return int.from_bytes(ipaddress.IPv4Address(address).packed, "big")
 
 
-def _fake_ip(tmp_path, monkeypatch, route_output):
-    """Put an `ip` on PATH that answers `ip route show dev X` with the text."""
-    bindir = tmp_path / "fakebin"
-    bindir.mkdir(exist_ok=True)
-    tool = bindir / "ip"
-    tool.write_text(f"#!/bin/sh\ncat <<'EOF'\n{route_output}\nEOF\n")
-    tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
-    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
-
-
 @pytest.fixture
-def detect(service_module, monkeypatch, tmp_path, dbus_signals):
-    def run(ip_addr, route_output=""):
-        _fake_ip(tmp_path, monkeypatch, route_output)
-        plugin = _plugin_with_tunnels(
-            service_module,
-            monkeypatch,
-            tmp_path,
-            ips={"tun0": ip_addr},
-            preexisting={},
-        )
-        assert _run_loop(plugin) is True
-        return _ip4_config(dbus_signals)
+def detect(service_module, dbus_signals):
+    def run(ip_addr, gateway=None):
+        plugin = active_plugin(service_module)
+        notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=ip_addr, VPNGATEWAY=gateway))
+        return ip4_config(dbus_signals)
 
     return run
 
@@ -92,27 +72,31 @@ class TestAddress:
 
 class TestGateway:
     @pytest.mark.parametrize("gateway", ADDRESSES)
-    def test_gateway_from_routes_is_in_addr_t(self, detect, gateway):
-        config = detect("10.9.8.7", route_output=f"default via {gateway} dev tun0")
+    def test_vpn_server_is_in_addr_t(self, detect, gateway):
+        config = detect("10.9.8.7", gateway=gateway)
 
         assert config["gateway"] == ("u", _expected(gateway))
 
     @pytest.mark.parametrize("address", ADDRESSES)
     def test_tunnel_ip_used_as_gateway_is_in_addr_t(self, detect, address):
-        config = detect(address, route_output="10.0.0.0/8 dev tun0 scope link")
+        config = detect(address)
 
         assert config["gateway"] == ("u", _expected(address))
 
     @big_endian_host
     @pytest.mark.parametrize("gateway", ADDRESSES)
     def test_gateway_is_not_big_endian(self, detect, gateway):
-        config = detect("10.9.8.7", route_output=f"default via {gateway} dev tun0")
+        config = detect("10.9.8.7", gateway=gateway)
 
         assert config["gateway"] != ("u", _big_endian(gateway))
 
     @pytest.mark.parametrize("bad", ["1.2", "fe80::1", "0x7f.0.0.1"])
-    def test_a_malformed_gateway_is_left_out(self, detect, bad):
-        config = detect("10.9.8.7", route_output=f"default via {bad} dev tun0")
+    def test_a_malformed_gateway_gives_way_to_the_tunnel_ip(self, detect, bad):
+        config = detect("10.9.8.7", gateway=bad)
 
-        assert config is not None
+        assert config["gateway"] == ("u", _expected("10.9.8.7"))
+
+    def test_no_address_and_no_gateway_leaves_both_out(self, detect):
+        config = detect("1", gateway=None)
+
         assert "gateway" not in config

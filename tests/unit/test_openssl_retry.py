@@ -315,11 +315,11 @@ class TestPersistingTheWorkaround:
 
         written = []
 
-        async def record(key, value):
-            written.append((key, value))
+        async def record(data, drop_secrets=()):
+            written.extend(data.items())
             return True
 
-        plugin._write_vpn_data = record
+        plugin._update_profile = record
         return plugin, written
 
     def test_stored_after_a_successful_retry(self, service_module):
@@ -344,20 +344,18 @@ class TestPersistingTheWorkaround:
 
         assert written == []
 
-    def test_nothing_written_without_a_uuid(self, service_module):
+    def test_nothing_written_without_a_uuid(self, service_module, monkeypatch):
         plugin = service_module.GpclientVPNPlugin()
         plugin._openssl_retried = True
         plugin.fix_openssl = True
 
-        async def fail(*_args, **_kwargs):
-            raise AssertionError("nmcli must not be called")
+        def fail(*_args, **_kwargs):
+            raise AssertionError("the profile must not be written")
 
-        original = asyncio.create_subprocess_exec
-        asyncio.create_subprocess_exec = fail
-        try:
-            asyncio.run(plugin._persist_fix_openssl())
-        finally:
-            asyncio.create_subprocess_exec = original
+        monkeypatch.setattr(
+            service_module.NmSettingsInterface, "new_proxy", fail, raising=False
+        )
+        asyncio.run(plugin._persist_fix_openssl())
 
 
 class TestFailureStateTransition:

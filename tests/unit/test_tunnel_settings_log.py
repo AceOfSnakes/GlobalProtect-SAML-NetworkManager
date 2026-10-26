@@ -3,9 +3,9 @@ Tests for the tunnel settings lines of gpclient (issue #37).
 
 Since GlobalProtect-openconnect 3.1.0 gpclient logs what the tunnel negotiated
 ("VPN interface: tun0", "VPN DNS: a, b", ...; gptunnel log_configuration). The
-service reads them as a cross-check and a fallback for the DNS state of the
-vpnc hook. The hook stays the source for routing: the log never changes the
-interface or the address, and never replaces what the hook recorded.
+service reads them as a cross-check and a fallback for the DNS the vpnc hook
+reports. The hook stays the source for routing: the log never changes the
+interface or the address, and never replaces what the hook reported.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -15,9 +15,8 @@ import dataclasses
 import sys
 
 import pytest
-
 from test_dbus_methods import _conn, _plugin, connect, fake_exec  # noqa: F401
-from test_tunnel_detection import _ip4_config, _plugin_with_tunnels, _run_loop
+from vpnc_notify_helpers import activate, ip4_config, notify, vpnc_env
 
 PREFIX = "[2026-01-01T00:00:02Z INFO  gptunnel::configuration] "
 
@@ -296,11 +295,6 @@ def _read_output(plugin, timeout=10):
     asyncio.run(scenario())
 
 
-def _state(service_module, **fields):
-    with open(service_module.DNS_STATE_FILE, "w", encoding="utf-8") as f:
-        f.write("".join(f"{k}={v}\n" for k, v in fields.items()))
-
-
 def _disagreements(caplog):
     """The warnings about the hook and the log disagreeing"""
     return [
@@ -314,14 +308,12 @@ def _nm(service_module, *addresses):
     return [service_module.ipv4_to_nm_uint32(a) for a in addresses]
 
 
-def _detect(service_module, monkeypatch, tmp_path, plugin):
-    """Run the tunnel detection of `plugin` against a tun0 with 10.100.7.42"""
-    plugin2 = _plugin_with_tunnels(
-        service_module, monkeypatch, tmp_path, {"tun0": "10.100.7.42"}, {}
-    )
-    # the plugin that read the output is the one that detects the tunnel
-    plugin2._tunnel_settings = plugin._tunnel_settings
-    assert _run_loop(plugin2) is True
+def _detect(service_module, plugin, state=None):
+    """The vpnc hook reports tun0 (10.100.7.42) with `state` as DNS, to the
+    plugin that read the output of gpclient"""
+    activate(service_module, plugin)
+    env = {"INTERNAL_IP4_NETMASK": "255.255.255.0", "VPNGATEWAY": None}
+    notify(plugin, vpnc_env(**{**env, **(state or {})}))
 
 
 class TestOutputPath:
@@ -388,11 +380,11 @@ class TestFallbackAndCrossCheck:
             _lines(**{"split DNS": "vpn.example"}),
         )
         _read_output(plugin)
-        _state(service_module, TUNDEV="tun0", VPNGATEWAY="198.51.100.7")
+        state = dict(TUNDEV="tun0", VPNGATEWAY="198.51.100.7")
 
-        _detect(service_module, monkeypatch, tmp_path, plugin)
+        _detect(service_module, plugin, state)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert config["dns"] == ("au", _nm(service_module, "10.1.1.1", "10.1.1.2"))
         assert config["domains"] == (
             "as",
@@ -406,9 +398,9 @@ class TestFallbackAndCrossCheck:
         _read_output(plugin)
 
         with caplog.at_level("INFO", logger=service_module.logger.name):
-            _detect(service_module, monkeypatch, tmp_path, plugin)
+            _detect(service_module, plugin)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert config["dns"] == ("au", _nm(service_module, "10.1.1.1", "10.1.1.2"))
         assert "No DNS servers from the vpnc hook - using" in caplog.text
         assert _disagreements(caplog) == []
@@ -418,17 +410,16 @@ class TestFallbackAndCrossCheck:
     ):
         plugin = _plugin_running(service_module, monkeypatch, tmp_path, _lines())
         _read_output(plugin)
-        _state(
-            service_module,
+        state = dict(
             TUNDEV="tun0",
             INTERNAL_IP4_DNS="10.2.2.2",
             CISCO_DEF_DOMAIN="other.example",
         )
 
         with caplog.at_level("INFO", logger=service_module.logger.name):
-            _detect(service_module, monkeypatch, tmp_path, plugin)
+            _detect(service_module, plugin, state)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert config["dns"] == ("au", _nm(service_module, "10.2.2.2"))
         assert config["domains"] == ("as", ["other.example"])
         warnings = _disagreements(caplog)
@@ -447,17 +438,16 @@ class TestFallbackAndCrossCheck:
             _lines(DNS="10.1.1.1", **{"search domains": "Corp.Example"}),
         )
         _read_output(plugin)
-        _state(
-            service_module,
+        state = dict(
             TUNDEV="tun0",
             INTERNAL_IP4_DNS="10.1.1.1",
             CISCO_DEF_DOMAIN="corp.example",
         )
 
         with caplog.at_level("INFO", logger=service_module.logger.name):
-            _detect(service_module, monkeypatch, tmp_path, plugin)
+            _detect(service_module, plugin, state)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert config["dns"] == ("au", _nm(service_module, "10.1.1.1"))
         assert config["domains"] == ("as", ["corp.example"])
         assert _disagreements(caplog) == []
@@ -475,8 +465,7 @@ class TestFallbackAndCrossCheck:
             ),
         )
         _read_output(plugin)
-        _state(
-            service_module,
+        state = dict(
             TUNDEV="tun0",
             INTERNAL_IP4_DNS="10.1.1.1",
             CISCO_DEF_DOMAIN="corp.example",
@@ -484,9 +473,9 @@ class TestFallbackAndCrossCheck:
         )
 
         with caplog.at_level("INFO", logger=service_module.logger.name):
-            _detect(service_module, monkeypatch, tmp_path, plugin)
+            _detect(service_module, plugin, state)
 
-        assert _ip4_config(dbus_signals)["domains"] == (
+        assert ip4_config(dbus_signals)["domains"] == (
             "as",
             ["corp.example", "~vpn.example"],
         )
@@ -495,8 +484,7 @@ class TestFallbackAndCrossCheck:
         # the same name as a search domain in the hook is not the same
         # configuration as a routing-only one in the log
         dbus_signals.clear()
-        _state(
-            service_module,
+        state = dict(
             TUNDEV="tun0",
             INTERNAL_IP4_DNS="10.1.1.1",
             CISCO_DEF_DOMAIN="corp.example vpn.example",
@@ -513,7 +501,7 @@ class TestFallbackAndCrossCheck:
         _read_output(plugin)
         caplog.clear()
         with caplog.at_level("INFO", logger=service_module.logger.name):
-            _detect(service_module, monkeypatch, tmp_path, plugin)
+            _detect(service_module, plugin, state)
 
         assert len(_disagreements(caplog)) == 1
 
@@ -522,12 +510,12 @@ class TestFallbackAndCrossCheck:
     ):
         plugin = _plugin_running(service_module, monkeypatch, tmp_path, _lines())
         _read_output(plugin)
-        _state(service_module, TUNDEV="tun0", INTERNAL_IP4_DNS="10.1.1.1 10.1.1.2")
+        state = dict(TUNDEV="tun0", INTERNAL_IP4_DNS="10.1.1.1 10.1.1.2")
 
         with caplog.at_level("INFO", logger=service_module.logger.name):
-            _detect(service_module, monkeypatch, tmp_path, plugin)
+            _detect(service_module, plugin, state)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert config["dns"] == ("au", _nm(service_module, "10.1.1.1", "10.1.1.2"))
         assert config["domains"] == ("as", ["corp.example", "lab.example"])
 
@@ -548,11 +536,11 @@ class TestFallbackAndCrossCheck:
         lines = _lines(**{"search domains": "none"}, **overrides)
         plugin = _plugin_running(service_module, monkeypatch, tmp_path, lines)
         _read_output(plugin)
-        _state(service_module, TUNDEV="tun0", VPNGATEWAY="198.51.100.7")
+        state = dict(TUNDEV="tun0", VPNGATEWAY="198.51.100.7")
 
-        _detect(service_module, monkeypatch, tmp_path, plugin)
+        _detect(service_module, plugin, state)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert "dns" not in config
         assert "domains" not in config
 
@@ -572,9 +560,9 @@ class TestFallbackAndCrossCheck:
         )
         _read_output(plugin)
 
-        _detect(service_module, monkeypatch, tmp_path, plugin)
+        _detect(service_module, plugin)
 
-        assert "domains" not in _ip4_config(dbus_signals)
+        assert "domains" not in ip4_config(dbus_signals)
 
     def test_the_log_never_changes_the_interface_or_the_address(
         self, service_module, monkeypatch, tmp_path, dbus_signals
@@ -586,17 +574,17 @@ class TestFallbackAndCrossCheck:
             _lines(IPv4="10.9.9.9/16", **{"gateway IP": "203.0.113.9"}),
         )
         _read_output(plugin)
-        _state(service_module, TUNDEV="tun0", VPNGATEWAY="198.51.100.7")
+        state = dict(TUNDEV="tun0", VPNGATEWAY="198.51.100.7")
 
-        _detect(service_module, monkeypatch, tmp_path, plugin)
+        _detect(service_module, plugin, state)
 
-        config = _ip4_config(dbus_signals)
+        config = ip4_config(dbus_signals)
         assert config["tundev"] == ("s", "tun0")
         assert config["address"] == (
             "u",
             service_module.ipv4_to_nm_uint32("10.100.7.42"),
         )
-        assert config["prefix"] == ("u", 24)
+        assert config["prefix"] == ("u", 32)
         assert config["gateway"] == (
             "u",
             service_module.ipv4_to_nm_uint32("198.51.100.7"),
@@ -609,9 +597,9 @@ class TestFallbackAndCrossCheck:
         _read_output(plugin)
         plugin._reset_output_state()
 
-        _detect(service_module, monkeypatch, tmp_path, plugin)
+        _detect(service_module, plugin)
 
-        assert "dns" not in _ip4_config(dbus_signals)
+        assert "dns" not in ip4_config(dbus_signals)
 
     def test_ipv6_servers_are_not_reported_in_ip4config(
         self, service_module, monkeypatch, tmp_path, dbus_signals
@@ -624,9 +612,9 @@ class TestFallbackAndCrossCheck:
         )
         _read_output(plugin)
 
-        _detect(service_module, monkeypatch, tmp_path, plugin)
+        _detect(service_module, plugin)
 
-        assert _ip4_config(dbus_signals)["dns"] == (
+        assert ip4_config(dbus_signals)["dns"] == (
             "au",
             _nm(service_module, "10.1.1.1"),
         )

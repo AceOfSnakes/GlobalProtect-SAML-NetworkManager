@@ -509,11 +509,11 @@ class TestPagedCollectionOverPty:
         """What _persist_gateway_list writes to the profile: [(key, value)]"""
         writes = []
 
-        async def record(key, value):
-            writes.append((key, value))
+        async def record(data, drop_secrets=()):
+            writes.extend(data.items())
             return True
 
-        plugin._write_vpn_data = record
+        plugin._update_profile = record
         asyncio.run(plugin._persist_gateway_list())
         return writes
 

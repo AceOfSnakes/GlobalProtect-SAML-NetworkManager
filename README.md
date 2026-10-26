@@ -41,11 +41,20 @@ Add the apt repository and install - dependencies, upgrades and the GNOME/Plasma
 choice are handled by apt:
 
 ```bash
-curl -fsSL https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg \
-  | sudo tee /usr/share/keyrings/gpclient-archive-keyring.gpg > /dev/null
+# old one-line setup from earlier instructions, if present
+sudo rm -f /etc/apt/sources.list.d/gpclient.list /usr/share/keyrings/gpclient-archive-keyring.gpg
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSLo /etc/apt/keyrings/gpclient-archive-keyring.gpg \
+  https://wmp.github.io/GlobalProtect-SAML-NetworkManager/gpclient-archive-keyring.gpg
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gpclient-archive-keyring.gpg] https://wmp.github.io/GlobalProtect-SAML-NetworkManager $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") main" \
-  | sudo tee /etc/apt/sources.list.d/gpclient.list
+sudo tee /etc/apt/sources.list.d/gpclient.sources > /dev/null <<EOF
+Types: deb
+URIs: https://wmp.github.io/GlobalProtect-SAML-NetworkManager
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: main
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/gpclient-archive-keyring.gpg
+EOF
 
 sudo apt update
 sudo apt install network-manager-gpclient-gnome    # GNOME, MATE, Cinnamon, XFCE
@@ -57,8 +66,8 @@ sudo apt install network-manager-gpclient-plasma-6 # KDE neon (Ubuntu 24.04 with
 
 `network-manager-gpclient-plasma` is built for the Plasma of the release (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 26.04). On Ubuntu 24.04 with Plasma 6 it does not fit. For **KDE neon** (Ubuntu 24.04 with Plasma 6 from `archive.neon.kde.org`) install `network-manager-gpclient-plasma-6` instead: it is built against the neon repository, for `amd64` only, and conflicts with `network-manager-gpclient-plasma` (only one Plasma generation can use the plugin). Ubuntu 24.04 with Plasma 6 from other sources (for example Kubuntu Backports) is not tested.
 
-Supported: Ubuntu 22.04, 24.04 and 26.04, `amd64` and `arm64`. Details, deb822 format and
-removal instructions: [docs/APT_REPO.md](docs/APT_REPO.md).
+Supported: Ubuntu 22.04, 24.04 and 26.04, `amd64` and `arm64`. Details, removal and
+migration from the old `.list` file (the `sudo rm -f` line of the commands above deletes it; `apt update` stops with "Conflicting values set for option Signed-By" otherwise): [docs/APT_REPO.md](docs/APT_REPO.md).
 
 **Ubuntu 22.04 only:** `python3-sdbus` is not in apt, install it with pip first.
 NetworkManager runs the service as root, so install it system-wide with `sudo`
@@ -207,7 +216,8 @@ NetworkManager as part of the VPN's IP configuration, so they survive
 NetworkManager's own DNS recalculations (they used to be applied only by
 vpnc-script and were wiped on the next recalculation - see
 [#15](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/15)).
-This needs the vpnc hook `/etc/vpnc/connect.d/90-gpclient-routing` that the
+This needs the vpnc hooks `/etc/vpnc/connect.d/90-gpclient-routing` and
+`/etc/vpnc/post-connect.d/90-gpclient-notify` (also in `reconnect.d`) that the
 package installs. The gateway's split-DNS domains are routing-only (`~domain`):
 names under them go to the VPN DNS servers, but a short name is not completed
 with them. Add a domain to `dns-domains` to make it a search domain as well.
@@ -298,9 +308,11 @@ Older versions added `resolve [!UNAVAIL=return]` to the `hosts:` line of `/etc/n
 ### Build
 
 ```bash
-./build-all.sh          # Build for all Ubuntu versions (22.04, 24.04, 26.04)
+./build-all.sh          # Build for all Ubuntu versions and variants (22.04, 24.04, 26.04, 24.04-neon on amd64 hosts only)
 ./build-all.sh 24.04    # Build for Ubuntu 24.04 only
 ./build-all.sh 26.04    # Build for Ubuntu 26.04 only (Plasma 6 / Qt6 / KF6)
+./build-all.sh 24.04-neon  # Build the KDE neon variant (amd64 only)
+VERSION_SUFFIX=+pr54.1 ./build-all.sh 24.04  # Add the suffix of CI pull request builds to the version
 ```
 
 Notes for Ubuntu 26.04:
@@ -351,11 +363,11 @@ Microsoft Edge is the recommended browser for SAML authentication because:
 
 The included `edge-wrapper` script handles:
 - Running Edge with correct Wayland/X11 display settings
-- Working around NetworkManager's sandbox (ProtectHome=read-only)
+- Working around a read-only home (ProtectHome=read-only), see the note below
 - Auto-closing Edge window after successful authentication
 - Setting up Edge policies for automatic protocol handling
 
-**Security note:** NetworkManager runs VPN services with `ProtectHome=read-only`, which prevents Edge from accessing its profile in `~/.config/microsoft-edge`. The edge-wrapper then uses a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. This means your main Edge profile (with saved passwords, cookies) is **not** used for VPN authentication.
+**Security note:** the service normally runs in its own systemd unit (`nm-gpclient.service`), where your home directory is writable. The edge-wrapper then uses **your own Edge profile** in `~/.config/microsoft-edge` (saved sign-ins, cookies, the Intune/Entra ID device registration), which single sign-on needs. Only when the home directory is read-only (the service fell back to NetworkManager's sandbox, `ProtectHome=read-only`, e.g. when `systemctl` could not start the unit) does the wrapper use a separate profile in a private directory (mode 700, owned by you): `/tmp/edge-wrapper-$UID/`. A directory in `/tmp` that is not yours or not private is never used; the wrapper takes a new random one instead. The journal says which profile was used ("using the user's own browser profile" or "using temp HOME").
 
 Firefox and Chrome also work but may require manual credential entry for Intune-protected portals.
 
@@ -376,9 +388,11 @@ ls -l /usr/lib/*-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient*.so
 
 ### Running the service manually for debugging
 
-The service is normally **auto-started** on demand by systemd / D-Bus the
-first time NetworkManager touches a GlobalProtect VPN connection — you
-do not need to start it by hand for normal use.
+The service is normally **auto-started** on demand the first time
+NetworkManager touches a GlobalProtect VPN connection: NetworkManager runs the
+program of the `.name` file, which starts the systemd unit `nm-gpclient.service`
+(so the service and the SAML browser run in that unit, not in NetworkManager's
+sandbox). You do not need to start it by hand for normal use.
 
 If you want to run it manually (for example with `--debug`), you have
 to stop the auto-started instance first, otherwise both processes try
