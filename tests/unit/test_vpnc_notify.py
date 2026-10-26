@@ -256,6 +256,18 @@ class TestRejected:
             service_module, plugin, dbus_signals, plugin._state
         )
 
+    @pytest.mark.parametrize("state_name", ["STOPPED", "STOPPING", "STARTING"])
+    def test_a_reconnect_after_a_failure(self, service_module, dbus_signals, state_name):
+        # the tunnel was up, then the session failed: gpclient is not reaped yet
+        state = getattr(service_module, f"NM_VPN_SERVICE_STATE_{state_name}")
+        plugin = active_plugin(service_module, _state=state, _tunnel_up=True)
+
+        _rejected(service_module, plugin, reason="reconnect")
+
+        assert dbus_signals == []
+        assert plugin._state == state
+        assert plugin.profile_task is None
+
     def test_a_second_connect_sends_no_second_started(
         self, service_module, dbus_signals
     ):

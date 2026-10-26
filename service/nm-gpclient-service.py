@@ -1106,7 +1106,7 @@ def parse_dns_servers(text: str) -> List[str]:
 # gpclient (3.1.0+) logs the tunnel settings it negotiated, one INFO line each,
 # in every foreground mode (gptunnel log_configuration). They are what the
 # gateway pushed, not proof that the system was configured, so they are only
-# a cross-check and a fallback for the vpnc hook's DNS state. The line starts
+# a cross-check and a fallback for the DNS the vpnc hook reports. The line starts
 # with the log prefix ("[2026-01-01T00:00:00Z INFO  target] ").
 TUNNEL_SETTINGS_RE = re.compile(
     r"^\[(?:\S+\s+)?INFO\s+[A-Za-z0-9_:]+\]\s+VPN "
@@ -4017,7 +4017,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             and self._state != NM_VPN_SERVICE_STATE_STARTING
         ):
             raise reject("the session is not starting: the tunnel is up or it failed")
-        if reason == VPNC_REASON_RECONNECT and not self._tunnel_up:
+        # _tunnel_up stays True after a failure until the teardown
+        if reason == VPNC_REASON_RECONNECT and (
+            not self._tunnel_up or self._state != NM_VPN_SERVICE_STATE_STARTED
+        ):
             raise reject("there is no tunnel to reconnect")
 
         iface = env.get("TUNDEV", "")

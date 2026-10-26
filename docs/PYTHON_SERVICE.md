@@ -17,7 +17,7 @@ The `nm-gpclient-service` is a Python3-based VPN service that implements the Net
 
 2. **D-Bus Interface**
    - Service name: `org.freedesktop.NetworkManager.gpclient`
-   - Object path: `/org/freedesktop/NetworkManager/gpclient`
+   - Object path: `/org/freedesktop/NetworkManager/VPN/Plugin`
    - Interface: `org.freedesktop.NetworkManager.VPN.Plugin`
    - Interface of the vpnc hook, on the same object:
      `org.freedesktop.NetworkManager.gpclient.Tunnel` (`Notify`, below)
