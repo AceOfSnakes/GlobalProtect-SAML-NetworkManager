@@ -290,7 +290,7 @@ class TestVpncEnv:
                     "INTERNAL_IP4_ADDRESS",
                     "INTERNAL_IP4_NETMASK",
                     "INTERNAL_IP4_NETMASKLEN",
-                    "MTU",
+                    "INTERNAL_IP4_MTU",
                 ]
             ),
             st.text(max_size=20),
@@ -306,15 +306,16 @@ class TestVpncEnv:
         assert mtu is None or 68 <= mtu <= 65535
 
     @given(address=ip4, prefix=st.integers(0, 32))
-    def test_netmask_and_netmasklen_agree(self, service_module, address, prefix):
+    def test_the_prefix_is_always_32(self, service_module, address, prefix):
         mask = str(ipaddress.IPv4Network(f"0.0.0.0/{prefix}").netmask)
-        by_len = service_module.tunnel_ipv4_from_env(
-            {"INTERNAL_IP4_ADDRESS": address, "INTERNAL_IP4_NETMASKLEN": str(prefix)}
+        found = service_module.tunnel_ipv4_from_env(
+            {
+                "INTERNAL_IP4_ADDRESS": address,
+                "INTERNAL_IP4_NETMASKLEN": str(prefix),
+                "INTERNAL_IP4_NETMASK": mask,
+            }
         )
-        by_mask = service_module.tunnel_ipv4_from_env(
-            {"INTERNAL_IP4_ADDRESS": address, "INTERNAL_IP4_NETMASK": mask}
-        )
-        assert by_len == by_mask == (ipaddress.IPv4Address(address), prefix)
+        assert found == (ipaddress.IPv4Address(address), 32)
 
     @given(
         servers=st.lists(ip4, max_size=4),

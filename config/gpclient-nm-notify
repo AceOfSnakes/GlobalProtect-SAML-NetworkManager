@@ -9,7 +9,10 @@
 # which reports the tunnel to NetworkManager (issue #53). The service runs
 # gpclient with two variables:
 #   GPCLIENT_NM_NOTIFY  the absolute path of the service program
-#   GPCLIENT_NM_TOKEN   a token that only this gpclient knows
+#   GPCLIENT_NM_TOKEN   a token for this gpclient session
+# The token is not a secret: the desktop user's gpauth and browser inherit it.
+# The D-Bus policy lets only root call the service; the token only ties a call
+# to the current gpclient session (not a stale or foreign root process).
 # A gpclient run by hand has neither, and this hook does nothing then.
 #
 # The program takes the vpnc environment (reason, TUNDEV, VPNGATEWAY,
@@ -17,6 +20,8 @@
 # inherits from vpnc-script. This hook changes nothing in that environment.
 
 gpclient_nm_notify() {
+  # vpnc-script-debug runs `sh -x`: do not trace the token into the journal
+  case $- in *x*) set +x; _gp_xtrace=1 ;; esac
   [ -n "${GPCLIENT_NM_NOTIFY:-}" ] && [ -n "${GPCLIENT_NM_TOKEN:-}" ] || return 0
 
   case "$GPCLIENT_NM_NOTIFY" in
@@ -42,3 +47,4 @@ gpclient_nm_notify() {
 
 gpclient_nm_notify
 unset -f gpclient_nm_notify
+if [ -n "${_gp_xtrace:-}" ]; then unset _gp_xtrace; set -x; fi

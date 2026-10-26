@@ -489,11 +489,11 @@ HOOKS = [
 ]
 
 
-def make_vpnc_root(tmp_path, hooks="/etc/vpnc", hook=True, script_mode=0o755, where="/etc/vpnc/vpnc-script"):
+def make_vpnc_root(tmp_path, hooks="/etc/vpnc", hook=True, post_connect=True, script_mode=0o755, where="/etc/vpnc/vpnc-script"):
     root = tmp_path / "root"
     script = root / where.lstrip("/")
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(f"#!/bin/sh\nHOOKS_DIR={hooks}\n")
+    script.write_text(f"#!/bin/sh\nHOOKS_DIR={hooks}\n" + ("run_hooks post-connect\n" if post_connect else ""))
     script.chmod(script_mode)
     if hook:
         for hook_dir, name in HOOKS:
@@ -514,6 +514,7 @@ def test_check_vpnc_script_accepts(tmp_path, where):
 @pytest.mark.parametrize(
     "kwargs",
     [
+        {"post_connect": False},  # the script never runs post-connect hooks
         {"hook": False},  # our hook is not in the directory the script runs
         {"hooks": "/usr/share/vpnc", "hook": False},
         {"script_mode": 0o644},  # not executable

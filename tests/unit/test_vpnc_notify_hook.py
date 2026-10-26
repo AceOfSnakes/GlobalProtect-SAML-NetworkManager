@@ -160,6 +160,33 @@ class TestRunsTheNotifier:
         assert result.stdout.split() == ["same", "no-function"]
 
 
+class TestTrace:
+    """vpnc-script-debug runs `sh -x`, which traces the sourced hooks"""
+
+    def test_the_token_is_not_traced(self, hook):
+        result = hook.run(script="set -x\n. {hook}\necho after")
+
+        assert result.stdout == "after\n"
+        assert hook.calls_made()  # the notifier ran
+        assert TOKEN not in result.stderr
+
+    def test_the_trace_is_back_on_after_the_hook(self, hook):
+        result = hook.run(script="set -x\n. {hook}\necho marker-after-hook")
+
+        assert "+ echo marker-after-hook" in result.stderr
+        assert "_gp_xtrace" not in result.stderr.split("marker-after-hook")[-1]
+
+    def test_no_trace_is_switched_on_when_it_was_off(self, hook):
+        result = hook.run(script=". {hook}\necho marker-after-hook")
+
+        assert result.stderr == ""
+
+    def test_the_trace_state_variable_is_gone(self, hook):
+        result = hook.run(script="set -x\n. {hook}\nset +x\necho \"[${{_gp_xtrace:-unset}}]\"")
+
+        assert result.stdout == "[unset]\n"
+
+
 class TestDoesNothing:
     """The negative counterparts: no notifier call"""
 

@@ -584,7 +584,7 @@ class TestFallbackAndCrossCheck:
             "u",
             service_module.ipv4_to_nm_uint32("10.100.7.42"),
         )
-        assert config["prefix"] == ("u", 24)
+        assert config["prefix"] == ("u", 32)
         assert config["gateway"] == (
             "u",
             service_module.ipv4_to_nm_uint32("198.51.100.7"),

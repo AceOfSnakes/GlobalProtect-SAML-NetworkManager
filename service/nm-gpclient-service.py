@@ -90,8 +90,11 @@ GPCLIENT_BINARY = "/usr/bin/gpclient"
 # reapplies it on every recalculation (issue #15).
 #
 # The service hands the hook two variables in gpclient's environment: the path of
-# this program and a token, new for every start of gpclient. Notify() takes no
-# call without the current token.
+# this program and a token, new for every start of gpclient. The token is not a
+# secret: gpauth and the browser run as the desktop user and inherit it. The
+# D-Bus policy (only root may call the service) is the barrier; the token only
+# ties a call to the current gpclient session, not to a stale or foreign root
+# process. Notify() takes no call without the current token.
 NOTIFY_PROGRAM_ENV = "GPCLIENT_NM_NOTIFY"
 NOTIFY_TOKEN_ENV = "GPCLIENT_NM_TOKEN"  # noqa: S105  # a variable name, not a token
 # The file NetworkManager started: the hook runs it again with --vpnc-notify
@@ -109,14 +112,12 @@ VPNC_NOTIFY_ENV = (
     "INTERNAL_IP4_NETMASK",
     "INTERNAL_IP4_NETMASKLEN",
     "INTERNAL_IP4_MTU",
-    "MTU",
     "INTERNAL_IP4_DNS",
     "INTERNAL_IP6_ADDRESS",
     "INTERNAL_IP6_NETMASK",
     "INTERNAL_IP6_DNS",
     "CISCO_DEF_DOMAIN",
     "CISCO_SPLIT_DNS",
-    "CISCO_BANNER",
 )
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
@@ -1070,30 +1071,23 @@ def tunnel_ipv4_from_env(
     """The tunnel's IPv4 address and prefix length from the vpnc environment,
     or None when INTERNAL_IP4_ADDRESS is no IPv4 address.
 
-    The prefix is INTERNAL_IP4_NETMASKLEN, or the length of INTERNAL_IP4_NETMASK
-    ("255.255.255.0"); a point-to-point tunnel that has neither gets 32.
+    The prefix is always 32: vpnc-script adds the address as
+    "$INTERNAL_IP4_ADDRESS/32 peer $INTERNAL_IP4_ADDRESS", whatever
+    INTERNAL_IP4_NETMASK says. A wider prefix would make NetworkManager add a
+    second address and a prefix route.
     """
     address = parse_ip_address(env.get("INTERNAL_IP4_ADDRESS", ""))
     if not isinstance(address, ipaddress.IPv4Address):
         return None
-    length = env.get("INTERNAL_IP4_NETMASKLEN", "")
-    if length.isascii() and length.isdigit() and int(length) <= 32:
-        return address, int(length)
-    netmask = parse_ip_address(env.get("INTERNAL_IP4_NETMASK", ""))
-    if isinstance(netmask, ipaddress.IPv4Address):
-        host_bits = int(netmask) ^ 0xFFFFFFFF
-        if host_bits & (host_bits + 1) == 0:  # ones, then zeros
-            return address, 32 - host_bits.bit_length()
     return address, 32
 
 
 def tunnel_mtu_from_env(env: Dict[str, str]) -> Optional[int]:
-    """The tunnel's MTU from the vpnc environment (MTU, else INTERNAL_IP4_MTU),
-    or None when there is none or it is no number between 68 and 65535."""
-    for key in ("MTU", "INTERNAL_IP4_MTU"):
-        text = env.get(key, "")
-        if text.isascii() and text.isdigit() and 68 <= int(text) <= 65535:
-            return int(text)
+    """The tunnel's MTU from the vpnc environment (INTERNAL_IP4_MTU), or None
+    when there is none or it is no number between 68 and 65535."""
+    text = env.get("INTERNAL_IP4_MTU", "")
+    if text.isascii() and text.isdigit() and 68 <= int(text) <= 65535:
+        return int(text)
     return None
 
 
@@ -2475,8 +2469,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             env["GPCLIENT_NM_NEVER_DEFAULT"] = "1" if self.never_default else "0"
 
             # What the vpnc hook needs to tell us that the tunnel is up: this
-            # program, and a token only this gpclient knows (new for every
-            # start, also the one after --fix-openssl)
+            # program, and a token for this session (new for every start, also
+            # the one after --fix-openssl). Not a secret (gpauth and the
+            # browser inherit it): the D-Bus policy limits callers to root.
             env[NOTIFY_PROGRAM_ENV] = SERVICE_PROGRAM
             self._notify_token = secrets.token_hex(16)
             env[NOTIFY_TOKEN_ENV] = self._notify_token

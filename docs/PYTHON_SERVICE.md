@@ -72,9 +72,9 @@ The D-Bus policy lets only root call the service.
 - `token` - the token the service gave this gpclient
 - `env` - the vpnc environment, only these variables: `TUNDEV`, `VPNGATEWAY`,
   `INTERNAL_IP4_ADDRESS`, `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`,
-  `INTERNAL_IP4_MTU`, `MTU`, `INTERNAL_IP4_DNS`, `INTERNAL_IP6_ADDRESS`,
+  `INTERNAL_IP4_MTU`, `INTERNAL_IP4_DNS`, `INTERNAL_IP6_ADDRESS`,
   `INTERNAL_IP6_NETMASK`, `INTERNAL_IP6_DNS`, `CISCO_DEF_DOMAIN`,
-  `CISCO_SPLIT_DNS`, `CISCO_BANNER`
+  `CISCO_SPLIT_DNS`
 
 The service rejects the call with the D-Bus error
 `org.freedesktop.NetworkManager.gpclient.Tunnel.Error.Rejected` and changes
@@ -84,8 +84,11 @@ nothing when: there is no running session (or a `Disconnect()` or a new
 `connect` comes when the tunnel is already up or the session is not starting,
 a `reconnect` comes before the first `connect`, or `TUNDEV` is not the
 interface the service asked for (`--interface`). Without a connection UUID the
-service takes any `TUNDEV` that is a valid interface name: the token shows
-that the call is from our gpclient.
+service takes any `TUNDEV` that is a valid interface name. The token is not
+a secret (gpauth and the browser run as the desktop user and inherit it, and
+it is readable in `/proc/<pid>/environ`). The D-Bus policy, which lets only
+root call the service, is the barrier; the token only ties a call to the
+current gpclient session, not to a stale or foreign root process.
 
 #### `SetConfig(a{sv})`
 Optional method for compatibility (not used).
@@ -147,13 +150,14 @@ the hooks with openconnect's environment (`INTERNAL_IP4_DNS`,
 `/etc/vpnc/post-connect.d/90-gpclient-notify` passes it on. The routing hook
 `/etc/vpnc/connect.d/90-gpclient-routing` runs before vpnc-script configures
 the tunnel; it keeps the route policy (`ignore-auto-routes`, `never-default`)
-and adds the profile's `dns-domains` to `CISCO_DEF_DOMAIN`. The address and
-prefix are `INTERNAL_IP4_ADDRESS` with `INTERNAL_IP4_NETMASKLEN`, or the
-length of `INTERNAL_IP4_NETMASK`; a tunnel with neither gets a /32. The
+and adds the profile's `dns-domains` to `CISCO_DEF_DOMAIN`. The address is
+`INTERNAL_IP4_ADDRESS` with prefix 32 always: vpnc-script adds it as
+`/32 peer`, whatever the netmask says, and a wider prefix would make
+NetworkManager add a second address and a prefix route. The
 `gateway` of `Ip4Config` is the VPN server's IPv4 address from `VPNGATEWAY`
 (NetworkManager routes it via the physical interface). If `VPNGATEWAY` is not
 an IPv4 address, the service uses the tunnel's own address. The `mtu` of
-`Config` is `MTU` (else `INTERNAL_IP4_MTU`) when that is a number from 68 to
+`Config` is `INTERNAL_IP4_MTU` when that is a number from 68 to
 65535, else the profile's `mtu`.
 Without this, NetworkManager only knows about an assumed tunnel device with
 an empty DNS configuration and wipes vpnc-script's resolver settings from

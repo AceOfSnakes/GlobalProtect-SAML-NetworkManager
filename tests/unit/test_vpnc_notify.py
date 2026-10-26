@@ -74,7 +74,7 @@ class TestAccepted:
         assert config == {
             "tundev": ("s", "tun0"),
             "address": ("u", nm("10.8.0.5")),
-            "prefix": ("u", 24),
+            "prefix": ("u", 32),
             "gateway": ("u", nm("203.0.113.9")),
         }
         assert signals_named(dbus_signals, "Config")[0] == {
@@ -421,31 +421,37 @@ class TestIpv4FromEnv:
     ADDRESS = "10.8.0.5"
 
     @pytest.mark.parametrize(
-        "extra, prefix",
+        "extra",
         [
-            ({"INTERNAL_IP4_NETMASK": "255.255.255.0"}, 24),
-            ({"INTERNAL_IP4_NETMASK": "255.255.0.0"}, 16),
-            ({"INTERNAL_IP4_NETMASK": "255.255.255.255"}, 32),
-            ({"INTERNAL_IP4_NETMASK": "255.255.255.252"}, 30),
-            ({"INTERNAL_IP4_NETMASK": "0.0.0.0"}, 0),
-            ({"INTERNAL_IP4_NETMASKLEN": "24"}, 24),
-            ({"INTERNAL_IP4_NETMASKLEN": "0"}, 0),
-            ({"INTERNAL_IP4_NETMASKLEN": "32"}, 32),
-            # the length wins over the mask
-            ({"INTERNAL_IP4_NETMASKLEN": "20", "INTERNAL_IP4_NETMASK": "255.0.0.0"}, 20),
-            # an unusable length gives way to the mask
-            ({"INTERNAL_IP4_NETMASKLEN": "x", "INTERNAL_IP4_NETMASK": "255.255.0.0"}, 16),
-            ({"INTERNAL_IP4_NETMASKLEN": "33", "INTERNAL_IP4_NETMASK": "255.255.0.0"}, 16),
-            ({"INTERNAL_IP4_NETMASKLEN": "-1", "INTERNAL_IP4_NETMASK": "255.255.0.0"}, 16),
+            {"INTERNAL_IP4_NETMASK": "255.255.255.0"},
+            {"INTERNAL_IP4_NETMASK": "255.255.0.0"},
+            {"INTERNAL_IP4_NETMASK": "0.0.0.0"},
+            {"INTERNAL_IP4_NETMASKLEN": "24"},
+            {"INTERNAL_IP4_NETMASKLEN": "0"},
+            {"INTERNAL_IP4_NETMASKLEN": "20", "INTERNAL_IP4_NETMASK": "255.0.0.0"},
         ],
     )
-    def test_prefix(self, service_module, extra, prefix):
+    def test_a_netmask_that_is_not_32_still_gives_prefix_32(
+        self, service_module, extra
+    ):
+        # vpnc-script adds "ADDRESS/32 peer ADDRESS": a wider prefix would make
+        # NetworkManager add a second address and a prefix route
         env = {"INTERNAL_IP4_ADDRESS": self.ADDRESS, **extra}
 
         assert service_module.tunnel_ipv4_from_env(env) == (
             ipaddress.IPv4Address(self.ADDRESS),
-            prefix,
+            32,
         )
+
+    def test_ip4config_has_prefix_32_for_a_wider_netmask(
+        self, service_module, dbus_signals
+    ):
+        notify(
+            active_plugin(service_module),
+            vpnc_env(INTERNAL_IP4_NETMASK="255.255.255.0", INTERNAL_IP4_NETMASKLEN="24"),
+        )
+
+        assert ip4_config(dbus_signals)["prefix"] == ("u", 32)
 
     @pytest.mark.parametrize(
         "extra",
@@ -461,7 +467,7 @@ class TestIpv4FromEnv:
             {"INTERNAL_IP4_NETMASKLEN": "٢٤"},  # not ASCII digits
         ],
     )
-    def test_without_a_usable_prefix_it_is_a_host_address(self, service_module, extra):
+    def test_a_missing_or_unusable_netmask_is_a_host_address(self, service_module, extra):
         env = {"INTERNAL_IP4_ADDRESS": self.ADDRESS, **extra}
 
         assert service_module.tunnel_ipv4_from_env(env) == (
@@ -537,12 +543,9 @@ class TestMtu:
     @pytest.mark.parametrize(
         "env, expected",
         [
-            ({"MTU": "1400"}, 1400),
             ({"INTERNAL_IP4_MTU": "1300"}, 1300),
-            ({"MTU": "1400", "INTERNAL_IP4_MTU": "1300"}, 1400),
-            ({"MTU": "x", "INTERNAL_IP4_MTU": "1300"}, 1300),
-            ({"MTU": "68"}, 68),
-            ({"MTU": "65535"}, 65535),
+            ({"INTERNAL_IP4_MTU": "68"}, 68),
+            ({"INTERNAL_IP4_MTU": "65535"}, 65535),
         ],
     )
     def test_the_tunnel_mtu(self, service_module, env, expected):
@@ -552,13 +555,14 @@ class TestMtu:
         "env",
         [
             {},
-            {"MTU": ""},
-            {"MTU": "67"},
-            {"MTU": "65536"},
-            {"MTU": "-1400"},
-            {"MTU": "14.0"},
-            {"MTU": "1400 "},
-            {"MTU": "１４００"},  # full-width digits
+            {"INTERNAL_IP4_MTU": ""},
+            {"MTU": "1400"},  # vpnc-script does not export it: not read
+            {"INTERNAL_IP4_MTU": "67"},
+            {"INTERNAL_IP4_MTU": "65536"},
+            {"INTERNAL_IP4_MTU": "-1400"},
+            {"INTERNAL_IP4_MTU": "14.0"},
+            {"INTERNAL_IP4_MTU": "1400 "},
+            {"INTERNAL_IP4_MTU": "１４００"},  # full-width digits
         ],
     )
     def test_no_mtu_when_there_is_none_or_it_is_invalid(self, service_module, env):
@@ -569,7 +573,7 @@ class TestMtu:
     ):
         plugin = active_plugin(service_module, mtu=1300)
 
-        notify(plugin, vpnc_env(MTU="1400"))
+        notify(plugin, vpnc_env(INTERNAL_IP4_MTU="1400"))
 
         assert signals_named(dbus_signals, "Config")[0]["mtu"] == ("u", 1400)
 
@@ -581,7 +585,7 @@ class TestMtu:
     ):
         plugin = active_plugin(service_module, mtu=mtu)
 
-        notify(plugin, vpnc_env(MTU="bad"))
+        notify(plugin, vpnc_env(INTERNAL_IP4_MTU="bad"))
 
         assert signals_named(dbus_signals, "Config")[0].get("mtu") == expected
 
@@ -665,6 +669,8 @@ class TestVpncNotifyMode:
         "GPCLIENT_NM_NOTIFY": "/usr/lib/NetworkManager/nm-gpclient-service",
         "INTERNAL_IP4_NETMASKLEN": "24",
         "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0",
+        "MTU": "1400",
+        "CISCO_BANNER": "hello",
         "SUDO_USER": "alice",
         "reasoning": "x",
     }
@@ -697,7 +703,7 @@ class TestVpncNotifyMode:
     @pytest.mark.parametrize(
         "name",
         ["PATH", "HOME", "SUDO_USER", "GPCLIENT_NM_NOTIFY", "GPCLIENT_NM_TOKEN",
-         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning"],
+         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU", "CISCO_BANNER"],
     )
     def test_a_variable_that_is_not_listed_is_not_sent(
         self, service_module, proxy, name

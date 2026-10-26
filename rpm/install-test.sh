@@ -77,6 +77,9 @@ check_vpnc_script() {
     [ -n "$script" ] || fail "no executable vpnc-script in a path gpclient searches"
     hooks=$(sed -n 's/^HOOKS_DIR=//p' "$script" | head -n1)
     [ -n "$hooks" ] || fail "$script has no HOOKS_DIR"
+    # Without post-connect hooks the service is never told that the tunnel is up
+    grep -q 'run_hooks post-connect' "$script" \
+        || fail "$script does not run post-connect hooks: the connection would never be reported as up"
     for hook in connect.d/90-gpclient-routing post-connect.d/90-gpclient-notify reconnect.d/90-gpclient-notify; do
         [ -x "$root$hooks/$hook" ] \
             || fail "$script runs the hooks of $hooks, but $hooks/$hook is not there"
