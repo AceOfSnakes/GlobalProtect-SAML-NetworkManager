@@ -7,6 +7,7 @@
 #include "gpclientauthwidget.h"
 #include "gpclientwidget.h"
 
+#include <KLocalizedString>
 #include <KPluginFactory>
 
 #include <QFile>
