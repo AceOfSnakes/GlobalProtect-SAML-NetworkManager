@@ -214,9 +214,10 @@ class TestVpnGatewayFromState:
         [
             ({"TUNDEV": "tun0", "VPNGATEWAY": "203.0.113.9"}, "203.0.113.9"),
             ({"VPNGATEWAY": "203.0.113.9"}, "203.0.113.9"),
+            ({"TUNDEV": "tun0", "VPNGATEWAY": "2001:db8::1"}, "2001:db8::1"),
         ],
     )
-    def test_ipv4_gateway_of_this_tunnel(self, service_module, state, expected):
+    def test_gateway_of_this_tunnel(self, service_module, state, expected):
         got = service_module.vpn_gateway_from_state(state, "tun0")
         assert str(got) == expected
 
@@ -226,7 +227,6 @@ class TestVpnGatewayFromState:
             {"TUNDEV": "tun1", "VPNGATEWAY": "203.0.113.9"},
             {"TUNDEV": "tun0"},
             {"TUNDEV": "tun0", "VPNGATEWAY": ""},
-            {"TUNDEV": "tun0", "VPNGATEWAY": "2001:db8::1"},
             {"TUNDEV": "tun0", "VPNGATEWAY": "vpn.example.com"},
             {"TUNDEV": "tun0", "VPNGATEWAY": "203.0.113"},
             {"TUNDEV": "tun0", "VPNGATEWAY": "203.0.113.9 1.2.3.4"},

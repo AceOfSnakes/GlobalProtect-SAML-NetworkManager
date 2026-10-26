@@ -41,8 +41,10 @@ Starts VPN connection.
 4. Waits for the vpnc hook to call `Notify` (see "Tunnel Notification"); the
    service has no timer of its own, NetworkManager's `vpn.timeout` ends an
    activation that never gets there
-5. On `Notify`, emits `Config` and `Ip4Config` (and `Ip6Config` for a dual-stack
-   tunnel), then `StateChanged(STARTED)`
+5. On `Notify`, emits `Config`, `Ip4Config` only with an IPv4 address and
+   `Ip6Config` only with an IPv6 address, then `StateChanged(STARTED)`. With
+   neither address, or with only an IPv6 address and an `ipv6.method` other
+   than `auto`, it emits `Failure(BAD_IP_CONFIG)` instead
 
 #### `Disconnect()`
 Disconnects VPN.
@@ -109,7 +111,8 @@ Informs NetworkManager about service state change.
 - `6` - STOPPED
 
 #### `Ip4Config(a{sv})`
-Passes IP configuration to NetworkManager.
+Passes IP configuration to NetworkManager. Skipped for an IPv6-only tunnel
+(`has-ip4` is false then).
 
 **Parameters:**
 - `tundev` (string) - tunnel interface name (e.g., "gp-1a2b3c4d")
@@ -126,7 +129,8 @@ There is no `routes` key: NetworkManager applies the connection's
 send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook.
 
 #### `Ip6Config(a{sv})`
-Sent right after `Ip4Config`, only for a tunnel with an IPv6 address (the
+Sent after `Ip4Config` (or first, for an IPv6-only tunnel), only for a tunnel
+with an IPv6 address (the
 `Config` signal has `has-ip6` set then, and never otherwise). The address and
 prefix are in the vpnc environment (`INTERNAL_IP6_ADDRESS` and
 `INTERNAL_IP6_NETMASK`, `address/prefix`). Without a valid IPv6 address there
@@ -154,9 +158,11 @@ and adds the profile's `dns-domains` to `CISCO_DEF_DOMAIN`. The address is
 `INTERNAL_IP4_ADDRESS` with prefix 32 always: vpnc-script adds it as
 `/32 peer`, whatever the netmask says, and a wider prefix would make
 NetworkManager add a second address and a prefix route. The
-`gateway` of `Ip4Config` is the VPN server's IPv4 address from `VPNGATEWAY`
-(NetworkManager routes it via the physical interface). If `VPNGATEWAY` is not
-an IPv4 address, the service uses the tunnel's own address. The `mtu` of
+`gateway` of `Config` is the VPN server from `VPNGATEWAY` (`u` for IPv4, `ay`
+for IPv6); NetworkManager routes it via the physical device. `Ip4Config`
+`gateway` is read only by old-style plugins (for a new-style plugin NetworkManager
+reads only `internal-gateway` from it); it is the IPv4 server, or the tunnel's
+own address when `VPNGATEWAY` is not an IPv4 address. The `mtu` of
 `Config` is `INTERNAL_IP4_MTU` when that is a number from 68 to
 65535, else the profile's `mtu`.
 Without this, NetworkManager only knows about an assumed tunnel device with
@@ -232,13 +238,24 @@ On `connect` the service:
 1. Builds the IP configuration from the environment (interface name, address,
    VPN server, MTU, DNS servers, search domains) and the settings gpclient
    logged (see below)
-2. Emits `Config`, `Ip4Config`, and `Ip6Config` when the tunnel has an IPv6
-   address
+2. Emits `Config`, `Ip4Config` only when the tunnel has an IPv4 address
+   (`has-ip4`), and `Ip6Config` when it has an IPv6 address (`has-ip6`). A
+   tunnel with neither address fails with `BAD_IP_CONFIG`; so does an
+   IPv6-only tunnel when the profile's `ipv6.method` is not `auto`
+   (NetworkManager 1.46 and newer ignore `has-ip6` then; on 1.36 this refuses
+   a tunnel NetworkManager would have brought up, which is accepted: the
+   profile does not ask for automatic IPv6). The `Config`
+   `gateway` is the VPN server: `u` for IPv4, `ay` for IPv6 (NetworkManager
+   1.36 and 1.46 read both from that key); without a server address, the
+   tunnel's own address
 3. Emits `StateChanged(STARTED)`
 4. Starts a task that writes the gateway list and `fix-openssl` to the
    profile. `Disconnect()` cancels it.
 
-On `reconnect` it only emits `Config`, `Ip4Config` and `Ip6Config` again.
+On `reconnect` it only emits `Config` again, `Ip4Config` only with an IPv4
+address, and `Ip6Config` only with an IPv6 address. A `reconnect` without a
+usable address (or IPv6-only with a non-`auto` `ipv6.method`) fails the
+connection: `Failure`, `STOPPED`, and gpclient is terminated.
 
 Everything from the checks to the signals runs without an `await`, so a
 `Disconnect()` or `Connect()` cannot come in between. Both raise the

@@ -1100,14 +1100,13 @@ def tunnel_ipv6_from_state(
 
 def vpn_gateway_from_state(
     state: Dict[str, str], iface: str
-) -> Optional[ipaddress.IPv4Address]:
-    """The VPN server's IPv4 address of the vpnc environment `state`, or None
-    when it is for another tunnel or VPNGATEWAY is no IPv4 address."""
+) -> Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]]:
+    """The VPN server's IPv4 or IPv6 address of the vpnc environment `state`,
+    or None when it is for another tunnel or VPNGATEWAY is no address."""
     tundev = state.get("TUNDEV", "")
     if tundev and tundev != iface:
         return None
-    address = parse_ip_address(state.get("VPNGATEWAY", ""))
-    return address if isinstance(address, ipaddress.IPv4Address) else None
+    return parse_ip_address(state.get("VPNGATEWAY", ""))
 
 
 def tunnel_ipv4_from_env(
@@ -1677,6 +1676,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Routing configuration
         self.never_default = False
         self.ignore_auto_routes = False
+        self.ipv6_method = "auto"  # the profile's ipv6.method
 
         # The tunnel's IPv6 address, from the last notification
         self._tunnel_ip6: Optional[Tuple[ipaddress.IPv6Address, int]] = None
@@ -1850,6 +1850,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"never-default: {self.never_default}")
             self.ignore_auto_routes = ipv4_config.get("ignore-auto-routes", False)
             logger.info(f"ignore-auto-routes: {self.ignore_auto_routes}")
+            ipv6_method = connection.get("ipv6", {}).get("method", "auto")
+            if isinstance(ipv6_method, tuple) and len(ipv6_method) == 2:
+                ipv6_method = ipv6_method[1]
+            self.ipv6_method = ipv6_method
 
             logger.debug(f"Data dict: {data_dict}")
 
@@ -4135,17 +4139,22 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"Stale {iface} interface removed")
 
     def _build_generic_config(
-        self, iface: str, gateway_int: Optional[int], tunnel_mtu: Optional[int] = None
+        self,
+        iface: str,
+        gateway: Optional[Tuple[str, Any]],
+        tunnel_mtu: Optional[int] = None,
+        has_ip4: bool = True,
     ) -> Dict[str, Tuple[str, Any]]:
         """The a{sv} dict of the Config signal (new-style plugin).
 
-        gateway_int is the external gateway as the uint32 that Ip4Config
-        carries, or None when it could not be converted. The MTU is the
-        tunnel's own (vpnc-script set it), else the profile's."""
+        gateway is the external gateway as the variant NetworkManager reads
+        from "gateway": ("u", uint32) for IPv4, ("ay", 16 bytes) for IPv6
+        (_vardict_to_addr in nm-vpn-connection.c, 1.36 and 1.46), or None.
+        The MTU is the tunnel's own (vpnc-script set it), else the profile's."""
         generic: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
-        if gateway_int is not None:
-            generic["gateway"] = ("u", gateway_int)
-        generic["has-ip4"] = ("b", True)
+        if gateway is not None:
+            generic["gateway"] = gateway
+        generic["has-ip4"] = ("b", has_ip4)
         generic["has-ip6"] = ("b", self._tunnel_ip6 is not None)
         mtu = tunnel_mtu or self.mtu
         if mtu:
@@ -4212,13 +4221,36 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         logger.info(f"VPN connected - vpnc-script reports tunnel {iface} ({reason})")
 
         address = tunnel_ipv4_from_env(env)
-        # NetworkManager reads "gateway" as the VPN server's address and routes
-        # it via the physical interface. Without one, point-to-point: the
-        # tunnel address itself, which NetworkManager requires
-        gateway = vpn_gateway_from_state(env, iface)
+        # The Config "gateway" is the VPN server's address, which NetworkManager
+        # routes via the physical device. Ip4Config "gateway" only matters to
+        # old-style plugins (a new-style one is read for "internal-gateway"
+        # only, nm-vpn-connection.c 1.36/1.46), so it stays, harmless.
+        # Without a server address, point-to-point: the tunnel address itself,
+        # which NetworkManager requires
+        server = vpn_gateway_from_state(env, iface)
+        gateway = server if isinstance(server, ipaddress.IPv4Address) else None
         if gateway is None and address is not None:
             gateway = address[0]
             logger.debug(f"Using tunnel IP as gateway (point-to-point): {gateway}")
+        self._tunnel_ip6 = tunnel_ipv6_from_state(env, iface)
+        if address is None and self._tunnel_ip6 is None:
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
+                "vpnc-script reports no usable tunnel address (IPv4 or IPv6)",
+            )
+            return
+        # NetworkManager 1.46 and newer ignore has-ip6 unless ipv6.method is
+        # "auto", so an IPv6-only tunnel would come up with no IP configuration.
+        # On 1.36 (Ubuntu 22.04) this refuses a tunnel NM would have brought up
+        # with another method: accepted, the profile does not ask for automatic
+        # IPv6.
+        if address is None and self.ipv6_method != "auto":
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
+                "The tunnel has only an IPv6 address, but the profile's "
+                f"ipv6.method is {self.ipv6_method!r}",
+            )
+            return
 
         config: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
         if address is None:
@@ -4230,10 +4262,18 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             config["address"] = ("u", ipv4_to_nm_uint32(address[0]))
             config["prefix"] = ("u", address[1])
             logger.info(f"Added address: {address[0]}/{address[1]}")
-        gateway_int = None
+        # NetworkManager reads "gateway" as "u" (IPv4) or "ay" (IPv6) and needs
+        # one of them. An IPv6 server goes as "ay"; Ip4Config never gets it
+        gateway_config: Optional[Tuple[str, Any]] = None
+        if isinstance(server, ipaddress.IPv6Address):
+            gateway_config = ("ay", server.packed)
+        elif self._tunnel_ip6 is not None and gateway is None:
+            # IPv6-only tunnel without a server address: point-to-point
+            gateway_config = ("ay", self._tunnel_ip6[0].packed)
         if gateway is not None:
             gateway_int = ipv4_to_nm_uint32(gateway)
             config["gateway"] = ("u", gateway_int)
+            gateway_config = gateway_config or ("u", gateway_int)
             # never-default is NetworkManager's to apply; the gateway is
             # required with it too
             note = " (but never-default is set)" if self.never_default else ""
@@ -4241,7 +4281,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         # The gateway's DNS is in the same environment; the profile's override
         # and domains are merged in (issue #15)
-        self._tunnel_ip6 = tunnel_ipv6_from_state(env, iface)
         learned_dns = self._cross_check_logged_dns(
             iface, learned_dns_from_state(env, iface)
         )
@@ -4250,13 +4289,18 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # The generic Config signal first: a new-style plugin sends it before
         # Ip4Config
         generic_config = self._build_generic_config(
-            iface, gateway_int, tunnel_mtu_from_env(env)
+            iface,
+            gateway_config,
+            tunnel_mtu_from_env(env),
+            has_ip4=address is not None,
         )
         logger.info(f"Config: {generic_config}")
         self.Config.emit(generic_config)
-        logger.info(f"Ip4Config: {config}")
-        self.Ip4Config.emit(config)
-        # has-ip6 is set only with an address, and then NM waits for this signal
+        # has-ip4 is set only with an IPv4 address (NM does not wait for
+        # Ip4Config without it), and has-ip6 only with an IPv6 one
+        if address is not None:
+            logger.info(f"Ip4Config: {config}")
+            self.Ip4Config.emit(config)
         config6 = self._build_ip6_config(
             iface, config.get("domains", ("as", []))[1], learned_dns
         )
