@@ -243,6 +243,24 @@ nmcli connection modify "My VPN" +vpn.data password-flags=1
 nmcli --ask connection up "My VPN"
 ```
 
+### Import and export
+
+A profile is a NetworkManager keyfile (`.nmconnection`), so you can copy it to
+another machine.
+
+- **GNOME**: in the network settings (or `nm-connection-editor`) use the *Import from file...* entry of the VPN list, and *Export...* in the editor of a connection.
+- **Plasma**: in the network settings (KCM) use the import button of the connection list and *Export* in the menu of a connection. This works with Plasma 5.27 and newer; Plasma 5.24 (Ubuntu 22.04) does not call the plugin for this.
+- **Command line**:
+
+```bash
+nmcli connection import type gpclient file ~/office.nmconnection
+nmcli connection export "My VPN" ~/office.nmconnection
+```
+
+An export has no secrets (no password), so you can share the file. An import
+checks the settings like the editors do, drops the secrets of the file and gives
+the connection a new UUID: it never replaces the connection that it came from.
+
 Older versions added `resolve [!UNAVAIL=return]` to the `hosts:` line of `/etc/nsswitch.conf` and kept a backup in `/etc/nsswitch.conf.gpclient-backup`. Version 2.0.0 does not change this file. If you do not want that edit, restore the backup.
 
 ## Packages

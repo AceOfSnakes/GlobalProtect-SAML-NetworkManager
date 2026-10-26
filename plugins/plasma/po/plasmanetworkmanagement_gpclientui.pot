@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
 "Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
 "NetworkManager/issues\n"
-"POT-Creation-Date: 2026-10-26 09:44+0000\n"
+"POT-Creation-Date: 2026-10-26 12:55+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -90,6 +90,16 @@ msgid ""
 "Browser: the portal opens a browser window for single sign-on (default).\n"
 "Username and password: the portal asks on the terminal - the credentials and "
 "any token are requested in a dialog instead."
+msgstr ""
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr ""
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
 msgstr ""
 
 #: rc.cpp
