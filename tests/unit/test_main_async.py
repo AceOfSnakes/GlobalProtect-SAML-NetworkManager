@@ -375,6 +375,7 @@ class FakeSystemctl:
 
     def __init__(self, returncode=0, error=None, hang=False):
         self.calls = []
+        self.killed = False
         self.returncode = returncode
         self.error = error
         self.hang = hang
@@ -386,7 +387,12 @@ class FakeSystemctl:
         fake = self
 
         class Proc:
-            returncode = fake.returncode
+            returncode = None if fake.hang else fake.returncode
+            killed = False
+
+            def kill(self):
+                Proc.killed = True
+                fake.killed = True
 
             async def communicate(self):
                 if fake.hang:
@@ -445,17 +451,18 @@ class TestHandOverToUnit:
         assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
 
     @pytest.mark.parametrize(
-        "systemctl",
+        "kwargs",
         [
-            FakeSystemctl(returncode=1),
-            FakeSystemctl(returncode=5),  # unit not installed
-            FakeSystemctl(error=FileNotFoundError("systemctl")),
-            FakeSystemctl(hang=True),
+            {"returncode": 1},
+            {"returncode": 5},  # unit not installed
+            {"error": FileNotFoundError("systemctl")},
+            {"hang": True},
         ],
     )
     def test_a_failed_unit_start_runs_here(
-        self, service_module, env, spawned_by_nm, monkeypatch, caplog, systemctl
+        self, service_module, env, spawned_by_nm, monkeypatch, caplog, kwargs
     ):
+        systemctl = FakeSystemctl(**kwargs)
         monkeypatch.setattr(
             service_module.asyncio, "create_subprocess_exec", systemctl
         )
@@ -468,3 +475,7 @@ class TestHandOverToUnit:
         assert len(systemctl.calls) == 1
         assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
         assert "Could not start nm-gpclient.service" in caplog.text
+        if kwargs.get("returncode"):
+            assert "Job for nm-gpclient.service failed." in caplog.text
+        # a systemctl that still waits is stopped, none other is
+        assert systemctl.killed == bool(kwargs.get("hang"))

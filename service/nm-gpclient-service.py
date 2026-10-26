@@ -4257,6 +4257,7 @@ async def hand_over_to_unit() -> bool:
         return False
     if not os.path.isdir(SYSTEMD_RUNTIME_DIR):  # noqa: ASYNC240  # once, at startup
         return False
+    proc = None
     try:
         # Type=dbus: returns once the unit owns the bus name
         proc = await asyncio.create_subprocess_exec(
@@ -4268,7 +4269,9 @@ async def hand_over_to_unit() -> bool:
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), UNIT_START_TIMEOUT)
     except Exception as e:
-        logger.warning(f"Could not start {SERVICE_UNIT}, running here: {e}")
+        if proc is not None and proc.returncode is None:
+            proc.kill()  # the start job goes on; systemctl only waits for it
+        logger.warning(f"Could not start {SERVICE_UNIT}, running here: {e!r}")
         return False
     if proc.returncode != 0:
         logger.warning(
