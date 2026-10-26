@@ -357,7 +357,7 @@ msgstr "Nie można zaimportować połączenia: %1"
 #: gpclientui.cpp
 #, kde-format
 msgid "The connection \"%1\" is not saved in NetworkManager"
-msgstr "Połączenie \"%1\" nie jest zapisane w NetworkManager"
+msgstr "Połączenie „%1” nie jest zapisane w NetworkManager"
 
 #: gpclientui.cpp
 #, kde-format

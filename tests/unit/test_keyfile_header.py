@@ -232,6 +232,7 @@ PLASMA_RULES = {
     "translates the message of the helper": r"translateMessage\(error->message\)",
     "fails an import with a translated text": r"ImportResult::fail\(i18n\(",
     "adds the extension when it is missing": r'!path\.endsWith\(QStringLiteral\("\.nmconnection"\)\)',
+    "adds the extension only over no file": r'!QFile::exists\(path \+ QStringLiteral\("\.nmconnection"\)\)',
     "exports to the path with the extension": r"nm_gpclient_keyfile_export\(NM_CONNECTION\(remote\), QFile::encodeName\(path\)",
     "fails an export with a translated text": r"ExportResult::fail\(i18n\(",
     "leaves the old plasma-nm API alone": r"#define GPCLIENT_PLASMANM_OLD_API 1",

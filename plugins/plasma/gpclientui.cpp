@@ -112,9 +112,10 @@ VpnUiPlugin::ExportResult GpclientUiPlugin::exportConnectionSettings(const Netwo
     // the file. NetworkManager hands out no secrets; the helper drops them anyway.
     GError *error = nullptr;
     QString message;
-    // the helper needs the extension: the KCM matches the files by it, but its save dialog does not add it
+    // the helper needs the extension: the KCM matches the files by it, but its save dialog does not add it.
+    // Never over a file that the dialog did not ask about: then keep the name the user chose.
     QString path = fileName;
-    if (!path.endsWith(QStringLiteral(".nmconnection"))) {
+    if (!path.endsWith(QStringLiteral(".nmconnection")) && !QFile::exists(path + QStringLiteral(".nmconnection"))) {
         path += QStringLiteral(".nmconnection");
     }
     NMClient *client = nm_client_new(nullptr, &error);
