@@ -747,10 +747,33 @@ def test_every_build_image_has_gettext(path):
     assert re.search(r"^\s+gettext \\$", read(os.path.relpath(path, ROOT)), re.M)
 
 
+def catalog_check_problems(text):
+    """The RPM install test checks both catalogs in the package contents: on
+    disk they may be missing (%lang files and %_install_langs)"""
+    problems = []
+    for package, domain in (
+        ("network-manager-gpclient", GNOME_DOMAIN),
+        ("network-manager-gpclient-plasma", PLASMA_DOMAIN),
+    ):
+        path = f"/usr/share/locale/pl/LC_MESSAGES/{domain}.mo"
+        if not re.search(rf"rpm -ql {package} \\?\s*\|\s*grep -qx {re.escape(path)}", text):
+            problems.append(f"{domain}.mo is not checked in the contents of {package}")
+        if re.search(rf"^\s+{re.escape(path)} \\$", text, re.M):
+            problems.append(f"{domain}.mo is checked on disk")
+    return problems
+
+
 def test_the_install_test_checks_both_catalogs_of_the_rpms():
-    text = read("rpm/install-test.sh")
-    assert f"/usr/share/locale/pl/LC_MESSAGES/{GNOME_DOMAIN}.mo" in text
-    assert f"/usr/share/locale/pl/LC_MESSAGES/{PLASMA_DOMAIN}.mo" in text
+    assert catalog_check_problems(read("rpm/install-test.sh")) == []
+
+
+def test_a_catalog_checked_on_disk_is_reported():
+    text = read("rpm/install-test.sh").replace(
+        '    [ -e "$path" ] || fail "missing file $path"',
+        f"    /usr/share/locale/pl/LC_MESSAGES/{GNOME_DOMAIN}.mo \\\n"
+        '    [ -e "$path" ] || fail "missing file $path"',
+    )
+    assert catalog_check_problems(text)
 
 
 def make_install_mo(tmp_path, *args):

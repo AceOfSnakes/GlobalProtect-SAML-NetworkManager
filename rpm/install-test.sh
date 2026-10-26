@@ -144,8 +144,6 @@ for path in \
     /etc/vpnc/connect.d/90-gpclient-routing \
     /etc/vpnc/post-connect.d/90-gpclient-notify \
     /etc/vpnc/reconnect.d/90-gpclient-notify \
-    /usr/share/locale/pl/LC_MESSAGES/NetworkManager-gpclient.mo \
-    /usr/share/locale/pl/LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient-editor.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so" \
@@ -153,6 +151,15 @@ for path in \
     "$(rpm --eval '%{_libdir}')/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json"; do
     [ -e "$path" ] || fail "missing file $path"
 done
+
+# The catalogs are %lang(pl): rpm skips them on images that install only some
+# languages (%_install_langs, e.g. Fedora and EL containers), so check the
+# package contents, not the disk
+rpm -ql network-manager-gpclient | grep -qx /usr/share/locale/pl/LC_MESSAGES/NetworkManager-gpclient.mo \
+    || fail "network-manager-gpclient has no Polish catalog"
+rpm -ql network-manager-gpclient-plasma \
+    | grep -qx /usr/share/locale/pl/LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo \
+    || fail "network-manager-gpclient-plasma has no Polish catalog"
 
 # gpgui is not shipped: the entry is hidden, the callback handler stays
 grep -qx 'NoDisplay=true' /usr/share/applications/gpgui.desktop \
