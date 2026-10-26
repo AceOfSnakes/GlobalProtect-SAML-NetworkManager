@@ -92,7 +92,7 @@ msgstr "연결 제한 시간:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "“%s”에 연결하려면 자격 증명이 필요합니다."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "사용자 지정..."
 

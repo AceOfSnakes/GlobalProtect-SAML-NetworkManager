@@ -1,7 +1,5 @@
 /* NetworkManager gpclient VPN connection editor - GTK3 version */
 
-#include <stdio.h>
-#include <string.h>
 #include <glib/gi18n-lib.h>
 #include <gtk/gtk.h>
 #include <NetworkManager.h>

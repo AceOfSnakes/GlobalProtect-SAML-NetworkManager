@@ -89,7 +89,7 @@ msgstr "Časový limit připojení:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Pro připojení k „%s“ jsou potřeba přihlašovací údaje."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Vlastní..."
 

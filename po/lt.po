@@ -92,7 +92,7 @@ msgstr "Prisijungimo skirtasis laikas:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Norint prisijungti prie „%s“, reikia prisijungimo duomenų."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Kita..."
 

@@ -89,7 +89,7 @@ msgstr "Temps d'espera de la connexió:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Calen credencials per connectar amb «%s»."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Personalitzat..."
 

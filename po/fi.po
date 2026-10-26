@@ -89,7 +89,7 @@ msgstr "Yhteyden aikakatkaisu:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Tunnistetiedot tarvitaan yhteyden “%s” muodostamiseen."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Mukautettu..."
 

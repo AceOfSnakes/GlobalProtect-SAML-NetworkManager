@@ -92,7 +92,7 @@ msgstr "Tidsavbrudd for tilkobling:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Det kreves legitimasjon for å koble til «%s»."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Egendefinert..."
 

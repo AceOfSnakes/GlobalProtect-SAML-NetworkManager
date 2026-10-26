@@ -89,7 +89,7 @@ msgstr "Délai de connexion :"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Des identifiants sont requis pour se connecter à « %s »."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Personnalisé..."
 

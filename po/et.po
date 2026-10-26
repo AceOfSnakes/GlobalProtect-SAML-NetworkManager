@@ -89,7 +89,7 @@ msgstr "Ühendamise ajalimiit:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "„%s“ ühendamiseks on vaja mandaati."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Kohandatud..."
 

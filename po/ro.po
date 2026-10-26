@@ -92,7 +92,7 @@ msgstr "Timp de expirare a conexiunii:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Sunt necesare date de autentificare pentru a vă conecta la „%s”."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Personalizat..."
 

@@ -89,7 +89,7 @@ msgstr "Време за изчакване на връзката:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Необходими са данни за вход, за да се свържете с „%s“."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Друг..."
 

@@ -471,7 +471,7 @@ class TestEditorSourcesHandleBooleansAndGateway:
         with open(os.path.join(ROOT, *parts), encoding="utf-8") as handle:
             text = handle.read()
         # The boolean rules moved to the header both GTK editors share
-        if parts[:2] == ("plugins", "gnome") and parts[-1].startswith("nm-gpclient-editor"):
+        if parts[:2] == ("plugins", "gnome") and parts[-1] in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
             with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-editor-common.h"), encoding="utf-8") as handle:
                 text += handle.read()
         return text

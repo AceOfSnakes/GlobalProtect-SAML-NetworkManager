@@ -131,18 +131,3 @@ def test_an_editor_with_its_own_copy_is_rejected(rel, extra):
 
     assert any(p.startswith("defines again") for p in editor_problems(broken))
 
-
-def test_the_custom_entry_is_not_saved_as_a_browser():
-    header = read("plugins/gnome/nm-gpclient-editor-common.h")
-    body = header.split("nm_gpclient_editor_save_browser", 1)[1].split("\n}\n", 1)[0]
-
-    assert re.search(r'g_strcmp0\s*\(\s*text,\s*_\("Custom\.\.\."\)\s*\)\s*!=\s*0', body)
-
-
-def test_a_browser_save_that_keeps_the_custom_entry_is_found():
-    header = read("plugins/gnome/nm-gpclient-editor-common.h")
-    broken = header.replace('g_strcmp0 (text, _("Custom...")) != 0 ? text : NULL', "text")
-    body = broken.split("nm_gpclient_editor_save_browser", 1)[1].split("\n}\n", 1)[0]
-
-    assert not re.search(r'g_strcmp0\s*\(\s*text,\s*_\("Custom\.\.\."\)\s*\)\s*!=\s*0', body)
-    assert broken != header

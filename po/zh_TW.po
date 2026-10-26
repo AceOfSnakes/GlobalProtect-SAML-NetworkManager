@@ -89,7 +89,7 @@ msgstr "連線逾時："
 msgid "Credentials are required to connect to “%s”."
 msgstr "連線到「%s」需要憑證。"
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "自訂..."
 

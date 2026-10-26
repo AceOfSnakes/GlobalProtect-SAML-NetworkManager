@@ -92,7 +92,7 @@ msgstr "Тайм-аут подключения:"
 msgid "Credentials are required to connect to “%s”."
 msgstr "Для подключения к «%s» требуются учётные данные."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Custom..."
 msgstr "Другой..."
 
