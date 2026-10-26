@@ -388,9 +388,11 @@ ls -l /usr/lib/*-linux-gnu/NetworkManager/libnm-vpn-plugin-gpclient*.so
 
 ### Running the service manually for debugging
 
-The service is normally **auto-started** on demand by systemd / D-Bus the
-first time NetworkManager touches a GlobalProtect VPN connection — you
-do not need to start it by hand for normal use.
+The service is normally **auto-started** on demand the first time
+NetworkManager touches a GlobalProtect VPN connection: NetworkManager runs the
+program of the `.name` file, which starts the systemd unit `nm-gpclient.service`
+(so the service and the SAML browser run in that unit, not in NetworkManager's
+sandbox). You do not need to start it by hand for normal use.
 
 If you want to run it manually (for example with `--debug`), you have
 to stop the auto-started instance first, otherwise both processes try
