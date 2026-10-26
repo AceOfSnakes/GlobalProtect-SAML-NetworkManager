@@ -63,11 +63,10 @@ class TestAddress:
         assert config["address"] != ("u", _big_endian(address))
 
     @pytest.mark.parametrize("bad", ["192.168.1", "1", "0x7f.0.0.1", "300.1.1.1"])
-    def test_a_malformed_address_is_left_out(self, detect, bad):
-        config = detect(bad)
-
-        assert config is not None
-        assert "address" not in config
+    def test_a_malformed_address_sends_no_ip4config(self, detect, bad):
+        # no IPv4 address and no IPv6 one: the connection fails (see
+        # test_vpnc_notify.py), and Ip4Config is never sent with has-ip4 false
+        assert detect(bad) is None
 
 
 class TestGateway:
@@ -96,7 +95,5 @@ class TestGateway:
 
         assert config["gateway"] == ("u", _expected("10.9.8.7"))
 
-    def test_no_address_and_no_gateway_leaves_both_out(self, detect):
-        config = detect("1", gateway=None)
-
-        assert "gateway" not in config
+    def test_no_address_and_no_gateway_sends_no_ip4config(self, detect):
+        assert detect("1", gateway=None) is None

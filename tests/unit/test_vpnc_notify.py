@@ -498,21 +498,45 @@ class TestIpv4FromEnv:
         assert service_module.tunnel_ipv4_from_env(env) is None
 
     @pytest.mark.parametrize("address", [None, "garbage", "fd00::5"])
-    def test_a_missing_address_is_left_out_with_a_warning(
+    def test_an_ipv6_only_tunnel_has_no_ip4config(
+        self, service_module, dbus_signals, caplog, address
+    ):
+        plugin = active_plugin(service_module)
+        v6 = {"INTERNAL_IP6_ADDRESS": "fd00::5", "INTERNAL_IP6_NETMASK": "fd00::5/64"}
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=address, **v6))
+
+        assert _names(dbus_signals) == ["Config", "Ip6Config", "StateChanged"]
+        assert dbus_signals[2][1] == service_module.NM_VPN_SERVICE_STATE_STARTED
+        config = signals_named(dbus_signals, "Config")[0]
+        assert config["has-ip4"] == ("b", False)
+        assert config["has-ip6"] == ("b", True)
+        assert signals_named(dbus_signals, "Ip6Config")[0]["tundev"] == ("s", "tun0")
+        assert plugin._tunnel_up is True
+        if address:
+            assert "Not adding address" in caplog.text
+
+    def test_an_ipv4_tunnel_has_ip4_in_config(self, service_module, dbus_signals):
+        notify(active_plugin(service_module))
+
+        assert signals_named(dbus_signals, "Config")[0]["has-ip4"] == ("b", True)
+        assert ip4_config(dbus_signals) is not None
+
+    @pytest.mark.parametrize("address", [None, "", "garbage", "fd00::5"])
+    def test_a_tunnel_without_any_address_fails(
         self, service_module, dbus_signals, caplog, address
     ):
         plugin = active_plugin(service_module)
 
-        with caplog.at_level("WARNING", logger=service_module.logger.name):
+        with caplog.at_level("ERROR", logger=service_module.logger.name):
             notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=address, VPNGATEWAY=None))
 
-        config = ip4_config(dbus_signals)
-        assert "address" not in config and "prefix" not in config
-        assert "gateway" not in config  # nothing to fall back to
-        assert "Not adding address" in caplog.text
-        # the tunnel is still reported
-        assert config["tundev"] == ("s", "tun0")
-        assert plugin._tunnel_up is True
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+        assert dbus_signals[1][1] == service_module.NM_VPN_SERVICE_STATE_STOPPED
+        assert plugin._tunnel_up is False
+        assert "no usable tunnel address" in caplog.text
 
 
 class TestGatewayFromEnv:
@@ -524,9 +548,7 @@ class TestGatewayFromEnv:
             service_module.ipv4_to_nm_uint32("198.51.100.7"),
         )
 
-    @pytest.mark.parametrize(
-        "gateway", [None, "", "gw.example.com", "2001:db8::1", "198.51.100"]
-    )
+    @pytest.mark.parametrize("gateway", [None, "", "gw.example.com", "198.51.100"])
     def test_without_an_ipv4_server_the_tunnel_address_is_used(
         self, service_module, dbus_signals, gateway
     ):
@@ -536,6 +558,40 @@ class TestGatewayFromEnv:
             "u",
             service_module.ipv4_to_nm_uint32("10.100.7.42"),
         )
+
+    def test_an_ipv6_server_is_an_ay_gateway_and_not_in_ip4config(
+        self, service_module, dbus_signals
+    ):
+        notify(active_plugin(service_module), vpnc_env(VPNGATEWAY="2001:db8::1"))
+
+        packed = ipaddress.IPv6Address("2001:db8::1").packed
+        assert signals_named(dbus_signals, "Config")[0]["gateway"] == ("ay", packed)
+        # Ip4Config keeps the point-to-point address: no IPv6 there
+        assert ip4_config(dbus_signals)["gateway"] == (
+            "u",
+            service_module.ipv4_to_nm_uint32("10.100.7.42"),
+        )
+
+    def test_an_ipv4_server_is_a_u_gateway_in_config(
+        self, service_module, dbus_signals
+    ):
+        notify(active_plugin(service_module), vpnc_env(VPNGATEWAY="198.51.100.7"))
+
+        assert signals_named(dbus_signals, "Config")[0]["gateway"] == (
+            "u",
+            service_module.ipv4_to_nm_uint32("198.51.100.7"),
+        )
+
+    def test_an_ipv6_only_tunnel_without_a_server_uses_its_own_address(
+        self, service_module, dbus_signals
+    ):
+        env = vpnc_env(
+            INTERNAL_IP4_ADDRESS=None, VPNGATEWAY=None, INTERNAL_IP6_ADDRESS="fd00::5"
+        )
+        notify(active_plugin(service_module), env)
+
+        packed = ipaddress.IPv6Address("fd00::5").packed
+        assert signals_named(dbus_signals, "Config")[0]["gateway"] == ("ay", packed)
 
     @pytest.mark.parametrize("never_default", [True, False])
     def test_never_default_only_changes_the_log(
@@ -549,6 +605,46 @@ class TestGatewayFromEnv:
         assert "gateway" in ip4_config(dbus_signals)
         assert ("never-default is set" in caplog.text) is never_default
         assert ("Added gateway: 198.51.100.7" in caplog.text) is not never_default
+
+
+class TestBanner:
+    def test_the_banner_is_in_config_and_a_login_banner_signal(
+        self, service_module, dbus_signals
+    ):
+        notify(active_plugin(service_module), vpnc_env(CISCO_BANNER="Welcome\nto corp"))
+
+        assert signals_named(dbus_signals, "Config")[0]["banner"] == (
+            "s",
+            "Welcome\nto corp",
+        )
+        assert signals_named(dbus_signals, "LoginBanner") == ["Welcome\nto corp"]
+        names = _names(dbus_signals)
+        assert names.index("Config") < names.index("LoginBanner")
+
+    @pytest.mark.parametrize("banner", [None, "", "  \n", "\x00\x07"])
+    def test_no_banner_means_no_key_and_no_signal(
+        self, service_module, dbus_signals, banner
+    ):
+        notify(active_plugin(service_module), vpnc_env(CISCO_BANNER=banner))
+
+        assert "banner" not in signals_named(dbus_signals, "Config")[0]
+        assert signals_named(dbus_signals, "LoginBanner") == []
+
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("a\x1b[31mb\x00c", "a[31mbc"),
+            ("x" * 5000, "x" * 4096),
+            ("  hi \t", "hi"),
+        ],
+    )
+    def test_the_banner_is_cleaned(self, service_module, text, expected):
+        assert service_module.banner_from_env({"CISCO_BANNER": text}) == expected
+
+    def test_the_banner_is_forwarded_by_the_hook(self, service_module):
+        assert "CISCO_BANNER" in service_module.VPNC_NOTIFY_ENV
+        _, _, env = service_module.vpnc_notify_env({"CISCO_BANNER": "hi", "OTHER": "x"})
+        assert env == {"CISCO_BANNER": "hi"}
 
 
 class TestMtu:
@@ -708,6 +804,7 @@ class TestVpncNotifyMode:
                     "VPNGATEWAY": "203.0.113.9",
                     "CISCO_SPLIT_DNS": "a.example",
                     "INTERNAL_IP4_NETMASKLEN": "24",
+                    "CISCO_BANNER": "hello",
                 },
             ),
         ]
@@ -715,7 +812,7 @@ class TestVpncNotifyMode:
     @pytest.mark.parametrize(
         "name",
         ["PATH", "HOME", "SUDO_USER", "GPCLIENT_NM_NOTIFY", "GPCLIENT_NM_TOKEN",
-         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU", "CISCO_BANNER"],
+         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU"],
     )
     def test_a_variable_that_is_not_listed_is_not_sent(
         self, service_module, proxy, name

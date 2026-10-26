@@ -126,7 +126,7 @@ There is no `routes` key: NetworkManager applies the connection's
 send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook.
 
 #### `Ip6Config(a{sv})`
-Sent right after `Ip4Config`, only for a tunnel with an IPv6 address (the
+Sent after `Ip4Config` (or first, for an IPv6-only tunnel), only for a tunnel with an IPv6 address (the
 `Config` signal has `has-ip6` set then, and never otherwise). The address and
 prefix are in the vpnc environment (`INTERNAL_IP6_ADDRESS` and
 `INTERNAL_IP6_NETMASK`, `address/prefix`). Without a valid IPv6 address there
@@ -232,8 +232,13 @@ On `connect` the service:
 1. Builds the IP configuration from the environment (interface name, address,
    VPN server, MTU, DNS servers, search domains) and the settings gpclient
    logged (see below)
-2. Emits `Config`, `Ip4Config`, and `Ip6Config` when the tunnel has an IPv6
-   address
+2. Emits `Config` (with `banner` and a `LoginBanner` signal when the gateway
+   sent `CISCO_BANNER`), `Ip4Config` only when the tunnel has an IPv4 address
+   (`has-ip4`), and `Ip6Config` when it has an IPv6 address (`has-ip6`). A
+   tunnel with neither address fails with `BAD_IP_CONFIG`. The `Config`
+   `gateway` is the VPN server: `u` for IPv4, `ay` for IPv6 (NetworkManager
+   1.36 and 1.46 read both from that key); without a server address, the
+   tunnel's own address
 3. Emits `StateChanged(STARTED)`
 4. Starts a task that writes the gateway list and `fix-openssl` to the
    profile. `Disconnect()` cancels it.

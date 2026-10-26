@@ -126,7 +126,10 @@ VPNC_NOTIFY_ENV = (
     "INTERNAL_IP6_DNS",
     "CISCO_DEF_DOMAIN",
     "CISCO_SPLIT_DNS",
+    "CISCO_BANNER",
 )
+# The longest login banner passed on to NetworkManager (characters)
+BANNER_MAX_LENGTH = 4096
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
@@ -1100,14 +1103,23 @@ def tunnel_ipv6_from_state(
 
 def vpn_gateway_from_state(
     state: Dict[str, str], iface: str
-) -> Optional[ipaddress.IPv4Address]:
-    """The VPN server's IPv4 address of the vpnc environment `state`, or None
-    when it is for another tunnel or VPNGATEWAY is no IPv4 address."""
+) -> Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]]:
+    """The VPN server's IPv4 or IPv6 address of the vpnc environment `state`,
+    or None when it is for another tunnel or VPNGATEWAY is no address."""
     tundev = state.get("TUNDEV", "")
     if tundev and tundev != iface:
         return None
-    address = parse_ip_address(state.get("VPNGATEWAY", ""))
-    return address if isinstance(address, ipaddress.IPv4Address) else None
+    return parse_ip_address(state.get("VPNGATEWAY", ""))
+
+
+def banner_from_env(env: Dict[str, str]) -> str:
+    """The login banner (CISCO_BANNER) of the vpnc environment, or "" when
+    there is none. Control characters other than newline and tab are
+    dropped, and a banner over BANNER_MAX_LENGTH characters is cut."""
+    text = "".join(
+        c for c in env.get("CISCO_BANNER", "") if c in "\n\t" or c.isprintable()
+    )
+    return text.strip()[:BANNER_MAX_LENGTH]
 
 
 def tunnel_ipv4_from_env(
@@ -4135,21 +4147,29 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"Stale {iface} interface removed")
 
     def _build_generic_config(
-        self, iface: str, gateway_int: Optional[int], tunnel_mtu: Optional[int] = None
+        self,
+        iface: str,
+        gateway: Optional[Tuple[str, Any]],
+        tunnel_mtu: Optional[int] = None,
+        has_ip4: bool = True,
+        banner: str = "",
     ) -> Dict[str, Tuple[str, Any]]:
         """The a{sv} dict of the Config signal (new-style plugin).
 
-        gateway_int is the external gateway as the uint32 that Ip4Config
-        carries, or None when it could not be converted. The MTU is the
-        tunnel's own (vpnc-script set it), else the profile's."""
+        gateway is the external gateway as the variant NetworkManager reads
+        from "gateway": ("u", uint32) for IPv4, ("ay", 16 bytes) for IPv6
+        (_vardict_to_addr in nm-vpn-connection.c, 1.36 and 1.46), or None.
+        The MTU is the tunnel's own (vpnc-script set it), else the profile's."""
         generic: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
-        if gateway_int is not None:
-            generic["gateway"] = ("u", gateway_int)
-        generic["has-ip4"] = ("b", True)
+        if gateway is not None:
+            generic["gateway"] = gateway
+        generic["has-ip4"] = ("b", has_ip4)
         generic["has-ip6"] = ("b", self._tunnel_ip6 is not None)
         mtu = tunnel_mtu or self.mtu
         if mtu:
             generic["mtu"] = ("u", mtu)
+        if banner:
+            generic["banner"] = ("s", banner)
         return generic
 
     def _check_notify(self, reason: str, token: str, env: Dict[str, str]) -> str:
@@ -4215,10 +4235,18 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # NetworkManager reads "gateway" as the VPN server's address and routes
         # it via the physical interface. Without one, point-to-point: the
         # tunnel address itself, which NetworkManager requires
-        gateway = vpn_gateway_from_state(env, iface)
+        server = vpn_gateway_from_state(env, iface)
+        gateway = server if isinstance(server, ipaddress.IPv4Address) else None
         if gateway is None and address is not None:
             gateway = address[0]
             logger.debug(f"Using tunnel IP as gateway (point-to-point): {gateway}")
+        self._tunnel_ip6 = tunnel_ipv6_from_state(env, iface)
+        if address is None and self._tunnel_ip6 is None:
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
+                "vpnc-script reports no usable tunnel address (IPv4 or IPv6)",
+            )
+            return
 
         config: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
         if address is None:
@@ -4230,10 +4258,18 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             config["address"] = ("u", ipv4_to_nm_uint32(address[0]))
             config["prefix"] = ("u", address[1])
             logger.info(f"Added address: {address[0]}/{address[1]}")
-        gateway_int = None
+        # NetworkManager reads "gateway" as "u" (IPv4) or "ay" (IPv6) and needs
+        # one of them. An IPv6 server goes as "ay"; Ip4Config never gets it
+        gateway_config: Optional[Tuple[str, Any]] = None
+        if isinstance(server, ipaddress.IPv6Address):
+            gateway_config = ("ay", server.packed)
+        elif self._tunnel_ip6 is not None and gateway is None:
+            # IPv6-only tunnel without a server address: point-to-point
+            gateway_config = ("ay", self._tunnel_ip6[0].packed)
         if gateway is not None:
             gateway_int = ipv4_to_nm_uint32(gateway)
             config["gateway"] = ("u", gateway_int)
+            gateway_config = gateway_config or ("u", gateway_int)
             # never-default is NetworkManager's to apply; the gateway is
             # required with it too
             note = " (but never-default is set)" if self.never_default else ""
@@ -4241,7 +4277,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         # The gateway's DNS is in the same environment; the profile's override
         # and domains are merged in (issue #15)
-        self._tunnel_ip6 = tunnel_ipv6_from_state(env, iface)
         learned_dns = self._cross_check_logged_dns(
             iface, learned_dns_from_state(env, iface)
         )
@@ -4249,14 +4284,23 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         # The generic Config signal first: a new-style plugin sends it before
         # Ip4Config
+        banner = banner_from_env(env)
         generic_config = self._build_generic_config(
-            iface, gateway_int, tunnel_mtu_from_env(env)
+            iface,
+            gateway_config,
+            tunnel_mtu_from_env(env),
+            has_ip4=address is not None,
+            banner=banner,
         )
         logger.info(f"Config: {generic_config}")
         self.Config.emit(generic_config)
-        logger.info(f"Ip4Config: {config}")
-        self.Ip4Config.emit(config)
-        # has-ip6 is set only with an address, and then NM waits for this signal
+        if banner:
+            self.LoginBanner.emit(banner)
+        # has-ip4 is set only with an IPv4 address (NM does not wait for
+        # Ip4Config without it), and has-ip6 only with an IPv6 one
+        if address is not None:
+            logger.info(f"Ip4Config: {config}")
+            self.Ip4Config.emit(config)
         config6 = self._build_ip6_config(
             iface, config.get("domains", ("as", []))[1], learned_dns
         )
