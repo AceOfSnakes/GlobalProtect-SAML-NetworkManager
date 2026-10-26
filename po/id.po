@@ -1,0 +1,290 @@
+# Indonesian translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:44+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Indonesian\n"
+"Language: id\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "Alamat adalah gateway (lewati portal)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"Alamat portal GlobalProtect (mis. vpn.company.com).\n"
+"Jika organisasi Anda memberi alamat gateway, centang juga “Alamat adalah gateway” di bawah."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "Selalu aktif"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "Autentikasi VPN: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "Autentikasi gagal. Masukkan lagi kredensial untuk “%s”."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "Autentikasi:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Otomatis (aktifkan saat portal memerlukannya)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Peramban (SAML, passkey, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Peramban yang dipakai untuk autentikasi SAML/2FA. “edge” adalah opsi yang paling banyak diuji; “default” memakai peramban bawaan desktop Anda.\n"
+"Pilih “Khusus...” untuk memberi path lengkap ke executable Anda sendiri."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "Peramban:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Peramban: portal membuka jendela peramban untuk single sign-on (bawaan).\n"
+"Nama pengguna dan kata sandi: portal bertanya di terminal - sebagai gantinya, kredensial dan token apa pun diminta dalam dialog."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "Batas waktu koneksi:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "Kredensial diperlukan untuk terhubung ke “%s”."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "Khusus..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "Server DNS:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "Kosong: laporan HIP bawaan"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"Aktifkan HIP (Host Integrity Protection) untuk mengirim informasi host ke gateway VPN.\n"
+"Ini diwajibkan oleh sebagian organisasi untuk kepatuhan keamanan."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Aktifkan Host Integrity Protection (HIP)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Aktifkan jika alamat di atas adalah gateway, bukan portal.\n"
+"Tanpa ini alur portal dicoba lebih dulu, sehingga Anda mungkin harus mengautentikasi dua kali."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "Yang pertama diusulkan portal (otomatis)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "Klien VPN GlobalProtect"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "Skrip HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Berapa lama NetworkManager menunggu VPN terhubung, termasuk login di peramban (vpn.timeout).\n"
+"0 memakai bawaan NetworkManager, biasanya 60 s - sering terlalu singkat untuk login SAML dengan MFA. Koneksi baru dengan autentikasi peramban dimulai dengan 360 s. Selama koneksi tidak punya batas waktu sendiri (0) dan Anda belum mengubah kolom ini, memilih autentikasi peramban menetapkan 360 s."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "Renegosiasi TLS lama:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Ukuran maksimum paket di dalam tunnel.\n"
+"0 = Otomatis. Menurunkannya (misalnya ke 1300-1400) dapat membantu saat tunnel beralih dari ESP ke HTTPS dengan “Message too long”.\n"
+"Hanya berpengaruh jika gateway tidak mengirim MTU sendiri. Nilai 1 sampai 575 disimpan sebagai 576, nilai terendah yang dipakai."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "Tidak pernah"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Opsional. Path absolut ke executable HIP khusus, diteruskan ke gpclient sebagai --hip=<path>.\n"
+"Layanan menjalankannya sebagai root: harus berupa berkas milik root yang tidak dapat ditulis oleh grup atau pihak lain, di direktori milik root yang tidak dapat ditulis oleh grup atau pihak lain. Jika tidak, koneksi gagal.\n"
+"Diabaikan saat HIP nonaktif."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
+msgstr "Opsional. Gunakan ikon di kolom untuk memilih tempat kata sandi disimpan: hanya untuk pengguna ini, untuk semua pengguna, atau tidak sama sekali (ditanyakan setiap kali)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Opsional. Dipakai oleh portal yang meminta kredensial di terminal, agar Anda tidak ditanya nama pengguna setiap kali."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "Kata sandi"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "Kata sandi:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "Alamat portal atau gateway:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Portal dengan stack TLS lama memerlukan renegosiasi yang ditolak OpenSSL 3 secara bawaan.\n"
+"Otomatis: coba lagi sekali dengan solusi sementara saat portal memintanya, lalu ubah pengaturan ini ke “Selalu aktif”, agar percobaan pertama yang gagal tidak berulang."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "Gateway pilihan:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Disarankan: kosongkan untuk memakai server DNS dari VPN dengan konfigurasi split DNS otomatis.\n"
+"Split DNS memungkinkan domain khusus VPN diselesaikan lewat DNS VPN, sementara domain lain memakai DNS lokal.\n"
+"Timpa: masukkan server DNS yang dipisahkan titik koma (mis. 8.8.8.8;8.8.4.4) untuk memakai DNS khusus."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "Token / kode sekali pakai"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "Pengguna: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "Nama pengguna"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "Nama pengguna dan kata sandi (token RSA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "Nama pengguna:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Gateway yang akan dihubungi. Daftar terisi setelah koneksi pertama yang berhasil.\n"
+"Jika gateway yang dipilih tidak lagi ditawarkan portal, usulan pertama dipakai."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "_Batal"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "_OK"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser harus berupa nama, nama perintah, atau path absolut tanpa spasi"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "byte (0 = Otomatis)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns harus berupa alamat IPv4 atau IPv6 yang dipisahkan koma, titik koma, atau spasi"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "gateway wajib diisi"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "gateway tidak boleh diawali '-' atau berisi spasi atau karakter kontrol"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "hip-script harus berupa path absolut"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "detik (0 = bawaan NetworkManager)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "username tidak boleh diawali '-' atau berisi karakter kontrol"

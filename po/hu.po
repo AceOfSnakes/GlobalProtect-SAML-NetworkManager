@@ -1,0 +1,290 @@
+# Hungarian translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:44+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Hungarian\n"
+"Language: hu\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "A cím egy átjáró (a portál kihagyása)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"A GlobalProtect-portál címe (pl. vpn.company.com).\n"
+"Ha a szervezete egy átjáró címét adta meg, jelölje be alább az „A cím egy átjáró” lehetőséget is."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "Mindig bekapcsolva"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "VPN hitelesítése: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "A hitelesítés sikertelen. Adja meg újra a(z) „%s” hitelesítő adatait."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "Hitelesítés:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automatikus (bekapcsolás, ha a portál igényli)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Böngésző (SAML, passkey, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Az SAML/2FA hitelesítéshez használt böngésző. Az „edge” a legjobban tesztelt lehetőség; a „default” az asztali környezet alapértelmezett böngészőjét használja.\n"
+"Válassza az „Egyéni...” lehetőséget a saját végrehajtható fájl teljes elérési útjának megadásához."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "Böngésző:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Böngésző: a portál böngészőablakot nyit az egyszeri bejelentkezéshez (alapértelmezett).\n"
+"Felhasználónév és jelszó: a portál a terminálon kérdez - ehelyett a hitelesítő adatokat és az esetleges tokent egy párbeszédablakban kéri."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "Kapcsolódási időkorlát:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "Hitelesítő adatok szükségesek a(z) „%s” kapcsolathoz."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "Egyéni..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "DNS-kiszolgálók:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "Üres: beépített HIP-jelentés"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"A HIP (Host Integrity Protection) engedélyezése a gép adatainak a VPN-átjárónak való elküldéséhez.\n"
+"Egyes szervezetek ezt a biztonsági megfelelőség miatt megkövetelik."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Gépintegritás-védelem (HIP) engedélyezése"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Engedélyezze, ha a fenti cím átjáró, nem portál.\n"
+"Ennek hiányában először a portál munkafolyamatát próbálja, ami miatt előfordulhat, hogy kétszer kell hitelesítenie."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "A portál által először javasolt (automatikus)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "GlobalProtect VPN-kliens"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "HIP-szkript:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Mennyi ideig vár a NetworkManager a VPN kapcsolódására, a böngészőben történő bejelentkezést is beleértve (vpn.timeout).\n"
+"A 0 a NetworkManager alapértelmezését használja, általában 60 s - ez gyakran túl rövid MFA-s SAML-bejelentkezéshez. A böngészős hitelesítésű új kapcsolat 360 s-sel indul. Amíg a kapcsolatnak nincs saját időkorlátja (0), és Ön nem módosította ezt a mezőt, a böngészős hitelesítés kiválasztása 360 s-ot állít be."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "Régi TLS-újratárgyalás:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Egy csomag legnagyobb mérete az alagútban.\n"
+"0 = Automatikus. Csökkentése (például 1300-1400-ra) segíthet, ha az alagút ESP-ről HTTPS-re vált „Message too long” hibával.\n"
+"Csak akkor van hatása, ha az átjáró nem küld saját MTU-t. Az 1 és 575 közötti értékek 576-ként kerülnek mentésre, ez a legalacsonyabb használt érték."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "Soha"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Nem kötelező. Egyéni HIP végrehajtható fájl abszolút elérési útja, amelyet a gpclient --hip=<path> formában kap meg.\n"
+"A szolgáltatás rootként futtatja: root tulajdonában lévő fájlnak kell lennie, amelyet csoport vagy mások nem írhatnak, root tulajdonában lévő könyvtárakban, amelyeket csoport vagy mások nem írhatnak. Ellenkező esetben a kapcsolat sikertelen.\n"
+"Figyelmen kívül marad, ha a HIP ki van kapcsolva."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
+msgstr "Nem kötelező. A mezőben lévő ikonnal választhatja ki, hol tárolódjon a jelszó: csak ennek a felhasználónak, minden felhasználónak, vagy sehol (minden alkalommal rákérdez)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Nem kötelező. Azok a portálok használják, amelyek a terminálon kérik a hitelesítő adatokat, hogy ne kelljen minden alkalommal megadni a felhasználónevet."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "Jelszó"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "Jelszó:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "A portál vagy az átjáró címe:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"A régi TLS-veremmel rendelkező portáloknak olyan újratárgyalás kell, amelyet az OpenSSL 3 alapértelmezetten elutasít.\n"
+"Automatikus: egyszeri újrapróbálás a kerülő megoldással, ha a portál kéri, majd ennek a beállításnak az átállítása „Mindig bekapcsolva” értékre, hogy a sikertelen első kísérlet ne ismétlődjön."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "Előnyben részesített átjáró:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Ajánlott: hagyja üresen, hogy a VPN DNS-kiszolgálóit használja automatikus split DNS beállítással.\n"
+"A split DNS lehetővé teszi, hogy a VPN-specifikus tartományokat a VPN DNS-e oldja fel, a többi tartományhoz pedig a helyi DNS-t használja.\n"
+"Felülbírálás: adjon meg pontosvesszővel elválasztott DNS-kiszolgálókat (pl. 8.8.8.8;8.8.4.4) egyéni DNS használatához."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "Token / egyszer használatos kód"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "Felhasználó: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "Felhasználónév"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "Felhasználónév és jelszó (RSA-token)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "Felhasználónév:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Melyik átjáróhoz kapcsolódjon. A lista az első sikeres kapcsolódás után töltődik fel.\n"
+"Ha a kiválasztott átjárót a portál már nem kínálja, az első javaslat lesz használva."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "_Mégse"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "_OK"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "a böngészőnek névnek, parancsnévnek vagy szóközök nélküli abszolút elérési útnak kell lennie"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "bájt (0 = automatikus)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "a dns-nek vesszővel, pontosvesszővel vagy szóközzel elválasztott IPv4- vagy IPv6-címeknek kell lennie"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "az átjáró megadása kötelező"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "az átjáró nem kezdődhet „-” karakterrel, és nem tartalmazhat szóközt vagy vezérlőkaraktert"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "a hip-script-nek abszolút elérési útnak kell lennie"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "másodperc (0 = a NetworkManager alapértelmezése)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "a felhasználónév nem kezdődhet „-” karakterrel, és nem tartalmazhat vezérlőkaraktert"

@@ -1,0 +1,290 @@
+# Ukrainian translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Ukrainian\n"
+"Language: uk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "Адреса є шлюзом (пропустити портал)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"Адреса порталу GlobalProtect (наприклад, vpn.company.com).\n"
+"Якщо ваша організація надала вам натомість адресу шлюзу, також позначте нижче «Адреса є шлюзом»."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "Завжди увімкнено"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "Автентифікація VPN: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "Не вдалося автентифікуватися. Введіть облікові дані для «%s» ще раз."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "Автентифікація:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Автоматично (вмикати, коли цього потребує портал)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Браузер (SAML, passkey, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Браузер для автентифікації SAML/2FA. «edge» — найкраще перевірений варіант; «default» використовує типовий браузер вашого стільничного середовища.\n"
+"Оберіть «Інший...», щоб вказати повний шлях до власного виконуваного файла."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "Браузер:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Браузер: портал відкриває вікно браузера для єдиного входу (типово).\n"
+"Ім'я користувача та пароль: портал запитує в терміналі — облікові дані та можливий токен натомість запитуються в діалоговому вікні."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "Тайм-аут з'єднання:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "Для з'єднання з «%s» потрібні облікові дані."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "Інший..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "Сервери DNS:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "Порожньо: вбудований звіт HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"Увімкніть HIP (Host Integrity Protection), щоб надсилати відомості про вузол до шлюзу VPN.\n"
+"Деякі організації вимагають цього для відповідності вимогам безпеки."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Увімкнути Host Integrity Protection (HIP)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Увімкніть, якщо адреса вище є шлюзом, а не порталом.\n"
+"Без цього спочатку пробується робочий процес порталу, через що вам, можливо, доведеться автентифікуватися двічі."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "Перший, запропонований порталом (автоматично)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "Клієнт GlobalProtect VPN"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "Скрипт HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Як довго NetworkManager чекає на з'єднання VPN, включно з входом у браузері (vpn.timeout).\n"
+"0 використовує типове значення NetworkManager, зазвичай 60 с — часто замало для входу SAML з MFA. Нове з'єднання з автентифікацією в браузері починається з 360 с. Поки з'єднання не має власного тайм-ауту (0) і ви не змінювали це поле, вибір автентифікації в браузері встановлює 360 с."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "Застаріле повторне узгодження TLS:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Максимальний розмір пакета в тунелі.\n"
+"0 = автоматично. Зменшення (наприклад, до 1300-1400) може допомогти, коли тунель переходить з ESP на HTTPS із помилкою «Message too long».\n"
+"Має значення, лише коли шлюз не надсилає власний MTU. Значення від 1 до 575 зберігаються як 576 — найменше значення, що використовується."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "Ніколи"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Необов'язковий абсолютний шлях до власного виконуваного файла HIP, що передається gpclient як --hip=<path>.\n"
+"Служба запускає його від імені root: це має бути файл, що належить root і недоступний для запису групі та іншим, у каталогах, що належать root і недоступних для запису групі та іншим. Інакше з'єднання не вдасться.\n"
+"Ігнорується, коли HIP вимкнено."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
+msgstr "Необов'язково. Скористайтеся піктограмою в полі, щоб обрати, де зберігається пароль: лише для цього користувача, для всіх користувачів або взагалі ні (запитувати щоразу)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Необов'язково. Використовується порталами, що запитують облікові дані в терміналі, щоб вас не питали ім'я користувача щоразу."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "Пароль"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "Пароль:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "Адреса порталу або шлюзу:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Портали зі старим стеком TLS потребують повторного узгодження, яке OpenSSL 3 типово відхиляє.\n"
+"Автоматично: один раз повторити спробу з обхідним способом, коли цього вимагає портал, а потім перемкнути це налаштування на «Завжди увімкнено», щоб невдала перша спроба не повторювалася."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "Бажаний шлюз:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Рекомендовано: залиште порожнім, щоб використовувати сервери DNS з VPN з автоматичним налаштуванням split DNS.\n"
+"Split DNS дає змогу розв'язувати специфічні для VPN домени через DNS VPN, а для інших доменів використовувати локальний DNS.\n"
+"Перевизначення: введіть сервери DNS, розділені крапкою з комою (наприклад, 8.8.8.8;8.8.4.4), щоб натомість використовувати власний DNS."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "Токен / одноразовий код"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "Користувач: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "Ім'я користувача"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "Ім'я користувача та пароль (токен RSA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "Ім'я користувача:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"До якого шлюзу під'єднуватися. Список заповнюється після першого успішного з'єднання.\n"
+"Якщо обраний шлюз більше не пропонується порталом, натомість використовується перша пропозиція."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "_Скасувати"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "_Гаразд"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "браузер має бути назвою, назвою команди або абсолютним шляхом без пробілів"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "байтів (0 = автоматично)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns має бути адресами IPv4 або IPv6, розділеними комами, крапками з комою або пробілами"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "потрібен шлюз"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "шлюз не повинен починатися з «-» або містити пробіли чи керівні символи"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "hip-script має бути абсолютним шляхом"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "секунд (0 = типове значення NetworkManager)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "ім'я користувача не повинно починатися з «-» або містити керівні символи"

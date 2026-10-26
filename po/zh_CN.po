@@ -1,0 +1,290 @@
+# Chinese (Simplified) translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "地址是网关（跳过门户）"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"GlobalProtect 门户的地址（例如 vpn.company.com）。\n"
+"如果您的组织给您的是网关地址，请同时勾选下面的“地址是网关”。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "始终开启"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "验证 VPN：%s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "验证失败。请重新输入“%s”的凭据。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "验证："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "自动（门户需要时启用）"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "浏览器（SAML、通行密钥、2FA）"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"用于 SAML/2FA 验证的浏览器。“edge”是测试最充分的选项；“default”使用您桌面的默认浏览器。\n"
+"选择“自定义...”可给出您自己的可执行文件的完整路径。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "浏览器："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"浏览器：门户会打开浏览器窗口进行单点登录（默认）。\n"
+"用户名和密码：门户在终端中询问 - 凭据和令牌（如有）改为在对话框中请求。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "连接超时："
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "连接到“%s”需要凭据。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "自定义..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "DNS 服务器："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "留空：使用内置 HIP 报告"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"启用 HIP（Host Integrity Protection），将主机信息发送到 VPN 网关。\n"
+"某些组织要求这样做以符合安全合规性。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "启用 Host Integrity Protection (HIP)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"当上面的地址是网关而不是门户时启用。\n"
+"不启用时会先尝试门户流程，这可能导致您验证两次。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "门户提议的第一个（自动）"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "GlobalProtect VPN 客户端"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "HIP 脚本："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"NetworkManager 等待 VPN 连接的时间，包括在浏览器中登录的时间 (vpn.timeout)。\n"
+"0 使用 NetworkManager 的默认值，通常为 60 秒 - 对于带 MFA 的 SAML 登录往往太短。使用浏览器验证的新连接从 360 秒开始。当连接没有自己的超时 (0) 且您没有更改此字段时，选择浏览器验证会将其设为 360 秒。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "旧版 TLS 重新协商："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"隧道中数据包的最大大小。\n"
+"0 = 自动。降低该值（例如降到 1300-1400）可能有助于隧道从 ESP 回退到 HTTPS 并出现“Message too long”时的情况。\n"
+"仅当网关不发送自己的 MTU 时才有效。1 到 575 的值会保存为 576，即使用的最小值。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "从不"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"自定义 HIP 可执行文件的可选绝对路径，以 --hip=<path> 传递给 gpclient。\n"
+"服务以 root 身份运行它：它必须是属于 root 且组和其他用户不可写的文件，位于属于 root 且组和其他用户不可写的目录中。否则连接失败。\n"
+"HIP 关闭时忽略。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
+msgstr "可选。使用字段中的图标选择密码的保存位置：仅此用户、所有用户，或完全不保存（每次询问）。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "可选。供在终端中询问凭据的门户使用，这样就不必每次都询问用户名。"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "密码"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "密码："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "门户或网关地址："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"使用旧 TLS 栈的门户需要重新协商，而 OpenSSL 3 默认拒绝这样做。\n"
+"自动：当门户要求时，使用变通方法重试一次，之后将此设置切换为“始终开启”，这样失败的第一次尝试就不会重复。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "首选网关："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"推荐：留空以使用来自 VPN 的 DNS 服务器和自动 split DNS 配置。\n"
+"Split DNS 允许通过 VPN DNS 解析 VPN 专用域名，同时对其他域名使用本地 DNS。\n"
+"覆盖：输入以分号分隔的 DNS 服务器（例如 8.8.8.8;8.8.4.4）以改用自定义 DNS。"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "令牌 / 一次性代码"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "用户：%s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "用户名"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "用户名和密码（RSA 令牌）"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "用户名："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"要连接到哪个网关。该列表在首次成功连接后填充。\n"
+"如果门户不再提供所选网关，则改用第一个提议。"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "取消(_C)"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "确定(_O)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "浏览器必须是名称、命令名称或不含空格的绝对路径"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "字节（0 = 自动）"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns 必须是以逗号、分号或空格分隔的 IPv4 或 IPv6 地址"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "网关为必填项"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "网关不能以“-”开头，也不能包含空格或控制字符"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "hip-script 必须是绝对路径"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "秒（0 = NetworkManager 默认值）"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "用户名不能以“-”开头，也不能包含控制字符"
