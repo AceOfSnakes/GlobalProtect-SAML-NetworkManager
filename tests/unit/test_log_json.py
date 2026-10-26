@@ -192,19 +192,38 @@ class TestMatchersThroughRecords:
         assert plugin._tunnel_settings.interface == "tun0"
         assert plugin._tunnel_settings.mtu == 1400
 
-    def test_openssl_legacy_error(self, service_module, dbus_signals):
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "unsafe legacy renegotiation disabled",
+            # upstream's hint: one record over several lines (gpapi clap report)
+            "Re-run it with the `--fix-openssl` option to work around this issue,"
+            " e.g.:\n\ngpclient --fix-openssl connect vpn.example.com",
+        ],
+    )
+    def test_openssl_legacy_error(self, service_module, dbus_signals, message):
         plugin = _plugin(service_module)
 
-        _run(
-            plugin,
-            record(
-                "unsafe legacy renegotiation disabled",
-                level="ERROR",
-                target="gpclient::cli",
-            ),
-        )
+        _run(plugin, record(message, level="ERROR", target="gpclient::cli"))
 
         assert plugin._openssl_error_seen is True
+
+    @pytest.mark.parametrize(
+        "message, fix_openssl",
+        [
+            ("unsafe legacy renegotiation disabled", True),  # already retried
+            ("Failed to connect to portal: connection refused", False),
+        ],
+    )
+    def test_no_openssl_retry_from_a_record(
+        self, service_module, dbus_signals, message, fix_openssl
+    ):
+        plugin = _plugin(service_module)
+        plugin.fix_openssl = fix_openssl
+
+        _run(plugin, record(message, level="ERROR", target="gpclient::cli"))
+
+        assert not plugin._openssl_error_seen
 
     def test_internal_network(self, service_module, dbus_signals, monkeypatch):
         plugin = _plugin(service_module)
