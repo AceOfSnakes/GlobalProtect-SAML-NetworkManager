@@ -9,6 +9,7 @@
 #include "gpclientwidget.h"
 
 #include <NetworkManagerQt/VpnSetting>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QSignalSpy>
@@ -45,6 +46,8 @@ private Q_SLOTS:
     void doesNotInventPersistentAndUserName();
     void trimsGateway_data();
     void trimsGateway();
+    void fieldValidity_data();
+    void fieldValidity();
     void readsBooleansIgnoringCase_data();
     void readsBooleansIgnoringCase();
     void mtuTyping_data();
@@ -307,6 +310,68 @@ void GpclientWidgetTest::trimsGateway()
     NetworkManager::VpnSetting result;
     result.fromMap(widget.setting());
     QCOMPARE(result.data().value(QStringLiteral("gateway")), saved);
+}
+
+void GpclientWidgetTest::fieldValidity_data()
+{
+    QTest::addColumn<QString>("field"); // object name of the line edit or combo box
+    QTest::addColumn<QString>("typed");
+    QTest::addColumn<bool>("hip");
+    QTest::addColumn<bool>("valid");
+
+    // The rules are nm-gpclient-validate.h, the same as in the GNOME editors
+    QTest::newRow("gateway host:port") << "gatewayLineEdit" << "vpn.example.com:8443" << true << true;
+    QTest::newRow("gateway url") << "gatewayLineEdit" << "https://vpn.example.com/ssl-vpn" << true << true;
+    QTest::newRow("gateway option") << "gatewayLineEdit" << "-vpn" << true << false;
+    QTest::newRow("gateway inner space") << "gatewayLineEdit" << "vpn example" << true << false;
+    QTest::newRow("dns list") << "dnsLineEdit" << "10.0.0.1, 2001:db8::1;10.0.0.2" << true << true;
+    QTest::newRow("dns empty") << "dnsLineEdit" << "" << true << true;
+    QTest::newRow("dns name") << "dnsLineEdit" << "10.0.0.1 dns.example.com" << true << false;
+    QTest::newRow("dns short ipv4") << "dnsLineEdit" << "10.0.1" << true << false;
+    QTest::newRow("hip script absolute") << "hipScriptLineEdit" << "/usr/local/bin/hip.sh" << true << true;
+    QTest::newRow("hip script relative") << "hipScriptLineEdit" << "hip.sh" << true << false;
+    QTest::newRow("hip script relative, hip off") << "hipScriptLineEdit" << "hip.sh" << false << true;
+    QTest::newRow("username plain") << "usernameLineEdit" << "alice" << true << true;
+    QTest::newRow("username option") << "usernameLineEdit" << "-alice" << true << false;
+    QTest::newRow("browser bare name") << "browserComboBox" << "brave-browser" << true << true;
+    QTest::newRow("browser absolute path") << "browserComboBox" << "/opt/bin/my-browser" << true << true;
+    QTest::newRow("browser with space") << "browserComboBox" << "my browser" << true << false;
+    QTest::newRow("browser relative path") << "browserComboBox" << "bin/browser" << true << false;
+}
+
+void GpclientWidgetTest::fieldValidity()
+{
+    QFETCH(QString, field);
+    QFETCH(QString, typed);
+    QFETCH(bool, hip);
+    QFETCH(bool, valid);
+
+    GpclientWidget widget(makeSetting({{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}}, 0));
+    QVERIFY(widget.isValid());
+    auto *check = widget.findChild<QCheckBox *>(QStringLiteral("hipCheckBox"));
+    auto *edit = widget.findChild<QLineEdit *>(field);
+    auto *combo = widget.findChild<QComboBox *>(field);
+    QVERIFY(check);
+    QVERIFY(edit || combo);
+    const auto type = [&](const QString &text) {
+        if (combo) {
+            combo->setEditText(text);
+        } else {
+            edit->setText(text);
+        }
+    };
+    QSignalSpy spy(&widget, &GpclientWidget::validChanged);
+    check->setChecked(true);
+    // A bad value first, so that a valid row must also report the way back
+    type(field == QLatin1String("hipScriptLineEdit") ? QStringLiteral("relative") : QStringLiteral("-bad value"));
+    QVERIFY(!widget.isValid());
+    QVERIFY(!spy.isEmpty());
+    QCOMPARE(spy.last().at(0).toBool(), false);
+    check->setChecked(hip);
+    type(typed);
+
+    QCOMPARE(widget.isValid(), valid);
+    QCOMPARE(spy.last().at(0).toBool(), valid);
 }
 
 void GpclientWidgetTest::readsBooleansIgnoringCase_data()

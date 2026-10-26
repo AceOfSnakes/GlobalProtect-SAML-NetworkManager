@@ -9,6 +9,7 @@
 
 #include "nm-gpclient-editor.h"
 #include "nm-gpclient-mtu.h"
+#include "nm-gpclient-validate.h"
 
 /************** UI widget class **************/
 
@@ -550,20 +551,31 @@ update_connection (NMVpnEditor *iface,
     const char *str;
     gchar *gateway = NULL;
 
-    /* Check gateway is set */
-    if (self->gateway_entry) {
-        gateway = g_strstrip (g_strdup (gtk_entry_get_text (self->gateway_entry)));
-        if (!*gateway) {
-            g_free (gateway);
+    /* Check the fields with the rules shared with the GTK4 and Plasma editors;
+     * an error greys out Save */
+    {
+        char *browser = self->browser_combo ? gtk_combo_box_text_get_active_text (self->browser_combo) : NULL;
+        const char *problem = nm_gpclient_validate_form (
+            self->gateway_entry ? gtk_entry_get_text (self->gateway_entry) : NULL,
+            self->username_entry ? gtk_entry_get_text (self->username_entry) : NULL,
+            browser,
+            self->dns_entry ? gtk_entry_get_text (self->dns_entry) : NULL,
+            self->hip_check ? gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->hip_check)) : FALSE,
+            self->hip_script_entry ? gtk_entry_get_text (self->hip_script_entry) : NULL);
+
+        g_free (browser);
+        if (problem) {
             if (error) {
-                g_set_error (error,
-                             NM_VPN_PLUGIN_ERROR,
-                             NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
-                             "gateway is required");
+                g_set_error_literal (error,
+                                     NM_VPN_PLUGIN_ERROR,
+                                     NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
+                                     problem);
             }
             return FALSE;
         }
     }
+    if (self->gateway_entry)
+        gateway = g_strstrip (g_strdup (gtk_entry_get_text (self->gateway_entry)));
 
     s_vpn = nm_connection_get_setting_vpn (connection);
     if (!s_vpn) {

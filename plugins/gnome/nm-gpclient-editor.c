@@ -6,6 +6,7 @@
 #include <nma-ui-utils.h>
 #include "nm-gpclient-editor.h"
 #include "nm-gpclient-mtu.h"
+#include "nm-gpclient-validate.h"
 
 struct _NMGpclientEditor {
     GObject parent;
@@ -560,18 +561,30 @@ update_connection (NMVpnEditor *editor,
     const char *str;
     gchar *gateway;
 
-    /* Check gateway is set (the same error as the GTK3 editor) */
-    gateway = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->gateway_entry))));
-    if (!*gateway) {
-        g_free (gateway);
-        if (error) {
-            g_set_error (error,
-                         NM_VPN_PLUGIN_ERROR,
-                         NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
-                         "gateway is required");
+    /* Check the fields with the rules shared with the GTK3 and Plasma editors;
+     * an error greys out Save */
+    {
+        char *browser = gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT (self->browser_combo));
+        const char *problem = nm_gpclient_validate_form (
+            gtk_editable_get_text (GTK_EDITABLE (self->gateway_entry)),
+            gtk_editable_get_text (GTK_EDITABLE (self->username_entry)),
+            browser,
+            gtk_editable_get_text (GTK_EDITABLE (self->dns_entry)),
+            gtk_check_button_get_active (GTK_CHECK_BUTTON (self->hip_check)),
+            gtk_editable_get_text (GTK_EDITABLE (self->hip_script_entry)));
+
+        g_free (browser);
+        if (problem) {
+            if (error) {
+                g_set_error_literal (error,
+                                     NM_VPN_PLUGIN_ERROR,
+                                     NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
+                                     problem);
+            }
+            return FALSE;
         }
-        return FALSE;
     }
+    gateway = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->gateway_entry))));
 
     s_vpn = nm_connection_get_setting_vpn (connection);
     if (!s_vpn) {

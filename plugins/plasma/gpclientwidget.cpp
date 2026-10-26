@@ -6,8 +6,9 @@
 #include "gpclientwidget.h"
 #include "ui_gpclientwidget.h"
 
-// The MTU rule (plain C, shared with the GTK editors)
+// The MTU and field rules (plain C, shared with the GTK editors)
 #include "nm-gpclient-mtu.h"
+#include "nm-gpclient-validate.h"
 
 #include <NetworkManagerQt/Utils>
 #include <QCheckBox>
@@ -124,6 +125,11 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
         Q_EMIT validChanged(isValid());
     };
     connect(m_ui->gatewayLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, update_valid);
+    connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->hipCheckBox, &QCheckBox::toggled, this, update_valid);
+    connect(m_ui->hipScriptLineEdit, &QLineEdit::textChanged, this, update_valid);
 
     watchChangedSetting();
     update_valid();
@@ -418,6 +424,13 @@ QVariantMap GpclientWidget::setting() const
 
 bool GpclientWidget::isValid() const
 {
-    // The portal / gateway address is required
-    return !m_ui->gatewayLineEdit->text().trimmed().isEmpty();
+    // The same rules as the GNOME editors (nm-gpclient-validate.h): the
+    // gateway must be set, the other fields must be what the service accepts
+    return nm_gpclient_validate_form(m_ui->gatewayLineEdit->text().toUtf8().constData(),
+                                     m_ui->usernameLineEdit->text().toUtf8().constData(),
+                                     m_ui->browserComboBox->currentText().toUtf8().constData(),
+                                     m_ui->dnsLineEdit->text().toUtf8().constData(),
+                                     m_ui->hipCheckBox->isChecked(),
+                                     m_ui->hipScriptLineEdit->text().toUtf8().constData())
+        == nullptr;
 }
