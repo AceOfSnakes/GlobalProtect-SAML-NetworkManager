@@ -1,9 +1,10 @@
 # Upstream (GlobalProtect-openconnect)
 
 `external/GlobalProtect-openconnect` is the upstream `gpclient` and `gpauth`.
-`service/nm-gpclient-service.py` runs `gpclient` under a PTY and reads the
-text that it prints: gateway lists, username, password and OTP prompts, banners
-and errors. A change of one of these texts breaks the service without any
+`service/nm-gpclient-service.py` runs `gpclient --log-format json` under a PTY.
+It reads the level and the message of each JSON log record, and the text that
+gpclient prints without the logger: gateway lists, username, password and OTP
+prompts and banners. A change of one of these texts breaks the service without any
 build error. This page explains how we find such a change and how we accept it.
 
 ## How the pin works

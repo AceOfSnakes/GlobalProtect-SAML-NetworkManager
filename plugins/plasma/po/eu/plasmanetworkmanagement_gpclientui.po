@@ -1,0 +1,369 @@
+# Basque translation of plasmanetworkmanagement_gpclientui.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the plasmanetworkmanagement_gpclientui package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:44+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Basque\n"
+"Language: eu\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: rc.cpp
+#, kde-format
+msgid " bytes"
+msgstr " byte"
+
+#: rc.cpp
+#, kde-format
+msgid " s"
+msgstr " s"
+
+#: rc.cpp
+#, kde-format
+msgid "Address is a gateway (skip the portal)"
+msgstr "Helbidea atebide bat da (saltatu ataria)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"GlobalProtect atariaren helbidea (adib. vpn.company.com).\n"
+"Zure erakundeak atebide baten helbidea eman badizu, markatu behean «Helbidea atebide bat da» ere."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Always on"
+msgstr "Beti aktibo"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Ask every time (not saved)"
+msgstr "Galdetu aldi bakoitzean (ez da gordetzen)"
+
+#: rc.cpp
+#, kde-format
+msgid "Authentication:"
+msgstr "Autentifikazioa:"
+
+#: rc.cpp
+#, kde-format
+msgid "Automatic"
+msgstr "Automatikoa"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automatikoa (gaitu atariak behar duenean)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Nabigatzailea (SAML, passkey, 2FA)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"SAML/2FA autentifikaziorako erabiltzen den nabigatzailea. «edge» da gehien probatutako aukera; «default» aukerak zure mahaigainaren nabigatzaile lehenetsia erabiltzen du.\n"
+"Aukeratu 'Pertsonalizatua...' zure exekutagarriaren bide osoa emateko."
+
+#: rc.cpp
+#, kde-format
+msgid "Browser:"
+msgstr "Nabigatzailea:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Nabigatzailea: atariak nabigatzaile-leiho bat irekitzen du saio-hasiera bakarrerako (lehenetsia).\n"
+"Erabiltzaile-izena eta pasahitza: atariak terminalean galdetzen du - horren ordez, kredentzialak eta token-ak elkarrizketa-koadro batean eskatzen dira."
+
+#: rc.cpp
+#, kde-format
+msgid "Connect timeout:"
+msgstr "Konexio-denbora-muga:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Custom..."
+msgstr "Pertsonalizatua..."
+
+#: rc.cpp
+#, kde-format
+msgid "DNS Servers:"
+msgstr "DNS zerbitzariak:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: built-in HIP report"
+msgstr "Hutsik: HIP txosten integratua"
+
+#: rc.cpp
+#, kde-format
+msgid "Enable HIP (Host Integrity Protection) to send host information to the VPN gateway. This is required by some organizations for security compliance."
+msgstr "Gaitu HIP (Host Integrity Protection) ostalariaren informazioa VPN atebidera bidaltzeko. Erakunde batzuek segurtasun-betetzeagatik eskatzen dute."
+
+#: rc.cpp
+#, kde-format
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Gaitu ostalariaren osotasun-babesa (HIP)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Gaitu goiko helbidea ataria ez baina atebidea denean.\n"
+"Hau gabe, atariaren lan-fluxua probatzen da lehenengo, eta baliteke bi aldiz autentifikatu behar izatea."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "First proposed by portal (automatic)"
+msgstr "Atariak lehenengo proposatutakoa (automatikoa)"
+
+#: rc.cpp
+#, kde-format
+msgid "GlobalProtect VPN"
+msgstr "GlobalProtect VPN"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP script:"
+msgstr "HIP script-a:"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP:"
+msgstr "HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"NetworkManager-ek zenbat denbora itxaroten duen VPNa konektatzeko, nabigatzailean saioa hastea barne (vpn.timeout).\n"
+"0 balioak NetworkManager-en lehenetsia erabiltzen du, normalean 60 s - askotan laburregia da MFA duen SAML saio-hasierarako. Nabigatzaile bidezko autentifikazioa duen konexio berri batek 360 s-rekin hasten da. Konexioak bere denbora-mugarik ez duen bitartean (0) eta eremu hau aldatu ez duzunean, nabigatzaile bidezko autentifikazioa aukeratzeak 360 s ezartzen ditu."
+
+#: rc.cpp
+#, kde-format
+msgid "Leave empty for automatic VPN DNS (recommended)"
+msgstr "Utzi hutsik VPNko DNS automatikorako (gomendatua)"
+
+#: rc.cpp
+#, kde-format
+msgid "Legacy TLS renegotiation:"
+msgstr "TLS birnegoziazio zaharra:"
+
+#: rc.cpp
+#, kde-format
+msgid "MTU:"
+msgstr "MTU:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Tuneleko paketearen gehienezko tamaina.\n"
+"Automatikoa (0): openconnect-ek aukeratzen du balioa. Txikiagotzeak (adibidez 1300-1400ra) lagun dezake tunelak ESP-tik HTTPS-ra jotzen duenean «Message too long» errorearekin.\n"
+"Atebideak bere MTUrik bidaltzen ez duenean bakarrik du eragina. 1etik 575era bitarteko balioak 576 gisa gordetzen dira, erabiltzen den balio txikiena."
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager default (usually 60 s)"
+msgstr "NetworkManager-en lehenetsia (normalean 60 s)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Never"
+msgstr "Inoiz ez"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional"
+msgstr "Aukerakoa"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Aukerakoa. HIP exekutagarri pertsonalizatu baterako bide absolutua, gpclient-i --hip=<path> gisa pasatua.\n"
+"Zerbitzuak root gisa exekutatzen du: root-en jabetzako fitxategi bat izan behar da, taldeak edo besteek idatz ezin dutena, root-en jabetzako direktorioetan, taldeak edo besteek idatz ezin dituztenetan. Bestela, konexioak huts egiten du.\n"
+"HIP desaktibatuta dagoenean ez da kontuan hartzen."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Aukerakoa. Terminalean kredentzialak eskatzen dituzten atariek erabiltzen dute, erabiltzaile-izena aldi bakoitzean galdetu ez diezazuten."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by the \"Username and password\" authentication."
+msgstr "Aukerakoa. «Erabiltzaile-izena eta pasahitza (RSA tokena)» autentifikazioak erabiltzen du."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Password"
+msgstr "Pasahitza"
+
+#: rc.cpp
+#, kde-format
+msgid "Password storage:"
+msgstr "Pasahitzaren biltegiratzea:"
+
+#: rc.cpp
+#, kde-format
+msgid "Password:"
+msgstr "Pasahitza:"
+
+#: rc.cpp
+#, kde-format
+msgid "Portal or gateway address:"
+msgstr "Atariaren edo atebidearen helbidea:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"TLS pila zaharra duten atariek OpenSSL 3-k lehenespenez baztertzen duen birnegoziazioa behar dute.\n"
+"Automatikoa: saiatu berriro behin soluzioarekin atariak eskatzen duenean, eta ondoren ezarpen hau «Beti aktibo» aukerara aldatu, huts egindako lehen saiakera errepikatu ez dadin."
+
+#: rc.cpp
+#, kde-format
+msgid "Preferred gateway:"
+msgstr "Atebide hobetsia:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Gomendatua: utzi hutsik VPNko DNS zerbitzariak split DNS konfigurazio automatikoarekin erabiltzeko.\n"
+"Split DNS-ak VPNko domeinuak VPNko DNS bidez ebaztea ahalbidetzen du, beste domeinuetarako DNS lokala erabiliz.\n"
+"Gainidatzi: sartu puntu eta komaz bereizitako DNS zerbitzariak (adib. 8.8.8.8;8.8.4.4) DNS pertsonalizatua erabiltzeko."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for all users (system)"
+msgstr "Gorde erabiltzaile guztientzat (sistema)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for this user only (agent)"
+msgstr "Gorde erabiltzaile honentzat soilik (agentea)"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Token / one-time code"
+msgstr "Token-a / aldi bakarreko kodea"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Username"
+msgstr "Erabiltzaile-izena"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Username and password (RSA token)"
+msgstr "Erabiltzaile-izena eta pasahitza (RSA tokena)"
+
+#: rc.cpp
+#, kde-format
+msgid "Username:"
+msgstr "Erabiltzaile-izena:"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the password is kept. \"Ask every time\" stores nothing."
+msgstr "Pasahitza non gordetzen den. «Galdetu aldi bakoitzean» aukerak ez du ezer gordetzen."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Zein atebidetara konektatu. Zerrenda lehen konexio arrakastatsuaren ondoren betetzen da.\n"
+"Aukeratutako atebidea atariak jada eskaintzen ez badu, lehen proposamena erabiltzen da."
+
+#: rc.cpp
+#, kde-format
+msgid "vpn.company.com"
+msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Ezin da konexioa esportatu: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Ezin da konexioa inportatu: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "\"%1\" konexioa ez dago NetworkManager-en gordeta"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Fitxategia ez da GlobalProtect VPN konexio bat"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "atebidea beharrezkoa da"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "atebideak ez du '-'-rekin hasi behar, ez eta zuriunerik edo kontrol-karakterik izan"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "erabiltzaile-izenak ez du '-'-rekin hasi behar, ez eta kontrol-karakterik izan"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "nabigatzailea izen bat, komando-izen bat edo zuriunerik gabeko bide absolutu bat izan behar da"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns-ak IPv4 edo IPv6 helbideak izan behar dira, komaz, puntu eta komaz edo zuriunez bereiziak"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script bide absolutu bat izan behar da"

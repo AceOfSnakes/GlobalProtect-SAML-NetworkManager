@@ -152,6 +152,15 @@ for path in \
     [ -e "$path" ] || fail "missing file $path"
 done
 
+# The catalogs are %lang(pl): rpm skips them on images that install only some
+# languages (%_install_langs, e.g. Fedora and EL containers), so check the
+# package contents, not the disk
+rpm -ql network-manager-gpclient | grep -qx /usr/share/locale/pl/LC_MESSAGES/NetworkManager-gpclient.mo \
+    || fail "network-manager-gpclient has no Polish catalog"
+rpm -ql network-manager-gpclient-plasma \
+    | grep -qx /usr/share/locale/pl/LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo \
+    || fail "network-manager-gpclient-plasma has no Polish catalog"
+
 # gpgui is not shipped: the entry is hidden, the callback handler stays
 grep -qx 'NoDisplay=true' /usr/share/applications/gpgui.desktop \
     || fail "gpgui.desktop has no NoDisplay=true"

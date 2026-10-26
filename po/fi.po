@@ -1,0 +1,294 @@
+# Finnish translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:44+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Finnish\n"
+"Language: fi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "Osoite on yhdyskäytävä (ohita portaali)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"GlobalProtect-portaalin osoite (esim. vpn.company.com).\n"
+"Jos organisaatiosi antoi sinulle yhdyskäytävän osoitteen, valitse myös alla ”Osoite on yhdyskäytävä”."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "Aina käytössä"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "Todenna VPN: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "Todennus epäonnistui. Anna yhteyden “%s” tunnistetiedot uudelleen."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "Todennus:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automaattinen (otetaan käyttöön, kun portaali tarvitsee sitä)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Selain (SAML, passkey, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"SAML/2FA-todennuksessa käytettävä selain. ”edge” on parhaiten testattu vaihtoehto; ”default” käyttää työpöytäsi oletusselainta.\n"
+"Valitse ”Mukautettu...” antaaksesi oman suoritettavan tiedostosi koko polun."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "Selain:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Selain: portaali avaa selainikkunan kertakirjautumista varten (oletus).\n"
+"Käyttäjätunnus ja salasana: portaali kysyy päätteessä - tunnistetiedot ja mahdollinen tunnus pyydetään sen sijaan valintaikkunassa."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "Yhteyden aikakatkaisu:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "Tunnistetiedot tarvitaan yhteyden “%s” muodostamiseen."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "Mukautettu..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "DNS-palvelimet:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "Tyhjä: sisäänrakennettu HIP-raportti"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"Ota HIP (Host Integrity Protection) käyttöön lähettääksesi isäntäkoneen tiedot VPN-yhdyskäytävälle.\n"
+"Jotkin organisaatiot vaativat tätä tietoturvavaatimusten täyttämiseksi."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Ota isäntäkoneen eheyden suojaus (HIP) käyttöön"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Ota käyttöön, kun yllä oleva osoite on yhdyskäytävä eikä portaali.\n"
+"Ilman tätä kokeillaan ensin portaalin työnkulkua, mikä voi saada sinut todentamaan kahdesti."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "First proposed by portal (automatic)"
+msgstr "Portaalin ensimmäisenä ehdottama (automaattinen)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "GlobalProtect VPN -asiakas"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "HIP-komentosarja:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Kuinka kauan NetworkManager odottaa VPN-yhteyden muodostumista, selaimessa kirjautuminen mukaan lukien (vpn.timeout).\n"
+"0 käyttää NetworkManagerin oletusta, yleensä 60 s - usein liian lyhyt SAML-kirjautumiselle, jossa on MFA. Uusi yhteys selaintodennuksella alkaa arvolla 360 s. Kun yhteydellä ei ole omaa aikakatkaisua (0) etkä ole muuttanut tätä kenttää, selaintodennuksen valinta asettaa arvoksi 360 s."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "Vanha TLS-uudelleenneuvottelu:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Tunnelin paketin enimmäiskoko.\n"
+"0 = automaattinen. Sen pienentäminen (esimerkiksi arvoon 1300-1400) voi auttaa, kun tunneli palaa ESP:stä HTTPS:ään ja antaa virheen ”Message too long”.\n"
+"Vaikuttaa vain, jos yhdyskäytävä ei lähetä omaa MTU-arvoa. Arvot 1-575 tallennetaan arvona 576, pienimpänä käytettävänä arvona."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "Ei koskaan"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Valinnainen. Oman HIP-suoritettavan tiedoston absoluuttinen polku, joka välitetään gpclientille muodossa --hip=<path>.\n"
+"Palvelu suorittaa sen rootina: sen on oltava root-omisteinen tiedosto, johon ryhmällä tai muilla ei ole kirjoitusoikeutta, root-omisteisissa hakemistoissa, joihin ryhmällä tai muilla ei ole kirjoitusoikeutta. Muuten yhteys epäonnistuu.\n"
+"Jätetään huomiotta, kun HIP on pois käytöstä."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
+msgstr "Valinnainen. Valitse kentän kuvakkeella, minne salasana tallennetaan: vain tälle käyttäjälle, kaikille käyttäjille tai ei lainkaan (kysytään joka kerta)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Valinnainen. Portaalit, jotka kysyvät tunnistetietoja päätteessä, käyttävät tätä, jotta käyttäjätunnusta ei kysytä joka kerta."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "Salasana"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "Salasana:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "Portaalin tai yhdyskäytävän osoite:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Portaalit, joissa on vanha TLS-pino, tarvitsevat uudelleenneuvottelun, jonka OpenSSL 3 estää oletuksena.\n"
+"Automaattinen: yritä kerran uudelleen kiertotavalla, kun portaali sitä pyytää, ja vaihda tämä asetus sen jälkeen arvoon ”Aina käytössä”, jotta epäonnistunut ensimmäinen yritys ei toistu."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "Ensisijainen yhdyskäytävä:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Suositus: jätä tyhjäksi, jos haluat käyttää VPN:n DNS-palvelimia automaattisella split DNS -asetuksella.\n"
+"Split DNS mahdollistaa VPN-kohtaisten verkkotunnusten selvittämisen VPN:n DNS:llä, kun muille verkkotunnuksille käytetään paikallista DNS:ää.\n"
+"Ohitus: anna puolipisteillä erotetut DNS-palvelimet (esim. 8.8.8.8;8.8.4.4) käyttääksesi omaa DNS:ää."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "Tunnus / kertakäyttökoodi"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "Käyttäjä: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "Käyttäjätunnus"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "Käyttäjätunnus ja salasana (RSA-tunnus)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "Käyttäjätunnus:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Mihin yhdyskäytävään yhdistetään. Luettelo täytetään ensimmäisen onnistuneen yhteyden jälkeen.\n"
+"Jos portaali ei enää tarjoa valittua yhdyskäytävää, käytetään ensimmäistä ehdotusta."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "_Peruuta"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "_OK"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "selaimen on oltava nimi, komennon nimi tai absoluuttinen polku ilman välilyöntejä"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "tavua (0 = automaattinen)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns:n on oltava IPv4- tai IPv6-osoitteita, jotka on erotettu pilkuilla, puolipisteillä tai välilyönneillä"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "yhdyskäytävä vaaditaan"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "yhdyskäytävä ei saa alkaa merkillä ”-” eikä sisältää välilyöntejä tai ohjausmerkkejä"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "hip-script-arvon on oltava absoluuttinen polku"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "sekuntia (0 = NetworkManagerin oletus)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "käyttäjätunnus ei saa alkaa merkillä ”-” eikä sisältää ohjausmerkkejä"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Tiedosto ei ole GlobalProtect VPN -yhteys"

@@ -35,12 +35,25 @@ a NOT_SAVED (2) password is always asked, even when a stored value comes in.
 """
 
 import argparse
+import gettext
 import sys
 
+# The catalog po/NetworkManager-gpclient.pot, installed by the package; the
+# English text is used when there is no catalog for the language
+_ = gettext.translation(
+    "NetworkManager-gpclient", localedir="/usr/share/locale", fallback=True
+).gettext
+
+
+def N_(text):
+    """Mark a text for xgettext; it is translated where it is shown"""
+    return text
+
+
 SECRET_LABELS = {
-    "username": "Username",
-    "password": "Password",
-    "otp": "Token / one-time code",
+    "username": N_("Username"),
+    "password": N_("Password"),
+    "otp": N_("Token / one-time code"),
 }
 
 # Hints that should be shown as plain-text entries instead of masked ones
@@ -128,15 +141,19 @@ def output_external_ui(title, description, entries):
 
 
 def secret_label(key):
-    return SECRET_LABELS.get(key, key.replace("-", " ").capitalize())
+    if key in SECRET_LABELS:
+        return _(SECRET_LABELS[key])
+    return key.replace("-", " ").capitalize()
 
 
 def header_text(vpn_name, message, reprompt):
     if message:
         return message
     if reprompt:
-        return f"Authentication failed. Enter the credentials for “{vpn_name}” again."
-    return f"Credentials are required to connect to “{vpn_name}”."
+        return (
+            _("Authentication failed. Enter the credentials for “%s” again.") % vpn_name
+        )
+    return _("Credentials are required to connect to “%s”.") % vpn_name
 
 
 def parse_hints(raw_hints):
@@ -161,11 +178,11 @@ def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
     gi.require_version("Gtk", "3.0")
     from gi.repository import Gtk
 
-    dialog = Gtk.Dialog(title=f"Authenticate VPN: {vpn_name}")
+    dialog = Gtk.Dialog(title=_("Authenticate VPN: %s") % vpn_name)
     dialog.set_modal(True)
     dialog.set_keep_above(True)
-    dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
-    ok_button = dialog.add_button("_OK", Gtk.ResponseType.OK)
+    dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+    ok_button = dialog.add_button(_("_OK"), Gtk.ResponseType.OK)
     ok_button.get_style_context().add_class("suggested-action")
     dialog.set_default_response(Gtk.ResponseType.OK)
 
@@ -181,7 +198,7 @@ def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
     content.pack_start(header, False, False, 0)
 
     if data.get("username"):
-        user_label = Gtk.Label(label=f"User: {data['username']}")
+        user_label = Gtk.Label(label=_("User: %s") % data["username"])
         user_label.set_xalign(0)
         content.pack_start(user_label, False, False, 0)
 
@@ -192,7 +209,7 @@ def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
 
     entries = {}
     for row, key in enumerate(requested):
-        label = Gtk.Label(label=f"{secret_label(key)}:")
+        label = Gtk.Label(label=_("%s:") % secret_label(key))
         label.set_xalign(1)
         grid.attach(label, 0, row, 1, 1)
 
@@ -255,8 +272,8 @@ def external_ui(args, data, existing_secrets, requested, message):
     description = header_text(args.name, message, args.reprompt)
     if data.get("username"):
         # The GTK window shows the account too: say whose password is asked
-        description += f"\nUser: {data['username']}"
-    output_external_ui(f"Authenticate VPN: {args.name}", description, entries)
+        description += "\n" + _("User: %s") % data["username"]
+    output_external_ui(_("Authenticate VPN: %s") % args.name, description, entries)
     return 0
 
 

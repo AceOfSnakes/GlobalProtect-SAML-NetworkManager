@@ -418,7 +418,7 @@ class TestStartGpclient:
         # pkill -9 -u <uid> gpauth also killed the gpauth of a CLI or GUI
         # session of the same user (issue #52)
         seen = start_env(uid=1234)
-        assert seen["argv"][0] == "connect"
+        assert seen["argv"][:3] == ["--log-format", "json", "connect"]
         assert not [c for c in start_env.subprocess_calls if "pkill" in c]
         assert gpauth_signals == []
 

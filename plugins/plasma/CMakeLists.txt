@@ -55,6 +55,11 @@ if(NOT PLASMANM_INTERNAL OR NOT PLASMANM_EDITOR)
     message(FATAL_ERROR "plasma-nm libraries not found. Please install the plasma-nm package.")
 endif()
 
+# ki18n looks up the strings of i18n() and of the .ui file in this catalog
+# (plugins/plasma/po/pl/plasmanetworkmanagement_gpclientui.po, installed as
+# .../LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo)
+add_definitions(-DTRANSLATION_DOMAIN=\"plasmanetworkmanagement_gpclientui\")
+
 # The settings widget is a static library, so the plugin and the test build it
 # (and the generated ui header) once.
 ki18n_wrap_ui(gpclientwidget_UI_SRCS gpclientwidget.ui)
@@ -62,7 +67,7 @@ add_library(gpclientwidget STATIC gpclientwidget.cpp ${gpclientwidget_UI_SRCS})
 set_target_properties(gpclientwidget PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Add local include directory for plasma-nm headers
-# nm-gpclient-mtu.h and nm-gpclient-validate.h (the MTU and field rules) are shared with the GTK editors
+# nm-gpclient-mtu.h, nm-gpclient-validate.h (the MTU and field rules) and nm-gpclient-keyfile.h are shared with the GTK editors
 target_include_directories(gpclientwidget PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -86,7 +91,10 @@ set(gpclient_SRCS
 # Build plugin
 add_library(plasmanetworkmanagement_gpclientui MODULE ${gpclient_SRCS})
 
-target_link_libraries(plasmanetworkmanagement_gpclientui PRIVATE gpclientwidget)
+# libnm: the import and export of nm-gpclient-keyfile.h
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBNM REQUIRED IMPORTED_TARGET libnm)
+target_link_libraries(plasmanetworkmanagement_gpclientui PRIVATE gpclientwidget PkgConfig::LIBNM)
 
 # Test of the settings widget (QtTest, run by ctest; never installed)
 if(BUILD_TESTING)

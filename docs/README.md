@@ -190,6 +190,7 @@ VPN settings are stored as NetworkManager data items:
 - [PYTHON_SERVICE.md](PYTHON_SERVICE.md) - VPN service implementation details
 - [GNOME_SETTINGS_INTEGRATION.md](GNOME_SETTINGS_INTEGRATION.md) - GNOME/GTK plugin details
 - [PLASMA_IMPLEMENTATION.md](PLASMA_IMPLEMENTATION.md) - KDE Plasma plugin details
+- [TRANSLATIONS.md](TRANSLATIONS.md) - Translations: add a language, refresh the catalogs, test
 
 ## License
 

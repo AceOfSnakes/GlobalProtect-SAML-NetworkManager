@@ -112,7 +112,7 @@ def test_spec_files_has_the_url_handler_and_the_symlink_in_gnome():
     files = {}
     current = None
     for line in spec.splitlines():
-        match = re.match(r"^%files\s*(\S*)", line)
+        match = re.match(r"^%files\s*(?!-f)(\S*)", line)
         if match:
             current = match.group(1) or "core"
             files[current] = []

@@ -1,5 +1,6 @@
 /* NetworkManager gpclient VPN connection editor - GTK4 for GNOME Settings */
 
+#include <glib/gi18n-lib.h>
 #include <gtk/gtk.h>
 #include <NetworkManager.h>
 #include <nm-vpn-editor-plugin.h>
@@ -36,7 +37,7 @@ struct _NMGpclientEditor {
 
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * an empty vpn.data value, so existing profiles keep behaving the same. */
-#define GATEWAY_AUTO_LABEL "First proposed by portal (automatic)"
+#define GATEWAY_AUTO_LABEL _("First proposed by portal (automatic)")
 
 /* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
@@ -70,7 +71,7 @@ browser_combo_changed_cb (GtkComboBox *combo, gpointer user_data)
 {
     const gchar *text = gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT (combo));
 
-    if (text && g_strcmp0(text, "Custom...") == 0) {
+    if (text && g_strcmp0(text, _("Custom...")) == 0) {
         // User selected "Custom...", clear the entry so they can type
         // In GTK4, combo box with entry has the entry as child widget
         GtkWidget *entry = gtk_combo_box_get_child (GTK_COMBO_BOX (combo));
@@ -194,16 +195,16 @@ build_ui (NMGpclientEditor *self)
     stored = s_vpn ? nm_setting_vpn_get_timeout (s_vpn) : 0;
 
     /* Portal / gateway address */
-    label = gtk_label_new ("Portal or gateway address:");
+    label = gtk_label_new (_("Portal or gateway address:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     self->gateway_entry = gtk_entry_new ();
     gtk_widget_set_hexpand (self->gateway_entry, TRUE);
     gtk_widget_set_tooltip_text (self->gateway_entry,
-        "Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+        _("Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
         "If your organisation gave you a gateway address instead, also tick "
-        "\"Address is a gateway\" below.");
+        "\"Address is a gateway\" below."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "gateway");
         if (value && *value)
@@ -213,11 +214,11 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->gateway_entry, 1, row++, 1, 1);
 
     /* Address is a gateway, not a portal */
-    self->as_gateway_check = gtk_check_button_new_with_label ("Address is a gateway (skip the portal)");
+    self->as_gateway_check = gtk_check_button_new_with_label (_("Address is a gateway (skip the portal)"));
     gtk_widget_set_tooltip_text (self->as_gateway_check,
-        "Enable when the address above is a gateway rather than a portal.\n"
+        _("Enable when the address above is a gateway rather than a portal.\n"
         "Without this the portal workflow is tried first, which can make you "
-        "authenticate twice.");
+        "authenticate twice."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "as-gateway");
         gtk_check_button_set_active (GTK_CHECK_BUTTON (self->as_gateway_check),
@@ -227,17 +228,17 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->as_gateway_check, 1, row++, 1, 1);
 
     /* Preferred gateway */
-    label = gtk_label_new ("Preferred gateway:");
+    label = gtk_label_new (_("Preferred gateway:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     self->preferred_gateway_combo = gtk_combo_box_text_new_with_entry ();
     gtk_widget_set_hexpand (self->preferred_gateway_combo, TRUE);
     gtk_widget_set_tooltip_text (self->preferred_gateway_combo,
-        "Which gateway to connect to. The list is filled in after the first "
+        _("Which gateway to connect to. The list is filled in after the first "
         "successful connection.\n"
         "If the chosen gateway is not offered by the portal any more, the first "
-        "proposal is used instead.");
+        "proposal is used instead."));
     gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->preferred_gateway_combo), GATEWAY_AUTO_LABEL);
 
     if (s_vpn) {
@@ -267,18 +268,18 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->preferred_gateway_combo, 1, row++, 1, 1);
 
     /* Authentication mode */
-    label = gtk_label_new ("Authentication:");
+    label = gtk_label_new (_("Authentication:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     self->auth_mode_combo = gtk_combo_box_text_new ();
     gtk_widget_set_hexpand (self->auth_mode_combo, TRUE);
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->auth_mode_combo), "Browser (SAML, passkey, 2FA)");
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->auth_mode_combo), "Username and password (RSA token)");
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->auth_mode_combo), _("Browser (SAML, passkey, 2FA)"));
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->auth_mode_combo), _("Username and password (RSA token)"));
     gtk_widget_set_tooltip_text (self->auth_mode_combo,
-        "Browser: the portal opens a browser window for single sign-on (default).\n"
+        _("Browser: the portal opens a browser window for single sign-on (default).\n"
         "Username and password: the portal asks on the terminal - the credentials "
-        "and any token are requested in a dialog instead.");
+        "and any token are requested in a dialog instead."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "auth-mode");
         gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_mode_combo),
@@ -291,15 +292,15 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->auth_mode_combo, 1, row++, 1, 1);
 
     /* Username */
-    label = gtk_label_new ("Username:");
+    label = gtk_label_new (_("Username:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     self->username_entry = gtk_entry_new ();
     gtk_widget_set_hexpand (self->username_entry, TRUE);
     gtk_widget_set_tooltip_text (self->username_entry,
-        "Optional. Used by portals that ask for credentials on the terminal, so "
-        "you are not asked for the username every time.");
+        _("Optional. Used by portals that ask for credentials on the terminal, so "
+        "you are not asked for the username every time."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "username");
         if (value && *value)
@@ -311,7 +312,7 @@ build_ui (NMGpclientEditor *self)
     /* Password, stored as a secret of the connection: only for "Username and
      * password". A new connection asks the secret agent (password-flags=1); an
      * existing one keeps its flags (a missing key is 0, system-owned). */
-    self->password_label = gtk_label_new ("Password:");
+    self->password_label = gtk_label_new (_("Password:"));
     gtk_widget_set_halign (self->password_label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), self->password_label, 0, row, 1, 1);
 
@@ -319,8 +320,8 @@ build_ui (NMGpclientEditor *self)
     gtk_entry_set_visibility (GTK_ENTRY (self->password_entry), FALSE);
     gtk_widget_set_hexpand (self->password_entry, TRUE);
     gtk_widget_set_tooltip_text (self->password_entry,
-        "Optional. Use the icon in the field to choose where the password is "
-        "kept: for this user only, for all users, or not at all (asked every time).");
+        _("Optional. Use the icon in the field to choose where the password is "
+        "kept: for this user only, for all users, or not at all (asked every time)."));
     if (s_vpn) {
         value = nm_setting_vpn_get_secret (s_vpn, "password");
         if (value && *value)
@@ -342,7 +343,7 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_visible (self->password_entry, auth_index == 1);
 
     /* Browser field */
-    label = gtk_label_new ("Browser:");
+    label = gtk_label_new (_("Browser:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
@@ -350,11 +351,11 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_hexpand (self->browser_combo, TRUE);
     for (int i = 0; browser_values[i] != NULL; i++)
         gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->browser_combo), browser_values[i]);
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->browser_combo), "Custom...");
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->browser_combo), _("Custom..."));
     gtk_widget_set_tooltip_text (self->browser_combo,
-        "Browser used for SAML/2FA authentication. \"edge\" is the best tested "
+        _("Browser used for SAML/2FA authentication. \"edge\" is the best tested "
         "option; \"default\" uses your desktop's default browser.\n"
-        "Select 'Custom...' to give the full path to your own executable.");
+        "Select 'Custom...' to give the full path to your own executable."));
 
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "browser");
@@ -383,7 +384,7 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->browser_combo, 1, row++, 1, 1);
 
     /* Connect timeout (NetworkManager's vpn.timeout, not a vpn.data item) */
-    label = gtk_label_new ("Connect timeout:");
+    label = gtk_label_new (_("Connect timeout:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
@@ -393,12 +394,12 @@ build_ui (NMGpclientEditor *self)
     gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (self->timeout_spin), TRUE);
     gtk_widget_set_hexpand (self->timeout_spin, TRUE);
     gtk_widget_set_tooltip_text (self->timeout_spin,
-        "How long NetworkManager waits for the VPN to connect, including the "
+        _("How long NetworkManager waits for the VPN to connect, including the "
         "login in the browser (vpn.timeout).\n"
         "0 uses the NetworkManager default, usually 60 s - often too short for a "
         "SAML login with MFA. A new connection with browser authentication starts "
         "with 360 s. While a connection has no timeout of its own (0) and you have "
-        "not changed this field, choosing browser authentication sets 360 s.");
+        "not changed this field, choosing browser authentication sets 360 s."));
     /* A new profile starts with 360 s for browser authentication. A stored 0
      * (new or existing) follows the authentication mode until the user sets a
      * value; an existing profile still opens with its 0. */
@@ -411,12 +412,12 @@ build_ui (NMGpclientEditor *self)
     /* Connect after the initial value is set */
     g_signal_connect (self->timeout_spin, "changed", G_CALLBACK (timeout_changed_cb), self);
     gtk_box_append (GTK_BOX (timeout_box), self->timeout_spin);
-    timeout_hint = gtk_label_new ("seconds (0 = NetworkManager default)");
+    timeout_hint = gtk_label_new (_("seconds (0 = NetworkManager default)"));
     gtk_box_append (GTK_BOX (timeout_box), timeout_hint);
     gtk_grid_attach (GTK_GRID (grid), timeout_box, 1, row++, 1, 1);
 
     /* Tunnel MTU (vpn.data "mtu") */
-    label = gtk_label_new ("MTU:");
+    label = gtk_label_new (_("MTU:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
@@ -426,11 +427,11 @@ build_ui (NMGpclientEditor *self)
     gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (self->mtu_spin), TRUE);
     gtk_widget_set_hexpand (self->mtu_spin, TRUE);
     gtk_widget_set_tooltip_text (self->mtu_spin,
-        "Maximum size of a packet in the tunnel.\n"
+        _("Maximum size of a packet in the tunnel.\n"
         "0 = Automatic. Lowering it (for example to 1300-1400) may help when the "
         "tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
         "It has an effect only when the gateway sends no MTU of its own. "
-        "Values from 1 to 575 are saved as 576, the lowest value that is used.");
+        "Values from 1 to 575 are saved as 576, the lowest value that is used."));
     gtk_widget_set_name (self->mtu_spin, "mtu_spin");
     g_free (self->mtu_stored);
     self->mtu_stored = g_strdup (s_vpn ? nm_setting_vpn_get_data_item (s_vpn, "mtu") : NULL);
@@ -439,26 +440,26 @@ build_ui (NMGpclientEditor *self)
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->mtu_spin), shown > 0 ? shown : 0);
     g_signal_connect (self->mtu_spin, "value-changed", G_CALLBACK (mtu_changed_cb), self);
     gtk_box_append (GTK_BOX (mtu_box), self->mtu_spin);
-    mtu_hint = gtk_label_new ("bytes (0 = Automatic)");
+    mtu_hint = gtk_label_new (_("bytes (0 = Automatic)"));
     gtk_box_append (GTK_BOX (mtu_box), mtu_hint);
     gtk_grid_attach (GTK_GRID (grid), mtu_box, 1, row++, 1, 1);
 
     /* Legacy TLS renegotiation workaround */
-    label = gtk_label_new ("Legacy TLS renegotiation:");
+    label = gtk_label_new (_("Legacy TLS renegotiation:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     self->fix_openssl_combo = gtk_combo_box_text_new ();
     gtk_widget_set_hexpand (self->fix_openssl_combo, TRUE);
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->fix_openssl_combo), "Automatic (enable when the portal needs it)");
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->fix_openssl_combo), "Always on");
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->fix_openssl_combo), "Never");
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->fix_openssl_combo), _("Automatic (enable when the portal needs it)"));
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->fix_openssl_combo), _("Always on"));
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->fix_openssl_combo), _("Never"));
     gtk_widget_set_tooltip_text (self->fix_openssl_combo,
-        "Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses "
+        _("Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses "
         "by default.\n"
         "Automatic: retry once with the workaround when the portal asks for it, "
         "and switch this setting to \"Always on\" afterwards, so the failed first "
-        "attempt does not repeat.");
+        "attempt does not repeat."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "fix-openssl");
         if (g_ascii_strcasecmp (value ? value : "", "true") == 0)
@@ -474,16 +475,16 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->fix_openssl_combo, 1, row++, 1, 1);
 
     /* DNS Servers field */
-    label = gtk_label_new ("DNS Servers:");
+    label = gtk_label_new (_("DNS Servers:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
     self->dns_entry = gtk_entry_new ();
     gtk_widget_set_hexpand (self->dns_entry, TRUE);
     gtk_widget_set_tooltip_text (self->dns_entry, 
-        "Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+        _("Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
         "Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
-        "Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead.");
+        "Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "dns");
         if (value && *value)
@@ -493,14 +494,14 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->dns_entry, 1, row++, 1, 1);
 
     /* HIP checkbox */
-    label = gtk_label_new ("HIP:");
+    label = gtk_label_new (_("HIP:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
 
-    self->hip_check = gtk_check_button_new_with_label ("Enable Host Integrity Protection (HIP)");
+    self->hip_check = gtk_check_button_new_with_label (_("Enable Host Integrity Protection (HIP)"));
     gtk_widget_set_tooltip_text (self->hip_check,
-        "Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
-        "This is required by some organizations for security compliance.");
+        _("Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+        "This is required by some organizations for security compliance."));
     /* Default: enabled */
     gboolean hip_enabled = TRUE;
     if (s_vpn) {
@@ -512,18 +513,18 @@ build_ui (NMGpclientEditor *self)
     gtk_grid_attach (GTK_GRID (grid), self->hip_check, 1, row++, 1, 1);
 
     /* HIP script field */
-    self->hip_script_label = gtk_label_new ("HIP script:");
+    self->hip_script_label = gtk_label_new (_("HIP script:"));
     gtk_widget_set_halign (self->hip_script_label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID (grid), self->hip_script_label, 0, row, 1, 1);
 
     self->hip_script_entry = gtk_entry_new ();
     gtk_widget_set_hexpand (self->hip_script_entry, TRUE);
-    gtk_entry_set_placeholder_text (GTK_ENTRY (self->hip_script_entry), "Empty: built-in HIP report");
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->hip_script_entry), _("Empty: built-in HIP report"));
     gtk_widget_set_tooltip_text (self->hip_script_entry,
-        "Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+        _("Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
         "The service runs it as root: it must be a root-owned file that is not writable by group or others, "
         "in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
-        "Ignored when HIP is off.");
+        "Ignored when HIP is off."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "hip-script");
         if (value && *value)
@@ -579,7 +580,7 @@ update_connection (NMVpnEditor *editor,
                 g_set_error_literal (error,
                                      NM_VPN_PLUGIN_ERROR,
                                      NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
-                                     problem);
+                                     _(problem));
             }
             return FALSE;
         }

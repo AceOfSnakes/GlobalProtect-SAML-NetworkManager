@@ -15,6 +15,7 @@ import fcntl
 import functools
 import hmac
 import ipaddress
+import json
 import logging
 import os
 import pty
@@ -309,6 +310,33 @@ SELECT_POLL_INTERVAL = 0.05
 # `nmcli connection modify ... +vpn.data`, which users run on the profile,
 # splits key=value pairs on them.
 GATEWAY_LIST_SEPARATOR = ";"
+
+def parse_log_record(line: str) -> Optional[Dict[str, str]]:
+    """The log record of one line of `gpclient --log-format json`, else None.
+
+    Upstream writes every `log` record as one JSON object with the strings
+    timestamp, level, target and message (crates/gpapi/src/log_format.rs); the
+    C messages of openconnect come the same way. println! output and the
+    prompts are not records and stay plain text, so None means "a text line"
+    (upstream's error report and its hints, e.g. "--fix-openssl", are records).
+    JSON escapes let ANSI sequences and control characters through the PTY
+    reader, so they are removed here as strip_ansi does for a text line. A
+    newline or carriage return in the message is escaped, so a record never
+    spans several lines in our log or in a matcher.
+    """
+    if not line.startswith("{"):
+        return None
+    try:
+        record = json.loads(line)
+    except (ValueError, RecursionError):  # deep nesting: a line the portal controls
+        return None
+    if not isinstance(record, dict):
+        return None
+    if not all(isinstance(record.get(k), str) for k in ("level", "target", "message")):
+        return None
+    message = strip_ansi(record["message"]).replace("\n", "\\n").replace("\r", "\\r")
+    return {"level": record["level"], "target": record["target"], "message": message}
+
 
 # gpclient logs the gateway it picked when it did not have to ask
 GATEWAY_CHOSEN_RE = re.compile(
@@ -1124,10 +1152,14 @@ def parse_dns_servers(text: str) -> List[str]:
 # in every foreground mode (gptunnel log_configuration). They are what the
 # gateway pushed, not proof that the system was configured, so they are only
 # a cross-check and a fallback for the DNS the vpnc hook reports. The line starts
-# with the log prefix ("[2026-01-01T00:00:00Z INFO  target] ").
+# with the log prefix ("[2026-01-01T00:00:00Z INFO  target] "), or as a JSON
+# record (--log-format json, what the service asks for) whose message is the
+# part after the prefix.
+TUNNEL_MESSAGE_RE = re.compile(
+    r"VPN (?P<key>interface|IPv4|DNS|search domains|split DNS|MTU): (?P<value>.*?)\s*$"
+)
 TUNNEL_SETTINGS_RE = re.compile(
-    r"^\[(?:\S+\s+)?INFO\s+[A-Za-z0-9_:]+\]\s+VPN "
-    r"(?P<key>interface|IPv4|DNS|search domains|split DNS|MTU): (?P<value>.*?)\s*$"
+    r"^\[(?:\S+\s+)?INFO\s+[A-Za-z0-9_:]+\]\s+" + TUNNEL_MESSAGE_RE.pattern
 )
 # values() ends a cut list with " (N of M shown; truncated)"
 TUNNEL_LIST_TRUNCATED_RE = re.compile(r"\s\([0-9]+ of [0-9]+ shown; truncated\)$")
@@ -1184,7 +1216,13 @@ def parse_tunnel_settings_line(line: str, settings: TunnelSettings) -> TunnelSet
     "VPN interface" is the first line of a block, so it starts a new record
     (gpclient logs the block again when the settings change).
     """
-    match = TUNNEL_SETTINGS_RE.match(line)
+    record = parse_log_record(line.strip())
+    if record:
+        match = TUNNEL_MESSAGE_RE.match(record["message"])
+        if record["level"] != "INFO":
+            match = None
+    else:
+        match = TUNNEL_SETTINGS_RE.match(line)
     if not match:
         return settings
     key, value = match.group("key"), match.group("value")
@@ -2465,7 +2503,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # to the first proposal when the configured gateway is gone.
             cmd = [GPCLIENT_BINARY]
 
-            # Global flag, must come before the subcommand (issue #2)
+            # Global flags, must come before the subcommand (issue #2). JSON
+            # records give the log lines a level and a message of their own, so
+            # nothing depends on the wording of the text prefix.
+            cmd += ["--log-format", "json"]
             if self.fix_openssl:
                 cmd.append("--fix-openssl")
 
@@ -2652,20 +2693,28 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     if line == last_logged_line:
                         continue
                     last_logged_line = line
-                    shown = mask_secret_prompts(line, self._secret_prompt_labels)
+                    # A log record: its message is the text the matchers read.
+                    # Anything else (println!, prompts) is a plain text line.
+                    record = parse_log_record(line)
+                    if record:
+                        text = record["message"]
+                        shown = f"[{record['level']}] {record['target']}: {text}"
+                    else:
+                        text = shown = line
+                    shown = mask_secret_prompts(shown, self._secret_prompt_labels)
                     logger.info(
                         f"gpclient output: {mask_secrets(shown, self._written_secrets)}"
                     )
 
-                    found = parse_gateway_count(line)
+                    found = parse_gateway_count(text)
                     if found is not None:
                         self._gateway_count = found
 
-                    chosen = GATEWAY_CHOSEN_RE.search(line)
+                    chosen = GATEWAY_CHOSEN_RE.search(text)
                     if chosen:
                         self._record_gateways([chosen.group("gateway")])
                         if (
-                            "the only available" in line
+                            "the only available" in text
                             and self._gateway_count == 1
                         ):
                             # The portal config holds just this one gateway:
@@ -2681,7 +2730,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                         line, self._tunnel_settings
                     )
 
-                    if "--as-gateway" in line:
+                    if "--as-gateway" in text:
                         logger.warning(
                             "gpclient reports the server may be a gateway rather "
                             "than a portal - enable 'Address is a gateway' "
@@ -2689,11 +2738,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                             "settings to authenticate only once"
                         )
 
-                    if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(line):
+                    if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(text):
                         # The portal needs legacy TLS renegotiation (issue #2)
                         self._openssl_error_seen = True
 
-                    if INTERNAL_NETWORK_RE.search(line):
+                    if INTERNAL_NETWORK_RE.search(text):
                         self._fail_internal_network()
 
                     banner = parse_auth_banner(line)
@@ -2713,7 +2762,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
                     # Check for connection success indicators
                     if any(
-                        msg in line
+                        msg in text
                         for msg in [
                             "ESP tunnel connected",
                             "Connected to",

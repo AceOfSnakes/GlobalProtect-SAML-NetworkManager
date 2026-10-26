@@ -10,6 +10,7 @@
 #include "nm-gpclient-mtu.h"
 #include "nm-gpclient-validate.h"
 
+#include <KLocalizedString>
 #include <NetworkManagerQt/Utils>
 #include <QCheckBox>
 #include <QComboBox>
@@ -22,7 +23,25 @@
 
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * no vpn.data value at all, so existing profiles keep behaving the same. */
-static const QString gatewayAutoLabel = QStringLiteral("First proposed by portal (automatic)");
+static QString gatewayAutoLabel()
+{
+    return i18n("First proposed by portal (automatic)");
+}
+
+/* Last entry of the browser combo: the user types the path of a browser. */
+static QString customBrowserLabel()
+{
+    return i18n("Custom...");
+}
+
+/* The browser to store: empty for the "Custom..." entry itself. In another
+ * language that label is not a valid browser name ("Własna..."), so it must not
+ * reach the validator either. */
+static QString browserValue(const QString &text)
+{
+    const QString browser = text.trimmed();
+    return browser == customBrowserLabel() ? QString() : browser;
+}
 
 /* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
@@ -53,20 +72,20 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     m_ui->setupUi(this);
 
     m_ui->browserComboBox->addItems(browserValues);
-    m_ui->browserComboBox->addItem(QStringLiteral("Custom..."));
+    m_ui->browserComboBox->addItem(customBrowserLabel());
 
-    m_ui->authModeComboBox->addItem(QStringLiteral("Browser (SAML, passkey, 2FA)"));
-    m_ui->authModeComboBox->addItem(QStringLiteral("Username and password (RSA token)"));
+    m_ui->authModeComboBox->addItem(i18n("Browser (SAML, passkey, 2FA)"));
+    m_ui->authModeComboBox->addItem(i18n("Username and password (RSA token)"));
 
-    m_ui->preferredGatewayComboBox->addItem(gatewayAutoLabel);
+    m_ui->preferredGatewayComboBox->addItem(gatewayAutoLabel());
 
-    m_ui->passwordFlagsComboBox->addItem(QStringLiteral("Store for this user only (agent)"));
-    m_ui->passwordFlagsComboBox->addItem(QStringLiteral("Store for all users (system)"));
-    m_ui->passwordFlagsComboBox->addItem(QStringLiteral("Ask every time (not saved)"));
+    m_ui->passwordFlagsComboBox->addItem(i18n("Store for this user only (agent)"));
+    m_ui->passwordFlagsComboBox->addItem(i18n("Store for all users (system)"));
+    m_ui->passwordFlagsComboBox->addItem(i18n("Ask every time (not saved)"));
 
-    m_ui->fixOpensslComboBox->addItem(QStringLiteral("Automatic (enable when the portal needs it)"));
-    m_ui->fixOpensslComboBox->addItem(QStringLiteral("Always on"));
-    m_ui->fixOpensslComboBox->addItem(QStringLiteral("Never"));
+    m_ui->fixOpensslComboBox->addItem(i18n("Automatic (enable when the portal needs it)"));
+    m_ui->fixOpensslComboBox->addItem(i18n("Always on"));
+    m_ui->fixOpensslComboBox->addItem(i18n("Never"));
 
     // vpn.timeout is a guint32, so the field is a QDoubleSpinBox without decimals
     // (a QSpinBox stops at INT_MAX).
@@ -313,7 +332,7 @@ QVariantMap GpclientWidget::setting() const
 
     // Save the preferred gateway (the automatic entry stores nothing)
     const QString preferred = m_ui->preferredGatewayComboBox->currentText().trimmed();
-    if (!preferred.isEmpty() && preferred != gatewayAutoLabel) {
+    if (!preferred.isEmpty() && preferred != gatewayAutoLabel()) {
         data.insert(QLatin1String("preferred-gateway"), preferred);
     } else {
         data.remove(QLatin1String("preferred-gateway"));
@@ -348,8 +367,8 @@ QVariantMap GpclientWidget::setting() const
     }
 
     // Save Browser
-    const QString browserText = m_ui->browserComboBox->currentText().trimmed();
-    if (!browserText.isEmpty() && browserText != QLatin1String("Custom...")) {
+    const QString browserText = browserValue(m_ui->browserComboBox->currentText());
+    if (!browserText.isEmpty()) {
         data.insert(QLatin1String("browser"), browserText);
     } else {
         data.remove(QLatin1String("browser"));
@@ -428,7 +447,7 @@ bool GpclientWidget::isValid() const
     // gateway must be set, the other fields must be what the service accepts
     return nm_gpclient_validate_form(m_ui->gatewayLineEdit->text().toUtf8().constData(),
                                      m_ui->usernameLineEdit->text().toUtf8().constData(),
-                                     m_ui->browserComboBox->currentText().toUtf8().constData(),
+                                     browserValue(m_ui->browserComboBox->currentText()).toUtf8().constData(),
                                      m_ui->dnsLineEdit->text().toUtf8().constData(),
                                      m_ui->hipCheckBox->isChecked(),
                                      m_ui->hipScriptLineEdit->text().toUtf8().constData())
