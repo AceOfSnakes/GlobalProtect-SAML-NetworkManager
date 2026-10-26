@@ -1,5 +1,6 @@
 /* NetworkManager gpclient VPN editor plugin - GTK4 factory */
 
+#include <glib/gi18n-lib.h>
 #include <glib-object.h>
 #include <NetworkManager.h>
 #include <nm-vpn-editor-plugin.h>
@@ -43,7 +44,7 @@ get_property (GObject    *object,
         g_value_set_string (value, "GlobalProtect");
         break;
     case PROP_DESC:
-        g_value_set_string (value, "GlobalProtect VPN Client");
+        g_value_set_string (value, _("GlobalProtect VPN Client"));
         break;
     case PROP_SERVICE:
         g_value_set_string (value, "org.freedesktop.NetworkManager.gpclient");
@@ -64,6 +65,10 @@ static void
 nm_gpclient_editor_plugin_class_init (NMGpclientEditorPluginClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+    /* The catalog of the editors (nm-gpclient-editor*.c, same GETTEXT_PACKAGE) */
+    bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
 
     object_class->get_property = get_property;
 

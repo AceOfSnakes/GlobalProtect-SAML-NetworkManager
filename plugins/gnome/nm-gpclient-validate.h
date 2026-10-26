@@ -22,6 +22,13 @@
 #include <string.h>
 #include <sys/socket.h>
 
+/* Marks a message for xgettext (po/POTFILES.in). The GTK editors include
+ * glib/gi18n-lib.h first and translate the message where they show it; here
+ * (and in the Plasma editor, which shows no message) it stays as it is. */
+#ifndef N_
+#define N_(text) text
+#endif
+
 /* Python str.strip() / re \s for ASCII: space, \t, \n, \v, \f, \r */
 static inline int
 nm_gpclient_validate_is_space (char c)
@@ -188,17 +195,17 @@ nm_gpclient_validate_form (const char *gateway,
 
     nm_gpclient_validate_strip (gateway, &len);
     if (len == 0)
-        return "gateway is required";
+        return N_("gateway is required");
     if (!nm_gpclient_validate_gateway (gateway))
-        return "gateway must not start with '-' or contain spaces or control characters";
+        return N_("gateway must not start with '-' or contain spaces or control characters");
     if (!nm_gpclient_validate_username (username))
-        return "username must not start with '-' or contain control characters";
+        return N_("username must not start with '-' or contain control characters");
     if (!nm_gpclient_validate_browser (browser))
-        return "browser must be a name, a command name or an absolute path without spaces";
+        return N_("browser must be a name, a command name or an absolute path without spaces");
     if (!nm_gpclient_validate_dns (dns))
-        return "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces";
+        return N_("dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces");
     if (hip_enabled && !nm_gpclient_validate_hip_script (hip_script))
-        return "hip-script must be an absolute path";
+        return N_("hip-script must be an absolute path");
     return NULL;
 }
 

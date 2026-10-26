@@ -603,7 +603,7 @@ class TestDockerfiles:
 
 
 # The Build-Depends of the neon control file: what the Plasma 6 plugin needs and nothing of the rest
-NEON_BUILD_DEPENDS = BUILD_DEPENDS["qt6"] | {"debhelper-compat", "cmake", "extra-cmake-modules", "plasma-nm"}
+NEON_BUILD_DEPENDS = BUILD_DEPENDS["qt6"] | {"debhelper-compat", "gettext", "cmake", "extra-cmake-modules", "plasma-nm"}
 NEON_DEPENDS = ["${shlibs:Depends}", "${misc:Depends}", CORE + VERSIONED, "plasma-nm (>= 4:6)"]
 
 
@@ -929,7 +929,9 @@ class TestRules:
         install = [l for l in RULES.splitlines() if "plasmanetworkmanagement_gpclientui" in l]
         assert install
         for line in install:
-            if "$(CURDIR)" in line:
+            if "install-mo" in line:  # the catalog: make puts it in /usr/share/locale (test_translations.py)
+                assert "DESTDIR=$(CURDIR)/debian/$(PLASMA_PACKAGE)" in line, line
+            elif "$(CURDIR)" in line:
                 assert "debian/$(PLASMA_PACKAGE)/usr/" in line, line
         assert "/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/" in RULES
 
@@ -990,7 +992,8 @@ class TestRulesPlasmaOnly:
 
         assert result.returncode == 0, result.stderr
         # cmake builds the plugin for Qt6, then make runs; no GNOME plugins, no submodules, no cargo
-        assert log == ["cmake .. -DQT_MAJOR_VERSION=6", "fakemake "]
+        # (then make mo compiles the translations)
+        assert log == ["cmake .. -DQT_MAJOR_VERSION=6", "fakemake ", "fakemake mo"]
 
     @pytest.mark.parametrize("name", [n for n in sorted(QT) if n != "control"])
     def test_the_other_control_files_build_everything(self, tmp_path, name):
@@ -1002,7 +1005,7 @@ class TestRulesPlasmaOnly:
         assert " CFLAGS=" in log[1] and " LDFLAGS=" in log[1] and "-Wl,-z,relro" in log[1]
         log[1] = "fakemake gnome-plugins"
         assert log == ["fakemake init-submodules", "fakemake gnome-plugins",
-                       "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ",
+                       "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ", "fakemake mo",
                        "cargo build --locked --release --bin gpclient --bin gpauth"]
 
     def test_gpservice_is_neither_built_nor_installed(self, tmp_path):

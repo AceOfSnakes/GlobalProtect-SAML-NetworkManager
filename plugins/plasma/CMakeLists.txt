@@ -55,6 +55,11 @@ if(NOT PLASMANM_INTERNAL OR NOT PLASMANM_EDITOR)
     message(FATAL_ERROR "plasma-nm libraries not found. Please install the plasma-nm package.")
 endif()
 
+# ki18n looks up the strings of i18n() and of the .ui file in this catalog
+# (plugins/plasma/po/pl/plasmanetworkmanagement_gpclientui.po, installed as
+# .../LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo)
+add_definitions(-DTRANSLATION_DOMAIN=\"plasmanetworkmanagement_gpclientui\")
+
 # The settings widget is a static library, so the plugin and the test build it
 # (and the generated ui header) once.
 ki18n_wrap_ui(gpclientwidget_UI_SRCS gpclientwidget.ui)

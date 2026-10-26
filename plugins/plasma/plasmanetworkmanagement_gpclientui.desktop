@@ -13,3 +13,4 @@ X-KDE-PluginInfo-License=LGPL
 X-KDE-PluginInfo-EnabledByDefault=true
 Name=GlobalProtect
 Comment=GlobalProtect VPN client for NetworkManager
+Comment[pl]=Klient VPN GlobalProtect dla NetworkManagera

@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # Install build dependencies (only the Plasma 6/KF6 plugin: no GNOME, no Rust)
 RUN apt-get update && apt-get install -y \
     build-essential \
+    gettext \
     debhelper \
     fakeroot \
     lintian \

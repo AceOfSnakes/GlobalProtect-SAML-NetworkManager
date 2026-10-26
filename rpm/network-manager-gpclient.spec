@@ -35,6 +35,7 @@ BuildRequires:  automake
 BuildRequires:  cmake
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+BuildRequires:  gettext
 BuildRequires:  libtool
 BuildRequires:  make
 BuildRequires:  patch
@@ -166,6 +167,11 @@ mkdir -p plugins/plasma/build
   env -u RUSTFLAGS cargo build --locked --release --bin gpclient --bin gpauth)
 
 %install
+# The translations (po/LINGUAS): each domain goes to its own package
+make install-mo MO_DOMAIN=NetworkManager-gpclient DESTDIR=%{buildroot}
+make install-mo MO_DOMAIN=plasmanetworkmanagement_gpclientui DESTDIR=%{buildroot}
+%find_lang NetworkManager-gpclient
+%find_lang plasmanetworkmanagement_gpclientui
 %if 0%{?fedora} || 0%{?rhel}
 install -D -m 0644 network-manager-gpclient.pp \
   %{buildroot}%{_datadir}/selinux/packages/network-manager-gpclient.pp
@@ -282,7 +288,7 @@ if [ "$1" -eq 0 ]; then
     fi
 fi
 
-%files
+%files -f NetworkManager-gpclient.lang
 %license LICENSE
 %license sdbus-%{sdbus_version}/COPYING.LESSER
 %doc README.md
@@ -316,7 +322,7 @@ fi
 %{_prefix}/lib/libnm-gpclient-properties
 %{_prefix}/libexec/nm-gpclient-auth-dialog
 
-%files plasma
+%files plasma -f plasmanetworkmanagement_gpclientui.lang
 %{_libdir}/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
 %{_libdir}/qt6/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
 

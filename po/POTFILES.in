@@ -1,0 +1,8 @@
+# Files with translatable strings (paths from the top directory).
+# tests/unit/test_translations.py checks that this list is complete.
+auth-dialog/nm-gpclient-auth-dialog.py
+plugins/gnome/nm-gpclient-editor-gtk3.c
+plugins/gnome/nm-gpclient-editor-plugin.c
+plugins/gnome/nm-gpclient-editor.c
+plugins/gnome/nm-gpclient-plugin-simple.c
+plugins/gnome/nm-gpclient-validate.h

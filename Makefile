@@ -18,6 +18,42 @@ gnome-plugins:
 	# Copy built plugins to root for debian packaging
 	cp $(GNOME_DIR)/*.so . 2>/dev/null || true
 
+# Translations (docs/TRANSLATIONS.md): po/LINGUAS lists the languages. Every
+# language has po/<lang>.po (domain NetworkManager-gpclient, GNOME editors and
+# auth dialog) and plugins/plasma/po/<lang>/plasmanetworkmanagement_gpclientui.po
+# (Plasma editor).
+LINGUAS := $(shell sed -e 's/\#.*//' po/LINGUAS 2>/dev/null)
+GNOME_DOMAIN = NetworkManager-gpclient
+PLASMA_DOMAIN = plasmanetworkmanagement_gpclientui
+LOCALE_BUILD = build/locale
+LOCALEDIR ?= /usr/share/locale
+
+# Compile the .po files to $(LOCALE_BUILD)/<lang>/LC_MESSAGES/<domain>.mo; a
+# wrong placeholder or syntax error fails the build
+.PHONY: mo
+mo:
+	@set -e; for lang in $(LINGUAS); do \
+		mkdir -p $(LOCALE_BUILD)/$$lang/LC_MESSAGES; \
+		msgfmt --check-format -c -o $(LOCALE_BUILD)/$$lang/LC_MESSAGES/$(GNOME_DOMAIN).mo po/$$lang.po; \
+		msgfmt --check-format -c -o $(LOCALE_BUILD)/$$lang/LC_MESSAGES/$(PLASMA_DOMAIN).mo plugins/plasma/po/$$lang/$(PLASMA_DOMAIN).po; \
+	done
+
+# Install the .mo files of one domain below $(DESTDIR)$(LOCALEDIR):
+#   make install-mo MO_DOMAIN=NetworkManager-gpclient DESTDIR=<root>
+# The packages split the two domains (core and Plasma package), so the domain is a parameter.
+.PHONY: install-mo
+install-mo: mo
+	@test -n "$(MO_DOMAIN)" || { echo "install-mo: pass MO_DOMAIN=$(GNOME_DOMAIN) or MO_DOMAIN=$(PLASMA_DOMAIN)" >&2; exit 1; }
+	@set -e; for lang in $(LINGUAS); do \
+		install -D -m 644 $(LOCALE_BUILD)/$$lang/LC_MESSAGES/$(MO_DOMAIN).mo \
+			$(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/$(MO_DOMAIN).mo; \
+	done
+
+# Refresh the .pot templates from the sources and merge them into the .po files
+.PHONY: pot
+pot:
+	python3 scripts/update_pot.py
+
 # Build gpclient and gpauth from GlobalProtect-openconnect
 .PHONY: setup-rust
 setup-rust:
@@ -56,6 +92,8 @@ gpauth: setup-rust init-submodules
 install: all
 	# Install GNOME plugins
 	$(MAKE) -C $(GNOME_DIR) install
+	# Install the translations of the GNOME plugins and the auth dialog
+	$(MAKE) install-mo MO_DOMAIN=$(GNOME_DOMAIN)
 	# Install Python service
 	install -D -m 755 service/nm-gpclient-service.py /usr/lib/NetworkManager/nm-gpclient-service
 	# Install scripts
@@ -78,6 +116,7 @@ install: all
 clean:
 	$(MAKE) -C $(GNOME_DIR) clean
 	rm -f *.so gpclient gpauth
+	rm -rf $(LOCALE_BUILD)
 
 .PHONY: all install clean
 
@@ -107,7 +146,7 @@ SYSTEMD_DIR = /lib/systemd/system
 VPNC_DIR = /etc/vpnc/connect.d
 
 # Build and install for development/testing (requires sudo)
-install-dev: gnome-plugins
+install-dev: gnome-plugins mo
 	$(CHECK_NM_VPN_DIR)
 	@echo "=== Installing GlobalProtect plugin for development ==="
 	@echo "This requires sudo privileges..."
@@ -144,6 +183,9 @@ install-dev: gnome-plugins
 	# Install auth dialog (interactive credentials/RSA token prompts)
 	sudo install -m 755 auth-dialog/nm-gpclient-auth-dialog.py /usr/libexec/nm-gpclient-auth-dialog
 
+	# Install the translations of the GNOME plugins and the auth dialog
+	sudo $(MAKE) install-mo MO_DOMAIN=$(GNOME_DOMAIN)
+
 	# Install D-Bus configuration
 	sudo install -m 644 config/org.freedesktop.NetworkManager.gpclient.service $(DBUS_SERVICES_DIR)/
 	sudo install -m 644 config/nm-gpclient.conf $(DBUS_CONF_DIR)/
@@ -171,6 +213,7 @@ uninstall-dev:
 	sudo rm -f /usr/lib/libnm-gpclient-properties
 	sudo rm -rf $(NM_LIBEXEC_DIR)
 	sudo rm -f /usr/libexec/nm-gpclient-auth-dialog
+	sudo rm -f $(LOCALEDIR)/*/LC_MESSAGES/$(GNOME_DOMAIN).mo
 	sudo rm -f $(DBUS_SERVICES_DIR)/org.freedesktop.NetworkManager.gpclient.service
 	sudo rm -f $(DBUS_CONF_DIR)/nm-gpclient.conf
 	sudo rm -f $(SYSTEMD_DIR)/nm-gpclient.service
@@ -229,6 +272,7 @@ SHELL_SCRIPTS := \
 	config/gpclient-nm-notify \
 	debian/network-manager-gpclient.postinst \
 	debian/network-manager-gpclient.postrm \
+	plugins/plasma/Messages.sh \
 	plugins/plasma/build.sh \
 	rpm/build.sh \
 	rpm/container-build.sh \

@@ -66,6 +66,9 @@ endif
 	mkdir -p plugins/plasma/build
 	cd plugins/plasma/build && CFLAGS='$(CFLAGS) $(CPPFLAGS)' CXXFLAGS='$(CXXFLAGS) $(CPPFLAGS)' LDFLAGS='$(LDFLAGS)' cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
 
+	# Compile the translations (po/LINGUAS): both catalogs, for every variant
+	$(MAKE) mo
+
 ifneq ($(HAS_CORE),)
 	# Build Rust binaries (gpclient and gpauth)
 	# Cargo will reuse compiled dependencies from target cache volume
@@ -112,6 +115,10 @@ ifneq ($(HAS_CORE),)
 	# Install auth dialog (interactive credentials/RSA token prompts, GTK)
 	install -D -m 755 auth-dialog/nm-gpclient-auth-dialog.py \
 		$(CURDIR)/debian/network-manager-gpclient-gnome/usr/libexec/nm-gpclient-auth-dialog
+
+	# Install the translations of the GNOME plugins and the auth dialog
+	# (/usr/share/locale/<lang>/LC_MESSAGES/NetworkManager-gpclient.mo)
+	$(MAKE) install-mo MO_DOMAIN=NetworkManager-gpclient DESTDIR=$(CURDIR)/debian/network-manager-gpclient
 endif
 
 	# Install Plasma plugin (into network-manager-gpclient-plasma, or into
@@ -123,6 +130,9 @@ endif
 		$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
 	install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
 		$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
+	# Install the translations of the Plasma plugin
+	# (/usr/share/locale/<lang>/LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo)
+	$(MAKE) install-mo MO_DOMAIN=plasmanetworkmanagement_gpclientui DESTDIR=$(CURDIR)/debian/$(PLASMA_PACKAGE)
 	# KF5 used a .desktop service file (/usr/share/kservices5); KF6 dropped that
 	# mechanism and reads only the embedded JSON metadata, so we skip the file there.
 	@if [ "$(PLASMA_QT_MAJOR)" = 5 ]; then \

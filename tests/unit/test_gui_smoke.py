@@ -784,7 +784,7 @@ class TestEditCases:
             with open(os.path.join(ROOT, "plugins", "gnome", name), encoding="utf-8") as handle:
                 text = handle.read()
             for label in lib.EDIT_LABELS.values():
-                assert f'gtk_label_new ("{label}")' in text
+                assert f'gtk_label_new (_("{label}"))' in text
             assert "nm_gpclient_validate_form" in text
             assert "NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS" in text
         # the messages of the errors are in the shared header
