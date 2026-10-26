@@ -46,11 +46,11 @@ init-submodules:
 	fi
 
 gpclient: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpclient --no-default-features || $(CARGO) build --locked --release --bin gpclient --no-default-features)
+	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpclient || $(CARGO) build --locked --release --bin gpclient)
 	cp $(GPOC_DIR)/target/release/gpclient .
 
 gpauth: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpauth --no-default-features || $(CARGO) build --locked --release --bin gpauth --no-default-features)
+	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpauth || $(CARGO) build --locked --release --bin gpauth)
 	cp $(GPOC_DIR)/target/release/gpauth .
 
 install: all
