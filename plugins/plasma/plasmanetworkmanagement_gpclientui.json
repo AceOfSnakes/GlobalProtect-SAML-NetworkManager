@@ -7,6 +7,7 @@
             }
         ],
         "Description": "GlobalProtect VPN client for NetworkManager",
+        "Description[pl]": "Klient VPN GlobalProtect dla NetworkManagera",
         "Icon": "network-vpn",
         "Id": "plasmanetworkmanagement_gpclientui",
         "License": "LGPL",

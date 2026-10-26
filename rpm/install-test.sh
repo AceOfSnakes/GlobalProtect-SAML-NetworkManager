@@ -144,6 +144,8 @@ for path in \
     /etc/vpnc/connect.d/90-gpclient-routing \
     /etc/vpnc/post-connect.d/90-gpclient-notify \
     /etc/vpnc/reconnect.d/90-gpclient-notify \
+    /usr/share/locale/pl/LC_MESSAGES/NetworkManager-gpclient.mo \
+    /usr/share/locale/pl/LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient-editor.so" \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-gtk4-vpn-plugin-gpclient-editor.so" \

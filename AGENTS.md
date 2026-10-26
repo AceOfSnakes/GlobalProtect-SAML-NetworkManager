@@ -58,6 +58,10 @@ GitHub Pages.
   `gateway-list-count`), `otp-flags` (the editors only write its default for a
   new connection), and `dns-domains`, for which the editors use
   NetworkManager's own search domains field (IPv4 tab).
+- Every text a user sees is translatable: `_()`/`N_()` in the GNOME editors and the
+  auth dialog (catalog `po/`), `i18n()` and the `.ui` file in the Plasma editor
+  (catalog `plugins/plasma/po/`). After a change of such text run `make pot` and
+  translate the new entries (`docs/TRANSLATIONS.md`).
 - Code, comments, commit messages and docs are in English.
 - Keep changes minimal and match the style of the surrounding code.
 

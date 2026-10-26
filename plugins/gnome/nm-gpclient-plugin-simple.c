@@ -1,7 +1,5 @@
 /* Minimal NetworkManager gpclient VPN plugin */
 
-#define GETTEXT_PACKAGE "NetworkManager-gpclient"
-
 #include <glib.h>
 #include <glib/gi18n-lib.h>
 #include <gmodule.h>
@@ -43,7 +41,7 @@ gpclient_plugin_get_property (GObject *object, guint prop_id,
         g_value_set_string (value, "GlobalProtect");
         break;
     case PROP_DESC:
-        g_value_set_string (value, "GlobalProtect VPN Client");
+        g_value_set_string (value, _("GlobalProtect VPN Client"));
         break;
     case PROP_SERVICE:
         g_value_set_string (value, "org.freedesktop.NetworkManager.gpclient");
@@ -59,6 +57,9 @@ gpclient_plugin_class_init (GpclientPluginClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
     object_class->get_property = gpclient_plugin_get_property;
+
+    bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
     
     g_object_class_install_property (object_class, PROP_NAME,
         g_param_spec_string (NM_VPN_EDITOR_PLUGIN_NAME, "", "",
