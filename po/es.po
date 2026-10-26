@@ -121,7 +121,7 @@ msgstr ""
 "Actívelo cuando la dirección anterior sea una puerta de enlace y no un portal.\n"
 "Sin esta opción se prueba primero el flujo del portal, lo que puede obligarle a autenticarse dos veces."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Primera propuesta del portal (automático)"
 

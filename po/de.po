@@ -121,7 +121,7 @@ msgstr ""
 "Aktivieren, wenn die obige Adresse ein Gateway und kein Portal ist.\n"
 "Ohne diese Option wird zuerst der Portal-Ablauf versucht, wodurch Sie sich eventuell zweimal authentifizieren müssen."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Zuerst vom Portal vorgeschlagen (automatisch)"
 

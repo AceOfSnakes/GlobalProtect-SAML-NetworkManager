@@ -126,7 +126,7 @@ msgstr ""
 "上のアドレスがポータルではなくゲートウェイの場合に有効にしてください。\n"
 "無効の場合は最初にポータルのワークフローが試され、認証が 2 回必要になることがあります。"
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "ポータルが最初に提示したもの (自動)"
 

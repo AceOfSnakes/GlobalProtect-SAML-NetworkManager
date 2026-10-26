@@ -126,7 +126,7 @@ msgstr ""
 "Включите, если указанный выше адрес — это шлюз, а не портал.\n"
 "Без этого сначала выполняется процедура портала, из-за чего аутентификацию, возможно, придётся пройти дважды."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Первый, предложенный порталом (автоматически)"
 

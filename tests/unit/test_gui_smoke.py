@@ -469,7 +469,12 @@ class TestEditorSourcesHandleBooleansAndGateway:
     @staticmethod
     def _read(*parts):
         with open(os.path.join(ROOT, *parts), encoding="utf-8") as handle:
-            return handle.read()
+            text = handle.read()
+        # The boolean rules moved to the header both GTK editors share
+        if parts[:2] == ("plugins", "gnome") and parts[-1].startswith("nm-gpclient-editor"):
+            with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-editor-common.h"), encoding="utf-8") as handle:
+                text += handle.read()
+        return text
 
     @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
     def test_the_gtk_editors_read_booleans_ignoring_case(self, source):
@@ -543,8 +548,8 @@ class TestEditorTextsMatchTheSources:
             assert key in lib.vpn_data()
 
     @pytest.mark.parametrize("source, definition", [
-        ("gnome/nm-gpclient-editor.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
-        ("gnome/nm-gpclient-editor-gtk3.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
+        # Both GTK editors take it from their common header
+        ("gnome/nm-gpclient-editor-common.h", "#define SAML_TIMEOUT_DEFAULT {}\n"),
         # The Plasma editor is not in the GTK smoke test; its QtTest (plugins/plasma/tests)
         # runs the widget, and this checks that the constant is the same
         ("plasma/gpclientwidget.cpp", "static const int samlTimeoutDefault = {};\n"),

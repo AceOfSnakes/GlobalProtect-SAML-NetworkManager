@@ -121,7 +121,7 @@ msgstr ""
 "Attiva quando l'indirizzo qui sopra è un gateway e non un portale.\n"
 "Senza questa opzione si prova prima il flusso del portale, e potresti dover autenticarti due volte."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Il primo proposto dal portale (automatico)"
 

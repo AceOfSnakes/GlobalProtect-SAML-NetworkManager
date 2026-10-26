@@ -121,7 +121,7 @@ msgstr ""
 "Ota käyttöön, kun yllä oleva osoite on yhdyskäytävä eikä portaali.\n"
 "Ilman tätä kokeillaan ensin portaalin työnkulkua, mikä voi saada sinut todentamaan kahdesti."
 
-#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+#: plugins/gnome/nm-gpclient-editor-common.h
 msgid "First proposed by portal (automatic)"
 msgstr "Portaalin ensimmäisenä ehdottama (automaattinen)"
 
