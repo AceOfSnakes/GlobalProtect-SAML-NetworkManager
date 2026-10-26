@@ -1,8 +1,7 @@
-# shellcheck shell=sh
+#!/bin/sh
 # IMPORTANT: This script is sourced by vpnc-script which uses /bin/sh
 # Therefore we MUST use POSIX-compatible shell syntax only (no bash-isms), and
 # it must not `exit` or `set -e`: that would end vpnc-script itself.
-# No shebang: vpnc-script sources this file, nothing runs it.
 #
 # Installed as /etc/vpnc/post-connect.d/90-gpclient-notify and
 # /etc/vpnc/reconnect.d/90-gpclient-notify. vpnc-script has configured the
