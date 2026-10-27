@@ -4046,7 +4046,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         else:
             message = f"{label}{server_part}"
 
-        logger.info(f"Requesting secret {secret_key!r} from user: {message}")
+        logger.info(f"Requesting a secret from the user: {message}")
 
         loop = asyncio.get_running_loop()
         self._secret_future = loop.create_future()
