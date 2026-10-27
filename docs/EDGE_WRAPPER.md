@@ -13,6 +13,19 @@ browser; `edge-wrapper` remains as a thin shim (`GP_BROWSER=edge`) so profiles
 created before the generalisation keep working. Which browser is used comes from
 `vpn.data browser` in the connection - see [Alternative Browsers](#alternative-browsers).
 
+### Who starts the wrapper
+
+- `saml-auth=service` (default): the service starts gpclient as root with
+  `SUDO_UID`, gpclient starts gpauth as the desktop user, and gpauth runs the
+  wrapper. The wrapper still finds the session as described below.
+- `saml-auth=dialog`: the NetworkManager auth dialog starts gpauth as the
+  desktop user with `--browser=/usr/libexec/gpclient/browser-wrapper` and
+  `GP_BROWSER` set from the profile. The wrapper runs as that user and takes
+  its own UID as the real user, so the root-only steps (user lookup from
+  `SUDO_UID`, privilege drop) do not run. gpclient starts
+  no browser. See
+  [INTERACTIVE_AUTH.md](INTERACTIVE_AUTH.md#saml-login-in-the-auth-dialog).
+
 ## Why Microsoft Edge?
 
 ### Microsoft Intune Integration

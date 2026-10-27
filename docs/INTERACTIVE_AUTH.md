@@ -89,7 +89,54 @@ password is only requested mid-connection when gpclient actually asks.
 ### SAML portals
 
 Nothing changes — `auth-mode` defaults to `saml` and authentication happens
-in the browser as before.
+in the browser as before. gpclient starts the browser itself (through
+`gpauth`), as the desktop user, and this stays the default
+(`saml-auth=service`). For the other way see the next section.
+
+### SAML login in the auth dialog
+
+With `vpn.data saml-auth=dialog` (and `auth-mode=saml`) the login runs in your
+desktop session, not in the root service:
+
+1. The service asks the secret agent for the secret `gpauth-result`. The
+   request carries the hint `x-gp-saml:<JSON>` with the server, the
+   `--gateway` and `--fix-openssl` settings and the browser.
+2. The auth dialog (`nm-gpclient-auth-dialog`, it runs as you) starts
+   `/usr/bin/gpauth --log-format json` with the wrapper
+   (`/usr/libexec/gpclient/browser-wrapper`, see
+   [EDGE_WRAPPER.md](EDGE_WRAPPER.md#who-starts-the-wrapper)). It shows no
+   window of its own. When gpauth reports the legacy TLS error and
+   `fix-openssl=auto`, it runs gpauth once more with `--fix-openssl`.
+3. The dialog returns gpauth's result line. The service checks it (only a
+   successful result with a username and a cookie is accepted; anything else
+   fails the login), writes it once to gpclient's stdin
+   (`gpclient connect --cookie-on-stdin`) and keeps it in memory only, until
+   the tunnel is up or gpclient exits. It is never logged and never stored.
+   gpclient gets no `--browser` and no `SUDO_UID` in this mode.
+
+Other results:
+
+- Cancel (or close) the browser, or a failed login: the dialog exits with 1.
+  NetworkManager treats this as a cancel.
+- The server has a standard (password) login: gpauth fails with "non-SAML
+  prelogin". The dialog answers `standard` and the service runs gpclient the
+  usual way, with the prompts described above.
+- The agent goes away (SIGTERM, end of stdin): the dialog stops gpauth.
+
+Limits:
+
+- **One login per connection.** gpclient uses the result for the portal, or
+  for the server when **Address is a gateway** is set. If a portal gateway
+  wants its own SAML login, gpclient would have to start gpauth as root, which
+  does not work here. The service sees the log record `SAML auth launch:
+  gateway=true`, stops and fails the login with a message. Tick **Address is
+  a gateway**, or use `saml-auth=service`.
+- The connection must be started with an agent (desktop applet or `nmcli
+  --ask`). A start without one fails at once with a clear message; use
+  `saml-auth=service` there.
+- The result is a one-time secret: flag `gpauth-result-flags=2` (not saved)
+  is written to the profile before the request, and the dialog never fills it
+  from a stored value.
 
 ## Gateway selection
 
@@ -233,6 +280,12 @@ error, comes first. 360 s fits the 300 s default. A new connection with browser
 login starts with 360 s. While a connection has no timeout of its own (0) and
 you have not changed the field, choosing browser login sets 360 s. If you
 raise `GP_AUTH_TIMEOUT`, raise `vpn.timeout` too.
+
+With `saml-auth=dialog` the request for `gpauth-result` has the same 300 s
+limit as any secret request and covers the whole browser login; the wrapper
+keeps its own `GP_AUTH_TIMEOUT` limit (read from the dialog's environment
+now, which is the desktop session's, not the service's). `vpn.timeout`
+applies as above.
 
 `GP_AUTH_TIMEOUT` applies to each browser login. A portal that asks for a second
 login at the gateway can open the browser twice, so 360 s may not be enough.

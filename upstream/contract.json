@@ -225,6 +225,105 @@
       "used_by": "service/nm-gpclient-service.py: --passwd-on-stdin"
     },
     {
+      "id": "cli-cookie-on-stdin",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) cookie_on_stdin: bool,",
+      "used_by": "service/nm-gpclient-service.py: --cookie-on-stdin"
+    },
+    {
+      "id": "stdin-auth-result-read",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/credential.rs",
+      "text": "fn read_auth_result_from_stdin(&self) -> anyhow::Result<SamlAuthResult> {",
+      "used_by": "service/nm-gpclient-service.py: parse_auth_result (the one line gpclient reads from stdin)"
+    },
+    {
+      "id": "stdin-credential-rule",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/credential.rs",
+      "text": "cookie_on_stdin && (!prelogin_is_gateway || as_gateway)",
+      "used_by": "service/nm-gpclient-service.py: --cookie-on-stdin is used for a portal, or for the server with --as-gateway"
+    },
+    {
+      "id": "saml-launch-record",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/credential.rs",
+      "text": "SAML auth launch: gateway={}",
+      "used_by": "service/nm-gpclient-service.py: SAML_GATEWAY_LAUNCH_RE"
+    },
+    {
+      "id": "code-saml-auth-data",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/auth.rs",
+      "start": "pub struct SamlAuthData",
+      "sha256": "1ad4d9a5c95c987df02de1460989c43ab6fd9a0d3d061204a7c8f4d83d20f75e",
+      "used_by": "service/nm-gpclient-service.py: parse_auth_result"
+    },
+    {
+      "id": "code-saml-auth-result",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/auth.rs",
+      "start": "pub enum SamlAuthResult",
+      "sha256": "7f0eb7f3518c55163aeea5ab181a15bb4141fb2f59bdc6f12b6c04b8a5d8b6c5",
+      "used_by": "service/nm-gpclient-service.py: parse_auth_result"
+    },
+    {
+      "id": "code-gpauth-print-result",
+      "kind": "block",
+      "role": "code",
+      "path": "apps/gpauth/src/cli.rs",
+      "start": "pub fn print_auth_result(",
+      "sha256": "cd6ddc691f91a0785bc5645b69ea8eec47d07f14d7b072ad5cd988c5139c8fa0",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: run_gpauth (reads the line gpauth prints)"
+    },
+    {
+      "id": "code-gpauth-outcome",
+      "kind": "block",
+      "role": "code",
+      "path": "apps/gpauth/src/cli.rs",
+      "start": "fn auth_outcome(",
+      "sha256": "a5ca9db2ad9c1539940746fa351a4c03779003ea8b535a3cbd6fbf953a3886e5",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: run_gpauth (reads the line gpauth prints)"
+    },
+    {
+      "id": "non-saml-prelogin",
+      "kind": "anchor",
+      "path": "crates/auth/src/lib.rs",
+      "text": "Received non-SAML prelogin response",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: NON_SAML_RE"
+    },
+    {
+      "id": "gpauth-cli-gateway",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  gateway: bool,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --gateway"
+    },
+    {
+      "id": "gpauth-cli-fix-openssl",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  fix_openssl: bool,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --fix-openssl"
+    },
+    {
+      "id": "gpauth-cli-browser",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  browser: Option<String>,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --browser"
+    },
+    {
+      "id": "gpauth-cli-log-format",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  log_format: LogFormat,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --log-format"
+    },
+    {
       "id": "gateway-not-found",
       "kind": "anchor",
       "path": "apps/gpclient/src/connect/mod.rs",

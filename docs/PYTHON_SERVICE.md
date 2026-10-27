@@ -40,6 +40,11 @@ Starts VPN connection.
    when the portal offered that name or address before (it is in `gateway-list`),
    and `--passwd-on-stdin` (the stored password is written to the PTY at once)
    for a standard login with a stored password
+   With `saml-auth=dialog` it first asks the auth dialog for the SAML result
+   and then adds `--cookie-on-stdin` (no `--browser`, no `SUDO_UID`); see
+   [INTERACTIVE_AUTH.md](INTERACTIVE_AUTH.md#saml-login-in-the-auth-dialog).
+   The checked result line (`parse_auth_result`) is written once to the PTY,
+   which has echo and line mode switched off for it
 3. Monitors gpclient stdout in separate thread
 4. Waits for the vpnc hook to call `Notify` (see "Tunnel Notification"); the
    service has no timer of its own, NetworkManager's `vpn.timeout` ends an

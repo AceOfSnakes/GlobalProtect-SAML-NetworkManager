@@ -133,6 +133,24 @@ OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
 # Tries per connection to mark the code as not-saved in the profile
 OTP_FLAG_MAX_ATTEMPTS = 2
 
+# --- SAML in the auth dialog (saml-auth=dialog, issue #125) ------------------
+#
+# The dialog runs gpauth as the desktop user and hands the result back as the
+# secret below: the JSON line that gpauth prints (SamlAuthResult of
+# crates/gpapi/src/auth.rs). gpclient reads it as its first stdin line
+# (connect --cookie-on-stdin). The value comes from a process outside the
+# service, so parse_auth_result checks every part of it.
+SAML_RESULT_KEY = "gpauth-result"
+# The reply of the dialog for a portal that is not a SAML portal
+SAML_RESULT_STANDARD = "standard"
+SAML_HINT_PREFIX = "x-gp-saml:"
+SAML_RESULT_MAX_BYTES = 16 * 1024
+SAML_RESULT_FIELDS = frozenset(
+    {"username", "preloginCookie", "portalUserauthcookie", "token", "hostId"}
+)
+# gpclient starts gpauth itself when the gateway needs its own SAML login
+SAML_GATEWAY_LAUNCH_RE = re.compile(r"^SAML auth launch: gateway=true\b")
+
 # --- Legacy TLS renegotiation ------------------------------------------------
 #
 # Portals with an old TLS stack need renegotiation that OpenSSL 3.x refuses by
@@ -261,6 +279,40 @@ UNSAFE_USERNAME_RE = re.compile(r"[\x00-\x1f\x7f]")
 def is_unsafe_username(username: str) -> bool:
     """A username must not look like a gpclient option or hold control chars"""
     return username.startswith("-") or bool(UNSAFE_USERNAME_RE.search(username))
+
+
+def parse_auth_result(text: str) -> str:
+    """The one-line JSON of a successful gpauth result, or ValueError.
+
+    Accepts only {"success": {username, preloginCookie, portalUserauthcookie,
+    token, hostId}}: a cancelled or failed login, an unknown key, a control
+    character or a short cookie is rejected. The result is serialized again
+    (ASCII, no whitespace), so no newline can reach gpclient's stdin.
+    """
+    if len(text.encode("utf-8", "replace")) > SAML_RESULT_MAX_BYTES:
+        raise ValueError("the result is too long")
+    try:
+        result = json.loads(text)
+    except (ValueError, RecursionError):
+        raise ValueError("the result is not JSON") from None
+    if not isinstance(result, dict) or list(result) != ["success"]:
+        raise ValueError("the login did not succeed")
+    data = result["success"]
+    if not isinstance(data, dict) or not set(data) <= SAML_RESULT_FIELDS:
+        raise ValueError("unexpected fields in the result")
+    for value in data.values():
+        if value is not None and (
+            not isinstance(value, str) or UNSAFE_USERNAME_RE.search(value)
+        ):
+            raise ValueError("a field of the result is not plain text")
+    username = data.get("username")
+    if not username or is_unsafe_username(username):
+        raise ValueError("the result has no valid username")
+    if not any(
+        len(data.get(key) or "") > 5 for key in ("preloginCookie", "portalUserauthcookie")
+    ):
+        raise ValueError("the result has no cookie")
+    return json.dumps(result, separators=(",", ":"))
 
 # Fallback when the wrapper is missing (service upgraded, wrapper not yet
 # installed): let gpclient launch the browser directly
@@ -1657,6 +1709,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._otp_flags_written = False  # profile told not to save the passcode
         self._otp_flag_attempts = 0  # tries so far to do that (bounded)
 
+        # saml-auth=dialog: the auth dialog runs gpauth, gpclient gets the
+        # result on stdin (issue #125). The result lives in memory only.
+        self._saml_dialog = False
+        self._auth_result = ""  # the JSON line for gpclient's stdin
+        self._auth_task = None  # asks the dialog, then starts gpclient
+
         # Portal / gateway selection (issue #7)
         self.as_gateway = False
         self.mtu: Optional[int] = None  # pass --mtu to gpclient when set
@@ -1792,6 +1850,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 self.gpclient_process is not None
                 or self.profile_task
                 or self.stdout_monitor_task
+                or self._auth_task
             ):
                 logger.info("Connect() while a session is active: stopping it first")
                 await self._teardown()
@@ -1826,6 +1885,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
+        self._auth_result = ""
 
         try:
             # Extract VPN data
@@ -1951,6 +2011,19 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             )
             logger.info(f"Browser: {self.browser} (target: {self.browser_target})")
 
+            # Who runs the SAML login: gpclient (service, the default) or the
+            # auth dialog in the user's session (issue #125)
+            saml_auth = data_dict.get("saml-auth", "service").strip().lower()
+            if saml_auth not in ("service", "dialog"):
+                logger.warning(
+                    f"Unknown saml-auth value {saml_auth!r}, falling back to 'service'"
+                )
+                saml_auth = "service"
+            self._saml_dialog = saml_auth == "dialog" and (
+                data_dict.get("auth-mode", "saml") != "credentials"
+            )
+            logger.info(f"saml-auth: {saml_auth}")
+
             # Get DNS servers (optional)
             self.dns_servers = []
             self.dns_domains = []
@@ -1996,6 +2069,14 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if self._superseded(gen):
                 return
 
+            if self._saml_dialog:
+                # Not awaited: the user may take a while, and Connect() has
+                # to return (Disconnect() stops the task)
+                self._auth_task = self._create_task(
+                    self._authenticate_then_start(gen), "SAML auth dialog"
+                )
+                return
+
             # Start gpclient process
             success = await self._start_gpclient()
 
@@ -2011,6 +2092,60 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.error(f"Connect() failed: {e}")
             self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
             raise
+
+    async def _authenticate_then_start(self, gen: int) -> None:
+        """Get the SAML result from the auth dialog, then start gpclient"""
+        try:
+            await self._request_auth_result()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # Whatever the dialog sent never goes to the log
+            self._fail_login(f"The SAML login in the auth dialog failed: {e}")
+            return
+        if self._superseded(gen):
+            return
+        if not await self._start_gpclient() and not self._superseded(gen):
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
+                "Failed to start gpclient process",
+            )
+
+    async def _request_auth_result(self) -> None:
+        """Ask the auth dialog to run gpauth; keep its checked answer"""
+        if not self._interactive:
+            raise Exception(
+                "saml-auth=dialog needs an interactive connection (a secret "
+                "agent); activate the connection from the desktop, or set "
+                "saml-auth=service"
+            )
+        saml = {
+            "server": self.gateway,
+            "gateway": self.as_gateway,
+            "fix_openssl": self.fix_openssl_mode,
+            "browser": self.browser,
+            "browser_target": self.browser_target,
+        }
+        # Not saved, never answered from the profile (a stale result is
+        # useless); the dialog sends a new one every time
+        await self._update_profile(
+            {f"{SAML_RESULT_KEY}-flags": "2"}, drop_secrets=[SAML_RESULT_KEY]
+        )
+        answer = await self._request_secret_interactive(
+            SAML_RESULT_KEY,
+            f"Sign in to {self.gateway}",
+            "",
+            extra_hints=[SAML_HINT_PREFIX + json.dumps(saml, separators=(",", ":"))],
+        )
+        if answer.strip() == SAML_RESULT_STANDARD:
+            logger.info("The server uses a standard login: no SAML result needed")
+            self._saml_dialog = False
+            return
+        try:
+            self._auth_result = parse_auth_result(answer)
+        except ValueError as e:
+            raise Exception(f"the dialog sent an unusable result ({e})") from None
+        logger.info(f"auth result: {len(self._auth_result)} bytes")
 
     def _superseded(self, gen: int) -> bool:
         """True when a Disconnect() came in since the session `gen` started.
@@ -2102,6 +2237,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             (self.profile_task, "Profile update"),
             (self._prompt_task, "Prompt"),
             (self.stdout_monitor_task, "gpclient output monitor"),
+            (self._auth_task, "SAML auth dialog"),
         ]
         for task, _ in tasks:
             if task:
@@ -2124,6 +2260,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.profile_task = None
         self._prompt_task = None
         self.stdout_monitor_task = None
+        self._auth_task = None
 
         # Stop gpclient first, close the PTY after. gpclient is the session
         # leader of the PTY: closing the master sends it SIGHUP, which gpclient
@@ -2161,6 +2298,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
+        self._saml_dialog = False
+        self._auth_result = ""
         self.as_gateway = False
         self.mtu = None
         self.preferred_gateway = ""
@@ -2564,15 +2703,21 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
             # Single-token options and "--" keep profile values from being
             # parsed as options of their own (--browser takes an optional value)
-            cmd.extend([f"--browser={self.browser}", "--", self.gateway])
+            if self._auth_result:
+                # The login result comes on stdin: no browser for gpclient
+                cmd.append("--cookie-on-stdin")
+            else:
+                cmd.append(f"--browser={self.browser}")
+            cmd.extend(["--", self.gateway])
 
             logger.info(f"Spawning: {' '.join(cmd)}")
 
             # Set up environment
             env = os.environ.copy()
 
-            # Set SUDO_UID for gpclient to detect real user
-            if real_uid > 0:
+            # Set SUDO_UID for gpclient to detect real user (not with the
+            # result on stdin: gpclient starts no gpauth then)
+            if real_uid > 0 and not self._auth_result:
                 env["SUDO_UID"] = str(real_uid)
                 env["SUDO_USER"] = real_user
 
@@ -2585,7 +2730,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 )
 
             # Tell the wrapper which browser to launch
-            if self.browser_target:
+            if self.browser_target and not self._auth_result:
                 env["GP_BROWSER"] = self.browser_target
 
             env["GPCLIENT_NM_IGNORE_AUTO_ROUTES"] = (
@@ -2616,6 +2761,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             env["TERM"] = "xterm-256color"
 
             master_fd, slave_fd = pty.openpty()
+            if self._auth_result:
+                # No echo (the line would go to the log) and no line mode (it
+                # holds 4095 bytes at most); inquire restores its own mode
+                attrs = termios.tcgetattr(slave_fd)
+                attrs[3] &= ~(termios.ECHO | termios.ICANON)
+                termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
 
             def _child_setup():
                 # New session + make the PTY slave (fd 0) the controlling
@@ -2654,6 +2805,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 # is masked in the log (the password is in _written_secrets)
                 self._written_secrets.add(self.vpn_password)
                 self._write_keys(self.vpn_password.encode() + b"\n", "password")
+
+            if self._auth_result:
+                # shortcut: a blocking write, fine for the usual few hundred
+                # bytes; a line over 4095 bytes waits for gpclient to read it
+                self._written_secrets.add(self._auth_result)
+                self._write_keys(self._auth_result.encode() + b"\n", "auth result")
 
             # Start monitoring PTY output
             self.stdout_monitor_task = self._create_task(
@@ -2776,6 +2933,17 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
                     if GATEWAY_NOT_FOUND_RE.search(msg):
                         self._gateway_not_found_seen = True
+
+                    if self._auth_result and SAML_GATEWAY_LAUNCH_RE.search(msg):
+                        # The dialog's result went to the portal; this gateway
+                        # wants a login of its own, which needs the browser in
+                        # the user's session
+                        self._fail_login(
+                            "the gateway needs a second SAML login, which "
+                            "saml-auth=dialog cannot do: enable 'Address is a "
+                            "gateway' for a gateway address, or set "
+                            "saml-auth=service"
+                        )
 
                     if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(msg):
                         # The portal needs legacy TLS renegotiation (issue #2)
@@ -3104,6 +3272,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         connect timeout expires, which reads as a hang (issue #2).
         """
         logger.error(f"Reporting failure to NetworkManager: reason {reason}")
+        self._auth_result = ""
         self.Failure.emit(reason)
         self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
 
@@ -3847,7 +4016,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self.fix_openssl_mode = "true"
 
     async def _request_secret_interactive(
-        self, secret_key: str, label: str, banner_msg: str
+        self,
+        secret_key: str,
+        label: str,
+        banner_msg: str,
+        extra_hints: Sequence[str] = (),
     ) -> str:
         """Ask the user for a secret via SecretsRequired/NewSecrets.
 
@@ -3878,7 +4051,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         loop = asyncio.get_running_loop()
         self._secret_future = loop.create_future()
 
-        hints = [f"x-vpn-message:{message}", secret_key]
+        hints = [f"x-vpn-message:{message}", *extra_hints, secret_key]
         logger.info(f"SecretsRequired: {message}, {hints}")
         self.SecretsRequired.emit((message, hints))
 
@@ -4390,6 +4563,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         if reason == VPNC_REASON_CONNECT:
             self._set_state(NM_VPN_SERVICE_STATE_STARTED)
             self._tunnel_up = True
+            self._auth_result = ""
             self.profile_task = self._create_task(
                 self._persist_profile(), "profile update"
             )
