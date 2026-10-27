@@ -55,7 +55,10 @@ log "network"
 ip link add enp0s31f6 type veth peer name ethpeer
 ip link set ethpeer up
 udevadm settle
-NetworkManager --no-daemon > "$OUT/NetworkManager.log" 2>&1 &
+# GP_DEMO_NM_DEBUG=1 (run.sh, scenario saml-dialog): the secret agents of
+# NetworkManager in the log
+# shellcheck disable=SC2086 # the options are words
+NetworkManager --no-daemon ${GP_DEMO_NM_DEBUG:+--debug --log-level=DEBUG --log-domains=AGENTS,VPN,CORE} > "$OUT/NetworkManager.log" 2>&1 &
 for _ in $(seq 60); do nmcli -t -f RUNNING general 2>/dev/null | grep -q running && break; sleep 0.5; done
 nmcli connection add type ethernet ifname enp0s31f6 con-name "Wired connection 1" \
     connection.autoconnect yes \
