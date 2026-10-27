@@ -79,6 +79,7 @@ ONE_TIME_HINTS = ("otp", "gpauth-result")
 # SAML in the dialog: the gpauth to run (debian/rules, Makefile and the RPM
 # spec install it here) and the names the service uses
 GPAUTH_BINARY = "/usr/bin/gpauth"
+effective_uid = os.geteuid  # replaced in the tests
 SAML_RESULT_KEY = "gpauth-result"
 SAML_HINT_PREFIX = "x-gp-saml:"
 SAML_STANDARD = "standard"
@@ -322,6 +323,11 @@ def answer_saml(args, saml, message):
     """Run gpauth and return its result as the secret; 1 when there is none"""
     if not args.allow_interaction:
         print("The SAML login needs the user and interaction is not allowed", file=sys.stderr)
+        return 1
+    if effective_uid() == 0:
+        # e.g. "sudo nmcli --ask": gpauth and the browser must not run as root
+        print("The SAML login does not run as root; start the VPN as the desktop user",
+              file=sys.stderr)
         return 1
     result = run_gpauth(saml)
     if result is None:

@@ -23,12 +23,16 @@ namespace
 // The same names and rules as auth-dialog/nm-gpclient-auth-dialog.py
 const QString samlHintPrefix = QStringLiteral("x-gp-saml:");
 const QString samlResultKey = QStringLiteral("gpauth-result");
+QString gpauthBinary()
+{
 #ifdef GPCLIENT_TESTING
-// Only the test target defines this: the plugin always runs /usr/bin/gpauth
-const QString gpauthBinary = qEnvironmentVariable("GPCLIENT_TEST_GPAUTH", QStringLiteral("/usr/bin/gpauth"));
+    // Only the test target defines this: the plugin always runs /usr/bin/gpauth.
+    // Read at each start: the test sets the variable per case.
+    return qEnvironmentVariable("GPCLIENT_TEST_GPAUTH", QStringLiteral("/usr/bin/gpauth"));
 #else
-const QString gpauthBinary = QStringLiteral("/usr/bin/gpauth");
+    return QStringLiteral("/usr/bin/gpauth");
 #endif
+}
 
 // Nothing from the hint may become an option, a command or a line of its own
 bool validServer(const QString &server)
@@ -172,7 +176,7 @@ void GpclientAuthWidget::startSamlLogin(const QString &hint)
     m_gpauth = new QProcess(this);
     connect(m_gpauth, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
-            qWarning("gpclient: cannot run %s", qPrintable(gpauthBinary));
+            qWarning("gpclient: cannot run %s", qPrintable(gpauthBinary()));
             finishSamlLogin(QString());
         }
     });
@@ -226,7 +230,7 @@ void GpclientAuthWidget::runGpauth(bool fixOpenssl)
         env.insert(QStringLiteral("GP_BROWSER"), m_samlBrowserTarget);
     }
     m_gpauth->setProcessEnvironment(env);
-    m_gpauth->start(gpauthBinary, args);
+    m_gpauth->start(gpauthBinary(), args);
 }
 
 void GpclientAuthWidget::finishSamlLogin(const QString &result)

@@ -145,6 +145,8 @@ Limits:
 - The connection must be started with an agent (desktop applet or `nmcli
   --ask`). A start without one fails at once with a clear message; use
   `saml-auth=service` there.
+- The auth dialog refuses to run gpauth as root (for example under `sudo nmcli
+  --ask`): start the connection as the desktop user.
 - The result is a one-time secret: flag `gpauth-result-flags=2` (not saved)
   is written to the profile before the request, and the dialog never fills it
   from a stored value.

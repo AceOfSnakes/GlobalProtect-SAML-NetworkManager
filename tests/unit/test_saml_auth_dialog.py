@@ -71,6 +71,7 @@ RUNNER = (
     "module = importlib.util.module_from_spec(spec)\n"
     "spec.loader.exec_module(module)\n"
     "module.GPAUTH_BINARY = sys.argv.pop(1)\n"
+    "module.effective_uid = lambda: int(module.os.environ.get('FAKE_EUID', '1000'))\n"
     "sys.exit(module.main())\n"
 )
 
@@ -221,6 +222,18 @@ class TestNoAnswer:
 
         assert status == 1
         assert out == ""
+        assert fake.runs() == []
+
+    @pytest.mark.parametrize("ext", [False, True])
+    def test_root_runs_no_gpauth(self, fake, ext):
+        # e.g. "sudo nmcli --ask": the dialog runs as root
+        proc = start(fake, "success", secret_hints(), ext=ext, extra_env={"FAKE_EUID": "0"})
+
+        status, out, err = finish(proc)
+
+        assert status == 1
+        assert out == ""
+        assert "does not run as root" in err
         assert fake.runs() == []
 
     def test_a_missing_gpauth_exits_with_1(self, fake, tmp_path):
