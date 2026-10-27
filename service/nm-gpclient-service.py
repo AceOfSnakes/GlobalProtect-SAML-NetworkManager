@@ -4052,7 +4052,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._secret_future = loop.create_future()
 
         hints = [f"x-vpn-message:{message}", *extra_hints, secret_key]
-        logger.info(f"SecretsRequired: {message}, {hints}")
+        logger.info(f"SecretsRequired: {message}")
         self.SecretsRequired.emit((message, hints))
 
         try:
