@@ -418,3 +418,62 @@ msgstr "Kur vykdomas prisijungimas naršykle: tarnyboje arba prisijungimo dialog
 #, kde-format
 msgid "Signing in…"
 msgstr "Prisijungiama…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Sertifikato slaptafrazė"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Sertifikato slaptafrazė:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Kliento sertifikatas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Tuščia: be kliento sertifikato"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Tuščia: raktas yra sertifikato faile"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Pasirinktinis absoliutus kliento sertifikato failo kelias (PEM arba PKCS#12), kuris turi priklausyti darbalaukio naudotojui."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Pasirinktinis absoliutus privataus rakto failo kelias (PEM), kuris turi priklausyti darbalaukio naudotojui. Be kliento sertifikato ignoruojamas."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Slaptafrazės saugojimas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Privatusis raktas:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert turi būti absoliutusis kelias"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey turi būti absoliutusis kelias"

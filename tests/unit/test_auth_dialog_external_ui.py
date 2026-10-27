@@ -116,6 +116,42 @@ def test_not_saved_password_is_always_asked():
     assert groups["password"]["ShouldAsk"] == "true"
 
 
+def test_cert_pass_hint_is_a_masked_labelled_secret():
+    _, _, groups = external(
+        hints=["x-vpn-message:Enter the PEM passphrase", "cert-pass"]
+    )
+    assert groups["cert-pass"]["Label"] == "Certificate passphrase"
+    assert groups["cert-pass"]["IsSecret"] == "true"
+    assert groups["cert-pass"]["ForceEcho"] == "false"  # masked, unlike a username
+    assert groups["cert-pass"]["ShouldAsk"] == "true"
+
+
+def test_stored_cert_pass_is_prefilled_and_not_asked():
+    _, _, groups = external(
+        data={"cert-pass-flags": "1"}, secrets={"cert-pass": "pp"}, hints=["cert-pass"]
+    )
+    assert groups["cert-pass"]["Value"] == "pp"
+    assert groups["cert-pass"]["ShouldAsk"] == "false"
+
+
+def test_not_saved_cert_pass_is_always_asked():
+    _, _, groups = external(
+        data={"cert-pass-flags": "2"}, secrets={"cert-pass": "pp"}, hints=["cert-pass"]
+    )
+    assert groups["cert-pass"]["ShouldAsk"] == "true"
+
+
+def test_password_flags_do_not_apply_to_cert_pass():
+    # The password is not saved, the passphrase is: only the password is asked
+    _, _, groups = external(
+        data={**CRED, "password-flags": "2"},
+        secrets={"password": "pw", "cert-pass": "pp"},
+        hints=["password", "cert-pass"],
+    )
+    assert groups["password"]["ShouldAsk"] == "true"
+    assert groups["cert-pass"]["ShouldAsk"] == "false"
+
+
 def test_reprompt_asks_again_without_prefill():
     _, _, groups = external(data=CRED, secrets={"password": "old"}, reprompt=True)
     assert groups["password"]["Value"] == ""

@@ -154,6 +154,60 @@ Limits:
   is written to the profile before the request, and the dialog never fills it
   from a stored value.
 
+## Client certificate
+
+A portal or gateway can also ask for a client certificate (a certificate per
+device, with SAML or with username and password,
+[#134](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/134)).
+Give gpclient the files with `vpn.data` keys; the editors have the same fields
+(**Client certificate**, **Private key**, **Certificate passphrase**):
+
+```bash
+# PKCS#12 file (.p12, .pfx) or PEM file with the certificate and the key
+nmcli connection modify "My VPN" +vpn.data usercert=/home/alice/.certs/me.p12
+# a separate PEM key
+nmcli connection modify "My VPN" +vpn.data userkey=/home/alice/.certs/me.key
+# the passphrase of an encrypted key, kept for this user only (the keyring)
+nmcli connection modify "My VPN" +vpn.data cert-pass-flags=1
+nmcli connection modify "My VPN" vpn.secrets cert-pass=...
+```
+
+- The service passes `--certificate=<usercert>` and `--sslkey=<userkey>` to
+  gpclient. Both must be absolute paths.
+- **The files must be owned by the desktop user** (the user whose session shows
+  the browser) and be regular files of at most 1 MiB (a link is followed). They
+  must be readable by that user too. The service opens each file once, checks
+  the open file, and gives gpclient (root) and gpauth a private copy in a
+  directory below `/run/nm-gpclient` that only root can write: owned by the
+  desktop user, mode `0400`, with the extension of the original. gpclient never
+  reads your path, so changing or replacing the original after the check does
+  not change the copy (it is made at each connect). The service refuses another
+  owner, a directory, a device or a FIFO, and the connection fails with the
+  reason in the log. It deletes the copies when the connection ends or fails,
+  and when the service stops; after a crash they stay until the next reboot
+  (`/run`).
+  The service finds no desktop user in some setups (no session): then it
+  refuses `usercert`/`userkey` and the connection fails.
+- Upstream picks the format by the extension only: `.p12` or `.pfx` is PKCS#12,
+  any other name is PEM. The copy keeps the extension.
+- The passphrase is never put on the command line (any user can read it in
+  `/proc`). When the key or the PKCS#12 file is encrypted, gpclient asks
+  "Enter the PEM passphrase:" or "Enter the PKCS#12 passphrase:". The service
+  answers this prompt (and only this prompt) with the `cert-pass` secret. It
+  uses the stored value once. When none is stored, the secret agent is asked.
+  The VPN password is never typed there.
+  `cert-pass-flags` works like `password-flags` (`1` agent, `0` profile file,
+  `2` not saved, asked every time).
+- A wrong passphrase: only a PEM key is asked again by gpclient. The service
+  stops the login with "wrong certificate passphrase" when the same passphrase
+  comes back (an agent can return the stored, wrong value without asking you) or
+  after 3 passphrases. Correct or remove the stored `cert-pass`, then connect
+  again. A wrong PKCS#12 passphrase makes gpclient exit with an error at once.
+- Limitation of upstream gpclient: in SAML mode it hands the key passphrase to
+  gpauth on the command line, where other users of the machine can read it for
+  as long as gpauth runs. Prefer a key without a passphrase in a file with mode
+  `0600` that only you can read, or report this upstream.
+
 ## Gateway selection
 
 A portal usually offers several gateways and `gpclient` asks which one to use,

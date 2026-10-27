@@ -308,3 +308,47 @@ msgstr "A bejelentkezési párbeszédablakban"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
 msgstr "Hol fut a böngészős bejelentkezés: a szolgáltatásban vagy a bejelentkezési párbeszédablakban (a saját munkamenetében)."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Tanúsítvány jelmondata"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Tanúsítvány jelmondata:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Ügyféltanúsítvány:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Üres: nincs ügyféltanúsítvány"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Üres: a kulcs a tanúsítványfájlban van"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Az ügyféltanúsítvány fájljának választható abszolút elérési útja (PEM vagy PKCS#12), amelynek az asztali felhasználó a tulajdonosa."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "A privát kulcs fájljának választható abszolút elérési útja (PEM), amelynek az asztali felhasználó a tulajdonosa. Ügyféltanúsítvány nélkül figyelmen kívül marad."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Privát kulcs:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "a usercert-nek abszolút elérési útnak kell lennie"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "a userkey-nek abszolút elérési útnak kell lennie"

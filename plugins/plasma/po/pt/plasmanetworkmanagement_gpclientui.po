@@ -418,3 +418,62 @@ msgstr "Onde o início de sessão no navegador é executado: no serviço ou na c
 #, kde-format
 msgid "Signing in…"
 msgstr "A iniciar sessão…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Frase-passe do certificado"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Frase-passe do certificado:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Certificado de cliente:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Vazio: sem certificado de cliente"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Vazio: a chave está no ficheiro do certificado"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Caminho absoluto opcional do ficheiro do certificado de cliente (PEM ou PKCS#12), pertencente ao utilizador do ambiente de trabalho."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Caminho absoluto opcional do ficheiro da chave privada (PEM), pertencente ao utilizador do ambiente de trabalho. Ignorado sem certificado de cliente."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Armazenamento da frase-passe:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Chave privada:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "o usercert tem de ser um caminho absoluto"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "o userkey tem de ser um caminho absoluto"

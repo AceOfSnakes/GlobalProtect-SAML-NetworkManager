@@ -418,3 +418,62 @@ msgstr "Gdzie działa logowanie w przeglądarce: w usłudze albo w oknie logowan
 #, kde-format
 msgid "Signing in…"
 msgstr "Logowanie…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Hasło certyfikatu"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Hasło certyfikatu:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Certyfikat klienta:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Puste: brak certyfikatu klienta"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Puste: klucz jest w pliku certyfikatu"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Opcjonalna ścieżka bezwzględna do pliku certyfikatu klienta (PEM lub PKCS#12), którego właścicielem musi być użytkownik pulpitu."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Opcjonalna ścieżka bezwzględna do pliku klucza prywatnego (PEM), którego właścicielem musi być użytkownik pulpitu. Ignorowana bez certyfikatu klienta."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Przechowywanie hasła certyfikatu:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Klucz prywatny:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert musi być ścieżką bezwzględną"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey musi być ścieżką bezwzględną"

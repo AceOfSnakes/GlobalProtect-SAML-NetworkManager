@@ -392,3 +392,62 @@ msgstr "المكان الذي يعمل فيه تسجيل الدخول عبر ا�
 #, kde-format
 msgid "Signing in…"
 msgstr "جارٍ تسجيل الدخول…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "عبارة مرور الشهادة"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "عبارة مرور الشهادة:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "شهادة العميل:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "فارغ: بلا شهادة عميل"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "فارغ: المفتاح موجود في ملف الشهادة"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "مسار مطلق اختياري لملف شهادة العميل (PEM أو PKCS#12)، يجب أن يكون مملوكاً لمستخدم سطح المكتب."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "مسار مطلق اختياري لملف المفتاح الخاص (PEM)، يجب أن يكون مملوكاً لمستخدم سطح المكتب. يُتجاهل بدون شهادة عميل."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "تخزين عبارة المرور:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "المفتاح الخاص:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "يجب أن يكون usercert مساراً مطلقاً"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "يجب أن يكون userkey مساراً مطلقاً"

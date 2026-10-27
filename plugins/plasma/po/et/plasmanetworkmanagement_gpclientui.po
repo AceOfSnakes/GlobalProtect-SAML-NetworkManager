@@ -392,3 +392,62 @@ msgstr "Kus brauseriga sisselogimine töötab: teenuses või sisselogimisdialoog
 #, kde-format
 msgid "Signing in…"
 msgstr "Sisselogimine…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Sertifikaadi parooifraas"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Sertifikaadi parooifraas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Kliendisertifikaat:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Tühi: kliendisertifikaati pole"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Tühi: võti on sertifikaadifailis"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Kliendisertifikaadi faili valikuline absoluutne tee (PEM või PKCS#12), mis peab kuuluma töölauakasutajale."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Privaatvõtme faili valikuline absoluutne tee (PEM), mis peab kuuluma töölauakasutajale. Ilma kliendisertifikaadita eiratakse."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Parooifraasi salvestamine:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Privaatvõti:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert peab olema absoluutne tee"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey peab olema absoluutne tee"

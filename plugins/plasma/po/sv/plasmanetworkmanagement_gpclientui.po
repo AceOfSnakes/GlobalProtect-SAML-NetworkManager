@@ -392,3 +392,62 @@ msgstr "Var webbläsarinloggningen körs: i tjänsten eller i inloggningsdialoge
 #, kde-format
 msgid "Signing in…"
 msgstr "Loggar in…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Certifikatets lösenfras"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Certifikatets lösenfras:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Klientcertifikat:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Tom: inget klientcertifikat"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Tom: nyckeln finns i certifikatfilen"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Valfri absolut sökväg till filen med klientcertifikatet (PEM eller PKCS#12), som måste ägas av skrivbordsanvändaren."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Valfri absolut sökväg till filen med den privata nyckeln (PEM), som måste ägas av skrivbordsanvändaren. Ignoreras utan klientcertifikat."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Lagring av lösenfrasen:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Privat nyckel:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert måste vara en absolut sökväg"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey måste vara en absolut sökväg"

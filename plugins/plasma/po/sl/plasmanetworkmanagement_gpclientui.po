@@ -392,3 +392,62 @@ msgstr "Kje teče prijava v brskalniku: v storitvi ali v pogovornem oknu za prij
 #, kde-format
 msgid "Signing in…"
 msgstr "Prijavljanje…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Geslo certifikata"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Geslo certifikata:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Odjemalčev certifikat:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Prazno: brez odjemalčevega certifikata"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Prazno: ključ je v datoteki certifikata"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Neobvezna absolutna pot do datoteke odjemalčevega certifikata (PEM ali PKCS#12), katere lastnik mora biti uporabnik namizja."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), katere lastnik mora biti uporabnik namizja. Brez odjemalčevega certifikata se prezre."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Shranjevanje gesla certifikata:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Zasebni ključ:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert mora biti absolutna pot"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey mora biti absolutna pot"

@@ -35,6 +35,10 @@ struct _NMGpclientEditor {
     GtkWidget *hip_script_entry;
     GtkWidget *fix_openssl_combo;
     GtkWidget *saml_auth_combo;
+    GtkWidget *usercert_entry;
+    GtkWidget *userkey_entry;
+    GtkWidget *cert_pass_entry;
+    NMSettingSecretFlags cert_pass_menu_flags;  /* the storage menu at load */
 };
 
 static void nm_gpclient_editor_interface_init (NMVpnEditorInterface *iface);
@@ -300,7 +304,7 @@ build_ui (NMGpclientEditor *self)
             gtk_editable_set_text (GTK_EDITABLE (self->password_entry), value);
     }
     {
-        NMSettingSecretFlags flags = nm_gpclient_editor_password_flags_initial (s_vpn, is_new);
+        NMSettingSecretFlags flags = nm_gpclient_editor_password_flags_initial (s_vpn, "password", is_new);
 
         /* No setting: libnma would read the flags from it (none on a new
          * connection, so 0) and ignore these; update_connection() saves them */
@@ -505,6 +509,66 @@ build_ui (NMGpclientEditor *self)
     g_signal_connect (self->hip_check, "toggled", G_CALLBACK (hip_toggled_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->hip_script_entry, 1, row++, 1, 1);
 
+    /* Client certificate (issue #134): paths as typed (gpclient reads the
+     * files), and the passphrase of the key as a secret with the same storage
+     * menu as the password */
+    label = gtk_label_new (_("Client certificate:"));
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+
+    self->usercert_entry = gtk_entry_new ();
+    gtk_widget_set_hexpand (self->usercert_entry, TRUE);
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->usercert_entry), _("Empty: no client certificate"));
+    gtk_widget_set_tooltip_text (self->usercert_entry,
+        _("Optional absolute path to the client certificate file (PEM or PKCS#12), owned by your desktop user."));
+    if (s_vpn) {
+        value = nm_setting_vpn_get_data_item (s_vpn, "usercert");
+        if (value && *value)
+            gtk_editable_set_text (GTK_EDITABLE (self->usercert_entry), value);
+    }
+    g_signal_connect (self->usercert_entry, "changed", G_CALLBACK (entry_changed_cb), self);
+    gtk_grid_attach (GTK_GRID (grid), self->usercert_entry, 1, row++, 1, 1);
+
+    label = gtk_label_new (_("Private key:"));
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+
+    self->userkey_entry = gtk_entry_new ();
+    gtk_widget_set_hexpand (self->userkey_entry, TRUE);
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->userkey_entry), _("Empty: the key is in the certificate file"));
+    gtk_widget_set_tooltip_text (self->userkey_entry,
+        _("Optional absolute path to the private key file (PEM), owned by your desktop user. Ignored without a client certificate."));
+    if (s_vpn) {
+        value = nm_setting_vpn_get_data_item (s_vpn, "userkey");
+        if (value && *value)
+            gtk_editable_set_text (GTK_EDITABLE (self->userkey_entry), value);
+    }
+    g_signal_connect (self->userkey_entry, "changed", G_CALLBACK (entry_changed_cb), self);
+    gtk_grid_attach (GTK_GRID (grid), self->userkey_entry, 1, row++, 1, 1);
+
+    label = gtk_label_new (_("Certificate passphrase:"));
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+
+    self->cert_pass_entry = gtk_entry_new ();
+    gtk_entry_set_visibility (GTK_ENTRY (self->cert_pass_entry), FALSE);
+    gtk_widget_set_hexpand (self->cert_pass_entry, TRUE);
+    gtk_widget_set_tooltip_text (self->cert_pass_entry,
+        _("Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."));
+    if (s_vpn) {
+        value = nm_setting_vpn_get_secret (s_vpn, "cert-pass");
+        if (value && *value)
+            gtk_editable_set_text (GTK_EDITABLE (self->cert_pass_entry), value);
+    }
+    {
+        NMSettingSecretFlags flags = nm_gpclient_editor_password_flags_initial (s_vpn, "cert-pass", is_new);
+
+        nma_utils_setup_password_storage (self->cert_pass_entry, flags, NULL, NULL, FALSE, FALSE);
+        self->cert_pass_menu_flags = nma_utils_menu_to_secret_flags (self->cert_pass_entry);
+    }
+    g_signal_connect (self->cert_pass_entry, "changed", G_CALLBACK (entry_changed_cb), self);
+    gtk_grid_attach (GTK_GRID (grid), self->cert_pass_entry, 1, row++, 1, 1);
+
     return grid;
 }
 
@@ -541,7 +605,9 @@ update_connection (NMVpnEditor *editor,
             browser,
             gtk_editable_get_text (GTK_EDITABLE (self->dns_entry)),
             gtk_check_button_get_active (GTK_CHECK_BUTTON (self->hip_check)),
-            gtk_editable_get_text (GTK_EDITABLE (self->hip_script_entry)));
+            gtk_editable_get_text (GTK_EDITABLE (self->hip_script_entry)),
+            gtk_editable_get_text (GTK_EDITABLE (self->usercert_entry)),
+            gtk_editable_get_text (GTK_EDITABLE (self->userkey_entry)));
 
         g_free (browser);
         if (problem) {
@@ -588,7 +654,7 @@ update_connection (NMVpnEditor *editor,
         gtk_editable_get_text (GTK_EDITABLE (self->username_entry)));
 
     /* Save the password flags and the password (rules in the common header) */
-    nm_gpclient_editor_save_password (s_vpn, self->is_new, self->password_menu_flags,
+    nm_gpclient_editor_save_password (s_vpn, "password", self->is_new, self->password_menu_flags,
         nma_utils_menu_to_secret_flags (self->password_entry),
         gtk_combo_box_get_active (GTK_COMBO_BOX (self->auth_mode_combo)) == 1,
         gtk_editable_get_text (GTK_EDITABLE (self->password_entry)));
@@ -630,6 +696,14 @@ update_connection (NMVpnEditor *editor,
     gchar *script = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->hip_script_entry))));
     nm_gpclient_editor_set_or_remove (s_vpn, "hip-script", script);
     g_free (script);
+
+    /* Save the client certificate and the passphrase of its key (common header) */
+    nm_gpclient_editor_save_cert (s_vpn,
+        gtk_editable_get_text (GTK_EDITABLE (self->usercert_entry)),
+        gtk_editable_get_text (GTK_EDITABLE (self->userkey_entry)),
+        self->is_new, self->cert_pass_menu_flags,
+        nma_utils_menu_to_secret_flags (self->cert_pass_entry),
+        gtk_editable_get_text (GTK_EDITABLE (self->cert_pass_entry)));
 
     return TRUE;
 }

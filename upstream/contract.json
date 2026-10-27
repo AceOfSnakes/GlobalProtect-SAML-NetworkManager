@@ -57,7 +57,35 @@
       "kind": "anchor",
       "path": "apps/gpclient/src/connect/mod.rs",
       "text": "Enter the {} passphrase:",
-      "used_by": "service/nm-gpclient-service.py: passphrase prompt detection (one-time secret prompts)"
+      "used_by": "service/nm-gpclient-service.py: CERT_PASS_PROMPT_RE (the prompt for the passphrase of the client certificate key)"
+    },
+    {
+      "id": "passphrase-type-pem",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/utils/identity_encoding.rs",
+      "text": "NoPassphrase(\"PEM\")",
+      "used_by": "service/nm-gpclient-service.py: CERT_PASS_PROMPT_RE (PEM)"
+    },
+    {
+      "id": "passphrase-type-pkcs12",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/utils/request.rs",
+      "text": "NoPassphrase(\"PKCS#12\")",
+      "used_by": "service/nm-gpclient-service.py: CERT_PASS_PROMPT_RE (PKCS#12)"
+    },
+    {
+      "id": "cli-certificate",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) certificate: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --certificate (vpn.data usercert)"
+    },
+    {
+      "id": "cli-sslkey",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) sslkey: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --sslkey (vpn.data userkey)"
     },
     {
       "id": "login-default-message",

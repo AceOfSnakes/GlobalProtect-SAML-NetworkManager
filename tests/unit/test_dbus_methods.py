@@ -766,6 +766,10 @@ def _dirty(plugin):
     plugin._stored_gateway_count = 1
     plugin.vpn_username = "bob"
     plugin.vpn_password = "pw"
+    plugin.cert_pass = "cp"
+    plugin.usercert = "/a/c.pem"
+    plugin.userkey = "/a/k.pem"
+    plugin._cert_pass_tried = {"x"}
     plugin._interactive = True
     plugin._auth_banner = "banner"
     plugin._answering = True
@@ -910,6 +914,10 @@ class TestDisconnect:
             "_stored_gateway_count",
             "vpn_username",
             "vpn_password",
+            "cert_pass",
+            "usercert",
+            "userkey",
+            "_cert_pass_tried",
             "_interactive",
             "_auth_banner",
             "_answering",

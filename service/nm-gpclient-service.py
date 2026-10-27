@@ -28,6 +28,7 @@ import string
 import struct
 import subprocess
 import sys
+import tempfile
 import termios
 import unicodedata
 from collections import deque
@@ -130,6 +131,15 @@ VPNC_NOTIFY_ENV = (
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
+# Secret name of the passphrase of the client certificate key (vpn.secrets)
+CERT_PASS_SECRET_KEY = "cert-pass"  # noqa: S105  # a D-Bus secret name, not a password
+# Passphrase prompts answered per connection attempt before the login fails
+CERT_PASS_MAX_TRIES = 3
+# The passphrase prompt of gpclient (contract item passphrase-prompt); the type
+# is "PEM" or "PKCS#12". Only this label is the key passphrase: the VPN
+# password must never be typed there, and the key passphrase never at a login
+# prompt.
+CERT_PASS_PROMPT_RE = re.compile(r"Enter the (?:PEM|PKCS#12) passphrase", re.IGNORECASE)
 # Tries per connection to mark the code as not-saved in the profile
 OTP_FLAG_MAX_ATTEMPTS = 2
 
@@ -141,6 +151,10 @@ OTP_FLAG_MAX_ATTEMPTS = 2
 # (connect --cookie-on-stdin). The value comes from a process outside the
 # service, so parse_auth_result checks every part of it.
 SAML_RESULT_KEY = "gpauth-result"
+# Secret names the service itself asks for
+KNOWN_SECRET_KEYS = (
+    "username", "password", OTP_SECRET_KEY, CERT_PASS_SECRET_KEY, SAML_RESULT_KEY
+)
 # The reply of the dialog for a portal that is not a SAML portal
 SAML_RESULT_STANDARD = "standard"
 SAML_HINT_PREFIX = "x-gp-saml:"
@@ -707,6 +721,91 @@ def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
 
 
 HIDDEN = "<hidden>"
+
+
+def validate_cert_path(name: str, path: str) -> str:
+    """The client certificate or key file `path` of vpn.data key `name`.
+
+    Raises ValueError when it is not an absolute path or holds a control
+    character. The file itself is read by gpclient (and gpauth, as the desktop
+    user), which report a missing or unreadable file.
+    """
+    if not os.path.isabs(path) or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise ValueError(f"{name} must be an absolute path")
+    return path
+
+
+CERT_FILE_MAX_BYTES = 1024 * 1024
+# Parent of the private copies of the certificate files; each connection
+# attempt gets a directory of its own below it
+CERT_COPY_ROOT = "/run/nm-gpclient"
+
+
+def _cert_copy_root() -> str:
+    """CERT_COPY_ROOT, created (root, 0711) if missing; ValueError when it is
+    not a plain directory of root that others cannot write to"""
+    try:
+        os.mkdir(CERT_COPY_ROOT, 0o711)
+    except FileExistsError:
+        pass
+    except OSError as e:
+        raise ValueError(f"cannot create {CERT_COPY_ROOT}: {e.strerror or e}") from e
+    info = os.lstat(CERT_COPY_ROOT)  # lstat: a symbolic link is refused
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise ValueError(f"{CERT_COPY_ROOT} is not a directory of this service")
+    return CERT_COPY_ROOT
+
+
+def copy_cert_file(name: str, path: str, uid: int, directory: str) -> str:
+    """Copy the certificate or key file `path` into `directory`; return the copy.
+
+    gpclient runs as root and reads the file again and again, so it gets a
+    private copy and never the path of the user (no swap for a link to a root-only
+    key, /dev/zero or a FIFO after the check). Guaranteed: the user's file is
+    opened once (O_NONBLOCK, so a FIFO does not block; links are followed) and
+    all checks are made on that open file: a regular file of the desktop user
+    `uid`, at most 1 MiB. The copy is in a root-owned directory the user cannot
+    write, owned by `uid` (gpauth runs as that user), mode 0400, with the
+    extension of the original: upstream reads .p12 and .pfx as PKCS#12, any other
+    as PEM. Not guaranteed: the content is the user's, gpclient checks it.
+    """
+    if uid == 0:
+        raise ValueError(f"{name}: no desktop user was found, no file is read")
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC)
+    except OSError as e:
+        raise ValueError(f"{name}: cannot read the file: {e.strerror or e}") from e
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"{name}: {path} is not a regular file")
+        if info.st_uid != uid:
+            raise ValueError(
+                f"{name}: {path} is not owned by the desktop user (uid {uid})"
+            )
+        data = b""
+        while len(data) <= CERT_FILE_MAX_BYTES:
+            chunk = os.read(fd, CERT_FILE_MAX_BYTES + 1 - len(data))
+            if not chunk:
+                break
+            data += chunk
+        if len(data) > CERT_FILE_MAX_BYTES:
+            raise ValueError(
+                f"{name}: {path} is larger than {CERT_FILE_MAX_BYTES} bytes"
+            )
+    except OSError as e:
+        raise ValueError(f"{name}: cannot read the file: {e.strerror or e}") from e
+    finally:
+        os.close(fd)
+    ext = os.path.splitext(path)[1]
+    copy = os.path.join(directory, name + (ext if re.fullmatch(r"\.\w{1,8}", ext) else ""))
+    out = os.open(
+        copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o400
+    )
+    with os.fdopen(out, "wb") as f:
+        os.fchown(f.fileno(), uid, -1)
+        f.write(data)
+    return copy
 
 
 def password_not_required(data: Dict[str, Any]) -> bool:
@@ -1744,6 +1843,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.vpn_username = ""
         self.vpn_password = ""
         self._password_on_stdin = False  # --passwd-on-stdin: answered at spawn
+        self.cert_pass = ""
+        self.usercert = ""
+        self.userkey = ""
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
@@ -1766,6 +1868,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._cert_pass_tried: set = set()
+        self._cert_dir = ""  # private copies of usercert and userkey
         self._login_failed = False
 
         logger.info("GpclientVPNPlugin initialized with python-sdbus")
@@ -1877,6 +1981,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._cert_pass_tried = set()
         self._login_failed = False
         self._reset_output_state()
         self._gateway_list = []
@@ -1947,6 +2052,25 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 logger.info(f"Stored username: {self.vpn_username}")
             if self.vpn_password:
                 logger.info("Stored password: <present>")
+            self.cert_pass = secrets_dict.get(CERT_PASS_SECRET_KEY, "")
+            if self.cert_pass:
+                self._written_secrets.add(self.cert_pass)
+                logger.info("Stored certificate passphrase: <present>")
+
+            # Client certificate and key (issue #134). The passphrase is never
+            # put on the command line (visible in /proc): gpclient asks for it.
+            self.usercert = data_dict.get("usercert", "").strip()
+            self.userkey = data_dict.get("userkey", "").strip()
+            try:
+                if self.usercert:
+                    validate_cert_path("usercert", self.usercert)
+                if self.userkey:
+                    validate_cert_path("userkey", self.userkey)
+            except ValueError as e:
+                raise BadArgumentsError(str(e)) from e
+            if self.userkey and not self.usercert:
+                logger.warning("userkey is ignored because usercert is not set")
+                self.userkey = ""
 
             # Connection UUID, needed to cache the gateway list in the profile
             connection_section = connection.get("connection", {})
@@ -2318,6 +2442,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.vpn_username = ""
         self.vpn_password = ""
         self._password_on_stdin = False
+        self.cert_pass = ""
+        self.usercert = ""
+        self.userkey = ""
+        self._remove_cert_copies()
         self._interactive = False
         self._auth_banner = None
         self._answering = False
@@ -2328,6 +2456,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._cert_pass_tried = set()
         self._login_failed = False
 
     @dbus_method_async("a{sv}")
@@ -2643,6 +2772,26 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             )
             logger.info(f"Will run gpclient as user: {real_user}")
 
+            # Before anything is spawned: root must not read a file of the user
+            # (or a link) itself, it gets private copies (copy_cert_file)
+            self._remove_cert_copies()
+            usercert, userkey = self.usercert, self.userkey
+            if usercert:
+                try:
+                    self._cert_dir = tempfile.mkdtemp(dir=_cert_copy_root())
+                    os.chmod(self._cert_dir, 0o711)  # noqa: S103  # the desktop user must enter it (gpauth)
+                    usercert = copy_cert_file(
+                        "usercert", self.usercert, real_uid, self._cert_dir
+                    )
+                    if userkey:
+                        userkey = copy_cert_file(
+                            "userkey", self.userkey, real_uid, self._cert_dir
+                        )
+                except (ValueError, OSError) as e:
+                    logger.error(f"Rejected {e}")
+                    self._remove_cert_copies()
+                    return False
+
             # gpauth left over from an earlier run of OUR gpclient. Never
             # `pkill gpauth`: it would also kill the gpauth of a gpclient the
             # user started from a terminal or of the GUI (issue #52).
@@ -2680,6 +2829,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 # One argv item: gpclient's --hip takes an optional value, and
                 # a separate path could be read as the positional server
                 cmd.append(f"--hip={self.hip_script}" if self.hip_script else "--hip")
+
+            # Client certificate (single tokens: a path must not be read as an
+            # option). Never --key-password: argv is world-readable.
+            if usercert:
+                cmd.append(f"--certificate={usercert}")
+                if userkey:
+                    cmd.append(f"--sslkey={userkey}")
 
             # The server is a gateway, not a portal: skip the portal workflow
             # so the user is not authenticated twice
@@ -2770,6 +2926,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # those prompts fail/hang; with a PTY we can detect them in the
             # output and answer via NM's secrets flow.
             env["TERM"] = "xterm-256color"
+
+            # A new process asks for the passphrase from the start
+            self._cert_pass_tried = set()
 
             master_fd, slave_fd = pty.openpty()
             if self._auth_result:
@@ -3275,6 +3434,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 pass
             self._pty_master = None
 
+    def _remove_cert_copies(self) -> None:
+        """Delete the private copies of the certificate files (and their directory)"""
+        if self._cert_dir:
+            shutil.rmtree(self._cert_dir, ignore_errors=True)
+            self._cert_dir = ""
+
     def _emit_failure(self, reason: int) -> None:
         """Report a failed activation to NetworkManager.
 
@@ -3284,6 +3449,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """
         logger.error(f"Reporting failure to NetworkManager: reason {reason}")
         self._auth_result = ""
+        self._remove_cert_copies()
         self.Failure.emit(reason)
         self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
 
@@ -3396,7 +3562,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._answered_password = self._password_on_stdin
 
     def _classify_prompt_kind(self, label: str, banner_msg: str) -> str:
-        """Decide how to answer a prompt: 'otp', 'username' or 'password'.
+        """Decide how to answer a prompt: 'cert-pass', 'otp', 'username' or
+        'password'.
 
         Combines label keywords with the prompt ORDER, which is a
         language-independent protocol invariant: gpclient asks username then
@@ -3407,6 +3574,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Text in brackets is a hint and may be a negation ("Password (not
         # your PIN)"), so it is never looked at
         main = LABEL_HINT_RE.sub(" ", label)
+
+        # The passphrase of the client certificate key. Checked first, and by
+        # the exact upstream text: it is neither a login password nor an OTP.
+        if CERT_PASS_PROMPT_RE.fullmatch(main.strip()):
+            return CERT_PASS_SECRET_KEY
 
         # One-time challenge, by keyword in the label OR by position (anything
         # after we've already sent the password this phase).
@@ -3451,6 +3623,22 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                         "username", label, banner_msg
                     )
                 self._answered_username = True
+            elif kind == CERT_PASS_SECRET_KEY:
+                # gpclient asks again after a wrong PEM passphrase, and an
+                # agent may hand back the stored (wrong) value silently: stop
+                # at a passphrase that was already typed, and after a few tries
+                if len(self._cert_pass_tried) >= CERT_PASS_MAX_TRIES:
+                    raise Exception("wrong certificate passphrase")
+                if self.cert_pass and self.cert_pass not in self._cert_pass_tried:
+                    logger.info("Answering passphrase prompt from stored passphrase")
+                    answer = self.cert_pass
+                else:
+                    answer = await self._request_secret_interactive(
+                        CERT_PASS_SECRET_KEY, label, banner_msg
+                    )
+                    if answer in self._cert_pass_tried:
+                        raise Exception("wrong certificate passphrase")
+                self._cert_pass_tried.add(answer)
             elif kind == "otp":
                 logger.info(
                     "Prompt looks like a one-time secret (token/OTP/challenge), "
@@ -4079,8 +4267,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         value = secrets.get(secret_key, "")
         if not value and len(secrets) == 1:
-            # Some agents return the secret under a different key
-            value = next(iter(secrets.values()))
+            # Some agents return the secret under a different key - but never
+            # one that is another known secret: the VPN password must not be
+            # typed at the passphrase prompt, nor the passphrase at a login
+            key, lone = next(iter(secrets.items()))
+            if key not in KNOWN_SECRET_KEYS:
+                value = lone
         if not value:
             raise Exception(f"User did not provide {secret_key!r}")
 
@@ -4765,6 +4957,7 @@ async def main_async():
     finally:
         # Cleanup: stop gpclient before the PTY goes away (see Disconnect)
         await plugin._stop_gpclient()
+        plugin._remove_cert_copies()  # SIGTERM (stop, upgrade) while connected
 
     logger.info("gpclient VPN service stopped")
     return 0

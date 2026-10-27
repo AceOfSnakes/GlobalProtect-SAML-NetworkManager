@@ -418,3 +418,62 @@ msgstr "브라우저 로그인을 실행하는 위치: 서비스 또는 로그�
 #, kde-format
 msgid "Signing in…"
 msgstr "로그인 중…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "인증서 암호 문구"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "인증서 암호 문구:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "클라이언트 인증서:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "비어 있음: 클라이언트 인증서 없음"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "비어 있음: 키가 인증서 파일에 있음"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "클라이언트 인증서 파일(PEM 또는 PKCS#12)의 선택적 절대 경로이며, 데스크톱 사용자가 소유해야 합니다."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "개인 키 파일(PEM)의 선택적 절대 경로이며, 데스크톱 사용자가 소유해야 합니다. 클라이언트 인증서가 없으면 무시됩니다."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "암호 문구 저장:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "개인 키:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert는 절대 경로여야 합니다"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey는 절대 경로여야 합니다"

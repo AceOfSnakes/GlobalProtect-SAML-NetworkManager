@@ -392,3 +392,62 @@ msgstr "Πού εκτελείται η σύνδεση μέσω προγράμμ�
 #, kde-format
 msgid "Signing in…"
 msgstr "Σύνδεση σε εξέλιξη…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Φράση πρόσβασης πιστοποιητικού"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Φράση πρόσβασης πιστοποιητικού:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Πιστοποιητικό πελάτη:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Κενό: χωρίς πιστοποιητικό πελάτη"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Κενό: το κλειδί βρίσκεται στο αρχείο του πιστοποιητικού"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του πιστοποιητικού πελάτη (PEM ή PKCS#12), που ανήκει στον χρήστη της επιφάνειας εργασίας."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του ιδιωτικού κλειδιού (PEM), που ανήκει στον χρήστη της επιφάνειας εργασίας. Αγνοείται χωρίς πιστοποιητικό πελάτη."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Αποθήκευση φράσης πρόσβασης:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Ιδιωτικό κλειδί:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "το usercert πρέπει να είναι απόλυτη διαδρομή"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "το userkey πρέπει να είναι απόλυτη διαδρομή"

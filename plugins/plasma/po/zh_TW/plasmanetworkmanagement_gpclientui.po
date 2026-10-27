@@ -392,3 +392,62 @@ msgstr "瀏覽器登入的執行位置:在服務中,或在登入對話方塊中(
 #, kde-format
 msgid "Signing in…"
 msgstr "正在登入…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "憑證密碼短語"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "憑證密碼短語："
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "用戶端憑證："
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "留空：沒有用戶端憑證"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "留空：金鑰在憑證檔案中"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "用戶端憑證檔案(PEM 或 PKCS#12)的選用絕對路徑，必須歸桌面使用者所有。"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "私密金鑰檔案(PEM)的選用絕對路徑，必須歸桌面使用者所有。沒有用戶端憑證時會忽略。"
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "密碼短語儲存位置："
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "私密金鑰："
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert 必須是絕對路徑"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey 必須是絕對路徑"

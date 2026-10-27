@@ -283,10 +283,13 @@ fi
 log "session type: $SESSION_TYPE (DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset})"
 
 # xdg-open's detect_DE checks XDG_CURRENT_DESKTOP and KDE_FULL_SESSION before
-# KDE_SESSION_VERSION, and sudo resets the environment, so pass all three on.
-# A value we already have is kept when the session has none.
+# KDE_SESSION_VERSION, and sudo resets the environment, so pass them on.
+# KDE finds the default browser only through its menu (XDG_MENU_PREFIX, e.g.
+# plasma-applications.menu) and the session's XDG_DATA_DIRS; without them
+# "default" shows "Choose Application". A value we already have is kept when
+# the session has none.
 DESKTOP_ENV=()
-for var in XDG_CURRENT_DESKTOP KDE_FULL_SESSION KDE_SESSION_VERSION; do
+for var in XDG_CURRENT_DESKTOP KDE_FULL_SESSION KDE_SESSION_VERSION XDG_MENU_PREFIX XDG_DATA_DIRS; do
     value=$(session_env_var "$var")
     if [ -n "$value" ]; then
         log "detected $var=$value"
@@ -498,6 +501,15 @@ if [ -z "$URL" ]; then
     exit 1
 fi
 
+is_snap() {
+    local target
+    target=$(readlink -f "$1") || return 1
+    # Read only a regular file: a FIFO would block us (as root, before the drop)
+    [ -f "$target" ] || return 1
+    [ "$(basename "$target")" = snap ] && return 0
+    [ "$(head -c 2 "$target" 2>/dev/null)" = "#!" ] && grep -q '/snap/bin/' "$target" 2>/dev/null
+}
+
 BROWSER_FLAGS=()
 case "$FAMILY" in
     edge|chromium)
@@ -525,8 +537,16 @@ case "$FAMILY" in
             "--disable-features=msEdgeSyncService,TranslateUI,EdgeCollections,msEdgeSweeperMode,ExternalProtocolDialog"
             "--app=$URL"
             "--window-size=896,964"
-            "--user-data-dir=$PROFILE_DIR"
         )
+        # A snap browser has its profile under ~/snap and cannot write elsewhere:
+        # let it use its own. /snap/bin/chromium is a link to /usr/bin/snap;
+        # Ubuntu's /usr/bin/chromium-browser is a script that runs /snap/bin/...
+        # (with a read-only home the profile is in our temp dir, as before)
+        if [ "$HOME_IS_RO" -eq 0 ] && is_snap "$BROWSER_BIN"; then
+            log "$BROWSER_BIN is a snap: using its own profile"
+        else
+            BROWSER_FLAGS+=("--user-data-dir=$PROFILE_DIR")
+        fi
         if [ "$SESSION_TYPE" = "wayland" ]; then
             BROWSER_FLAGS=("--ozone-platform=wayland" "--enable-features=UseOzonePlatform" "${BROWSER_FLAGS[@]}")
         fi
@@ -592,7 +612,22 @@ run_browser_with_monitor() {
     while kill -0 "$GPAUTH_PID" 2>/dev/null; do
         if [ "$handed_over" -eq 0 ] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
             handed_over=1
-            log "the browser we started exited - the URL went to a running instance"
+            local status=0
+            wait "$BROWSER_PID" 2>/dev/null || status=$?
+            if [ "$status" -eq 0 ]; then
+                log "the browser we started exited - the URL went to a running instance"
+            else
+                # It failed before it showed the page (its messages are in the
+                # log): say so where the user looks first
+                if [ -n "$LOG_FILE" ]; then
+                    log "ERROR: the browser exited with status $status - see its messages in this log"
+                else
+                    log "ERROR: the browser exited with status $status (its output was not kept: no log file)"
+                fi
+                # log() reaches syslog only without a log file
+                [ -n "$LOG_FILE" ] && command -v logger >/dev/null && logger -t gpclient-browser-wrapper -- \
+                    "ERROR: $BROWSER_BIN exited with status $status, see $LOG_FILE" 2>/dev/null
+            fi
         fi
 
         if [ "$elapsed" -ge "$MAX_WAIT" ]; then

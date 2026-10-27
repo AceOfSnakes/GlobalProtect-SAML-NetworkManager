@@ -517,7 +517,7 @@ class TestEditorSourcesHandleBooleansAndGateway:
 
         assert "m_setting" not in cpp and "m_setting" not in header
         # the gateway and the other checked fields (nm-gpclient-validate.h)
-        assert cpp.count("update_valid)") == 6
+        assert cpp.count("update_valid)") == 8
         assert "gatewayLineEdit, &QLineEdit::textChanged, this, update_valid" in cpp
 
     def test_plasma_password_flags_are_tested_as_a_bitmask(self):

@@ -84,7 +84,9 @@ nm_gpclient_keyfile_import (const char *path, GError **error)
                                          nm_setting_vpn_get_data_item (s_vpn, "browser"),
                                          nm_setting_vpn_get_data_item (s_vpn, "dns"),
                                          hip_enabled,
-                                         nm_setting_vpn_get_data_item (s_vpn, "hip-script"));
+                                         nm_setting_vpn_get_data_item (s_vpn, "hip-script"),
+                                         nm_setting_vpn_get_data_item (s_vpn, "usercert"),
+                                         nm_setting_vpn_get_data_item (s_vpn, "userkey"));
     if (problem) {
         g_set_error_literal (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY,
                              _(problem));

@@ -392,3 +392,62 @@ msgstr "Де виконується вхід через браузер: у сл�
 #, kde-format
 msgid "Signing in…"
 msgstr "Виконується вхід…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Парольна фраза сертифіката"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Парольна фраза сертифіката:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Клієнтський сертифікат:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Порожньо: без клієнтського сертифіката"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Порожньо: ключ у файлі сертифіката"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Необов'язковий абсолютний шлях до файлу клієнтського сертифіката (PEM або PKCS#12); власником файлу має бути користувач стільниці."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Необов'язковий абсолютний шлях до файлу закритого ключа (PEM); власником файлу має бути користувач стільниці. Без клієнтського сертифіката ігнорується."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Зберігання парольної фрази:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Закритий ключ:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert має бути абсолютним шляхом"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey має бути абсолютним шляхом"
