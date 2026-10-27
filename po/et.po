@@ -316,14 +316,14 @@ msgstr "Tühi: võti on sertifikaadifailis"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Kliendisertifikaadi faili valikuline absoluutne tee (PEM või PKCS#12), mida töölauakasutaja peab saama lugeda."
+"owned by your desktop user."
+msgstr "Kliendisertifikaadi faili valikuline absoluutne tee (PEM või PKCS#12), mis peab kuuluma töölauakasutajale."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Privaatvõtme faili valikuline absoluutne tee (PEM), mida töölauakasutaja peab saama lugeda. Ilma kliendisertifikaadita eiratakse."
+msgstr "Privaatvõtme faili valikuline absoluutne tee (PEM), mis peab kuuluma töölauakasutajale. Ilma kliendisertifikaadita eiratakse."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

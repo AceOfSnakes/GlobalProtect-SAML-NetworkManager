@@ -423,15 +423,15 @@ msgstr "Tuščia: raktas yra sertifikato faile"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Pasirinktinis absoliutus kliento sertifikato failo kelias (PEM arba PKCS#12), kurį turi galėti skaityti darbalaukio naudotojas."
+"owned by your desktop user."
+msgstr "Pasirinktinis absoliutus kliento sertifikato failo kelias (PEM arba PKCS#12), kuris turi priklausyti darbalaukio naudotojui."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Pasirinktinis absoliutus privataus rakto failo kelias (PEM), kurį turi galėti skaityti darbalaukio naudotojas. Be kliento sertifikato ignoruojamas."
+msgstr "Pasirinktinis absoliutus privataus rakto failo kelias (PEM), kuris turi priklausyti darbalaukio naudotojui. Be kliento sertifikato ignoruojamas."
 
 #: rc.cpp
 #, kde-format

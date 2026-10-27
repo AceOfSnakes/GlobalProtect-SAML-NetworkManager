@@ -397,15 +397,15 @@ msgstr "Boş: anahtar sertifika dosyasında"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "İstemci sertifikası dosyasının isteğe bağlı mutlak yolu (PEM veya PKCS#12); masaüstü kullanıcısı tarafından okunabilir olmalıdır."
+"owned by your desktop user."
+msgstr "İstemci sertifikası dosyasının isteğe bağlı mutlak yolu (PEM veya PKCS#12); masaüstü kullanıcısına ait olmalıdır."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Özel anahtar dosyasının isteğe bağlı mutlak yolu (PEM); masaüstü kullanıcısı tarafından okunabilir olmalıdır. İstemci sertifikası yoksa yok sayılır."
+msgstr "Özel anahtar dosyasının isteğe bağlı mutlak yolu (PEM); masaüstü kullanıcısına ait olmalıdır. İstemci sertifikası yoksa yok sayılır."
 
 #: rc.cpp
 #, kde-format

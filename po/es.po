@@ -316,14 +316,14 @@ msgstr "Vacío: la clave está en el archivo del certificado"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Ruta absoluta opcional del archivo del certificado de cliente (PEM o PKCS#12), legible por el usuario del escritorio."
+"owned by your desktop user."
+msgstr "Ruta absoluta opcional del archivo del certificado de cliente (PEM o PKCS#12), propiedad del usuario del escritorio."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Ruta absoluta opcional del archivo de la clave privada (PEM), legible por el usuario del escritorio. Se ignora sin certificado de cliente."
+msgstr "Ruta absoluta opcional del archivo de la clave privada (PEM), propiedad del usuario del escritorio. Se ignora sin certificado de cliente."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

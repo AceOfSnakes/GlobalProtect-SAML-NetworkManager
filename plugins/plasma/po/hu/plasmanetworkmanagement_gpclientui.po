@@ -397,15 +397,15 @@ msgstr "Üres: a kulcs a tanúsítványfájlban van"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Az ügyféltanúsítvány fájljának választható abszolút elérési útja (PEM vagy PKCS#12), amelyet az asztali felhasználónak olvasnia kell tudnia."
+"owned by your desktop user."
+msgstr "Az ügyféltanúsítvány fájljának választható abszolút elérési útja (PEM vagy PKCS#12), amelynek az asztali felhasználó a tulajdonosa."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "A privát kulcs fájljának választható abszolút elérési útja (PEM), amelyet az asztali felhasználónak olvasnia kell tudnia. Ügyféltanúsítvány nélkül figyelmen kívül marad."
+msgstr "A privát kulcs fájljának választható abszolút elérési útja (PEM), amelynek az asztali felhasználó a tulajdonosa. Ügyféltanúsítvány nélkül figyelmen kívül marad."
 
 #: rc.cpp
 #, kde-format

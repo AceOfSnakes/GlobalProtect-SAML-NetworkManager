@@ -397,15 +397,15 @@ msgstr "Hutsik: gakoa ziurtagiri-fitxategian dago"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Bezero-ziurtagiriaren fitxategiaren bide-izen absolutu aukerakoa (PEM edo PKCS#12), mahaigaineko erabiltzaileak irakurri ahal izan behar duena."
+"owned by your desktop user."
+msgstr "Bezero-ziurtagiriaren fitxategiaren bide-izen absolutu aukerakoa (PEM edo PKCS#12), mahaigaineko erabiltzailearen jabetzakoa izan behar duena."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Gako pribatuaren fitxategiaren bide-izen absolutu aukerakoa (PEM), mahaigaineko erabiltzaileak irakurri ahal izan behar duena. Ez da kontuan hartzen bezero-ziurtagiririk gabe."
+msgstr "Gako pribatuaren fitxategiaren bide-izen absolutu aukerakoa (PEM), mahaigaineko erabiltzailearen jabetzakoa izan behar duena. Ez da kontuan hartzen bezero-ziurtagiririk gabe."
 
 #: rc.cpp
 #, kde-format

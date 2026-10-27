@@ -397,15 +397,15 @@ msgstr "Κενό: το κλειδί βρίσκεται στο αρχείο το�
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του πιστοποιητικού πελάτη (PEM ή PKCS#12), αναγνώσιμο από τον χρήστη της επιφάνειας εργασίας."
+"owned by your desktop user."
+msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του πιστοποιητικού πελάτη (PEM ή PKCS#12), που ανήκει στον χρήστη της επιφάνειας εργασίας."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του ιδιωτικού κλειδιού (PEM), αναγνώσιμο από τον χρήστη της επιφάνειας εργασίας. Αγνοείται χωρίς πιστοποιητικό πελάτη."
+msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του ιδιωτικού κλειδιού (PEM), που ανήκει στον χρήστη της επιφάνειας εργασίας. Αγνοείται χωρίς πιστοποιητικό πελάτη."
 
 #: rc.cpp
 #, kde-format

@@ -423,15 +423,15 @@ msgstr "Vazio: a chave está no ficheiro do certificado"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Caminho absoluto opcional do ficheiro do certificado de cliente (PEM ou PKCS#12), legível pelo utilizador do ambiente de trabalho."
+"owned by your desktop user."
+msgstr "Caminho absoluto opcional do ficheiro do certificado de cliente (PEM ou PKCS#12), pertencente ao utilizador do ambiente de trabalho."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Caminho absoluto opcional do ficheiro da chave privada (PEM), legível pelo utilizador do ambiente de trabalho. Ignorado sem certificado de cliente."
+msgstr "Caminho absoluto opcional do ficheiro da chave privada (PEM), pertencente ao utilizador do ambiente de trabalho. Ignorado sem certificado de cliente."
 
 #: rc.cpp
 #, kde-format

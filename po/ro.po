@@ -344,14 +344,14 @@ msgstr "Gol: cheia este în fișierul certificatului"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Calea absolută opțională a fișierului certificatului client (PEM sau PKCS#12), care trebuie să poată fi citit de utilizatorul desktopului."
+"owned by your desktop user."
+msgstr "Calea absolută opțională a fișierului certificatului client (PEM sau PKCS#12), care trebuie să aparțină utilizatorului desktopului."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Calea absolută opțională a fișierului cheii private (PEM), care trebuie să poată fi citit de utilizatorul desktopului. Ignorată fără certificat client."
+msgstr "Calea absolută opțională a fișierului cheii private (PEM), care trebuie să aparțină utilizatorului desktopului. Ignorată fără certificat client."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

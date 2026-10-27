@@ -397,15 +397,15 @@ msgstr "留空：金鑰在憑證檔案中"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "用戶端憑證檔案(PEM 或 PKCS#12)的選用絕對路徑，桌面使用者必須能夠讀取。"
+"owned by your desktop user."
+msgstr "用戶端憑證檔案(PEM 或 PKCS#12)的選用絕對路徑，必須歸桌面使用者所有。"
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "私密金鑰檔案(PEM)的選用絕對路徑，桌面使用者必須能夠讀取。沒有用戶端憑證時會忽略。"
+msgstr "私密金鑰檔案(PEM)的選用絕對路徑，必須歸桌面使用者所有。沒有用戶端憑證時會忽略。"
 
 #: rc.cpp
 #, kde-format

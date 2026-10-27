@@ -397,15 +397,15 @@ msgstr "Tyhjä: avain on varmennetiedostossa"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Asiakasvarmennetiedoston valinnainen absoluuttinen polku (PEM tai PKCS#12), jonka työpöytäkäyttäjän on voitava lukea."
+"owned by your desktop user."
+msgstr "Asiakasvarmennetiedoston valinnainen absoluuttinen polku (PEM tai PKCS#12), jonka omistajan on oltava työpöytäkäyttäjä."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Yksityisen avaimen tiedoston valinnainen absoluuttinen polku (PEM), jonka työpöytäkäyttäjän on voitava lukea. Ohitetaan ilman asiakasvarmennetta."
+msgstr "Yksityisen avaimen tiedoston valinnainen absoluuttinen polku (PEM), jonka omistajan on oltava työpöytäkäyttäjä. Ohitetaan ilman asiakasvarmennetta."
 
 #: rc.cpp
 #, kde-format

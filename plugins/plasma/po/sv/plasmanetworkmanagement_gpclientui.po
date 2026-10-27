@@ -397,15 +397,15 @@ msgstr "Tom: nyckeln finns i certifikatfilen"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Valfri absolut sökväg till filen med klientcertifikatet (PEM eller PKCS#12), som skrivbordsanvändaren måste kunna läsa."
+"owned by your desktop user."
+msgstr "Valfri absolut sökväg till filen med klientcertifikatet (PEM eller PKCS#12), som måste ägas av skrivbordsanvändaren."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Valfri absolut sökväg till filen med den privata nyckeln (PEM), som skrivbordsanvändaren måste kunna läsa. Ignoreras utan klientcertifikat."
+msgstr "Valfri absolut sökväg till filen med den privata nyckeln (PEM), som måste ägas av skrivbordsanvändaren. Ignoreras utan klientcertifikat."
 
 #: rc.cpp
 #, kde-format

@@ -397,15 +397,15 @@ msgstr "Порожньо: ключ у файлі сертифіката"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Необов'язковий абсолютний шлях до файлу клієнтського сертифіката (PEM або PKCS#12); файл має бути доступний для читання користувачу стільниці."
+"owned by your desktop user."
+msgstr "Необов'язковий абсолютний шлях до файлу клієнтського сертифіката (PEM або PKCS#12); власником файлу має бути користувач стільниці."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Необов'язковий абсолютний шлях до файлу закритого ключа (PEM); файл має бути доступний для читання користувачу стільниці. Без клієнтського сертифіката ігнорується."
+msgstr "Необов'язковий абсолютний шлях до файлу закритого ключа (PEM); власником файлу має бути користувач стільниці. Без клієнтського сертифіката ігнорується."
 
 #: rc.cpp
 #, kde-format

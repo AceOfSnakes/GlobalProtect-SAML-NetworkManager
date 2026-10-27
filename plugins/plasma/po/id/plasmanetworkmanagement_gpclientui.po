@@ -397,15 +397,15 @@ msgstr "Kosong: kunci ada di berkas sertifikat"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Path absolut opsional ke berkas sertifikat klien (PEM atau PKCS#12), yang harus dapat dibaca oleh pengguna desktop."
+"owned by your desktop user."
+msgstr "Path absolut opsional ke berkas sertifikat klien (PEM atau PKCS#12), yang harus dimiliki oleh pengguna desktop."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Path absolut opsional ke berkas kunci privat (PEM), yang harus dapat dibaca oleh pengguna desktop. Diabaikan tanpa sertifikat klien."
+msgstr "Path absolut opsional ke berkas kunci privat (PEM), yang harus dimiliki oleh pengguna desktop. Diabaikan tanpa sertifikat klien."
 
 #: rc.cpp
 #, kde-format

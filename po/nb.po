@@ -344,14 +344,14 @@ msgstr "Tom: nøkkelen er i sertifikatfilen"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Valgfri absolutt sti til filen med klientsertifikatet (PEM eller PKCS#12), som skrivebordsbrukeren må kunne lese."
+"owned by your desktop user."
+msgstr "Valgfri absolutt sti til filen med klientsertifikatet (PEM eller PKCS#12), som må eies av skrivebordsbrukeren."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Valgfri absolutt sti til filen med den private nøkkelen (PEM), som skrivebordsbrukeren må kunne lese. Ignoreres uten klientsertifikat."
+msgstr "Valgfri absolutt sti til filen med den private nøkkelen (PEM), som må eies av skrivebordsbrukeren. Ignoreres uten klientsertifikat."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

@@ -316,14 +316,14 @@ msgstr "Baleiro: a chave está no ficheiro do certificado"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Ruta absoluta opcional do ficheiro do certificado de cliente (PEM ou PKCS#12), lexible polo usuario do escritorio."
+"owned by your desktop user."
+msgstr "Ruta absoluta opcional do ficheiro do certificado de cliente (PEM ou PKCS#12), propiedade do usuario do escritorio."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Ruta absoluta opcional do ficheiro da chave privada (PEM), lexible polo usuario do escritorio. Ignórase sen certificado de cliente."
+msgstr "Ruta absoluta opcional do ficheiro da chave privada (PEM), propiedade do usuario do escritorio. Ignórase sen certificado de cliente."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

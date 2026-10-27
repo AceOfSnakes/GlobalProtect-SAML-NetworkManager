@@ -503,7 +503,7 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_hexpand (self->usercert_entry, TRUE);
     gtk_entry_set_placeholder_text (GTK_ENTRY (self->usercert_entry), _("Empty: no client certificate"));
     gtk_widget_set_tooltip_text (self->usercert_entry,
-        _("Optional absolute path to the client certificate file (PEM or PKCS#12), readable by your desktop user."));
+        _("Optional absolute path to the client certificate file (PEM or PKCS#12), owned by your desktop user."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "usercert");
         if (value && *value)
@@ -520,7 +520,7 @@ build_ui (NMGpclientEditor *self)
     gtk_widget_set_hexpand (self->userkey_entry, TRUE);
     gtk_entry_set_placeholder_text (GTK_ENTRY (self->userkey_entry), _("Empty: the key is in the certificate file"));
     gtk_widget_set_tooltip_text (self->userkey_entry,
-        _("Optional absolute path to the private key file (PEM), readable by your desktop user. Ignored without a client certificate."));
+        _("Optional absolute path to the private key file (PEM), owned by your desktop user. Ignored without a client certificate."));
     if (s_vpn) {
         value = nm_setting_vpn_get_data_item (s_vpn, "userkey");
         if (value && *value)

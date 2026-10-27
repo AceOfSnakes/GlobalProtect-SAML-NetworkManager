@@ -397,15 +397,15 @@ msgstr "Prázdné: klíč je v souboru certifikátu"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Volitelná absolutní cesta k souboru klientského certifikátu (PEM nebo PKCS#12), čitelnému pro uživatele plochy."
+"owned by your desktop user."
+msgstr "Volitelná absolutní cesta k souboru klientského certifikátu (PEM nebo PKCS#12), který vlastní uživatel plochy."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Volitelná absolutní cesta k souboru soukromého klíče (PEM), čitelnému pro uživatele plochy. Bez klientského certifikátu se ignoruje."
+msgstr "Volitelná absolutní cesta k souboru soukromého klíče (PEM), který vlastní uživatel plochy. Bez klientského certifikátu se ignoruje."
 
 #: rc.cpp
 #, kde-format

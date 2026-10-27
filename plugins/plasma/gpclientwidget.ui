@@ -302,7 +302,7 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
    <item row="14" column="1">
     <widget class="QLineEdit" name="userCertLineEdit">
      <property name="toolTip">
-      <string>Optional absolute path to the client certificate file (PEM or PKCS#12), readable by your desktop user.</string>
+      <string>Optional absolute path to the client certificate file (PEM or PKCS#12), owned by your desktop user.</string>
      </property>
      <property name="placeholderText">
       <string>Empty: no client certificate</string>
@@ -319,7 +319,7 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
    <item row="15" column="1">
     <widget class="QLineEdit" name="userKeyLineEdit">
      <property name="toolTip">
-      <string>Optional absolute path to the private key file (PEM), readable by your desktop user. Ignored without a client certificate.</string>
+      <string>Optional absolute path to the private key file (PEM), owned by your desktop user. Ignored without a client certificate.</string>
      </property>
      <property name="placeholderText">
       <string>Empty: the key is in the certificate file</string>

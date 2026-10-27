@@ -316,14 +316,14 @@ msgstr "ריק: המפתח נמצא בקובץ האישור"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "נתיב מוחלט אופציונלי לקובץ אישור הלקוח (PEM או PKCS#12), שמשתמש שולחן העבודה חייב להיות מסוגל לקרוא."
+"owned by your desktop user."
+msgstr "נתיב מוחלט אופציונלי לקובץ אישור הלקוח (PEM או PKCS#12), שחייב להיות בבעלות משתמש שולחן העבודה."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "נתיב מוחלט אופציונלי לקובץ המפתח הפרטי (PEM), שמשתמש שולחן העבודה חייב להיות מסוגל לקרוא. מתעלמים ממנו ללא אישור לקוח."
+msgstr "נתיב מוחלט אופציונלי לקובץ המפתח הפרטי (PEM), שחייב להיות בבעלות משתמש שולחן העבודה. מתעלמים ממנו ללא אישור לקוח."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

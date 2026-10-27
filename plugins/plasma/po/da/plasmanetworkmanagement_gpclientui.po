@@ -397,15 +397,15 @@ msgstr "Tom: nøglen er i certifikatfilen"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Valgfri absolut sti til filen med klientcertifikatet (PEM eller PKCS#12), som skal kunne læses af skrivebordsbrugeren."
+"owned by your desktop user."
+msgstr "Valgfri absolut sti til filen med klientcertifikatet (PEM eller PKCS#12), som skal ejes af skrivebordsbrugeren."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Valgfri absolut sti til filen med den private nøgle (PEM), som skal kunne læses af skrivebordsbrugeren. Ignoreres uden klientcertifikat."
+msgstr "Valgfri absolut sti til filen med den private nøgle (PEM), som skal ejes af skrivebordsbrugeren. Ignoreres uden klientcertifikat."
 
 #: rc.cpp
 #, kde-format

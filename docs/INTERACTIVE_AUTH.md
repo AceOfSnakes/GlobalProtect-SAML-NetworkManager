@@ -112,12 +112,19 @@ nmcli connection modify "My VPN" vpn.secrets cert-pass=...
 - The service passes `--certificate=<usercert>` and `--sslkey=<userkey>` to
   gpclient. Both must be absolute paths.
 - **The files must be owned by the desktop user** (the user whose session shows
-  the browser), be regular files (a link is followed) of at most 1 MiB. gpclient
-  runs as root and reads them without a limit, so the service refuses a file of
-  another user, a directory, a device or a FIFO before it starts gpclient, and
-  the connection fails with the reason in the log. They must also be readable by
-  that user: gpclient starts the browser sign-in (gpauth) as the desktop user,
-  and gpauth reads the same files.
+  the browser) and be regular files of at most 1 MiB (a link is followed). They
+  must be readable by that user too. The service opens each file once, checks
+  the open file, and gives gpclient (root) and gpauth a private copy in a
+  directory below `/run/nm-gpclient` that only root can write: owned by the
+  desktop user, mode `0400`, with the extension of the original. gpclient never
+  reads your path, so changing or replacing the original after the check does
+  not change the copy (it is made at each connect). The service refuses another
+  owner, a directory, a device or a FIFO, and the connection fails with the
+  reason in the log. It deletes the copies when the connection ends or fails.
+  The service finds no desktop user in some setups (no session): then it
+  refuses `usercert`/`userkey` and the connection fails.
+- Upstream picks the format by the extension only: `.p12` or `.pfx` is PKCS#12,
+  any other name is PEM. The copy keeps the extension.
 - The passphrase is never put on the command line (any user can read it in
   `/proc`). When the key or the PKCS#12 file is encrypted, gpclient asks
   "Enter the PEM passphrase:" or "Enter the PKCS#12 passphrase:". The service

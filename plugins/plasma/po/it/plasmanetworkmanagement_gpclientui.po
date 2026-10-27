@@ -397,15 +397,15 @@ msgstr "Vuoto: la chiave è nel file del certificato"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Percorso assoluto facoltativo del file del certificato client (PEM o PKCS#12), leggibile dall'utente del desktop."
+"owned by your desktop user."
+msgstr "Percorso assoluto facoltativo del file del certificato client (PEM o PKCS#12), di proprietà dell'utente del desktop."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Percorso assoluto facoltativo del file della chiave privata (PEM), leggibile dall'utente del desktop. Ignorato senza certificato client."
+msgstr "Percorso assoluto facoltativo del file della chiave privata (PEM), di proprietà dell'utente del desktop. Ignorato senza certificato client."
 
 #: rc.cpp
 #, kde-format

@@ -344,14 +344,14 @@ msgstr "Пусто: ключ находится в файле сертифика
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Необязательный абсолютный путь к файлу клиентского сертификата (PEM или PKCS#12); файл должен быть доступен для чтения пользователю рабочего стола."
+"owned by your desktop user."
+msgstr "Необязательный абсолютный путь к файлу клиентского сертификата (PEM или PKCS#12); владельцем файла должен быть пользователь рабочего стола."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Необязательный абсолютный путь к файлу закрытого ключа (PEM); файл должен быть доступен для чтения пользователю рабочего стола. Без клиентского сертификата игнорируется."
+msgstr "Необязательный абсолютный путь к файлу закрытого ключа (PEM); владельцем файла должен быть пользователь рабочего стола. Без клиентского сертификата игнорируется."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

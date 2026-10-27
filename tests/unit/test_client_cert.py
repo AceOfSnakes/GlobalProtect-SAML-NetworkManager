@@ -12,6 +12,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import asyncio
 import os
+import signal
+import stat
 
 import pytest
 
@@ -23,40 +25,68 @@ VPN_PASSWORD = "Vp#Password1"
 CERT_PASS = "Cert#Pass2"
 
 
-@pytest.fixture
-def me(service_module, monkeypatch):
-    """The desktop user is the current user"""
+DESKTOP_UID = 4242  # a desktop user other than root, when the tests run as root
+
+
+def _desktop_user(service_module, monkeypatch, tmp_path, uid):
+    """The desktop user is `uid`; the private copies go below tmp_path"""
     monkeypatch.setattr(
         service_module.GpclientVPNPlugin,
         "_get_real_user",
-        lambda self: (os.getuid(), "me", "/home/me"),
+        lambda self: (uid, "me", "/home/me"),
     )
-    return os.getuid()
+    monkeypatch.setattr(service_module, "CERT_COPY_ROOT", str(tmp_path / "run"))
 
 
 @pytest.fixture
-def cert_files(tmp_path):
+def me(service_module, monkeypatch, tmp_path):
+    """The desktop user: the current user, or DESKTOP_UID when root"""
+    uid = os.getuid() or DESKTOP_UID
+    _desktop_user(service_module, monkeypatch, tmp_path, uid)
+    return uid
+
+
+@pytest.fixture
+def cert_files(tmp_path, me):
+    """A certificate and a key owned by the desktop user"""
     cert = tmp_path / "me.pem"
     key = tmp_path / "me.key"
-    cert.write_text("cert")
-    key.write_text("key")
+    for f, text in ((cert, "cert"), (key, "key")):
+        f.write_text(text)
+        os.chown(f, me, -1) if os.getuid() == 0 else None
     return str(cert), str(key)
+
+
+def _copy_of(argv, option):
+    (value,) = [a.split("=", 1)[1] for a in argv if a.startswith(option + "=")]
+    return value
 
 
 # --- command line ------------------------------------------------------------
 
 
-def test_certificate_and_key_are_single_tokens(
+def test_gpclient_gets_private_copies_not_the_paths_of_the_user(
     service_module, monkeypatch, tmp_path, me, cert_files
 ):
     cert, key = cert_files
+    # the fake gpclient exits at once: keep the copies for the checks
+    monkeypatch.setattr(service_module.GpclientVPNPlugin, "_emit_failure", lambda *a: None)
     argv, _ = _command(
         service_module, monkeypatch, tmp_path, usercert=cert, userkey=key
     )
 
-    assert f"--certificate={cert}" in argv
-    assert f"--sslkey={key}" in argv
-    assert argv.index(f"--certificate={cert}") < argv.index("--")
+    assert cert not in " ".join(argv) and key not in " ".join(argv)
+    for option, original, ext in (("--certificate", cert, ".pem"), ("--sslkey", key, ".key")):
+        copy = _copy_of(argv, option)
+        info = os.stat(copy)
+        assert copy.startswith(str(tmp_path / "run") + os.sep) and copy.endswith(ext)
+        assert open(copy).read() == open(original).read()
+        assert stat.S_IMODE(info.st_mode) == 0o400
+        assert info.st_uid == me
+        assert argv.index(f"{option}={copy}") < argv.index("--")
+    # the directory of the copies: the user cannot write, but can enter it
+    mode = stat.S_IMODE(os.stat(os.path.dirname(copy)).st_mode)
+    assert mode == 0o711
 
 
 def test_no_key_option_without_a_key(
@@ -66,7 +96,7 @@ def test_no_key_option_without_a_key(
         service_module, monkeypatch, tmp_path, usercert=cert_files[0]
     )
 
-    assert f"--certificate={cert_files[0]}" in argv
+    assert _copy_of(argv, "--certificate").endswith("usercert.pem")
     assert not any(a.startswith(("--sslkey", "-k")) for a in argv)
 
 
@@ -283,8 +313,152 @@ def _started(service_module, monkeypatch, tmp_path, **settings):
     return True
 
 
-def test_a_file_of_the_desktop_user_is_accepted(service_module, cert_files):
-    service_module.check_cert_file("usercert", cert_files[0], os.getuid())
+def _copy(service_module, tmp_path, path, uid, name="usercert"):
+    directory = tmp_path / "copies"
+    directory.mkdir(exist_ok=True)
+    return service_module.copy_cert_file(name, path, uid, str(directory))
+
+
+def _own(path, uid):
+    if os.getuid() == 0:
+        os.chown(path, uid, -1)
+    return str(path)
+
+
+def test_a_file_of_the_desktop_user_is_copied(service_module, tmp_path, me, cert_files):
+    copy = _copy(service_module, tmp_path, cert_files[0], me)
+
+    assert open(copy).read() == "cert"
+    assert stat.S_IMODE(os.stat(copy).st_mode) == 0o400
+    assert os.stat(copy).st_uid == me
+
+
+@pytest.mark.parametrize(
+    "name, ext",
+    [
+        ("a.p12", ".p12"),
+        ("a.PFX", ".PFX"),
+        ("a.pem", ".pem"),
+        ("a", ""),
+        ("a.p12;touch x", ""),  # an odd extension is not kept
+    ],
+)
+def test_the_copy_keeps_a_plain_extension(service_module, tmp_path, me, name, ext):
+    path = _own(_touch(tmp_path / name), me)
+
+    copy = _copy(service_module, tmp_path, path, me)
+
+    assert os.path.basename(copy) == "usercert" + ext
+
+
+def test_a_file_changed_after_the_copy_does_not_change_the_copy(
+    service_module, tmp_path, me, cert_files
+):
+    copy = _copy(service_module, tmp_path, cert_files[0], me)
+
+    os.unlink(cert_files[0])
+    os.symlink("/dev/zero", cert_files[0])
+
+    assert open(copy).read() == "cert"
+
+
+def test_a_fifo_does_not_block(service_module, tmp_path, me):
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    _own(fifo, me)
+
+    def hung(*_):
+        raise AssertionError("opening the FIFO blocked")
+
+    old = signal.signal(signal.SIGALRM, hung)
+    signal.alarm(5)
+    try:
+        with pytest.raises(ValueError, match="not a regular file"):
+            _copy(service_module, tmp_path, str(fifo), me)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
+def test_the_largest_file_is_copied(service_module, tmp_path, me):
+    path = tmp_path / "max.pem"
+    path.write_bytes(b"x" * service_module.CERT_FILE_MAX_BYTES)
+    _own(path, me)
+
+    copy = _copy(service_module, tmp_path, str(path), me)
+
+    assert os.path.getsize(copy) == service_module.CERT_FILE_MAX_BYTES
+
+
+def _big(tmp_path, uid):
+    path = tmp_path / "big.pem"
+    path.write_bytes(b"x" * (1024 * 1024 + 1))
+    return _own(path, uid)
+
+
+@pytest.mark.parametrize(
+    "make, uid_shift, word",
+    [
+        (lambda t, u: str(t), 0, "not a regular file"),  # a directory
+        (lambda t, u: "/dev/zero", 0, "not a regular file"),
+        (_big, 0, "larger than"),
+        (lambda t, u: _own(_touch(t / "o.pem"), u), 1, "not owned"),  # another owner
+        (lambda t, u: str(t / "missing"), 0, "cannot read"),
+    ],
+)
+def test_copy_cert_file_rejects(service_module, tmp_path, me, make, uid_shift, word):
+    path = make(tmp_path, me)
+
+    with pytest.raises(ValueError, match=word):
+        _copy(service_module, tmp_path, path, me + uid_shift)
+    assert not os.listdir(tmp_path / "copies")  # nothing was written
+
+
+def _touch(path):
+    path.write_text("x")
+    return path
+
+
+def test_a_symlink_is_followed_and_the_target_is_checked(
+    service_module, tmp_path, me
+):
+    target = _touch(tmp_path / "t.pem")
+    _own(target, me)
+    link = tmp_path / "l.pem"
+    link.symlink_to(target)
+
+    assert open(_copy(service_module, tmp_path, str(link), me)).read() == "x"
+    with pytest.raises(ValueError, match="not owned"):
+        _copy(service_module, tmp_path, str(link), me + 1)
+
+
+def test_no_desktop_user_means_no_file_is_read(service_module, tmp_path, cert_files):
+    # uid 0 is the fallback of _get_real_user when no session user is found
+    with pytest.raises(ValueError, match="no desktop user"):
+        _copy(service_module, tmp_path, cert_files[0], 0)
+
+
+def test_the_directory_of_the_copies_is_checked(service_module, monkeypatch, tmp_path):
+    root = tmp_path / "run"
+    monkeypatch.setattr(service_module, "CERT_COPY_ROOT", str(root))
+    assert service_module._cert_copy_root() == str(root)  # created
+    assert service_module._cert_copy_root() == str(root)  # and used again
+
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o777)
+    plain = _touch(tmp_path / "file")
+    for bad in (link, shared, plain):
+        monkeypatch.setattr(service_module, "CERT_COPY_ROOT", str(bad))
+        with pytest.raises(ValueError, match="not a directory"):
+            service_module._cert_copy_root()
+
+
+def _spawn_attempt(service_module, monkeypatch, tmp_path, uid, **settings):
+    _desktop_user(service_module, monkeypatch, tmp_path, uid)
+    return _started(service_module, monkeypatch, tmp_path, **settings)
 
 
 def test_a_bad_file_is_not_passed_to_gpclient(
@@ -295,53 +469,78 @@ def test_a_bad_file_is_not_passed_to_gpclient(
     other = tmp_path / "other"
     other.mkdir()
     assert not _started(service_module, monkeypatch, other, usercert=str(other))
+    assert os.listdir(tmp_path / "run") == []  # no directory is left behind
 
 
-def _fifo(tmp_path):
-    path = tmp_path / "fifo"
-    os.mkfifo(path)
-    return str(path)
+def test_the_desktop_uid_is_used_not_the_uid_of_the_service(
+    service_module, monkeypatch, tmp_path, me, cert_files
+):
+    assert _started(service_module, monkeypatch, tmp_path, usercert=cert_files[0])
+    other = tmp_path / "other"
+    other.mkdir()
+    # same file, but the desktop user is someone else than its owner
+    assert not _spawn_attempt(
+        service_module, monkeypatch, other, me + 1, usercert=cert_files[0]
+    )
 
 
-def _big(tmp_path):
-    path = tmp_path / "big.pem"
-    path.write_bytes(b"x" * (1024 * 1024 + 1))
-    return str(path)
+def test_without_a_desktop_user_gpclient_is_not_started(
+    service_module, monkeypatch, tmp_path, me, cert_files
+):
+    other = tmp_path / "other"
+    other.mkdir()
+
+    assert not _spawn_attempt(
+        service_module, monkeypatch, other, 0, usercert=cert_files[0]
+    )
 
 
-def _file_of_another_owner(tmp_path):
-    link = tmp_path / "link.pem"
-    link.write_text("x")
-    return str(link)
+def _teardown_plugin(service_module, tmp_path):
+    plugin = service_module.GpclientVPNPlugin()
+    plugin._cert_dir = str(tmp_path / "copies")
+    (tmp_path / "copies").mkdir()
+    (tmp_path / "copies" / "usercert.pem").write_text("x")
+    return plugin
 
 
-@pytest.mark.parametrize(
-    "make, uid_shift, word",
-    [
-        (lambda t: str(t), 0, "not a regular file"),  # a directory
-        (_fifo, 0, "not a regular file"),
-        (lambda t: "/dev/zero", 0, "not a regular file"),
-        (_big, 0, "larger than"),
-        (_file_of_another_owner, 1, "not owned"),  # another owner than the desktop user
-        (lambda t: str(t / "missing"), 0, "cannot read"),
-    ],
-)
-def test_check_cert_file_rejects(service_module, tmp_path, make, uid_shift, word):
-    path = make(tmp_path)
+def test_teardown_deletes_the_copies(service_module, tmp_path):
+    plugin = _teardown_plugin(service_module, tmp_path)
 
-    with pytest.raises(ValueError, match=word):
-        service_module.check_cert_file("usercert", path, os.getuid() + uid_shift)
+    asyncio.run(plugin._teardown())
+
+    assert not (tmp_path / "copies").exists()
+    assert plugin._cert_dir == ""
 
 
-def test_a_symlink_to_a_file_of_another_user_is_rejected(service_module, tmp_path):
-    target = tmp_path / "t.pem"
-    target.write_text("x")
-    link = tmp_path / "l.pem"
-    link.symlink_to(target)
+def test_a_failure_deletes_the_copies(service_module, tmp_path):
+    plugin = _teardown_plugin(service_module, tmp_path)
 
-    service_module.check_cert_file("usercert", str(link), os.getuid())  # own target
-    with pytest.raises(ValueError, match="not owned"):
-        service_module.check_cert_file("usercert", str(link), os.getuid() + 1)
+    plugin._emit_failure(1)
+
+    assert not (tmp_path / "copies").exists()
+
+
+def test_a_new_attempt_deletes_the_copies_of_the_old_one(
+    service_module, monkeypatch, tmp_path, me, cert_files
+):
+    old = tmp_path / "run" / "old"
+    old.mkdir(parents=True)
+    (old / "usercert.pem").write_text("x")
+    plugin_dir = str(old)
+
+    def keep(self):  # the plugin that _command makes knows this directory
+        self._cert_dir = plugin_dir
+
+    orig = service_module.GpclientVPNPlugin.__init__
+
+    def init(self):
+        orig(self)
+        keep(self)
+
+    monkeypatch.setattr(service_module.GpclientVPNPlugin, "__init__", init)
+    _command(service_module, monkeypatch, tmp_path, usercert=cert_files[0])
+
+    assert not old.exists()
 
 
 # --- a wrong passphrase must not loop ---------------------------------------
@@ -454,3 +653,38 @@ def test_the_screen_text_of_the_prompt_is_the_certificate_passphrase(
     plugin = service_module.GpclientVPNPlugin()
     plugin._answered_username = True
     assert plugin._classify_prompt_kind(label, "") == "cert-pass"
+
+
+# --- a restarted gpclient asks for the passphrase again ------------------------
+
+
+def test_a_restarted_gpclient_gets_the_stored_passphrase_again(
+    service_module, monkeypatch, tmp_path
+):
+    # --fix-openssl starts a new process, which asks again: the same (right)
+    # passphrase must be typed again, it is no "wrong passphrase"
+    _command(service_module, monkeypatch, tmp_path)  # makes the fake gpclient
+    plugin = service_module.GpclientVPNPlugin()
+    plugin.gateway = "portal.example.com"
+    plugin.cert_pass = CERT_PASS
+    plugin._interactive = True
+    plugin._answered_username = True
+    written, failures = [], []
+    plugin._write_keys = lambda data, description: written.append(data)
+    plugin._fail_login = failures.append
+
+    async def agent(key, label, banner):
+        return CERT_PASS  # the agent has the same (right) passphrase
+
+    plugin._request_secret_interactive = agent
+
+    async def run():
+        await plugin._handle_prompt("Enter the PEM passphrase")
+        await plugin._start_gpclient()  # the restart
+        await asyncio.wait_for(plugin.stdout_monitor_task, 10)
+        await plugin._handle_prompt("Enter the PEM passphrase")
+
+    asyncio.run(run())
+
+    assert len(written) == 2
+    assert failures == []

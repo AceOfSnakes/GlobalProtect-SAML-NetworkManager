@@ -316,14 +316,14 @@ msgstr "Prazno: ključ je v datoteki certifikata"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Neobvezna absolutna pot do datoteke odjemalčevega certifikata (PEM ali PKCS#12), ki jo mora biti mogoče brati kot uporabnik namizja."
+"owned by your desktop user."
+msgstr "Neobvezna absolutna pot do datoteke odjemalčevega certifikata (PEM ali PKCS#12), katere lastnik mora biti uporabnik namizja."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), ki jo mora biti mogoče brati kot uporabnik namizja. Brez odjemalčevega certifikata se prezre."
+msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), katere lastnik mora biti uporabnik namizja. Brez odjemalčevega certifikata se prezre."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"

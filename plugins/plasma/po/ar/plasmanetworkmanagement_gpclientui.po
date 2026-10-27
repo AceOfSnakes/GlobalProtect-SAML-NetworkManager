@@ -397,15 +397,15 @@ msgstr "فارغ: المفتاح موجود في ملف الشهادة"
 #, kde-format
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "مسار مطلق اختياري لملف شهادة العميل (PEM أو PKCS#12)، يجب أن يكون قابلاً للقراءة من مستخدم سطح المكتب."
+"owned by your desktop user."
+msgstr "مسار مطلق اختياري لملف شهادة العميل (PEM أو PKCS#12)، يجب أن يكون مملوكاً لمستخدم سطح المكتب."
 
 #: rc.cpp
 #, kde-format
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "مسار مطلق اختياري لملف المفتاح الخاص (PEM)، يجب أن يكون قابلاً للقراءة من مستخدم سطح المكتب. يُتجاهل بدون شهادة عميل."
+msgstr "مسار مطلق اختياري لملف المفتاح الخاص (PEM)، يجب أن يكون مملوكاً لمستخدم سطح المكتب. يُتجاهل بدون شهادة عميل."
 
 #: rc.cpp
 #, kde-format

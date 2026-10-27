@@ -316,14 +316,14 @@ msgstr "Prázdné: klíč je v souboru certifikátu"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
 "Optional absolute path to the client certificate file (PEM or PKCS#12), "
-"readable by your desktop user."
-msgstr "Volitelná absolutní cesta k souboru klientského certifikátu (PEM nebo PKCS#12), čitelnému pro uživatele plochy."
+"owned by your desktop user."
+msgstr "Volitelná absolutní cesta k souboru klientského certifikátu (PEM nebo PKCS#12), který vlastní uživatel plochy."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid ""
-"Optional absolute path to the private key file (PEM), readable by your "
+"Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr "Volitelná absolutní cesta k souboru soukromého klíče (PEM), čitelnému pro uživatele plochy. Bez klientského certifikátu se ignoruje."
+msgstr "Volitelná absolutní cesta k souboru soukromého klíče (PEM), který vlastní uživatel plochy. Bez klientského certifikátu se ignoruje."
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Private key:"
