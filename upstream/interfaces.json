@@ -150,12 +150,15 @@
         "gateway-chosen-only",
         "auth-banner",
         "tls-legacy-detail",
+        "gateway-not-found",
         "internal-network",
         "internal-gateway-state",
         "code-maintenance-state"
       ],
       "tests": [
         "tests/unit/test_select_pty.py::test_username_and_password_are_typed_from_the_profile",
+        "tests/unit/test_gateway_flag.py::TestGatewayNotFoundRestart::test_restarts_once_without_the_flag",
+        "tests/unit/test_gateway_flag.py::TestGatewayNotFoundRestart::test_a_second_failure_is_not_retried",
         "tests/unit/test_openssl_retry.py::test_v3_legacy_tls_error_triggers_retry",
         "tests/unit/test_openssl_retry.py::test_v3_unrelated_tls_error_does_not_trigger_retry",
         "tests/unit/test_internal_network.py::test_internal_network_session_fails_activation",
@@ -219,6 +222,8 @@
         "cli-fix-openssl",
         "cli-hip",
         "cli-as-gateway",
+        "cli-gateway",
+        "cli-passwd-on-stdin",
         "cli-mtu",
         "cli-interface",
         "cli-user",
@@ -238,7 +243,11 @@
         "tests/unit/test_tunnel_interface_name.py::TestCommandLine::test_no_interface_without_a_usable_uuid",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_leaves_out_optional_flags_by_default",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_fails_cleanly_when_the_binary_is_missing",
-        "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item"
+        "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item",
+        "tests/unit/test_gateway_flag.py::TestGatewayFlag::test_passed_when_the_portal_offered_it",
+        "tests/unit/test_gateway_flag.py::TestGatewayFlag::test_left_out_otherwise",
+        "tests/unit/test_gateway_flag.py::TestPasswordOnStdin::test_password_goes_to_stdin_once",
+        "tests/unit/test_gateway_flag.py::TestPasswordOnStdin::test_not_used_otherwise"
       ]
     },
     {

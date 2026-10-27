@@ -153,10 +153,13 @@ nmcli connection modify "My VPN" -vpn.data preferred-gateway
 nmcli -g vpn.data connection show "My VPN"
 ```
 
-`--gateway` is deliberately never passed to `gpclient`: it makes gpclient abort
-with `Cannot find gateway specified` when the value is unknown, which would
-remove any chance of falling back
+`--gateway` is never set to the server address: it makes gpclient abort with
+`Cannot find gateway specified` when the value is unknown
 ([issue #7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)).
+It is passed only for `preferred-gateway`, and only when the portal offered that
+exact name or address before (it is in `gateway-list`). When gpclient does not
+find it after all, the service starts gpclient once more without the option and
+answers the gateway prompt as before.
 
 ### Portal or gateway address?
 

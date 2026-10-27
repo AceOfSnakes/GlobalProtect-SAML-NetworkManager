@@ -211,6 +211,27 @@
       "used_by": "service/nm-gpclient-service.py: --as-gateway"
     },
     {
+      "id": "cli-gateway",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) gateway: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --gateway"
+    },
+    {
+      "id": "cli-passwd-on-stdin",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) passwd_on_stdin: bool,",
+      "used_by": "service/nm-gpclient-service.py: --passwd-on-stdin"
+    },
+    {
+      "id": "gateway-not-found",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/mod.rs",
+      "text": "Cannot find gateway specified",
+      "used_by": "service/nm-gpclient-service.py: GATEWAY_NOT_FOUND_RE"
+    },
+    {
       "id": "cli-user",
       "kind": "anchor",
       "path": "apps/gpclient/src/connect/args.rs",

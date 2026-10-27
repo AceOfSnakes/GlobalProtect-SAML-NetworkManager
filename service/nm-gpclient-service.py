@@ -156,6 +156,10 @@ OPENSSL_LEGACY_ERROR_RE = re.compile(
     r"|--fix-openssl"
 )
 
+# gpclient's error when --gateway names a gateway the portal does not list
+# (apps/gpclient/src/connect/mod.rs): we restart once without the option
+GATEWAY_NOT_FOUND_RE = re.compile(r"Cannot find gateway specified")
+
 # --- Internal network ---------------------------------------------------------
 #
 # With internal host detection configured on the portal, a gateway can answer
@@ -1655,6 +1659,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.fix_openssl = False  # pass --fix-openssl to gpclient
         self._openssl_error_seen = False
         self._openssl_retried = False
+        self._gateway_not_found_seen = False
+        self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False  # profile told not to save the passcode
         self._otp_flag_attempts = 0  # tries so far to do that (bounded)
 
@@ -1685,6 +1691,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # login portals where gpclient prompts on its terminal)
         self.vpn_username = ""
         self.vpn_password = ""
+        self._password_on_stdin = False  # --passwd-on-stdin: answered at spawn
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
@@ -1822,6 +1829,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._gateway_list = []
         self._openssl_error_seen = False
         self._openssl_retried = False
+        self._gateway_not_found_seen = False
+        self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
 
@@ -1871,6 +1880,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # gpclient does not prompt for it - treat username as already
             # answered in every auth phase.
             self._username_prefilled = bool(self.vpn_username)
+            # A stored password of a standard login goes to gpclient's stdin
+            # at spawn; gpclient then never prompts for it
+            self._password_on_stdin = bool(
+                self.vpn_password and data_dict.get("auth-mode", "saml") == "credentials"
+            )
             self._reset_phase_state()
             if self.vpn_username:
                 logger.info(f"Stored username: {self.vpn_username}")
@@ -2150,6 +2164,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.fix_openssl = False
         self._openssl_error_seen = False
         self._openssl_retried = False
+        self._gateway_not_found_seen = False
+        self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
         self.as_gateway = False
@@ -2163,6 +2179,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
+        self._password_on_stdin = False
         self._interactive = False
         self._auth_banner = None
         self._answering = False
@@ -2499,12 +2516,16 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
             # Build command.
             #
-            # NOTE: --gateway is deliberately NOT passed. It used to be set to
-            # the server address, which makes gpclient look that address up in
-            # the portal's gateway list and abort with "Cannot find gateway
-            # specified" for every real portal (issue #7). Instead we answer
-            # gpclient's gateway prompt ourselves, which also lets us fall back
-            # to the first proposal when the configured gateway is gone.
+            # --gateway is NOT set to the server address: gpclient looks the
+            # value up (exact name or address) in the portal's gateway list and
+            # aborts with "Cannot find gateway specified" for every real portal
+            # (issue #7). It is passed only for preferred-gateway, and only
+            # when the portal offered that name or address before (it is in the
+            # cached gateway-list); otherwise we answer gpclient's gateway
+            # prompt ourselves, which also learns the list and falls back to
+            # the first proposal when the configured gateway is gone. If
+            # gpclient does not find the cached gateway after all, it is
+            # restarted once without the option (_retry_without_gateway).
             cmd = [GPCLIENT_BINARY]
 
             # Global flags, must come before the subcommand (issue #2). JSON
@@ -2526,6 +2547,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # so the user is not authenticated twice
             if self.as_gateway:
                 cmd.append("--as-gateway")
+            elif self._preferred_gateway_is_cached():
+                cmd.append(f"--gateway={self.preferred_gateway}")
+
+            # The stored password goes to gpclient's stdin (written below)
+            if self._password_on_stdin:
+                cmd.append("--passwd-on-stdin")
 
             # Tunnel MTU, set when the automatic value is too big for the
             # network (ESP falls back to HTTPS with "Message too long")
@@ -2628,6 +2655,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self._pty_master = master_fd
 
             logger.info(f"Started gpclient with PID {self.gpclient_process.pid}")
+
+            if self._password_on_stdin:
+                # In the PTY's input queue before gpclient reads it; the echo
+                # is masked in the log (the password is in _written_secrets)
+                self._written_secrets.add(self.vpn_password)
+                self._write_keys(self.vpn_password.encode() + b"\n", "password")
 
             # Start monitoring PTY output
             self.stdout_monitor_task = self._create_task(
@@ -2742,6 +2775,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                             "settings to authenticate only once"
                         )
 
+                    if GATEWAY_NOT_FOUND_RE.search(text):
+                        self._gateway_not_found_seen = True
+
                     if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(text):
                         # The portal needs legacy TLS renegotiation (issue #2)
                         self._openssl_error_seen = True
@@ -2789,6 +2825,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if returncode != 0 and not self._login_failed:
                 if await self._retry_with_openssl_fix():
                     # A new monitor task took over the retried process
+                    return
+                if await self._retry_without_gateway():
                     return
                 if self._session_gen != self._generation:
                     # A Disconnect() came in during the retry: nothing to report
@@ -2888,6 +2926,52 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._openssl_retried = True
         self.fix_openssl = True
 
+        if await self._restart_gpclient():
+            return True
+
+        logger.error("Failed to restart gpclient with --fix-openssl")
+        return False
+
+    def _preferred_gateway_is_cached(self) -> bool:
+        """May --gateway carry preferred-gateway? Only if the portal offered it.
+
+        gpclient takes the exact name or address of a gateway of the portal's
+        list; the cached entries look like "name (address)".
+        """
+        preferred = self.preferred_gateway
+        if not preferred or self._gateway_flag_dropped:
+            return False
+        for entry in self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR):
+            name, _, host = entry.partition("(")
+            if preferred in (name.strip(), host.strip(") ")):
+                return True
+        return False
+
+    async def _retry_without_gateway(self) -> bool:
+        """Restart gpclient once without --gateway when it cannot find it.
+
+        The cached gateway list is stale: the portal does not offer the
+        preferred gateway any more. Without the option gpclient shows its
+        gateway prompt and the usual fallback applies.
+        """
+        if not self._gateway_not_found_seen or self._gateway_flag_dropped:
+            return False
+        if not self._preferred_gateway_is_cached():
+            return False
+
+        logger.warning(
+            f"The stored gateway {self.preferred_gateway!r} is no longer offered "
+            "by the portal - retrying without --gateway"
+        )
+        self._gateway_flag_dropped = True
+        if await self._restart_gpclient():
+            return True
+
+        logger.error("Failed to restart gpclient without --gateway")
+        return False
+
+    async def _restart_gpclient(self) -> bool:
+        """Start gpclient again after a failed attempt (fresh state)"""
         # Drop the finished process and its PTY before starting over
         if self._prompt_task and not self._prompt_task.done():
             self._prompt_task.cancel()
@@ -2906,11 +2990,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Same groundwork as before the first attempt
         await self._cleanup_stale_gpd0()
 
-        if await self._start_gpclient():
-            return True
-
-        logger.error("Failed to restart gpclient with --fix-openssl")
-        return False
+        return await self._start_gpclient()
 
     async def _remember_gpauth(self) -> None:
         """Note the gpauth processes below our gpclient, for later cleanup.
@@ -3134,7 +3214,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         prompt for it.
         """
         self._answered_username = self._username_prefilled
-        self._answered_password = False
+        self._answered_password = self._password_on_stdin
 
     def _classify_prompt_kind(self, label: str, banner_msg: str) -> str:
         """Decide how to answer a prompt: 'otp', 'username' or 'password'.

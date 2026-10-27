@@ -36,7 +36,10 @@ Starts VPN connection.
 
 **Process:**
 1. Gets configuration from NetworkManager
-2. Runs `gpclient connect --browser X --gateway Y Z`
+2. Runs `gpclient connect --browser X Z`. It adds `--gateway=<preferred-gateway>`
+   when the portal offered that name or address before (it is in `gateway-list`),
+   and `--passwd-on-stdin` (the stored password is written to the PTY at once)
+   for a standard login with a stored password
 3. Monitors gpclient stdout in separate thread
 4. Waits for the vpnc hook to call `Notify` (see "Tunnel Notification"); the
    service has no timer of its own, NetworkManager's `vpn.timeout` ends an
