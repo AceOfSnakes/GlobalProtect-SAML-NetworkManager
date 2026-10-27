@@ -21,7 +21,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 HEADER_DIR = os.path.join(ROOT, "plugins", "gnome")
 
 # Arguments: a rule name and its texts (prints 1 = valid or 0 per text), or
-# "form" and the six fields of nm_gpclient_validate_form (prints the message)
+# "form" and the eight fields of nm_gpclient_validate_form (prints the message)
 PROGRAM = r"""
 #include <stdio.h>
 #include "nm-gpclient-validate.h"
@@ -30,8 +30,8 @@ int main (int argc, char **argv)
 {
     int i;
 
-    if (argc == 8 && !strcmp (argv[1], "form")) {
-        const char *m = nm_gpclient_validate_form (argv[2], argv[3], argv[4], argv[5], argv[6][0] == '1', argv[7]);
+    if (argc == 10 && !strcmp (argv[1], "form")) {
+        const char *m = nm_gpclient_validate_form (argv[2], argv[3], argv[4], argv[5], argv[6][0] == '1', argv[7], argv[8], argv[9]);
         printf ("%s\n", m ? m : "OK");
         return 0;
     }
@@ -43,6 +43,7 @@ int main (int argc, char **argv)
         else if (!strcmp (rule, "browser")) ok = nm_gpclient_validate_browser (t);
         else if (!strcmp (rule, "dns")) ok = nm_gpclient_validate_dns (t);
         else if (!strcmp (rule, "hip")) ok = nm_gpclient_validate_hip_script (t);
+        else if (!strcmp (rule, "cert")) ok = nm_gpclient_validate_cert_path (t);
         printf ("%d\n", ok);
     }
     return 0;
@@ -140,12 +141,28 @@ HIP_SCRIPT = [
     ("~/hip.sh", False),
     ("bin/hip.sh", False),
 ]
+CERT_PATH = [
+    ("", True),
+    ("  ", True),
+    ("/etc/ssl/me.pem", True),
+    ("  /etc/ssl/me.p12 \n", True),
+    ("/home/alice/my certs/me.pfx", True),
+    ("me.pem", False),
+    ("./me.pem", False),
+    ("~/me.pem", False),
+    ("certs/me.pem", False),
+    ("/etc/ssl/me\n.pem", False),
+    ("/etc/ssl/me\t.pem", False),
+    ("/etc/ssl/\x1bme.pem", False),
+    ("/etc/ssl/me\x7f.pem", False),
+]
 RULES = {
     "gateway": GATEWAY,
     "username": USERNAME,
     "browser": BROWSER,
     "dns": DNS,
     "hip": HIP_SCRIPT,
+    "cert": CERT_PATH,
 }
 
 
@@ -215,6 +232,11 @@ def service_accepts(s, rule, text):
         )
     if rule == "dns":
         return all(s.parse_ip_address(e) is not None for e in s.parse_dns_servers(text))
+    if rule == "cert":
+        try:
+            return not text.strip() or bool(s.validate_cert_path("usercert", text.strip()))
+        except ValueError:
+            return False
     return not text.strip() or os.path.isabs(text.strip())
 
 
@@ -226,12 +248,12 @@ def test_the_header_gives_what_the_service_gives(program, service_module, rule):
         assert result == service_accepts(service_module, rule, text), (rule, text)
 
 
-FORM_OK = ("vpn.example.com", "alice", "default", "10.0.0.1", "1", "/usr/bin/hip.sh")
+FORM_OK = ("vpn.example.com", "alice", "default", "10.0.0.1", "1", "/usr/bin/hip.sh", "/etc/ssl/me.pem", "/etc/ssl/me.key")
 
 
 def test_the_form_accepts_a_good_profile(program):
     assert run_form(program, *FORM_OK) == "OK"
-    assert run_form(program, "vpn.example.com", "", "", "", "0", "") == "OK"
+    assert run_form(program, "vpn.example.com", "", "", "", "0", "", "", "") == "OK"
 
 
 @pytest.mark.parametrize(
@@ -243,6 +265,9 @@ def test_the_form_accepts_a_good_profile(program):
         (2, "my browser", "browser"),
         (3, "dns.example.com", "dns"),
         (5, "hip.sh", "hip-script"),
+        (6, "me.pem", "usercert"),
+        (7, "me.key", "userkey"),
+        (7, "/etc/ssl/me\n.key", "userkey"),
     ],
 )
 def test_the_form_names_the_bad_field(program, index, bad, word):
@@ -252,7 +277,7 @@ def test_the_form_names_the_bad_field(program, index, bad, word):
 
 
 def test_the_hip_script_is_ignored_while_hip_is_off(program):
-    assert run_form(program, "vpn.example.com", "", "", "", "0", "hip.sh") == "OK"
+    assert run_form(program, "vpn.example.com", "", "", "", "0", "hip.sh", "", "") == "OK"
 
 
 EDITORS = [

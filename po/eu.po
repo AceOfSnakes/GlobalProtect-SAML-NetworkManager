@@ -292,3 +292,47 @@ msgstr "erabiltzaile-izenak ez du '-'-rekin hasi behar, ez eta kontrol-karakteri
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Fitxategia ez da GlobalProtect VPN konexio bat"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Ziurtagiriaren pasaesaldia"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Ziurtagiriaren pasaesaldia:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Bezero-ziurtagiria:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Hutsik: bezero-ziurtagiririk ez"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Hutsik: gakoa ziurtagiri-fitxategian dago"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Bezero-ziurtagiriaren fitxategiaren bide-izen absolutu aukerakoa (PEM edo PKCS#12), mahaigaineko erabiltzailearen jabetzakoa izan behar duena."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Gako pribatuaren fitxategiaren bide-izen absolutu aukerakoa (PEM), mahaigaineko erabiltzailearen jabetzakoa izan behar duena. Ez da kontuan hartzen bezero-ziurtagiririk gabe."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Gako pribatua:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "usercert bide absolutu bat izan behar da"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "userkey bide absolutu bat izan behar da"

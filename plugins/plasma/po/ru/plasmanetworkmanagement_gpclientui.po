@@ -393,3 +393,62 @@ msgstr "dns должен содержать адреса IPv4 или IPv6, ра�
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script должен быть абсолютным путём"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Парольная фраза сертификата"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Парольная фраза сертификата:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Клиентский сертификат:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Пусто: без клиентского сертификата"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Пусто: ключ находится в файле сертификата"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Необязательный абсолютный путь к файлу клиентского сертификата (PEM или PKCS#12); владельцем файла должен быть пользователь рабочего стола."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Необязательный абсолютный путь к файлу закрытого ключа (PEM); владельцем файла должен быть пользователь рабочего стола. Без клиентского сертификата игнорируется."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Хранение парольной фразы:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Закрытый ключ:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert должен быть абсолютным путём"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey должен быть абсолютным путём"

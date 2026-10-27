@@ -320,3 +320,47 @@ msgstr "имя пользователя не должно начинаться �
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Файл не является VPN-подключением GlobalProtect"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Парольная фраза сертификата"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Парольная фраза сертификата:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Клиентский сертификат:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Пусто: без клиентского сертификата"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Пусто: ключ находится в файле сертификата"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Необязательный абсолютный путь к файлу клиентского сертификата (PEM или PKCS#12); владельцем файла должен быть пользователь рабочего стола."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Необязательный абсолютный путь к файлу закрытого ключа (PEM); владельцем файла должен быть пользователь рабочего стола. Без клиентского сертификата игнорируется."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Закрытый ключ:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "usercert должен быть абсолютным путём"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "userkey должен быть абсолютным путём"

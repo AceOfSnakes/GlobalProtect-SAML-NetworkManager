@@ -292,3 +292,47 @@ msgstr "用户名不能以“-”开头，也不能包含控制字符"
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "该文件不是 GlobalProtect VPN 连接"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "证书口令"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "证书口令："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "客户端证书："
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "留空：没有客户端证书"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "留空：密钥在证书文件中"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "客户端证书文件(PEM 或 PKCS#12)的可选绝对路径，必须归桌面用户所有。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "私钥文件(PEM)的可选绝对路径，必须归桌面用户所有。没有客户端证书时忽略。"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "私钥："
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "usercert 必须是绝对路径"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "userkey 必须是绝对路径"

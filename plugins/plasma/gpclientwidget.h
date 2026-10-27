@@ -49,6 +49,8 @@ private:
     /* Index of the password storage combo at load: only a change writes
      * password-flags of an existing profile. */
     int m_passwordFlagsIndex = 1;
+    /* The same for the passphrase of the client certificate (cert-pass-flags) */
+    int m_certPassFlagsIndex = 1;
 };
 
 #endif // PLASMA_NM_GPCLIENT_WIDGET_H

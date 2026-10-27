@@ -118,27 +118,31 @@ nm_gpclient_editor_parse_timeout (const char *text, double lower, double upper)
     return (guint) v;
 }
 
-/* The secret flags the storage menu starts with: a new connection asks the
- * secret agent (password-flags=1); an existing one keeps its flags (a missing
- * key is 0, system-owned). */
+/* The secret flags the storage menu of the secret `key` ("password" or
+ * "cert-pass") starts with: a new connection asks the secret agent
+ * (<key>-flags=1); an existing one keeps its flags (a missing key is 0,
+ * system-owned). */
 static inline NMSettingSecretFlags
-nm_gpclient_editor_password_flags_initial (NMSettingVpn *s_vpn, gboolean is_new)
+nm_gpclient_editor_password_flags_initial (NMSettingVpn *s_vpn, const char *key, gboolean is_new)
 {
     NMSettingSecretFlags flags = NM_SETTING_SECRET_FLAG_AGENT_OWNED;
 
     if (!is_new)
-        nm_setting_get_secret_flags (NM_SETTING (s_vpn), "password", &flags, NULL);
+        nm_setting_get_secret_flags (NM_SETTING (s_vpn), key, &flags, NULL);
     return flags;
 }
 
-/* Save the password flags and the password. A new connection gets
- * password-flags=1; an existing one without the key stays without it. The
+/* Save the flags and the value of the secret `key` ("password" or "cert-pass").
+ * A new connection gets <key>-flags=1; an existing one without the key stays without it. The
  * secret is kept out of the connection when it is not to be saved. An
  * agent-owned secret goes to NetworkManager, which hands it to the agent and
  * keeps it out of the profile file. menu_flags is what the menu showed at load,
- * flags what it shows now. */
+ * flags what it shows now. The secret is touched only when `credentials` is
+ * true ("Username and password" for the password, a client certificate for
+ * the passphrase). */
 static inline void
 nm_gpclient_editor_save_password (NMSettingVpn *s_vpn,
+                                  const char *key,
                                   gboolean is_new,
                                   NMSettingSecretFlags menu_flags,
                                   NMSettingSecretFlags flags,
@@ -148,13 +152,37 @@ nm_gpclient_editor_save_password (NMSettingVpn *s_vpn,
     /* Only a new connection or a change in the menu writes the flags, so
      * bits the menu cannot show (4, not required) are kept */
     if ((is_new && flags != NM_SETTING_SECRET_FLAG_NONE) || flags != menu_flags)
-        nm_setting_set_secret_flags (NM_SETTING (s_vpn), "password", flags, NULL);
+        nm_setting_set_secret_flags (NM_SETTING (s_vpn), key, flags, NULL);
     if (credentials) {
         if (str && *str && !(flags & NM_SETTING_SECRET_FLAG_NOT_SAVED))
-            nm_setting_vpn_add_secret (s_vpn, "password", str);
+            nm_setting_vpn_add_secret (s_vpn, key, str);
         else
-            nm_setting_vpn_remove_secret (s_vpn, "password");
+            nm_setting_vpn_remove_secret (s_vpn, key);
     }
+}
+
+/* Save the client certificate: the two paths (stripped) and the passphrase of
+ * the key. Without a certificate the stored passphrase is removed (its flags
+ * are kept), like the Plasma editor. */
+static inline void
+nm_gpclient_editor_save_cert (NMSettingVpn *s_vpn,
+                              const char *usercert,
+                              const char *userkey,
+                              gboolean is_new,
+                              NMSettingSecretFlags menu_flags,
+                              NMSettingSecretFlags flags,
+                              const char *pass)
+{
+    gchar *cert = g_strstrip (g_strdup (usercert ? usercert : ""));
+    gchar *key = g_strstrip (g_strdup (userkey ? userkey : ""));
+
+    nm_gpclient_editor_set_or_remove (s_vpn, "usercert", cert);
+    nm_gpclient_editor_set_or_remove (s_vpn, "userkey", key);
+    nm_gpclient_editor_save_password (s_vpn, "cert-pass", is_new, menu_flags, flags, *cert != '\0', pass);
+    if (*cert == '\0')
+        nm_setting_vpn_remove_secret (s_vpn, "cert-pass");
+    g_free (cert);
+    g_free (key);
 }
 
 /* A one-time code is never stored. The service sets this after the first

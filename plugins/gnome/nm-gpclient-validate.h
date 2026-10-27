@@ -181,6 +181,24 @@ nm_gpclient_validate_hip_script (const char *text)
     return len == 0 || text[0] == '/';
 }
 
+/* usercert and userkey are optional: mirrors validate_cert_path of the service,
+ * an absolute path without control characters (gpclient reads the file). */
+static inline int
+nm_gpclient_validate_cert_path (const char *text)
+{
+    size_t len, i;
+
+    text = nm_gpclient_validate_strip (text, &len);
+    if (len == 0)
+        return 1;
+    if (text[0] != '/')
+        return 0;
+    for (i = 0; i < len; i++)
+        if (nm_gpclient_validate_is_control (text[i]))
+            return 0;
+    return 1;
+}
+
 /* The first problem of the whole form as a message that names the field, or
  * NULL when all fields are fine. The editors show it and so disable Save. */
 static inline const char *
@@ -189,7 +207,9 @@ nm_gpclient_validate_form (const char *gateway,
                            const char *browser,
                            const char *dns,
                            int hip_enabled,
-                           const char *hip_script)
+                           const char *hip_script,
+                           const char *usercert,
+                           const char *userkey)
 {
     size_t len;
 
@@ -206,6 +226,10 @@ nm_gpclient_validate_form (const char *gateway,
         return N_("dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces");
     if (hip_enabled && !nm_gpclient_validate_hip_script (hip_script))
         return N_("hip-script must be an absolute path");
+    if (!nm_gpclient_validate_cert_path (usercert))
+        return N_("usercert must be an absolute path");
+    if (!nm_gpclient_validate_cert_path (userkey))
+        return N_("userkey must be an absolute path");
     return NULL;
 }
 

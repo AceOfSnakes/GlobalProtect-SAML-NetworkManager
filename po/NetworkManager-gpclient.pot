@@ -296,3 +296,47 @@ msgstr ""
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "username must not start with '-' or contain control characters"
 msgstr ""
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr ""
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr ""

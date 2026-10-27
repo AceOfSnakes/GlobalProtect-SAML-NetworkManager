@@ -59,6 +59,8 @@ private Q_SLOTS:
     void mtuArrowsAndWheelStillStep();
     void passwordStorage_data();
     void passwordStorage();
+    void certPassStorage_data();
+    void certPassStorage();
 };
 
 namespace
@@ -331,6 +333,12 @@ void GpclientWidgetTest::fieldValidity_data()
     QTest::newRow("hip script absolute") << "hipScriptLineEdit" << "/usr/local/bin/hip.sh" << true << true;
     QTest::newRow("hip script relative") << "hipScriptLineEdit" << "hip.sh" << true << false;
     QTest::newRow("hip script relative, hip off") << "hipScriptLineEdit" << "hip.sh" << false << true;
+    QTest::newRow("usercert absolute") << "userCertLineEdit" << "/etc/ssl/me.p12" << true << true;
+    QTest::newRow("usercert empty") << "userCertLineEdit" << "" << true << true;
+    QTest::newRow("usercert relative") << "userCertLineEdit" << "me.p12" << true << false;
+    QTest::newRow("usercert control character") << "userCertLineEdit" << "/etc/ssl/me\t.p12" << true << false;
+    QTest::newRow("userkey absolute") << "userKeyLineEdit" << "/etc/ssl/me.key" << true << true;
+    QTest::newRow("userkey relative") << "userKeyLineEdit" << "me.key" << true << false;
     QTest::newRow("username plain") << "usernameLineEdit" << "alice" << true << true;
     QTest::newRow("username option") << "usernameLineEdit" << "-alice" << true << false;
     QTest::newRow("browser bare name") << "browserComboBox" << "brave-browser" << true << true;
@@ -502,6 +510,8 @@ void GpclientWidgetTest::removesClearedKeys_data()
 
     QTest::newRow("username") << "username" << "usernameLineEdit";
     QTest::newRow("dns") << "dns" << "dnsLineEdit";
+    QTest::newRow("usercert") << "usercert" << "userCertLineEdit";
+    QTest::newRow("userkey") << "userkey" << "userKeyLineEdit";
 }
 
 void GpclientWidgetTest::removesClearedKeys()
@@ -605,6 +615,59 @@ void GpclientWidgetTest::passwordStorage()
     QCOMPARE(saved.data().value(QStringLiteral("password-flags")), expectedFlags);
     QCOMPARE(saved.data().value(QStringLiteral("otp-flags")), expectedOtpFlags);
     QCOMPARE(saved.secrets().value(QStringLiteral("password")), expectedSecret);
+}
+
+void GpclientWidgetTest::certPassStorage_data()
+{
+    QTest::addColumn<NMStringMap>("data");
+    QTest::addColumn<QString>("userCert");
+    QTest::addColumn<int>("flagsIndex"); // -1: leave the combo alone
+    QTest::addColumn<QString>("expectedFlags"); // empty: no cert-pass-flags key
+    QTest::addColumn<QString>("expectedSecret"); // empty: no secret
+
+    const NMStringMap none;
+    const NMStringMap gateway{{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}};
+
+    // The combo items are: agent (1), system (0), not saved (2)
+    QTest::newRow("new, certificate, the agent keeps it") << none << "/etc/ssl/me.p12" << -1 << "1" << "pp";
+    QTest::newRow("new, certificate, system") << none << "/etc/ssl/me.p12" << 1 << "0" << "pp";
+    QTest::newRow("new, certificate, not saved drops it") << none << "/etc/ssl/me.p12" << 2 << "2" << QString();
+    QTest::newRow("existing, certificate, kept without flags") << gateway << "/etc/ssl/me.p12" << -1 << QString() << "pp";
+    // Negative: no certificate, no passphrase
+    QTest::newRow("new, no certificate") << none << QString() << -1 << "1" << QString();
+    QTest::newRow("existing, no certificate") << gateway << QString() << -1 << QString() << QString();
+}
+
+void GpclientWidgetTest::certPassStorage()
+{
+    QFETCH(NMStringMap, data);
+    QFETCH(QString, userCert);
+    QFETCH(int, flagsIndex);
+    QFETCH(QString, expectedFlags);
+    QFETCH(QString, expectedSecret);
+
+    GpclientWidget widget(makeSetting(data, 0));
+    auto *combo = widget.findChild<QComboBox *>(QStringLiteral("certPassFlagsComboBox"));
+    auto *edit = widget.findChild<QLineEdit *>(QStringLiteral("certPassLineEdit"));
+    auto *cert = widget.findChild<QLineEdit *>(QStringLiteral("userCertLineEdit"));
+    QVERIFY(combo);
+    QVERIFY(edit);
+    QVERIFY(cert);
+    if (flagsIndex >= 0) {
+        combo->setCurrentIndex(flagsIndex);
+    }
+    // "Ask every time" takes no typing
+    QCOMPARE(edit->isEnabled(), combo->currentIndex() != 2);
+    cert->setText(userCert);
+    edit->setText(QStringLiteral("pp"));
+
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+    QCOMPARE(saved.data().value(QStringLiteral("cert-pass-flags")), expectedFlags);
+    QCOMPARE(saved.secrets().value(QStringLiteral("cert-pass")), expectedSecret);
+    QCOMPARE(saved.data().value(QStringLiteral("usercert")), userCert);
+    // The VPN password is a different secret
+    QVERIFY(!saved.secrets().contains(QStringLiteral("password")));
 }
 
 QTEST_MAIN(GpclientWidgetTest)

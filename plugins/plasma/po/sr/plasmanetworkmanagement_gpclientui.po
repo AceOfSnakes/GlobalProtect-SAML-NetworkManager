@@ -367,3 +367,62 @@ msgstr "dns мора бити IPv4 или IPv6 адресе раздвојене
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script мора бити апсолутна путања"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Лозинка сертификата"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Лозинка сертификата:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Клијентски сертификат:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Празно: без клијентског сертификата"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Празно: кључ је у датотеци сертификата"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Необавезна апсолутна путања до датотеке клијентског сертификата (PEM или PKCS#12), чији власник мора бити корисник радне површи."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Необавезна апсолутна путања до датотеке приватног кључа (PEM), чији власник мора бити корисник радне површи. Занемарује се без клијентског сертификата."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Чување лозинке сертификата:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Приватни кључ:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert мора бити апсолутна путања"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey мора бити апсолутна путања"

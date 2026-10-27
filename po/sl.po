@@ -292,3 +292,47 @@ msgstr "uporabniško ime se ne sme začeti z »-« ali vsebovati kontrolnih znak
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Datoteka ni povezava GlobalProtect VPN"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Geslo certifikata"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Geslo certifikata:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Odjemalčev certifikat:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Prazno: brez odjemalčevega certifikata"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Prazno: ključ je v datoteki certifikata"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Neobvezna absolutna pot do datoteke odjemalčevega certifikata (PEM ali PKCS#12), katere lastnik mora biti uporabnik namizja."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), katere lastnik mora biti uporabnik namizja. Brez odjemalčevega certifikata se prezre."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Zasebni ključ:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "usercert mora biti absolutna pot"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "userkey mora biti absolutna pot"

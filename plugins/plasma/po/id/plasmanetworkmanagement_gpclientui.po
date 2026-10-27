@@ -367,3 +367,62 @@ msgstr "dns harus berupa alamat IPv4 atau IPv6 yang dipisahkan koma, titik koma,
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script harus berupa path absolut"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Frasa sandi sertifikat"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Frasa sandi sertifikat:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Sertifikat klien:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Kosong: tanpa sertifikat klien"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Kosong: kunci ada di berkas sertifikat"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Path absolut opsional ke berkas sertifikat klien (PEM atau PKCS#12), yang harus dimiliki oleh pengguna desktop."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Path absolut opsional ke berkas kunci privat (PEM), yang harus dimiliki oleh pengguna desktop. Diabaikan tanpa sertifikat klien."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Penyimpanan frasa sandi:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Kunci privat:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert harus berupa path absolut"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey harus berupa path absolut"

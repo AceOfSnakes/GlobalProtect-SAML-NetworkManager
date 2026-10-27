@@ -54,6 +54,7 @@ SECRET_LABELS = {
     "username": N_("Username"),
     "password": N_("Password"),
     "otp": N_("Token / one-time code"),
+    "cert-pass": N_("Certificate passphrase"),
 }
 
 # Hints that should be shown as plain-text entries instead of masked ones
@@ -253,10 +254,13 @@ def external_ui(args, data, existing_secrets, requested, message):
     requested = [
         k for k in requested if k.isprintable() and not set(k) & set("[]") and k.strip()
     ]
-    try:
-        flags = int(data.get("password-flags", 0))
-    except (TypeError, ValueError):
-        flags = 0
+    def secret_flags(name):
+        try:
+            return int(data.get(f"{name}-flags", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    flags = secret_flags("password")
     if upfront and flags & 4:
         requested = []  # password NOT_REQUIRED
 
@@ -266,7 +270,8 @@ def external_ui(args, data, existing_secrets, requested, message):
         fresh = args.reprompt or key in ONE_TIME_HINTS
         stored = "" if fresh else existing_secrets.get(key, "")
         ask = args.allow_interaction and (
-            not stored or (key == "password" and bool(flags & 2))
+            not stored
+            or (key in ("password", "cert-pass") and bool(secret_flags(key) & 2))
         )
         entries.append((key, stored, secret_label(key), ask, key in PLAIN_TEXT_HINTS))
     description = header_text(args.name, message, args.reprompt)

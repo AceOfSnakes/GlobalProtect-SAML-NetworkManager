@@ -292,3 +292,47 @@ msgstr "Benutzername darf nicht mit „-“ beginnen und keine Steuerzeichen ent
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Die Datei ist keine GlobalProtect-VPN-Verbindung"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Zertifikat-Passphrase"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Zertifikat-Passphrase:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Clientzertifikat:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Leer: kein Clientzertifikat"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Leer: Der Schlüssel liegt in der Zertifikatsdatei"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Optionaler absoluter Pfad der Datei mit dem Clientzertifikat (PEM oder PKCS#12), die dem Desktop-Benutzer gehören muss."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Optionaler absoluter Pfad der Datei mit dem privaten Schlüssel (PEM), die dem Desktop-Benutzer gehören muss. Ohne Clientzertifikat ignoriert."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Privater Schlüssel:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "usercert muss ein absoluter Pfad sein"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "userkey muss ein absoluter Pfad sein"

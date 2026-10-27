@@ -393,3 +393,62 @@ msgstr "dns trebuie să fie adrese IPv4 sau IPv6 separate prin virgule, punct ș
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script trebuie să fie o cale absolută"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Fraza secretă a certificatului"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Fraza secretă a certificatului:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Certificat client:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Gol: fără certificat client"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Gol: cheia este în fișierul certificatului"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Calea absolută opțională a fișierului certificatului client (PEM sau PKCS#12), care trebuie să aparțină utilizatorului desktopului."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Calea absolută opțională a fișierului cheii private (PEM), care trebuie să aparțină utilizatorului desktopului. Ignorată fără certificat client."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Stocarea frazei secrete:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Cheie privată:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert trebuie să fie o cale absolută"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey trebuie să fie o cale absolută"

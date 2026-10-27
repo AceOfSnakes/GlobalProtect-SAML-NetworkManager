@@ -75,6 +75,8 @@ static QString translateMessage(const char *message)
         ki18n("browser must be a name, a command name or an absolute path without spaces"),
         ki18n("dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"),
         ki18n("hip-script must be an absolute path"),
+        ki18n("usercert must be an absolute path"),
+        ki18n("userkey must be an absolute path"),
     };
     Q_UNUSED(known);
     return ki18n(message).toString();

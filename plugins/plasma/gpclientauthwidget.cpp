@@ -21,6 +21,9 @@ QString labelForSecret(const QString &key)
     if (key == QLatin1String("password")) {
         return i18n("Password");
     }
+    if (key == QLatin1String("cert-pass")) {
+        return i18n("Certificate passphrase");
+    }
     if (key == QLatin1String("otp")) {
         return i18n("Token / one-time code");
     }

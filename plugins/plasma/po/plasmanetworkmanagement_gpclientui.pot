@@ -371,3 +371,62 @@ msgstr ""
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr ""
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr ""
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr ""
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr ""

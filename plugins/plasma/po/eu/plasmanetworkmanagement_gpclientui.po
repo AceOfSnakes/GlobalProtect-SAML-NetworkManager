@@ -367,3 +367,62 @@ msgstr "dns-ak IPv4 edo IPv6 helbideak izan behar dira, komaz, puntu eta komaz e
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script bide absolutu bat izan behar da"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Ziurtagiriaren pasaesaldia"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Ziurtagiriaren pasaesaldia:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Bezero-ziurtagiria:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Hutsik: bezero-ziurtagiririk ez"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Hutsik: gakoa ziurtagiri-fitxategian dago"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Bezero-ziurtagiriaren fitxategiaren bide-izen absolutu aukerakoa (PEM edo PKCS#12), mahaigaineko erabiltzailearen jabetzakoa izan behar duena."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Gako pribatuaren fitxategiaren bide-izen absolutu aukerakoa (PEM), mahaigaineko erabiltzailearen jabetzakoa izan behar duena. Ez da kontuan hartzen bezero-ziurtagiririk gabe."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Pasaesaldiaren biltegiratzea:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Gako pribatua:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert bide absolutu bat izan behar da"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey bide absolutu bat izan behar da"
