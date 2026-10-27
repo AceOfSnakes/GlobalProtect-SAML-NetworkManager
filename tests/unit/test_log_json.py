@@ -4,8 +4,8 @@ Tests for the JSON log records of gpclient (issue #53).
 The service runs `gpclient --log-format json`. Every `log` record (and the
 openconnect messages that go through it) is then one JSON line with the strings
 level, target and message, and the service matches the message instead of the
-text prefix. println! output and the prompts stay plain text and take the old
-path, as does any line that is not a record.
+text prefix. println! output and the prompts stay plain text. What upstream
+logs or reports is matched on a record only, never on a plain line.
 
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
@@ -75,9 +75,10 @@ class TestParseLogRecord:
         monkeypatch.setattr(service_module.json, "loads", too_deep)
         plugin = _plugin(service_module)
 
-        _run(plugin, '{"a": [[[', "Found 3 gateways in portal config")
+        # the banner is text, so it is read after the line that failed
+        _run(plugin, '{"a": [[[', "Enter RSA token (Portal: vpn.example.com)")
 
-        assert plugin._gateway_count == 3
+        assert plugin._auth_banner["server"] == "vpn.example.com"
 
     def test_a_tab_is_kept(self, service_module):
         assert service_module.parse_log_record(record("a\tb"))["message"] == "a\tb"
@@ -149,12 +150,14 @@ class TestTunnelSettingsRecord:
 
         assert after.dns is None
 
-    def test_text_prefix_still_works_for_a_text_line(self, service_module):
-        settings = service_module.parse_tunnel_settings_line(
-            PREFIX + "VPN MTU: 1400", service_module.TunnelSettings()
+    def test_a_text_line_is_ignored(self, service_module):
+        before = service_module.TunnelSettings()
+
+        after = service_module.parse_tunnel_settings_line(
+            PREFIX + "VPN MTU: 1400", before
         )
 
-        assert settings.mtu == 1400
+        assert after is before
 
 
 class TestMatchersThroughRecords:
@@ -279,28 +282,57 @@ class TestMatchersThroughRecords:
         assert seen == []
         assert plugin._gateway_count is None
 
-    def test_text_lines_take_the_old_path(self, service_module, dbus_signals):
+    def test_text_lines_do_not_match(self, service_module, dbus_signals):
+        # What upstream logs is read from a record only: the same words in a
+        # plain line (a prompt, text the portal controls) are no match
         plugin = _plugin(service_module)
 
         _run(
             plugin,
             "Found 4 gateways in portal config",
+            "Connecting to the only available gateway: gw-a (a.example.com)",
             PREFIX + "VPN interface: tun0",
             "[2026-01-01T00:00:00Z ERROR gpclient::cli] --fix-openssl",
+            "Cannot find gateway specified: gw-b",
+            "? Found 9 gateways in portal config",
         )
 
-        assert plugin._gateway_count == 4
-        assert plugin._tunnel_settings.interface == "tun0"
-        assert plugin._openssl_error_seen is True
+        assert plugin._gateway_count is None
+        assert not plugin._gateway_list
+        assert plugin._tunnel_settings.interface is None
+        assert plugin._openssl_error_seen is False
+        assert plugin._gateway_not_found_seen is False
 
-    def test_a_prompt_line_with_matcher_text_is_still_a_text_line(
-        self, service_module, dbus_signals
+    def test_a_text_line_has_no_as_gateway_hint(
+        self, service_module, dbus_signals, caplog
     ):
         plugin = _plugin(service_module)
 
-        _run(plugin, "? Found 9 gateways in portal config")
+        with caplog.at_level(logging.WARNING, logger=service_module.logger.name):
+            _run(plugin, "Error: try again with --as-gateway")
 
-        assert plugin._gateway_count == 9  # as before: the text is searched
+        assert "may be a gateway" not in caplog.text
+
+    def test_a_text_line_is_no_internal_network(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        plugin = _plugin(service_module)
+        seen = []
+        monkeypatch.setattr(plugin, "_fail_internal_network", lambda: seen.append(1))
+
+        _run(plugin, "Internal network — authenticated: gw (a.example.com)")
+
+        assert seen == []
+
+    def test_gateway_not_found(self, service_module, dbus_signals):
+        plugin = _plugin(service_module)
+
+        _run(
+            plugin,
+            record("Cannot find gateway specified: gw-b", level="ERROR"),
+        )
+
+        assert plugin._gateway_not_found_seen is True
 
 
 class TestLogging:

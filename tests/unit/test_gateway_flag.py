@@ -33,10 +33,14 @@ with open("__LOG__", "a") as out:
 if __NOT_FOUND__ == "always" or (
     __NOT_FOUND__ == "flag" and any(a.startswith("--gateway=") for a in args)
 ):
-    sys.stdout.write(
-        "Error: Cannot find gateway specified: "
-        + [a for a in args if a.startswith("--gateway=")][0][10:] + "\r\n"
-    )
+    message = "Cannot find gateway specified: " + [
+        a for a in args if a.startswith("--gateway=")
+    ][0][10:]
+    if __AS_TEXT__:
+        sys.stdout.write("Error: " + message + "\r\n")
+    else:  # upstream's error report is a log record
+        sys.stdout.write(json.dumps({"timestamp": "t", "level": "ERROR",
+            "target": "gpapi::clap", "message": message}) + "\r\n")
     sys.stdout.flush()
     sys.exit(1)
 sys.exit(0)
@@ -45,14 +49,14 @@ sys.exit(0)
 STORED = "gw-a (a.example.com);gw-b (b.example.com)"
 
 
-def _launches(service_module, monkeypatch, tmp_path, not_found="", **settings):
+def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False, **settings):
     """Run gpclient to its end (with restarts); return the recorded launches"""
     log = tmp_path / "launches.jsonl"
     script = tmp_path / "gpclient.py"
     script.write_text(
-        FAKE_GPCLIENT.replace("__LOG__", str(log)).replace(
-            "__NOT_FOUND__", repr(not_found)
-        )
+        FAKE_GPCLIENT.replace("__LOG__", str(log))
+        .replace("__NOT_FOUND__", repr(not_found))
+        .replace("__AS_TEXT__", repr(as_text))
     )
     launcher = tmp_path / "gpclient.sh"
     launcher.write_text(f'#!/bin/bash\nexec "{sys.executable}" "{script}" "$@"\n')
@@ -131,6 +135,17 @@ class TestGatewayNotFoundRestart:
 
         assert [_gateway_args(x) for x in launches] == [["--gateway=gw-b"], []]
         assert "no longer offered" in caplog.text
+
+    def test_the_error_as_a_plain_line_does_not_restart(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        # Only a log record counts: a plain line cannot trigger the restart
+        _, launches = _launches(
+            service_module, monkeypatch, tmp_path, not_found="flag", as_text=True,
+            preferred_gateway="gw-b", _stored_gateway_list=STORED,
+        )
+
+        assert [_gateway_args(x) for x in launches] == [["--gateway=gw-b"]]
 
     def test_a_second_failure_is_not_retried(
         self, service_module, monkeypatch, tmp_path, dbus_signals

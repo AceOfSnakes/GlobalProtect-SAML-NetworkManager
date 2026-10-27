@@ -17,7 +17,11 @@ import pytest
 # Stand-in for gpclient: fails like a portal that needs legacy renegotiation,
 # unless --fix-openssl is passed before the subcommand.
 FAKE_GPCLIENT = r'''
-import sys
+import json, sys
+
+def rec(level, message):
+    sys.stdout.write(json.dumps({"timestamp": "t", "level": level,
+        "target": "gpclient::cli", "message": message}) + "\r\n")
 
 args = sys.argv[1:]
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
@@ -26,22 +30,15 @@ sys.stdout.write("argv: %s\r\n" % " ".join(args))
 if "--fix-openssl" in args:
     # The flag has to come before the subcommand
     assert args.index("--fix-openssl") < args.index("connect"), "flag misplaced"
-    sys.stdout.write(
-        "[INFO  gpclient::connect] Connecting to the only available gateway: "
-        "gw-a (a.example.com)\r\n"
-    )
+    rec("INFO", "Connecting to the only available gateway: gw-a (a.example.com)")
     sys.stdout.flush()
     sys.exit(0)
 
-sys.stdout.write(
-    "[WARN  gpapi::portal::prelogin] Network error: error:0A000152:SSL routines:"
-    "final_renegotiate:unsafe legacy renegotiation disabled\r\n"
-)
-sys.stdout.write(
-    "Error: error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
-    "renegotiation disabled\r\n"
-)
-sys.stdout.write("Re-run it with the `--fix-openssl` option to work around this issue, e.g.:\r\n")
+rec("WARN", "Network error: error:0A000152:SSL routines:"
+    "final_renegotiate:unsafe legacy renegotiation disabled")
+rec("ERROR", "error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
+    "renegotiation disabled")
+rec("ERROR", "Re-run it with the `--fix-openssl` option to work around this issue, e.g.:")
 sys.stdout.flush()
 sys.exit(1)
 '''
@@ -59,27 +56,38 @@ sys.exit(1)
 # Stand-in for a portal the flag does not help with: every launch is recorded
 # in a file (path filled in by the test) and fails with the legacy error
 FAKE_GPCLIENT_ALWAYS_FAILING = r'''
-import sys
+import json, sys
+
+def rec(level, message):
+    sys.stdout.write(json.dumps({"timestamp": "t", "level": level,
+        "target": "gpclient::cli", "message": message}) + "\r\n")
 
 with open("__LAUNCH_LOG__", "a") as log:
     log.write("launch\n")
 
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
-sys.stdout.write(
-    "Error: error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
-    "renegotiation disabled\r\n"
-)
-sys.stdout.write("Re-run it with the `--fix-openssl` option to work around this issue, e.g.:\r\n")
+rec("ERROR", "error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
+    "renegotiation disabled")
+rec("ERROR", "Re-run it with the `--fix-openssl` option to work around this issue, e.g.:")
 sys.stdout.flush()
 sys.exit(1)
 '''
 
-# Stand-in that prints one given line (filled in by the test) and fails - the
-# way gpclient 3.x reports a TLS problem
+# Stand-in that prints one given line (filled in by the test), as a log record
+# or, when __RECORD__ is False, as a plain line, and fails - the way gpclient
+# 3.x reports a TLS problem
 FAKE_GPCLIENT_ONE_ERROR_LINE = r'''
-import sys
-sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
-sys.stdout.write(__LINE__ + "\r\n")
+import json, sys
+
+def rec(level, message):
+    sys.stdout.write(json.dumps({"timestamp": "t", "level": level,
+        "target": "gpclient::cli", "message": message}) + "\r\n")
+
+rec("INFO", "gpclient started: fake")
+if __RECORD__:
+    rec("ERROR", __LINE__)
+else:
+    sys.stdout.write(__LINE__ + "\r\n")
 sys.stdout.flush()
 sys.exit(1)
 '''
@@ -261,7 +269,9 @@ class TestV3TlsErrors:
         fake = _write_fake(
             tmp_path,
             "gpclient-v3.py",
-            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(V3_LEGACY_TLS_LINE)),
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace(
+                "__LINE__", repr(V3_LEGACY_TLS_LINE)
+            ).replace("__RECORD__", "True"),
         )
         plugin = _plugin(service_module, monkeypatch, fake)
 
@@ -270,6 +280,33 @@ class TestV3TlsErrors:
         assert plugin._openssl_error_seen is True
         assert plugin._openssl_retried is True
         assert plugin.fix_openssl is True
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            V3_LEGACY_TLS_LINE,
+            "unsafe legacy renegotiation disabled",
+            "Re-run it with the `--fix-openssl` option to work around this issue",
+        ],
+    )
+    def test_the_error_as_a_plain_line_does_not_trigger_retry(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, line
+    ):
+        # Only a log record counts, so text the portal controls cannot start
+        # a retry
+        fake = _write_fake(
+            tmp_path,
+            "gpclient-text.py",
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)).replace(
+                "__RECORD__", "False"
+            ),
+        )
+        plugin = _plugin(service_module, monkeypatch, fake)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        assert plugin._openssl_error_seen is False
+        assert plugin._openssl_retried is False
 
     @pytest.mark.parametrize(
         "line",
@@ -287,7 +324,9 @@ class TestV3TlsErrors:
         fake = _write_fake(
             tmp_path,
             "gpclient-v3-other.py",
-            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)),
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)).replace(
+                "__RECORD__", "True"
+            ),
         )
         plugin = _plugin(service_module, monkeypatch, fake)
 

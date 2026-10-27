@@ -271,49 +271,49 @@
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": "VPN interface: {}",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "tunnel-settings-ipv4",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": "VPN IPv4: {}",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "tunnel-settings-dns",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": "VPN DNS: {}",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "tunnel-settings-search-domains",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": "VPN search domains: {}",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "tunnel-settings-split-dns",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": "VPN split DNS: {}",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "tunnel-settings-mtu",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": "VPN MTU: {mtu}",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "tunnel-settings-truncated",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",
       "text": " ({} of {} shown; truncated)",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "code-tunnel-log-configuration",
@@ -322,7 +322,7 @@
       "path": "crates/gptunnel/src/configuration.rs",
       "start": "pub(crate) fn log_configuration(",
       "sha256": "8520217a7c48cf07f6567d4ce86dcdeb577fce3552ac9973a02aefbf5f836ab1",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "code-tunnel-values",
@@ -331,7 +331,7 @@
       "path": "crates/gptunnel/src/configuration.rs",
       "start": "fn values(",
       "sha256": "4b54ccfd5e27385d7da5b96c7bc6075651e4e39acbba28f3f15c237d993e2c16",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "code-tunnel-escaped",
@@ -340,7 +340,7 @@
       "path": "crates/gptunnel/src/configuration.rs",
       "start": "fn escaped(",
       "sha256": "ae1d19b01989e7d58a2b88b152cac59099d3bef2004b6f41a6f6716037b142ea",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "code-tunnel-address-display",
@@ -349,7 +349,7 @@
       "path": "crates/gpapi/src/session/tunnel.rs",
       "start": "pub fn display(&self) -> String {",
       "sha256": "4b0d7bf9da4f7a10c26a98edf67853328bc667fe614268ed2ab802bee214e5bc",
-      "used_by": "service/nm-gpclient-service.py: TUNNEL_SETTINGS_RE"
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "code-obtain-credential",

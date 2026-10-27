@@ -12,6 +12,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import asyncio
 import dataclasses
+import json
+import re
 import sys
 
 import pytest
@@ -19,6 +21,18 @@ from test_dbus_methods import _conn, _plugin, connect, fake_exec  # noqa: F401
 from vpnc_notify_helpers import activate, ip4_config, notify, vpnc_env
 
 PREFIX = "[2026-01-01T00:00:02Z INFO  gptunnel::configuration] "
+
+
+def _as_record(line):
+    """A text-form log line as the JSON record gpclient writes (a line without
+    the log prefix is no log line and stays as it is)"""
+    match = re.match(r"\[(?:\S+\s+)?([A-Z]+)\s+([\w:]+)\]\s+(.*)$", line)
+    if not match:
+        return line
+    level, target, message = match.groups()
+    return json.dumps(
+        {"timestamp": "t", "level": level, "target": target, "message": message}
+    )
 
 
 def _lines(**overrides):
@@ -41,7 +55,7 @@ def _lines(**overrides):
 def _parse(service_module, lines):
     settings = service_module.TunnelSettings()
     for line in lines:
-        settings = service_module.parse_tunnel_settings_line(line, settings)
+        settings = service_module.parse_tunnel_settings_line(_as_record(line), settings)
     return settings
 
 
@@ -94,12 +108,16 @@ class TestParseLines:
             "[INFO  gpclient::connect] ",
         ],
     )
-    def test_log_prefixes(self, service_module, prefix):
-        settings = service_module.parse_tunnel_settings_line(
-            prefix + "VPN DNS: 10.1.1.1", service_module.TunnelSettings()
+    def test_a_text_line_with_a_log_prefix_is_ignored(self, service_module, prefix):
+        # Only a log record carries the settings: a text line, even with a
+        # log prefix, is ignored
+        before = service_module.TunnelSettings()
+
+        after = service_module.parse_tunnel_settings_line(
+            prefix + "VPN DNS: 10.1.1.1", before
         )
 
-        assert settings.dns == ("10.1.1.1",)
+        assert after is before
 
     def test_the_prefix_is_ignored_with_trailing_blanks(self, service_module):
         settings = _parse(service_module, [PREFIX + "VPN MTU: 1400   "])
@@ -109,7 +127,7 @@ class TestParseLines:
     def test_the_interface_line_starts_a_new_record(self, service_module):
         first = _parse(service_module, _lines())
         second = service_module.parse_tunnel_settings_line(
-            PREFIX + "VPN interface: tun1", first
+            _as_record(PREFIX + "VPN interface: tun1"), first
         )
 
         assert second == service_module.TunnelSettings(interface="tun1")
@@ -241,13 +259,13 @@ class TestOtherLines:
     def test_the_record_is_not_changed(self, service_module, line):
         before = service_module.TunnelSettings(interface="tun0", dns=("10.9.9.9",))
 
-        after = service_module.parse_tunnel_settings_line(line, before)
+        after = service_module.parse_tunnel_settings_line(_as_record(line), before)
 
         assert after is before
 
     def test_the_regex_names_the_key(self, service_module):
-        match = service_module.TUNNEL_SETTINGS_RE.match(
-            PREFIX + "VPN search domains: a.example"
+        match = service_module.TUNNEL_MESSAGE_RE.match(
+            "VPN search domains: a.example"
         )
 
         assert match.group("key") == "search domains"
@@ -269,7 +287,9 @@ sys.exit(0)
 
 def _plugin_running(service_module, monkeypatch, tmp_path, lines):
     script = tmp_path / "gpclient.py"
-    script.write_text(FAKE_GPCLIENT.replace("__LINES__", repr(list(lines))))
+    script.write_text(
+        FAKE_GPCLIENT.replace("__LINES__", repr([_as_record(x) for x in lines]))
+    )
     launcher = tmp_path / "gpclient.sh"
     launcher.write_text(f'#!/bin/bash\nexec "{sys.executable}" "{script}" "$@"\n')
     launcher.chmod(0o755)
@@ -317,6 +337,18 @@ def _detect(service_module, plugin, state=None):
 
 
 class TestOutputPath:
+    def test_the_lines_as_plain_text_leave_the_record_empty(
+        self, service_module, monkeypatch, tmp_path
+    ):
+        # a transcript of text lines (not records) is no tunnel settings
+        plugin = _plugin_running(service_module, monkeypatch, tmp_path, [])
+        script = tmp_path / "gpclient.py"
+        script.write_text(FAKE_GPCLIENT.replace("__LINES__", repr(_lines())))
+
+        _read_output(plugin)
+
+        assert plugin._tunnel_settings == service_module.TunnelSettings()
+
     def test_a_transcript_fills_the_record(self, service_module, monkeypatch, tmp_path):
         plugin = _plugin_running(service_module, monkeypatch, tmp_path, _lines())
 

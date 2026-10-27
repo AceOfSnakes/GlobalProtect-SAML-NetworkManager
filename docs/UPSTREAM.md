@@ -4,7 +4,10 @@
 `service/nm-gpclient-service.py` runs `gpclient --log-format json` under a PTY.
 It reads the level and the message of each JSON log record, and the text that
 gpclient prints without the logger: gateway lists, username, password and OTP
-prompts and banners. A change of one of these texts breaks the service without any
+prompts and banners. What gpclient logs or reports (gateway count and choice,
+tunnel settings, TLS and internal network errors, the `--as-gateway` hint) is
+matched on the message of a JSON record only, never on a plain line: a prompt
+line or text from the portal cannot fake such a match. A change of one of these texts breaks the service without any
 build error. This page explains how we find such a change and how we accept it.
 
 ## How the pin works
