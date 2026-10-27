@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dbus dbus-x11 xvfb xdotool ffmpeg x11-utils xauth libgl1-mesa-dri \
         fonts-noto-core fonts-noto-color-emoji fonts-ubuntu librsvg2-common \
         gnome-shell nautilus gnome-terminal gnome-control-center network-manager-gnome \
+        gnome-keyring \
         ubuntu-settings gnome-settings-daemon ubuntu-wallpapers-noble \
         yaru-theme-gtk yaru-theme-icon yaru-theme-gnome-shell \
         gnome-shell-extension-ubuntu-dock gnome-shell-extension-appindicator ubuntu-session \
