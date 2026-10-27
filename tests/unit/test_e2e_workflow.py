@@ -127,3 +127,22 @@ def test_a_workflow_that_always_uploads_the_images_is_rejected():
     )
     assert mixed != text()
     assert not images_are_uploaded_only_when_made(mixed)
+
+
+RUN_SH = os.path.join(os.path.dirname(workflow_steps.WORKFLOWS), "..", "tests", "e2e", "run.sh")
+
+
+def run_sh_targets():
+    with open(RUN_SH, encoding="utf-8") as handle:
+        line = re.search(r"^\s*(gnome \|[^)]*)\) target=", handle.read(), re.M).group(1)
+    return [t.strip() for t in line.split("|")]
+
+
+def test_run_sh_accepts_every_scenario_of_the_workflow():
+    options = re.search(r"options: \[(.*?)\]", text()).group(1).replace(" ", "").split(",")
+    assert sorted(run_sh_targets()) == sorted(options)
+
+
+def test_a_scenario_that_run_sh_does_not_accept_is_detected():
+    assert "no-such-scenario" not in run_sh_targets()
+    assert sorted(run_sh_targets()) != sorted(["all", "gnome", "kde", "routing", "auth-cancel"])
