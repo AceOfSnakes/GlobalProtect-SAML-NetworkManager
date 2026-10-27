@@ -24,6 +24,7 @@ class FakePlugin:
     def __init__(self):
         self.exported = []
         self.stopped = 0
+        self.removed = 0  # _remove_cert_copies calls
         self.idle_callback = None
         FakePlugin.instances.append(self)
 
@@ -35,6 +36,9 @@ class FakePlugin:
 
     async def _stop_gpclient(self):
         self.stopped += 1
+
+    def _remove_cert_copies(self):
+        self.removed += 1
 
 
 @pytest.fixture
@@ -250,11 +254,13 @@ class TestShutdown:
             await asyncio.sleep(0)
             assert not task.done()
             assert FakePlugin.instances[0].stopped == 0
+            assert FakePlugin.instances[0].removed == 0
             handlers[sig]()
             return await task
 
         assert asyncio.run(driver()) == 0
         assert FakePlugin.instances[0].stopped == 1
+        assert FakePlugin.instances[0].removed == 1
 
     def test_error_while_waiting_returns_one_and_still_stops_gpclient(
         self, service_module, env, monkeypatch
@@ -279,6 +285,7 @@ class TestShutdown:
 
         assert result == 1
         assert FakePlugin.instances[0].stopped == 1
+        assert FakePlugin.instances[0].removed == 1
 
     def test_stop_gpclient_error_is_not_swallowed(
         self, service_module, env, monkeypatch

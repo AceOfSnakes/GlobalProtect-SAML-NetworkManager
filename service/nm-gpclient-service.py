@@ -678,8 +678,8 @@ def validate_cert_path(name: str, path: str) -> str:
 
 
 CERT_FILE_MAX_BYTES = 1024 * 1024
-# Parent of the private copies of the certificate files (also used by the vpnc
-# hook); each connection attempt gets a directory of its own below it
+# Parent of the private copies of the certificate files; each connection
+# attempt gets a directory of its own below it
 CERT_COPY_ROOT = "/run/nm-gpclient"
 
 
@@ -4691,6 +4691,7 @@ async def main_async():
     finally:
         # Cleanup: stop gpclient before the PTY goes away (see Disconnect)
         await plugin._stop_gpclient()
+        plugin._remove_cert_copies()  # SIGTERM (stop, upgrade) while connected
 
     logger.info("gpclient VPN service stopped")
     return 0

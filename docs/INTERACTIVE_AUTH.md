@@ -120,7 +120,9 @@ nmcli connection modify "My VPN" vpn.secrets cert-pass=...
   reads your path, so changing or replacing the original after the check does
   not change the copy (it is made at each connect). The service refuses another
   owner, a directory, a device or a FIFO, and the connection fails with the
-  reason in the log. It deletes the copies when the connection ends or fails.
+  reason in the log. It deletes the copies when the connection ends or fails,
+  and when the service stops; after a crash they stay until the next reboot
+  (`/run`).
   The service finds no desktop user in some setups (no session): then it
   refuses `usercert`/`userkey` and the connection fails.
 - Upstream picks the format by the extension only: `.p12` or `.pfx` is PKCS#12,
