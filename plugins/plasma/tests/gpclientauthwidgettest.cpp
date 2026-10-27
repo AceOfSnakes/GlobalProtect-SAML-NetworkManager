@@ -154,18 +154,18 @@ private Q_SLOTS:
     {
         QTest::addColumn<QString>("mode");
         QTest::addColumn<int>("expectedRuns");
-        QTest::addColumn<QDialog::DialogCode>("expectedCode");
-        QTest::newRow("auto retries once") << QStringLiteral("auto") << 2 << QDialog::Accepted;
+        QTest::addColumn<int>("expectedCode"); // QDialog::DialogCode is no Qt 5 metatype
+        QTest::newRow("auto retries once") << QStringLiteral("auto") << 2 << int(QDialog::Accepted);
         // the negative twins: no retry
-        QTest::newRow("false does not retry") << QStringLiteral("false") << 1 << QDialog::Rejected;
-        QTest::newRow("true already has the option") << QStringLiteral("true") << 1 << QDialog::Rejected;
+        QTest::newRow("false does not retry") << QStringLiteral("false") << 1 << int(QDialog::Rejected);
+        QTest::newRow("true already has the option") << QStringLiteral("true") << 1 << int(QDialog::Rejected);
     }
 
     void legacyTlsErrorRetriesWithFixOpenssl()
     {
         QFETCH(QString, mode);
         QFETCH(int, expectedRuns);
-        QFETCH(QDialog::DialogCode, expectedCode);
+        QFETCH(int, expectedCode);
         // With --fix-openssl it works, without it prints the legacy TLS error.
         // Mode "true" passes the option at once, so the fake fails there too.
         const QString ok = QStringLiteral("echo '") + successLine + QStringLiteral("'");
@@ -178,7 +178,7 @@ private Q_SLOTS:
         QString result;
         QDialog::DialogCode code;
         QVERIFY(login(hint(saml), &result, &code));
-        QCOMPARE(code, expectedCode);
+        QCOMPARE(int(code), expectedCode);
         const QStringList all = runs();
         QCOMPARE(all.size(), expectedRuns);
         if (mode == QLatin1String("auto")) {
