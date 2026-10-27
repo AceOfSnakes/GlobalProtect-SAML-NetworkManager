@@ -91,6 +91,42 @@ password is only requested mid-connection when gpclient actually asks.
 Nothing changes — `auth-mode` defaults to `saml` and authentication happens
 in the browser as before.
 
+## Client certificate
+
+A portal or gateway can also ask for a client certificate (a certificate per
+device, with SAML or with username and password,
+[#134](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/134)).
+Give gpclient the files with `vpn.data` keys; the editors have the same fields
+(**Client certificate**, **Private key**, **Certificate passphrase**):
+
+```bash
+# PKCS#12 file (.p12, .pfx) or PEM file with the certificate and the key
+nmcli connection modify "My VPN" +vpn.data usercert=/home/alice/.certs/me.p12
+# a separate PEM key
+nmcli connection modify "My VPN" +vpn.data userkey=/home/alice/.certs/me.key
+# the passphrase of an encrypted key, kept for this user only (the keyring)
+nmcli connection modify "My VPN" +vpn.data cert-pass-flags=1
+nmcli connection modify "My VPN" vpn.secrets cert-pass=...
+```
+
+- The service passes `--certificate=<usercert>` and `--sslkey=<userkey>` to
+  gpclient. Both must be absolute paths.
+- **The files must be readable by the desktop user.** gpclient runs as root, but
+  gpclient starts the browser sign-in (gpauth) as the desktop user, and gpauth
+  reads the same files.
+- The passphrase is never put on the command line (any user can read it in
+  `/proc`). When the key or the PKCS#12 file is encrypted, gpclient asks
+  "Enter the PEM passphrase:" or "Enter the PKCS#12 passphrase:". The service
+  answers this prompt (and only this prompt) with the `cert-pass` secret. It
+  uses the stored value once; when gpclient asks again, or when none is stored,
+  the secret agent asks you. The VPN password is never typed there.
+  `cert-pass-flags` works like `password-flags` (`1` agent, `0` profile file,
+  `2` not saved, asked every time).
+- Limitation of upstream gpclient: in SAML mode it hands the key passphrase to
+  gpauth on the command line, where other users of the machine can read it for
+  as long as gpauth runs. Prefer a key without a passphrase in a file with mode
+  `0600` that only you can read, or report this upstream.
+
 ## Gateway selection
 
 A portal usually offers several gateways and `gpclient` asks which one to use,

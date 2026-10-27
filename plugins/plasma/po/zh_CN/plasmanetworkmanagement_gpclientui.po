@@ -367,3 +367,62 @@ msgstr "dns 必须是以逗号、分号或空格分隔的 IPv4 或 IPv6 地址"
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script 必须是绝对路径"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "证书口令"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "证书口令："
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "客户端证书："
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "留空：没有客户端证书"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "留空：密钥在证书文件中"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "客户端证书文件(PEM 或 PKCS#12)的可选绝对路径，桌面用户必须能够读取。"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "私钥文件(PEM)的可选绝对路径，桌面用户必须能够读取。没有客户端证书时忽略。"
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "口令保存位置："
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "私钥："
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert 必须是绝对路径"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey 必须是绝对路径"

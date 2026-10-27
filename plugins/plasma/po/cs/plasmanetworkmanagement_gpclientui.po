@@ -367,3 +367,62 @@ msgstr "dns musí být adresy IPv4 nebo IPv6 oddělené čárkami, středníky n
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script musí být absolutní cesta"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Heslo certifikátu"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Heslo certifikátu:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Klientský certifikát:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Prázdné: bez klientského certifikátu"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Prázdné: klíč je v souboru certifikátu"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "Volitelná absolutní cesta k souboru klientského certifikátu (PEM nebo PKCS#12), čitelnému pro uživatele plochy."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Volitelná absolutní cesta k souboru soukromého klíče (PEM), čitelnému pro uživatele plochy. Bez klientského certifikátu se ignoruje."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Uložení hesla:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Soukromý klíč:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert musí být absolutní cesta"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey musí být absolutní cesta"

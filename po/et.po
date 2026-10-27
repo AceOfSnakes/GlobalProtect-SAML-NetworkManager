@@ -292,3 +292,47 @@ msgstr "username ei tohi algada märgiga „-“ ega sisaldada juhtmärke"
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Fail ei ole GlobalProtecti VPN-ühendus"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Sertifikaadi parooifraas"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Sertifikaadi parooifraas:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Kliendisertifikaat:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Tühi: kliendisertifikaati pole"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Tühi: võti on sertifikaadifailis"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "Kliendisertifikaadi faili valikuline absoluutne tee (PEM või PKCS#12), mida töölauakasutaja peab saama lugeda."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Privaatvõtme faili valikuline absoluutne tee (PEM), mida töölauakasutaja peab saama lugeda. Ilma kliendisertifikaadita eiratakse."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Privaatvõti:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "usercert peab olema absoluutne tee"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "userkey peab olema absoluutne tee"

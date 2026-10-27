@@ -193,11 +193,14 @@
       "upstream": [
         "login-default-username",
         "login-default-password",
-        "mfa-prompt"
+        "mfa-prompt",
+        "passphrase-prompt"
       ],
       "tests": [
         "tests/unit/test_interactive_prompts.py::test_first_prompt_is_username_even_if_localized",
-        "tests/unit/test_interactive_prompts.py::test_password_after_username"
+        "tests/unit/test_interactive_prompts.py::test_password_after_username",
+        "tests/unit/test_client_cert.py::test_passphrase_prompt_is_the_certificate_passphrase",
+        "tests/unit/test_client_cert.py::test_other_prompts_are_not_the_certificate_passphrase"
       ]
     },
     {

@@ -367,3 +367,62 @@ msgstr "dns ha de ser adreces IPv4 o IPv6 separades per comes, punts i coma o es
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script ha de ser un camí absolut"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Contrasenya del certificat"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Contrasenya del certificat:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Certificat de client:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Buit: sense certificat de client"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Buit: la clau és al fitxer del certificat"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "Camí absolut opcional del fitxer del certificat de client (PEM o PKCS#12), que ha de poder llegir l'usuari de l'escriptori."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Camí absolut opcional del fitxer de la clau privada (PEM), que ha de poder llegir l'usuari de l'escriptori. S'ignora sense certificat de client."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Emmagatzematge de la contrasenya:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Clau privada:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert ha de ser un camí absolut"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey ha de ser un camí absolut"

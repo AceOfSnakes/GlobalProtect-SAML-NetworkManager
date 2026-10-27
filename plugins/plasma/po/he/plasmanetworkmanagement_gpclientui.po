@@ -367,3 +367,62 @@ msgstr "dns חייב להיות כתובות IPv4 או IPv6 מופרדות בפ�
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script חייב להיות נתיב מוחלט"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "ביטוי הסיסמה של האישור"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "ביטוי הסיסמה של האישור:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "אישור לקוח:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "ריק: ללא אישור לקוח"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "ריק: המפתח נמצא בקובץ האישור"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "נתיב מוחלט אופציונלי לקובץ אישור הלקוח (PEM או PKCS#12), שמשתמש שולחן העבודה חייב להיות מסוגל לקרוא."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "נתיב מוחלט אופציונלי לקובץ המפתח הפרטי (PEM), שמשתמש שולחן העבודה חייב להיות מסוגל לקרוא. מתעלמים ממנו ללא אישור לקוח."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "אחסון ביטוי הסיסמה:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "מפתח פרטי:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert חייב להיות נתיב מוחלט"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey חייב להיות נתיב מוחלט"

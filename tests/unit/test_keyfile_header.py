@@ -41,6 +41,7 @@ RULES = {
         "makes the base directory absolute for libnm": r"base_dir = g_canonicalize_filename \(dir, NULL\);.*nm_keyfile_read \(keyfile, base_dir,",
         "never returns NULL without an error": r"if \(error && !\*error\)\s*g_set_error_literal",
         "checks the fields with the rules of the editors": r"nm_gpclient_validate_form \(",
+        "checks the certificate and key paths": r'"usercert"\),\s*nm_setting_vpn_get_data_item \(s_vpn, "userkey"\)\);',
         "translates the message of the rule": r"_\(problem\)",
         "gives a new UUID": r"nm_utils_uuid_generate \(\)[^}]*NM_SETTING_CONNECTION_UUID",
         "drops the secrets": r"nm_connection_clear_secrets \(connection\)",
@@ -208,6 +209,15 @@ def test_a_makefile_rule_without_the_header_is_found():
     assert makefile_rule_misses(broken) == ["nm-gpclient-keyfile.h"]
 
 
+def test_the_passphrase_of_the_key_is_dropped_with_all_secrets():
+    # cert-pass (issue #134) is a vpn secret: clear_secrets takes it with the
+    # password, and no code names a secret on its own
+    text = read(HEADER)
+    assert "nm_connection_clear_secrets (copy)" in body(text, "nm_gpclient_keyfile_export")
+    assert "nm_connection_clear_secrets (connection)" in body(text, "nm_gpclient_keyfile_import")
+    assert "cert-pass" not in text and "nm_setting_vpn_remove_secret" not in text
+
+
 def test_the_header_has_no_secret_in_an_export_and_no_fixed_uuid():
     text = read(HEADER)
     assert "nm_keyfile_write" in text and "nm_utils_uuid_generate" in text
@@ -357,7 +367,7 @@ def uncovered(headers, catalog_text, cpp, translated=False):
 
 def test_every_message_of_the_helper_headers_is_in_the_plasma_catalog():
     headers = [read(HEADER), read(VALIDATOR)]
-    assert len(english_messages(*headers)) == 7
+    assert len(english_messages(*headers)) == 9
     assert uncovered(headers, read(POT), PLASMA) == []
 
 

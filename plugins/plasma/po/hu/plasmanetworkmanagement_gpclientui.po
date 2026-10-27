@@ -367,3 +367,62 @@ msgstr "a dns-nek vesszővel, pontosvesszővel vagy szóközzel elválasztott IP
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "a hip-script-nek abszolút elérési útnak kell lennie"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Tanúsítvány jelmondata"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Tanúsítvány jelmondata:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Ügyféltanúsítvány:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Üres: nincs ügyféltanúsítvány"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Üres: a kulcs a tanúsítványfájlban van"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "Az ügyféltanúsítvány fájljának választható abszolút elérési útja (PEM vagy PKCS#12), amelyet az asztali felhasználónak olvasnia kell tudnia."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "A privát kulcs fájljának választható abszolút elérési útja (PEM), amelyet az asztali felhasználónak olvasnia kell tudnia. Ügyféltanúsítvány nélkül figyelmen kívül marad."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Jelmondat tárolása:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Privát kulcs:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "a usercert-nek abszolút elérési útnak kell lennie"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "a userkey-nek abszolút elérési útnak kell lennie"

@@ -18,7 +18,7 @@ All components have been implemented and are ready for testing:
 2. **Configuration Widget** (`gpclientwidget.h/cpp`)
    - Implements `SettingWidget` interface
    - Handles loading/saving VPN configuration
-   - Provides validation (the rules of `plugins/gnome/nm-gpclient-validate.h`, shared with the GNOME editors: gateway required, username, browser, dns, hip-script)
+   - Provides validation (the rules of `plugins/gnome/nm-gpclient-validate.h`, shared with the GNOME editors: gateway required, username, browser, dns, hip-script, usercert, userkey)
 
 3. **User Interface** (`gpclientwidget.ui`)
    - Qt Designer XML format
@@ -166,7 +166,7 @@ Service: /usr/share/kservices5/
 **Key Functions:**
 - `loadConfig()` - Loads VPN settings into UI
 - `setting()` - Converts UI to QVariantMap
-- `isValid()` - Validates configuration (the rules of `plugins/gnome/nm-gpclient-validate.h`, shared with the GNOME editors: gateway required, username, browser, dns, hip-script)
+- `isValid()` - Validates configuration (the rules of `plugins/gnome/nm-gpclient-validate.h`, shared with the GNOME editors: gateway required, username, browser, dns, hip-script, usercert, userkey)
 
 **Signals:**
 - `settingChanged()` - Emitted on any field change

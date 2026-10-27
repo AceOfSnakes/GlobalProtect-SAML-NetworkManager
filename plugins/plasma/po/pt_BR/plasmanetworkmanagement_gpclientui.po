@@ -393,3 +393,62 @@ msgstr "o dns deve ser endereços IPv4 ou IPv6 separados por vírgulas, pontos e
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "o hip-script deve ser um caminho absoluto"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Frase secreta do certificado"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Frase secreta do certificado:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Certificado do cliente:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Vazio: sem certificado do cliente"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Vazio: a chave está no arquivo do certificado"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "Caminho absoluto opcional do arquivo do certificado do cliente (PEM ou PKCS#12), legível pelo usuário da área de trabalho."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Caminho absoluto opcional do arquivo da chave privada (PEM), legível pelo usuário da área de trabalho. Ignorado sem certificado do cliente."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Armazenamento da frase secreta:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Chave privada:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "o usercert deve ser um caminho absoluto"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "o userkey deve ser um caminho absoluto"

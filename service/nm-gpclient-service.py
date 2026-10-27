@@ -130,6 +130,13 @@ VPNC_NOTIFY_ENV = (
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
+# Secret name of the passphrase of the client certificate key (vpn.secrets)
+CERT_PASS_SECRET_KEY = "cert-pass"  # noqa: S105  # a D-Bus secret name, not a password
+# The passphrase prompt of gpclient (contract item passphrase-prompt); the type
+# is "PEM" or "PKCS#12". Only this label is the key passphrase: the VPN
+# password must never be typed there, and the key passphrase never at a login
+# prompt.
+CERT_PASS_PROMPT_RE = re.compile(r"Enter the (?:PEM|PKCS#12) passphrase", re.IGNORECASE)
 # Tries per connection to mark the code as not-saved in the profile
 OTP_FLAG_MAX_ATTEMPTS = 2
 
@@ -651,6 +658,18 @@ def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
 
 
 HIDDEN = "<hidden>"
+
+
+def validate_cert_path(name: str, path: str) -> str:
+    """The client certificate or key file `path` of vpn.data key `name`.
+
+    Raises ValueError when it is not an absolute path or holds a control
+    character. The file itself is read by gpclient (and gpauth, as the desktop
+    user), which report a missing or unreadable file.
+    """
+    if not os.path.isabs(path) or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise ValueError(f"{name} must be an absolute path")
+    return path
 
 
 def password_not_required(data: Dict[str, Any]) -> bool:
@@ -1685,6 +1704,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # login portals where gpclient prompts on its terminal)
         self.vpn_username = ""
         self.vpn_password = ""
+        self.cert_pass = ""
+        self.usercert = ""
+        self.userkey = ""
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
@@ -1707,6 +1729,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._answered_cert_pass = False
         self._login_failed = False
 
         logger.info("GpclientVPNPlugin initialized with python-sdbus")
@@ -1817,6 +1840,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._answered_cert_pass = False
         self._login_failed = False
         self._reset_output_state()
         self._gateway_list = []
@@ -1876,6 +1900,25 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 logger.info(f"Stored username: {self.vpn_username}")
             if self.vpn_password:
                 logger.info("Stored password: <present>")
+            self.cert_pass = secrets_dict.get(CERT_PASS_SECRET_KEY, "")
+            if self.cert_pass:
+                self._written_secrets.add(self.cert_pass)
+                logger.info("Stored certificate passphrase: <present>")
+
+            # Client certificate and key (issue #134). The passphrase is never
+            # put on the command line (visible in /proc): gpclient asks for it.
+            self.usercert = data_dict.get("usercert", "").strip()
+            self.userkey = data_dict.get("userkey", "").strip()
+            try:
+                if self.usercert:
+                    validate_cert_path("usercert", self.usercert)
+                if self.userkey:
+                    validate_cert_path("userkey", self.userkey)
+            except ValueError as e:
+                raise BadArgumentsError(str(e)) from e
+            if self.userkey and not self.usercert:
+                logger.warning("userkey is ignored because usercert is not set")
+                self.userkey = ""
 
             # Connection UUID, needed to cache the gateway list in the profile
             connection_section = connection.get("connection", {})
@@ -2163,6 +2206,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
+        self.cert_pass = ""
+        self.usercert = ""
+        self.userkey = ""
         self._interactive = False
         self._auth_banner = None
         self._answering = False
@@ -2173,6 +2219,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._answered_cert_pass = False
         self._login_failed = False
 
     @dbus_method_async("a{sv}")
@@ -2521,6 +2568,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 # One argv item: gpclient's --hip takes an optional value, and
                 # a separate path could be read as the positional server
                 cmd.append(f"--hip={self.hip_script}" if self.hip_script else "--hip")
+
+            # Client certificate (single tokens: a path must not be read as an
+            # option). Never --key-password: argv is world-readable.
+            if self.usercert:
+                cmd.append(f"--certificate={self.usercert}")
+                if self.userkey:
+                    cmd.append(f"--sslkey={self.userkey}")
 
             # The server is a gateway, not a portal: skip the portal workflow
             # so the user is not authenticated twice
@@ -3137,7 +3191,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._answered_password = False
 
     def _classify_prompt_kind(self, label: str, banner_msg: str) -> str:
-        """Decide how to answer a prompt: 'otp', 'username' or 'password'.
+        """Decide how to answer a prompt: 'cert-pass', 'otp', 'username' or
+        'password'.
 
         Combines label keywords with the prompt ORDER, which is a
         language-independent protocol invariant: gpclient asks username then
@@ -3148,6 +3203,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Text in brackets is a hint and may be a negation ("Password (not
         # your PIN)"), so it is never looked at
         main = LABEL_HINT_RE.sub(" ", label)
+
+        # The passphrase of the client certificate key. Checked first, and by
+        # the exact upstream text: it is neither a login password nor an OTP.
+        if CERT_PASS_PROMPT_RE.fullmatch(main.strip()):
+            return CERT_PASS_SECRET_KEY
 
         # One-time challenge, by keyword in the label OR by position (anything
         # after we've already sent the password this phase).
@@ -3192,6 +3252,16 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                         "username", label, banner_msg
                     )
                 self._answered_username = True
+            elif kind == CERT_PASS_SECRET_KEY:
+                # Once from the profile: gpclient asks again after a wrong one
+                if self.cert_pass and not self._answered_cert_pass:
+                    logger.info("Answering passphrase prompt from stored passphrase")
+                    answer = self.cert_pass
+                else:
+                    answer = await self._request_secret_interactive(
+                        CERT_PASS_SECRET_KEY, label, banner_msg
+                    )
+                self._answered_cert_pass = True
             elif kind == "otp":
                 logger.info(
                     "Prompt looks like a one-time secret (token/OTP/challenge), "

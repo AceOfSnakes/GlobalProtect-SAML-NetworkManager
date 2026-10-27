@@ -393,3 +393,62 @@ msgstr "dns には、カンマ、セミコロン、または空白で区切っ�
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script は絶対パスである必要があります"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "証明書のパスフレーズ"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "証明書のパスフレーズ:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "クライアント証明書:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "空: クライアント証明書なし"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "空: 鍵は証明書ファイルに含まれます"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "クライアント証明書ファイル (PEM または PKCS#12) の絶対パス (省略可)。デスクトップユーザーが読み取れる必要があります。"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "秘密鍵ファイル (PEM) の絶対パス (省略可)。デスクトップユーザーが読み取れる必要があります。クライアント証明書がない場合は無視されます。"
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "パスフレーズの保存先:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "秘密鍵:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert は絶対パスである必要があります"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey は絶対パスである必要があります"

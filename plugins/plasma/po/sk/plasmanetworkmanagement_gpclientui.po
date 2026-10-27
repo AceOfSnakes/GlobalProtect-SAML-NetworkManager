@@ -367,3 +367,62 @@ msgstr "dns musí byť adresy IPv4 alebo IPv6 oddelené čiarkami, bodkočiarkam
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script musí byť absolútna cesta"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Heslová fráza certifikátu"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Heslová fráza certifikátu:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Klientsky certifikát:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Prázdne: bez klientskeho certifikátu"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Prázdne: kľúč je v súbore certifikátu"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"readable by your desktop user."
+msgstr "Voliteľná absolútna cesta k súboru klientskeho certifikátu (PEM alebo PKCS#12), ktorý musí byť čitateľný pre používateľa pracovnej plochy."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), readable by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Voliteľná absolútna cesta k súboru súkromného kľúča (PEM), ktorý musí byť čitateľný pre používateľa pracovnej plochy. Bez klientskeho certifikátu sa ignoruje."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Uloženie heslovej frázy:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Súkromný kľúč:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert musí byť absolútna cesta"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey musí byť absolútna cesta"
