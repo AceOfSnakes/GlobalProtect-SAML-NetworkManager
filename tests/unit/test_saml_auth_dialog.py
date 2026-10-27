@@ -226,7 +226,7 @@ class TestNoAnswer:
 
     @pytest.mark.parametrize("ext", [False, True])
     def test_root_runs_no_gpauth(self, fake, ext):
-        # e.g. "sudo nmcli --ask": the dialog runs as root
+        # an agent that runs as root starts the dialog
         proc = start(fake, "success", secret_hints(), ext=ext, extra_env={"FAKE_EUID": "0"})
 
         status, out, err = finish(proc)

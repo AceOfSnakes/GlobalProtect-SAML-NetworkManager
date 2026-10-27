@@ -142,11 +142,14 @@ Limits:
   does not work here. The service sees the log record `SAML auth launch:
   gateway=true`, stops and fails the login with a message. Tick **Address is
   a gateway**, or use `saml-auth=service`.
-- The connection must be started with an agent (desktop applet or `nmcli
-  --ask`). A start without one fails at once with a clear message; use
-  `saml-auth=service` there.
-- The auth dialog refuses to run gpauth as root (for example under `sudo nmcli
-  --ask`): start the connection as the desktop user.
+- The connection must be started with a desktop agent (GNOME Shell,
+  plasma-nm). A start without an agent fails at once with a clear message.
+  nmcli does not work: its agent runs the auth dialog (external UI mode) but
+  keeps only the entries it asks for and drops the result (`ShouldAsk=false`),
+  so `nmcli --ask` asks for `gpauth-result` on the terminal. Use
+  `saml-auth=service` with nmcli.
+- The auth dialog refuses to run gpauth as root (an agent that runs as
+  root): start the connection as the desktop user.
 - The result is a one-time secret: flag `gpauth-result-flags=2` (not saved)
   is written to the profile before the request, and the dialog never fills it
   from a stored value.

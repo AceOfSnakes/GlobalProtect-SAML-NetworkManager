@@ -325,7 +325,7 @@ def answer_saml(args, saml, message):
         print("The SAML login needs the user and interaction is not allowed", file=sys.stderr)
         return 1
     if effective_uid() == 0:
-        # e.g. "sudo nmcli --ask": gpauth and the browser must not run as root
+        # an agent that runs as root: gpauth and the browser must not run as root
         print("The SAML login does not run as root; start the VPN as the desktop user",
               file=sys.stderr)
         return 1
