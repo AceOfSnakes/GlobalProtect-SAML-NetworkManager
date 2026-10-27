@@ -393,3 +393,28 @@ msgstr "dns trebuie să fie adrese IPv4 sau IPv6 separate prin virgule, punct ș
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script trebuie să fie o cale absolută"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Autentificare SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "În serviciu (implicit)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "În dialogul de autentificare"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Unde rulează autentificarea prin browser: în serviciu sau în dialogul de autentificare (în sesiunea dvs.)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Se autentifică…"

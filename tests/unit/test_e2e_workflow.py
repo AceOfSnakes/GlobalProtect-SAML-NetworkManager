@@ -51,9 +51,9 @@ def test_token_is_read_only_and_there_are_no_secrets():
 
 def test_scenario_input_lists_every_scenario():
     options = re.search(r"options: \[(.*?)\]", text()).group(1).replace(" ", "").split(",")
-    assert options == ["all", "gnome", "kde", "routing", "auth-cancel"]
+    assert options == ["all", "gnome", "kde", "routing", "auth-cancel", "saml-dialog"]
     matrix = re.search(r"scenario: \[(gnome.*?)\]", text()).group(1).replace(" ", "").split(",")
-    assert matrix == ["gnome", "kde", "routing", "auth-cancel"]
+    assert matrix == ["gnome", "kde", "routing", "auth-cancel", "saml-dialog"]
 
 
 def test_image_is_built_with_the_actions_cache_and_artifacts_are_kept_14_days():

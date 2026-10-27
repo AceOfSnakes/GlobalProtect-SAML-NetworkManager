@@ -367,3 +367,28 @@ msgstr "dns harus berupa alamat IPv4 atau IPv6 yang dipisahkan koma, titik koma,
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script harus berupa path absolut"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Login SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Di layanan (default)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Di dialog login"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Tempat login browser berjalan: di layanan atau di dialog login (di sesi Anda)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Sedang masuk…"

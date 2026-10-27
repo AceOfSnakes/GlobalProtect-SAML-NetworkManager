@@ -28,6 +28,8 @@ HELPERS = [
     "nm_gpclient_editor_default_otp_flags",
     "nm_gpclient_editor_save_mtu",
     "nm_gpclient_editor_save_fix_openssl",
+    "nm_gpclient_editor_saml_auth_index",
+    "nm_gpclient_editor_save_saml_auth",
     "nm_gpclient_editor_save_browser",
 ]
 

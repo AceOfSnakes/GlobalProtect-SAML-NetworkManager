@@ -320,3 +320,19 @@ msgstr "brukernavn må ikke begynne med «-» eller inneholde kontrolltegn"
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Filen er ikke en GlobalProtect VPN-tilkobling"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "SAML-pålogging:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "I tjenesten (standard)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "I påloggingsdialogen"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Hvor nettleserpålogging kjøres: i tjenesten eller i påloggingsdialogen (i økten din)."

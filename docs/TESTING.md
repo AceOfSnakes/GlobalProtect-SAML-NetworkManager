@@ -151,7 +151,7 @@ log, or leftovers after the disconnect. A negative scenario closes the sign-in
 window and expects a clean failure.
 
 ```bash
-tests/e2e/run.sh all            # gnome, kde, routing, auth-cancel (about 25 min with the builds)
+tests/e2e/run.sh all            # gnome, kde, routing, auth-cancel, saml-dialog (about 25 min with the builds)
 tests/e2e/run.sh gnome --webp   # also makes docs/images/demo-gnome.webp
 ```
 

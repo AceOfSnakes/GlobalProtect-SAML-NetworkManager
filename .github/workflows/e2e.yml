@@ -18,7 +18,7 @@ on:
       scenario:
         description: "Scenario to run"
         type: choice
-        options: [all, gnome, kde, routing, auth-cancel]
+        options: [all, gnome, kde, routing, auth-cancel, saml-dialog]
         default: all
       webp:
         description: "Also make the README animations (WebP)"
@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [gnome, kde, routing, auth-cancel]
+        scenario: [gnome, kde, routing, auth-cancel, saml-dialog]
     env:
       SCENARIO: ${{ matrix.scenario }}
       # An empty selection (pull request label) means all scenarios
@@ -53,7 +53,7 @@ jobs:
       WEBP: ${{ github.event.inputs.webp || 'false' }}
 
     steps:
-      # The image is the same for gnome, routing and auth-cancel
+      # The image is the same for gnome, routing, auth-cancel and saml-dialog
       - name: Pick the image and decide whether this scenario runs
         id: pick
         run: |

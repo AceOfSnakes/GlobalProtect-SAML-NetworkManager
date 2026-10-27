@@ -53,7 +53,7 @@ for arg in "$@"; do
     esac
 done
 [ -n "$target" ] || { usage >&2; exit 2; }
-if [ "$target" = all ]; then targets=(gnome kde routing auth-cancel); else targets=("$target"); fi
+if [ "$target" = all ]; then targets=(gnome kde routing auth-cancel saml-dialog); else targets=("$target"); fi
 
 # scenario -> image, WebP name, extra environment of the container
 image_of() { case "$1" in kde) echo kde ;; *) echo gnome ;; esac; }

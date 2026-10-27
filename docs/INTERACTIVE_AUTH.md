@@ -96,7 +96,9 @@ in the browser as before. gpclient starts the browser itself (through
 ### SAML login in the auth dialog
 
 With `vpn.data saml-auth=dialog` (and `auth-mode=saml`) the login runs in your
-desktop session, not in the root service:
+desktop session, not in the root service. The connection editors set it in the
+field **SAML login** (**In the service (default)** removes the key, **In the
+login dialog** writes `dialog`):
 
 1. The service asks the secret agent for the secret `gpauth-result`. The
    request carries the hint `x-gp-saml:<JSON>` with the server, the
@@ -122,6 +124,15 @@ Other results:
   prelogin". The dialog answers `standard` and the service runs gpclient the
   usual way, with the prompts described above.
 - The agent goes away (SIGTERM, end of stdin): the dialog stops gpauth.
+- KDE Plasma: plasma-nm does not start the GNOME auth dialog. Its password
+  dialog loads the Plasma plugin (`GpclientAuthWidget`), which runs gpauth
+  with the same checks as the auth dialog and closes the password dialog by
+  itself: it shows "Signing in…" and asks nothing. plasma-nm has no
+  non-interactive answer for a VPN plugin, so the widget calls `accept()` (the
+  result is ready) or `reject()` (cancelled, failed) on its window. This holds
+  for the plasma-nm versions checked (5.24.7, 5.27.11, 6.3.5), whose
+  `SecretAgent` shows the dialog and reads `secrets()` after `accepted`. The dialog is visible for the time of the
+  login.
 
 Limits:
 

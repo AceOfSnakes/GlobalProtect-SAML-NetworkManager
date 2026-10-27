@@ -393,3 +393,28 @@ msgstr "dns musi zawierać adresy IPv4 lub IPv6 oddzielone przecinkami, średnik
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script musi być ścieżką bezwzględną"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Logowanie SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "W usłudze (domyślnie)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "W oknie logowania"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Gdzie działa logowanie w przeglądarce: w usłudze albo w oknie logowania (w Twojej sesji)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Logowanie…"

@@ -367,3 +367,28 @@ msgstr "dns, virgül, noktalı virgül veya boşlukla ayrılmış IPv4 veya IPv6
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script mutlak bir yol olmalıdır"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML girişi:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Hizmette (varsayılan)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Oturum açma iletişim kutusunda"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Tarayıcı ile oturum açmanın çalıştığı yer: hizmette veya oturum açma iletişim kutusunda (oturumunuzda)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Oturum açılıyor…"

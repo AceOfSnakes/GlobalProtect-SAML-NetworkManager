@@ -367,3 +367,28 @@ msgstr "dns має бути адресами IPv4 або IPv6, розділен�
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script має бути абсолютним шляхом"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Вхід SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "У службі (типово)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "У діалозі входу"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Де виконується вхід через браузер: у службі або в діалозі входу (у вашому сеансі)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Виконується вхід…"

@@ -5,7 +5,7 @@ Only what nm-gpclient-service.py uses is implemented:
 
   gpclient [--log-format json] [--fix-openssl] connect [--hip] [--as-gateway] [--user U]
            [--interface I]
-           --browser <path> <server>
+           (--browser=<path> | --cookie-on-stdin) [--] <server>
   gpclient disconnect
 
 `connect` prints log lines in the style of the real tool (nothing the service
@@ -22,6 +22,10 @@ GPCLIENT_NM_TOKEN); nothing is faked there. SIGTERM/SIGINT/SIGHUP run
 vpnc-script with reason disconnect, close the descriptor (which removes the
 interface) and exit 0.
 
+With --cookie-on-stdin (saml-auth=dialog) it runs no gpauth: it reads one line
+from stdin, checks that it is a {"success": {...}} result with a username and a
+cookie, and goes on. The login ran in the auth dialog, in the user's session.
+
 Environment: GPCLIENT_NM_* (set by the service, passed on to vpnc-script),
 SUDO_UID (desktop user). Runtime files live in /run/gp-demo/ (gpclient.pid, auth-done).
 """
@@ -31,6 +35,7 @@ import datetime
 import fcntl
 import json
 import os
+import select
 import signal
 import struct
 import subprocess
@@ -42,7 +47,6 @@ PID_FILE = f"{STATE_DIR}/gpclient.pid"
 AUTH_DONE_FILE = f"{STATE_DIR}/auth-done"
 
 GPAUTH = "/usr/bin/gpauth"
-SAML_URL = "https://vpn.contoso.example/global-protect/prelogin.esp?saml=1"
 AUTH_TIMEOUT = 300
 
 
@@ -120,7 +124,26 @@ def remove(path):
         pass
 
 
-def run_gpauth(browser):
+def is_success_line(line):
+    """True for a gpauth result {"success": {username, a cookie}} (not {"cancelled":null})"""
+    try:
+        data = json.loads(line)
+    except ValueError:
+        return False
+    if not isinstance(data, dict) or list(data) != ["success"] or not isinstance(data["success"], dict):
+        return False
+    ok = data["success"]
+    return bool(ok.get("username")) and any(len(ok.get(k) or "") > 5 for k in ("preloginCookie", "portalUserauthcookie"))
+
+
+def read_cookie_line():
+    """The one line of the result on stdin (the service writes it); None on EOF or after 60 s."""
+    ready, _, _ = select.select([sys.stdin], [], [], 60)
+    line = sys.stdin.readline() if ready else ""
+    return line.strip() or None
+
+
+def run_gpauth(browser, server):
     """Run gpauth as the desktop user. Returns its stdout, or None on failure."""
     uid = os.environ.get("SUDO_UID", "")
     if not uid.isdigit() or int(uid) == 0:
@@ -131,7 +154,7 @@ def run_gpauth(browser):
     cmd = ["sudo", "-u", f"#{uid}"]
     if preserved:
         cmd.append("--preserve-env=" + ",".join(preserved))
-    cmd += [GPAUTH, "--browser", browser, SAML_URL]
+    cmd += [GPAUTH, "--log-format", "json", f"--browser={browser}", "--", server]
 
     remove(AUTH_DONE_FILE)
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
@@ -155,7 +178,11 @@ def run_gpauth(browser):
     if proc.returncode != 0:
         log("ERROR", "gpauth", f"gpauth exited with status {proc.returncode}")
         return None
-    return output
+    lines = [line for line in output.splitlines() if line.strip()]
+    if not lines or not is_success_line(lines[-1]):
+        log("ERROR", "gpauth", "gpauth returned no success result")
+        return None
+    return lines[-1]
 
 
 def vpnc_env(reason):
@@ -245,13 +272,19 @@ def run_connect(args):
     log("INFO", mod, f"Connecting to portal: {args.server}")
     sleep(0.6)
     log("INFO", "gpapi::portal::prelogin", "Portal prelogin request, SAML authentication required")
-    log("INFO", mod, "Launching the SAML authentication helper")
-
-    result = run_gpauth(args.browser)
-    if result is None:
-        if not stop_requested:
-            log("ERROR", mod, "Failed to authenticate with the portal")
-        return 0 if stop_requested else 1
+    if args.cookie_on_stdin:
+        result = read_cookie_line()
+        if result is None or not is_success_line(result):
+            log("ERROR", mod, "Failed to read the SAML result from stdin")
+            return 1
+        log("INFO", mod, "SAML result read from stdin, no gpauth started")
+    else:
+        log("INFO", mod, "Launching the SAML authentication helper")
+        result = run_gpauth(args.browser, args.server)
+        if result is None:
+            if not stop_requested:
+                log("ERROR", mod, "Failed to authenticate with the portal")
+            return 0 if stop_requested else 1
 
     log("INFO", "gpauth", "SAML authentication completed")
     sleep(0.5)
@@ -316,6 +349,7 @@ def main():
     conn.add_argument("--user")
     conn.add_argument("--interface")
     conn.add_argument("--browser", default="/usr/libexec/gpclient/browser-wrapper")
+    conn.add_argument("--cookie-on-stdin", action="store_true")
     conn.add_argument("server")
     conn.set_defaults(func=connect)
     sub.add_parser("disconnect").set_defaults(func=disconnect)

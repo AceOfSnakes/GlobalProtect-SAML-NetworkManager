@@ -44,7 +44,7 @@ private:
     /* The user changed the MTU spin box after load: until then an invalid
      * stored value (the box shows 0) is kept on save. */
     bool m_mtuTouched = false;
-    /* No vpn.data at load: the first save adds password-flags and otp-flags. */
+    /* No vpn.data at load: the first save adds password-flags, otp-flags and gpauth-result-flags. */
     bool m_isNew = false;
     /* Index of the password storage combo at load: only a change writes
      * password-flags of an existing profile. */

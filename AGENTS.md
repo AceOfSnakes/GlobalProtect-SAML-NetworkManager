@@ -108,7 +108,7 @@ tar --exclude=./.git --exclude=./external --exclude=./.claude -cf - . | tar -xf 
 rm -rf "$T"
 ```
 
-End-to-end tests (`tests/e2e/run.sh <gnome|kde|routing|auth-cancel|all> [--webp]`)
+End-to-end tests (`tests/e2e/run.sh <gnome|kde|routing|auth-cancel|saml-dialog|all> [--webp]`)
 need Docker and are run by hand or with the pull request label `e2e`
 (`.github/workflows/e2e.yml`), not on every push. Run them when you change the
 service, the editors, the wrapper or the vpnc hook; `tests/e2e/checks.py` is

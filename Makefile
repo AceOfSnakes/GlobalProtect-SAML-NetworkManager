@@ -292,6 +292,7 @@ SHELL_SCRIPTS := \
 	tests/e2e/scenario-gnome.sh \
 	tests/e2e/scenario-kde.sh \
 	tests/e2e/scenario-routing.sh \
+	tests/e2e/scenario-saml-dialog.sh \
 	tests/e2e/session/desktop.sh \
 	tests/e2e/session/start.sh
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Checks of an end-to-end run (installed in the image as /opt/gp-demo/checks.py).
 
-Usage: checks.py <gnome|kde|routing|auth-cancel> <out-dir>
+Usage: checks.py <gnome|kde|routing|auth-cancel|saml-dialog> <out-dir>
 
 Reads what the scenario saved in the out dir (state-<name>.txt from lib.sh
 `snapshot`, scenario.exit, NetworkManager.log, edge-wrapper.log, ...), writes
@@ -41,6 +41,8 @@ SCENARIO_STATES = {
         "disconnected-final": "baseline",
     },
     "auth-cancel": {"before": "baseline", "failed": "baseline"},
+    # saml-auth=dialog: the login runs in the user's session (the auth dialog)
+    "saml-dialog": {"start": "baseline", "connected": "full", "disconnected": "baseline"},
 }
 
 
@@ -251,6 +253,24 @@ def check_edge(results, run, scenario):
     )
 
 
+def check_gpauth_user_side(results, run):
+    """saml-auth=dialog: gpauth is started by the auth dialog in the user's
+    session, so root's gpclient (or its sudo) is not one of its ancestors."""
+    bad = []
+    seen = 0
+    for name in run.state_names("edge-open"):
+        for line in section(run.state(name), "gpauth ancestors"):
+            seen += 1
+            chain = line.partition(":")[2].split()
+            if "gpclient" in chain or "sudo" in chain:
+                bad.append(f"{name}: {line.strip()[:100]}")
+    results.add(
+        "gpauth is not a child of gpclient",
+        seen > 0 and not bad,
+        "; ".join(bad) or "no gpauth process found in the states",
+    )
+
+
 def check_logs(results, run, scenario):
     nm = run.text("NetworkManager.log")
     wrapper = run.text("edge-wrapper.log") or ""
@@ -272,6 +292,12 @@ def check_logs(results, run, scenario):
             "wrapper closed the browser when gpauth was done",
             "authentication finished" in wrapper,
             "no 'authentication finished' in edge-wrapper.log",
+        )
+    if scenario == "saml-dialog":
+        results.add(
+            "gpclient got the SAML result on stdin and started no gpauth",
+            "SAML result read from stdin, no gpauth started" in nm and "Launching the SAML authentication helper" not in nm,
+            "no 'SAML result read from stdin' in the service log",
         )
     results.add(
         "no traceback in the wrapper log",
@@ -329,6 +355,8 @@ def run_checks(scenario, out):
         check_state(results, run, name, kind, scenario)
     check_edge(results, run, scenario)
     check_logs(results, run, scenario)
+    if scenario == "saml-dialog":
+        check_gpauth_user_side(results, run)
     if scenario == "auth-cancel":
         check_cancel(results, run)
     if scenario == "routing":

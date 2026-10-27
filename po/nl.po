@@ -320,3 +320,19 @@ msgstr "gebruikersnaam mag niet met '-' beginnen en geen besturingstekens bevatt
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Het bestand is geen GlobalProtect-VPN-verbinding"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "SAML-aanmelding:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "In de service (standaard)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "In het aanmeldvenster"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Waar de aanmelding via de browser draait: in de service of in het aanmeldvenster (in uw sessie)."

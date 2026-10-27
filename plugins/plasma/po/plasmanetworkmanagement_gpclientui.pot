@@ -371,3 +371,28 @@ msgstr ""
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr ""
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr ""
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr ""
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr ""

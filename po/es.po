@@ -292,3 +292,19 @@ msgstr "username no debe empezar por «-» ni contener caracteres de control"
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "El archivo no es una conexión VPN de GlobalProtect"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "Inicio de sesión SAML:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "En el servicio (predeterminado)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "En el cuadro de inicio de sesión"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Dónde se ejecuta el inicio de sesión con el navegador: en el servicio o en el cuadro de inicio de sesión (en su sesión)."

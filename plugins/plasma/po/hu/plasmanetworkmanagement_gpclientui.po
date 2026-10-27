@@ -367,3 +367,28 @@ msgstr "a dns-nek vesszővel, pontosvesszővel vagy szóközzel elválasztott IP
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "a hip-script-nek abszolút elérési útnak kell lennie"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML-bejelentkezés:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "A szolgáltatásban (alapértelmezett)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "A bejelentkezési párbeszédablakban"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Hol fut a böngészős bejelentkezés: a szolgáltatásban vagy a bejelentkezési párbeszédablakban (a saját munkamenetében)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Bejelentkezés…"

@@ -367,3 +367,28 @@ msgstr "dns мора бити IPv4 или IPv6 адресе раздвојене
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script мора бити апсолутна путања"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML пријава:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "У услузи (подразумевано)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "У дијалогу за пријаву"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Где се извршава пријава преко прегледача: у услузи или у дијалогу за пријаву (у вашој сесији)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Пријављивање…"

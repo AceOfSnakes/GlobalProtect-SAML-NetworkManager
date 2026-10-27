@@ -292,3 +292,19 @@ msgstr "корисничко име не сме почињати са „-“ н
 #: plugins/gnome/nm-gpclient-keyfile.h
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Датотека није GlobalProtect VPN веза"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "SAML пријава:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "У услузи (подразумевано)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "У дијалогу за пријаву"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Где се извршава пријава преко прегледача: у услузи или у дијалогу за пријаву (у вашој сесији)."

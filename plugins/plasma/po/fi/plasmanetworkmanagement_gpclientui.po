@@ -367,3 +367,28 @@ msgstr "dns:n on oltava IPv4- tai IPv6-osoitteita, jotka on erotettu pilkuilla, 
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script-arvon on oltava absoluuttinen polku"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML-kirjautuminen:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Palvelussa (oletus)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Kirjautumisikkunassa"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Missä selainkirjautuminen suoritetaan: palvelussa tai kirjautumisikkunassa (omassa istunnossasi)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Kirjaudutaan sisään…"

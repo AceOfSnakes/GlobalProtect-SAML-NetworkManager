@@ -367,3 +367,28 @@ msgstr "dns-ak IPv4 edo IPv6 helbideak izan behar dira, komaz, puntu eta komaz e
 #, kde-format
 msgid "hip-script must be an absolute path"
 msgstr "hip-script bide absolutu bat izan behar da"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML saio-hasiera:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Zerbitzuan (lehenetsia)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Saio-hasierako elkarrizketa-koadroan"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Nabigatzailearekin saioa non hasten den: zerbitzuan edo saio-hasierako elkarrizketa-koadroan (zure saioan)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Saioa hasten…"
