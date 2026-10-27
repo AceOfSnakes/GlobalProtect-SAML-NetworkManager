@@ -1707,6 +1707,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._gateway_not_found_seen = False
         self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False  # profile told not to save the passcode
+        self._saml_flags_written = False  # profile has gpauth-result-flags=2
         self._otp_flag_attempts = 0  # tries so far to do that (bounded)
 
         # saml-auth=dialog: the auth dialog runs gpauth, gpclient gets the
@@ -1934,9 +1935,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # answered in every auth phase.
             self._username_prefilled = bool(self.vpn_username)
             # A stored password of a standard login goes to gpclient's stdin
-            # at spawn; gpclient then never prompts for it
+            # at spawn; gpclient then never prompts for it. It asks for the
+            # username first unless --user is given, so that needs one too
             self._password_on_stdin = bool(
-                self.vpn_password and data_dict.get("auth-mode", "saml") == "credentials"
+                self.vpn_password
+                and self.vpn_username
+                and data_dict.get("auth-mode", "saml") == "credentials"
             )
             self._reset_phase_state()
             if self.vpn_username:
@@ -2013,7 +2017,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
             # Who runs the SAML login: gpclient (service, the default) or the
             # auth dialog in the user's session (issue #125)
-            saml_auth = data_dict.get("saml-auth", "service").strip().lower()
+            saml_auth = data_dict.get("saml-auth", "service")
             if saml_auth not in ("service", "dialog"):
                 logger.warning(
                     f"Unknown saml-auth value {saml_auth!r}, falling back to 'service'"
@@ -2023,6 +2027,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 data_dict.get("auth-mode", "saml") != "credentials"
             )
             logger.info(f"saml-auth: {saml_auth}")
+            self._saml_flags_written = data_dict.get(f"{SAML_RESULT_KEY}-flags") == "2"
 
             # Get DNS servers (optional)
             self.dns_servers = []
@@ -2128,9 +2133,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         }
         # Not saved, never answered from the profile (a stale result is
         # useless); the dialog sends a new one every time
-        await self._update_profile(
-            {f"{SAML_RESULT_KEY}-flags": "2"}, drop_secrets=[SAML_RESULT_KEY]
-        )
+        if not self._saml_flags_written:
+            await self._update_profile(
+                {f"{SAML_RESULT_KEY}-flags": "2"}, drop_secrets=[SAML_RESULT_KEY]
+            )
         answer = await self._request_secret_interactive(
             SAML_RESULT_KEY,
             f"Sign in to {self.gateway}",
@@ -2714,6 +2720,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
             # Set up environment
             env = os.environ.copy()
+            if self._auth_result:
+                # An inherited value (e.g. started with sudo) must not let
+                # gpclient start gpauth as root or as another user
+                for name in ("SUDO_UID", "SUDO_USER", "GP_BROWSER"):
+                    env.pop(name, None)
 
             # Set SUDO_UID for gpclient to detect real user (not with the
             # result on stdin: gpclient starts no gpauth then)

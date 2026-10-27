@@ -127,6 +127,7 @@ connection editor starts:
   next to the plugin is checked then. There is **no screenshot**: showing the
   Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.
   The widget itself runs in a QtTest (`plugins/plasma/tests/gpclientwidgettest.cpp`)
+  (and its SAML login in `gpclientauthwidgettest.cpp`, with a fake gpauth)
   that `ctest` runs in the package build (`override_dh_auto_test` in
   `debian/rules`), not in this smoke test.
 

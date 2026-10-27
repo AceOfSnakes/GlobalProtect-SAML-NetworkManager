@@ -211,6 +211,29 @@ class TestGpclientCommand:
         assert result not in caplog.text
         assert COOKIE not in caplog.text
 
+    @pytest.mark.parametrize(
+        ("settings", "expected"),
+        [
+            (
+                {"_auth_result": json.dumps(GOOD, separators=(",", ":"))},
+                {"SUDO_UID": None, "SUDO_USER": None, "GP_BROWSER": None},
+            ),
+            # service mode: the service sets its own values over inherited ones
+            ({}, {"SUDO_UID": "4321", "SUDO_USER": "alice", "GP_BROWSER": "edge"}),
+        ],
+    )
+    def test_inherited_sudo_and_browser_variables(
+        self, launcher, monkeypatch, settings, expected
+    ):
+        monkeypatch.setenv("SUDO_UID", "0")
+        monkeypatch.setenv("SUDO_USER", "root")
+        monkeypatch.setenv("GP_BROWSER", "inherited")
+
+        run_to_the_end(launcher(**settings))
+
+        (launch,) = launcher.launches()
+        assert launch["env"] == expected
+
     def test_the_terminal_neither_echoes_nor_buffers_lines(self, launcher):
         plugin = launcher(_auth_result=json.dumps(GOOD, separators=(",", ":")))
 
@@ -374,6 +397,8 @@ class TestSetupSession:
         [
             {"saml-auth": "service"},
             {"saml-auth": "bogus"},
+            {"saml-auth": "Dialog"},  # exact match only, like the editors
+            {"saml-auth": " dialog "},
             {"saml-auth": "dialog", "auth-mode": "credentials"},
         ],
     )
@@ -382,6 +407,16 @@ class TestSetupSession:
 
         assert session.asked == []
         assert session.started == [""]
+
+    @pytest.mark.parametrize(
+        ("flags", "writes"), [({"gpauth-result-flags": "2"}, 0), ({}, 1)]
+    )
+    def test_profile_flags_written_only_when_missing(self, session, flags, writes):
+        session.reply = "standard"
+
+        connect(session, {"saml-auth": "dialog", **flags})
+
+        assert len(session.profile_writes) == writes
 
     def test_standard_runs_the_old_command(self, session, dbus_signals):
         session.reply = "standard"

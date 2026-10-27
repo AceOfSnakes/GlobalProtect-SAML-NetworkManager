@@ -55,8 +55,8 @@ GitHub Pages.
   README settings table) is also in the GNOME editors (GTK3 and GTK4) and in the
   Plasma editor (`plugins/plasma/`). Add a new setting to all of them in the
   same PR. Exceptions: keys the service writes itself (`gateway-list`,
-  `gateway-list-count`), `otp-flags` (the editors only write its default for a
-  new connection), and `dns-domains`, for which the editors use
+  `gateway-list-count`), `otp-flags` and `gpauth-result-flags` (the editors
+  only write the default for a new connection), and `dns-domains`, for which the editors use
   NetworkManager's own search domains field (IPv4 tab).
 - Every text a user sees is translatable: `_()`/`N_()` in the GNOME editors and the
   auth dialog (catalog `po/`), `i18n()` and the `.ui` file in the Plasma editor

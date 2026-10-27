@@ -10,6 +10,7 @@ Files: plugins/plasma/gpclient*.cpp
  plugins/plasma/gpclient*.h
  plugins/plasma/mtuspinbox.h
  plugins/plasma/tests/gpclientwidgettest.cpp
+ plugins/plasma/tests/gpclientauthwidgettest.cpp
 Copyright: 2025 GlobalProtect VPN Plugin
 License: LGPL-2.1
 Comment: The file headers say "LGPL-2.1-only OR LGPL-3.0-only OR

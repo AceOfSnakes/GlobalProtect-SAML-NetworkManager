@@ -217,7 +217,9 @@ nmcli -g vpn.data connection show "My VPN"
 It is passed only for `preferred-gateway`, and only when the portal offered that
 exact name or address before (it is in `gateway-list`). When gpclient does not
 find it after all, the service starts gpclient once more without the option and
-answers the gateway prompt as before.
+answers the gateway prompt as before. With `--gateway` gpclient shows no
+gateway prompt, so `gateway-list` is refreshed only on a connect without it (for
+example when the preferred gateway is not in the list, or none is set).
 
 ### Portal or gateway address?
 

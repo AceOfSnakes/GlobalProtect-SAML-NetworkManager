@@ -23,7 +23,12 @@ namespace
 // The same names and rules as auth-dialog/nm-gpclient-auth-dialog.py
 const QString samlHintPrefix = QStringLiteral("x-gp-saml:");
 const QString samlResultKey = QStringLiteral("gpauth-result");
+#ifdef GPCLIENT_TESTING
+// Only the test target defines this: the plugin always runs /usr/bin/gpauth
+const QString gpauthBinary = qEnvironmentVariable("GPCLIENT_TEST_GPAUTH", QStringLiteral("/usr/bin/gpauth"));
+#else
 const QString gpauthBinary = QStringLiteral("/usr/bin/gpauth");
+#endif
 
 // Nothing from the hint may become an option, a command or a line of its own
 bool validServer(const QString &server)

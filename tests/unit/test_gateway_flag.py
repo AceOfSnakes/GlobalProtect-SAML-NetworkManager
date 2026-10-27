@@ -222,11 +222,15 @@ class TestPasswordOnStdin:
     @pytest.mark.parametrize(
         ("data", "secrets", "expected"),
         [
-            ({"auth-mode": "credentials"}, {"password": "pw"}, True),
+            ({"auth-mode": "credentials", "username": "u"}, {"password": "pw"}, True),
+            # gpclient asks for the username first: it would eat the password
+            ({"auth-mode": "credentials"}, {"password": "pw"}, False),
+            ({"auth-mode": "credentials", "username": ""}, {"password": "pw"}, False),
+            ({"auth-mode": "credentials", "username": "u"}, {}, False),
             ({"auth-mode": "credentials"}, {}, False),
             ({"auth-mode": "credentials"}, {"password": ""}, False),
-            ({"auth-mode": "saml"}, {"password": "pw"}, False),
-            ({}, {"password": "pw"}, False),
+            ({"auth-mode": "saml", "username": "u"}, {"password": "pw"}, False),
+            ({"username": "u"}, {"password": "pw"}, False),
         ],
     )
     def test_decided_when_connecting(
