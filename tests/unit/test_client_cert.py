@@ -624,6 +624,9 @@ def _ask(service_module, secret_key, returned):
         ("otp", "password"),
         ("otp", "cert-pass"),
         ("cert-pass", "otp"),
+        # the SAML result of the auth dialog (saml-auth=dialog) is no passphrase
+        ("cert-pass", "gpauth-result"),
+        ("gpauth-result", "cert-pass"),
     ],
 )
 def test_another_known_secret_is_never_taken_for_the_one_asked(

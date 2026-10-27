@@ -1,13 +1,14 @@
 #!/bin/bash
 # End-to-end tests of the plugin on a real desktop in Docker.
 #
-# Usage: tests/e2e/run.sh <gnome|kde|routing|auth-cancel|all> [--webp]
+# Usage: tests/e2e/run.sh <gnome|kde|routing|auth-cancel|saml-dialog|all> [--webp]
 #
 #   gnome        GNOME 46 (Ubuntu 24.04): add the VPN in Settings, connect
 #   kde          KDE Plasma 6.6 (Ubuntu 26.04): add the VPN, connect from the tray
 #   routing      GNOME: routes and DNS before, with the default settings and with
 #                "only for resources on its network" (the console slide)
 #   auth-cancel  GNOME, negative: the user closes the sign-in window
+#   saml-dialog  GNOME: saml-auth=dialog, gpauth runs in the auth dialog as the user
 #   all          all of the above
 #
 # Builds the image, runs the scenario in a privileged container without
@@ -48,12 +49,12 @@ for arg in "$@"; do
     case "$arg" in
     --webp) make_webp=1 ;;
     -h | --help) usage; exit 0 ;;
-    gnome | kde | routing | auth-cancel | all) target="$arg" ;;
+    gnome | kde | routing | auth-cancel | saml-dialog | all) target="$arg" ;;
     *) echo "unknown argument: $arg" >&2; usage >&2; exit 2 ;;
     esac
 done
 [ -n "$target" ] || { usage >&2; exit 2; }
-if [ "$target" = all ]; then targets=(gnome kde routing auth-cancel); else targets=("$target"); fi
+if [ "$target" = all ]; then targets=(gnome kde routing auth-cancel saml-dialog); else targets=("$target"); fi
 
 # scenario -> image, WebP name, extra environment of the container
 image_of() { case "$1" in kde) echo kde ;; *) echo gnome ;; esac; }

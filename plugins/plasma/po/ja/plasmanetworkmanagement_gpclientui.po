@@ -394,6 +394,31 @@ msgstr "dns には、カンマ、セミコロン、または空白で区切っ�
 msgid "hip-script must be an absolute path"
 msgstr "hip-script は絶対パスである必要があります"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML ログイン:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "サービス内 (既定)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "ログインダイアログ内"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "ブラウザーによるログインを実行する場所: サービス内、またはログインダイアログ内 (ユーザーのセッション)。"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "サインイン中…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

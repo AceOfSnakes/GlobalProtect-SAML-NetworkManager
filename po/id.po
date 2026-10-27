@@ -293,6 +293,22 @@ msgstr "username tidak boleh diawali '-' atau berisi karakter kontrol"
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Berkas ini bukan koneksi VPN GlobalProtect"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "Login SAML:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "Di layanan (default)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "Di dialog login"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Tempat login browser berjalan: di layanan atau di dialog login (di sesi Anda)."
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "Frasa sandi sertifikat"

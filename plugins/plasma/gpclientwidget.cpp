@@ -90,6 +90,9 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     m_ui->fixOpensslComboBox->addItem(i18n("Always on"));
     m_ui->fixOpensslComboBox->addItem(i18n("Never"));
 
+    m_ui->samlAuthComboBox->addItem(i18n("In the service (default)"));
+    m_ui->samlAuthComboBox->addItem(i18n("In the login dialog"));
+
     // vpn.timeout is a guint32, so the field is a QDoubleSpinBox without decimals
     // (a QSpinBox stops at INT_MAX).
 
@@ -153,6 +156,7 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->hipCheckBox, &QCheckBox::toggled, m_ui->hipScriptLabel, &QWidget::setEnabled);
     connect(m_ui->hipCheckBox, &QCheckBox::toggled, m_ui->hipScriptLineEdit, &QWidget::setEnabled);
     connect(m_ui->fixOpensslComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->samlAuthComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
 
     auto update_valid = [this]() {
         Q_EMIT validChanged(isValid());
@@ -310,6 +314,9 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
             m_ui->fixOpensslComboBox->setCurrentIndex(0);
         }
 
+        // Where the SAML login runs: only "dialog" selects the dialog
+        m_ui->samlAuthComboBox->setCurrentIndex(data.value(QLatin1String("saml-auth")) == QLatin1String("dialog") ? 1 : 0);
+
         // Tunnel MTU: a missing or invalid value shows as automatic (0)
         const int mtuShown = nm_gpclient_mtu_parse(data.value(QLatin1String("mtu")).toUtf8().constData());
         m_mtuTouched = false;
@@ -396,9 +403,13 @@ QVariantMap GpclientWidget::setting() const
     }
 
     // A one-time code is never stored. The service sets this after the first
-    // code too; a new connection starts with it.
+    // code too; a new connection starts with it. The same holds for the result
+    // of gpauth (secret gpauth-result) in the mode saml-auth=dialog.
     if (m_isNew && !data.contains(QLatin1String("otp-flags"))) {
         data.insert(QLatin1String("otp-flags"), QStringLiteral("2"));
+    }
+    if (m_isNew && !data.contains(QLatin1String("gpauth-result-flags"))) {
+        data.insert(QLatin1String("gpauth-result-flags"), QStringLiteral("2"));
     }
 
     // Save Browser
@@ -429,6 +440,13 @@ QVariantMap GpclientWidget::setting() const
     default:
         data.remove(QLatin1String("fix-openssl"));
         break;
+    }
+
+    // Save where the SAML login runs (the service is the default, no key)
+    if (m_ui->samlAuthComboBox->currentIndex() == 1) {
+        data.insert(QLatin1String("saml-auth"), QStringLiteral("dialog"));
+    } else {
+        data.remove(QLatin1String("saml-auth"));
     }
 
     // Save the MTU: 0 = automatic (no key), below 576 is saved as 576. An

@@ -87,6 +87,16 @@ NM_LOG_CANCEL = (
 )
 
 
+NM_LOG_DIALOG = (
+    "__main__ [INFO] gpclient output: [t INFO gpclient::cli::connect] SAML result read from stdin, no gpauth started\n"
+    "__main__ [INFO] gpclient output: Connected to VPN\n"
+)
+# saml-auth=dialog: gpauth runs under the auth dialog in the user's session
+ANCESTORS_DIALOG = "654: gpauth python3 gnome-shell systemd"
+# service mode: gpauth runs under sudo under root's gpclient
+ANCESTORS_SERVICE = "654: gpauth sudo gpclient nm-gpclient-service systemd"
+
+
 DBUS_POLICY = (
     "name-on-bus=yes\nping-exit=1\n"
     "ping-error=Error org.freedesktop.DBus.Error.AccessDenied: Rejected send message\n"
@@ -101,6 +111,12 @@ def write_run(path, scenario, scenario_exit="0"):
         files["state-edge-open-1.txt"] = state("baseline", edge="open")
         files["state-connected.txt"] = state("full")
         files["state-disconnected.txt"] = state("baseline")
+    elif scenario == "saml-dialog":
+        files["state-start.txt"] = state("baseline")
+        files["state-edge-open-1.txt"] = state("baseline", edge="open", gpauth_ancestors=[ANCESTORS_DIALOG])
+        files["state-connected.txt"] = state("full")
+        files["state-disconnected.txt"] = state("baseline")
+        files["NetworkManager.log"] = NM_LOG_DIALOG
     elif scenario == "routing":
         files["state-before.txt"] = state("baseline")
         files["state-edge-open-1.txt"] = state("baseline", edge="open")
@@ -135,7 +151,7 @@ def edit(path, name, old, new):
         handle.write(text.replace(old, new, 1))
 
 
-SCENARIOS = ["gnome", "kde", "routing", "auth-cancel"]
+SCENARIOS = ["gnome", "kde", "routing", "auth-cancel", "saml-dialog"]
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -295,6 +311,24 @@ BREAKS = [
     ),
     ("kde", "state-start.txt", "Wired connection 1:802-3-ethernet:activated", "Wired connection 1:802-3-ethernet:unavailable", "[start] wired connection stays active"),
     ("auth-cancel", "scenario.exit", "0", "1", "scenario ran to the end (exit 0)"),
+    # saml-dialog: a gpauth under gpclient (service mode) or under its sudo is wrong, so is no gpauth at all
+    ("saml-dialog", "state-edge-open-1.txt", ANCESTORS_DIALOG, ANCESTORS_SERVICE, "gpauth is not a child of gpclient"),
+    ("saml-dialog", "state-edge-open-1.txt", ANCESTORS_DIALOG, "654: gpauth sudo python3 gnome-shell", "gpauth is not a child of gpclient"),
+    ("saml-dialog", "state-edge-open-1.txt", ANCESTORS_DIALOG + "\n", "", "gpauth is not a child of gpclient"),
+    (
+        "saml-dialog",
+        "NetworkManager.log",
+        "SAML result read from stdin, no gpauth started",
+        "Launching the SAML authentication helper",
+        "gpclient got the SAML result on stdin and started no gpauth",
+    ),
+    (
+        "saml-dialog",
+        "NetworkManager.log",
+        "gpclient output: Connected",
+        "gpclient output: Launching the SAML authentication helper Connected",
+        "gpclient got the SAML result on stdin and started no gpauth",
+    ),
     (
         "auth-cancel",
         "state-failed.txt",
@@ -333,7 +367,7 @@ def test_broken_run_fails_the_matching_check(tmp_path, scenario, name, old, new,
 @pytest.mark.parametrize("scenario", SCENARIOS)
 def test_missing_state_file_fails(tmp_path, scenario):
     write_run(tmp_path, scenario)
-    victim = {"gnome": "connected", "kde": "connected", "routing": "connected-default", "auth-cancel": "failed"}[scenario]
+    victim = {"gnome": "connected", "kde": "connected", "routing": "connected-default", "auth-cancel": "failed", "saml-dialog": "connected"}[scenario]
     os.remove(tmp_path / f"state-{victim}.txt")
     assert f"[{victim}] state saved" in failed_names(tmp_path, scenario)
 

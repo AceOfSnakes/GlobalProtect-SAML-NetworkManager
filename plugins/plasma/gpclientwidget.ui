@@ -279,6 +279,21 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      <!-- Items are added programmatically (auto / true / false) -->
     </widget>
    </item>
+   <item row="14" column="0">
+    <widget class="QLabel" name="samlAuthLabel">
+     <property name="text">
+      <string>SAML login:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="14" column="1">
+    <widget class="QComboBox" name="samlAuthComboBox">
+     <property name="toolTip">
+      <string>Where the browser login runs: in the service, or in the login dialog (in your session).</string>
+     </property>
+     <!-- Items are added programmatically (service / dialog) -->
+    </widget>
+   </item>
    <item row="11" column="1">
     <widget class="QCheckBox" name="hipCheckBox">
      <property name="text">
@@ -292,14 +307,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="14" column="0">
+   <item row="15" column="0">
     <widget class="QLabel" name="userCertLabel">
      <property name="text">
       <string>Client certificate:</string>
      </property>
     </widget>
    </item>
-   <item row="14" column="1">
+   <item row="15" column="1">
     <widget class="QLineEdit" name="userCertLineEdit">
      <property name="toolTip">
       <string>Optional absolute path to the client certificate file (PEM or PKCS#12), owned by your desktop user.</string>
@@ -309,14 +324,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="15" column="0">
+   <item row="16" column="0">
     <widget class="QLabel" name="userKeyLabel">
      <property name="text">
       <string>Private key:</string>
      </property>
     </widget>
    </item>
-   <item row="15" column="1">
+   <item row="16" column="1">
     <widget class="QLineEdit" name="userKeyLineEdit">
      <property name="toolTip">
       <string>Optional absolute path to the private key file (PEM), owned by your desktop user. Ignored without a client certificate.</string>
@@ -326,14 +341,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="16" column="0">
+   <item row="17" column="0">
     <widget class="QLabel" name="certPassLabel">
      <property name="text">
       <string>Certificate passphrase:</string>
      </property>
     </widget>
    </item>
-   <item row="16" column="1">
+   <item row="17" column="1">
     <widget class="QLineEdit" name="certPassLineEdit">
      <property name="echoMode">
       <enum>QLineEdit::Password</enum>
@@ -343,14 +358,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="17" column="0">
+   <item row="18" column="0">
     <widget class="QLabel" name="certPassFlagsLabel">
      <property name="text">
       <string>Passphrase storage:</string>
      </property>
     </widget>
    </item>
-   <item row="17" column="1">
+   <item row="18" column="1">
     <widget class="QComboBox" name="certPassFlagsComboBox">
      <property name="toolTip">
       <string>Where the password is kept. "Ask every time" stores nothing.</string>

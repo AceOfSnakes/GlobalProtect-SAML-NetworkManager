@@ -368,6 +368,31 @@ msgstr "dns musí být adresy IPv4 nebo IPv6 oddělené čárkami, středníky n
 msgid "hip-script must be an absolute path"
 msgstr "hip-script musí být absolutní cesta"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Přihlášení SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Ve službě (výchozí)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "V přihlašovacím dialogu"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kde běží přihlášení v prohlížeči: ve službě, nebo v přihlašovacím dialogu (ve vaší relaci)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Probíhá přihlášení…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

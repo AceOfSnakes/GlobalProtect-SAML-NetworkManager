@@ -186,12 +186,31 @@ nm_gpclient_editor_save_cert (NMSettingVpn *s_vpn,
 }
 
 /* A one-time code is never stored. The service sets this after the first
- * code too; a new connection starts with it. */
+ * code too; a new connection starts with it. The same holds for the result of
+ * gpauth (secret gpauth-result) that the login dialog returns in the mode
+ * saml-auth=dialog. */
 static inline void
 nm_gpclient_editor_default_otp_flags (NMSettingVpn *s_vpn, gboolean is_new)
 {
     if (is_new && !nm_setting_vpn_get_data_item (s_vpn, "otp-flags"))
         nm_setting_vpn_add_data_item (s_vpn, "otp-flags", "2");
+    if (is_new && !nm_setting_vpn_get_data_item (s_vpn, "gpauth-result-flags"))
+        nm_setting_vpn_add_data_item (s_vpn, "gpauth-result-flags", "2");
+}
+
+/* Index of the "SAML login" combo: 0 = in the service (default, no key),
+ * 1 = in the login dialog (saml-auth=dialog) */
+static inline int
+nm_gpclient_editor_saml_auth_index (NMSettingVpn *s_vpn)
+{
+    return s_vpn && g_strcmp0 (nm_setting_vpn_get_data_item (s_vpn, "saml-auth"), "dialog") == 0 ? 1 : 0;
+}
+
+/* Save the SAML login place. The service is the default and stores nothing. */
+static inline void
+nm_gpclient_editor_save_saml_auth (NMSettingVpn *s_vpn, int index)
+{
+    nm_gpclient_editor_set_or_remove (s_vpn, "saml-auth", index == 1 ? "dialog" : NULL);
 }
 
 /* Save the MTU: 0 = automatic (no key), below 576 is saved as 576. mtu_stored is

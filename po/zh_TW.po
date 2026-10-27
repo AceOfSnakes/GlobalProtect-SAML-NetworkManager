@@ -293,6 +293,22 @@ msgstr "使用者名稱不能以「-」開頭，也不能包含控制字元"
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "此檔案不是 GlobalProtect VPN 連線"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "SAML 登入:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "在服務中(預設)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "在登入對話方塊中"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "瀏覽器登入的執行位置:在服務中,或在登入對話方塊中(在您的工作階段內)。"
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "憑證密碼短語"

@@ -103,6 +103,14 @@ if(BUILD_TESTING)
     target_link_libraries(gpclientwidgettest PRIVATE gpclientwidget Qt${QT_MAJOR_VERSION}::Test)
     add_test(NAME gpclientwidgettest COMMAND gpclientwidgettest)
     set_tests_properties(gpclientwidgettest PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The SAML login of the auth widget, with a fake gpauth (GPCLIENT_TEST_GPAUTH
+    # exists only in this build of the widget)
+    add_executable(gpclientauthwidgettest tests/gpclientauthwidgettest.cpp gpclientauthwidget.cpp)
+    target_compile_definitions(gpclientauthwidgettest PRIVATE GPCLIENT_TESTING)
+    target_link_libraries(gpclientauthwidgettest PRIVATE gpclientwidget Qt${QT_MAJOR_VERSION}::Test)
+    add_test(NAME gpclientauthwidgettest COMMAND gpclientauthwidgettest)
+    set_tests_properties(gpclientauthwidgettest PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # Install plugin

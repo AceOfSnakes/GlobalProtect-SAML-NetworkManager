@@ -321,6 +321,22 @@ msgstr "имя пользователя не должно начинаться �
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Файл не является VPN-подключением GlobalProtect"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "Вход SAML:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "В службе (по умолчанию)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "В диалоге входа"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Где выполняется вход через браузер: в службе или в диалоге входа (в вашем сеансе)."
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "Парольная фраза сертификата"

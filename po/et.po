@@ -293,6 +293,22 @@ msgstr "username ei tohi algada märgiga „-“ ega sisaldada juhtmärke"
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Fail ei ole GlobalProtecti VPN-ühendus"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "SAML-sisselogimine:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "Teenuses (vaikimisi)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "Sisselogimisdialoogis"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kus brauseriga sisselogimine töötab: teenuses või sisselogimisdialoogis (teie seansis)."
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "Sertifikaadi parooifraas"

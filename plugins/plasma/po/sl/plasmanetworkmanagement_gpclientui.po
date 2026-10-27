@@ -368,6 +368,31 @@ msgstr "dns mora biti naslovi IPv4 ali IPv6, ločeni z vejicami, podpičji ali p
 msgid "hip-script must be an absolute path"
 msgstr "hip-script mora biti absolutna pot"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Prijava SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "V storitvi (privzeto)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "V pogovornem oknu za prijavo"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kje teče prijava v brskalniku: v storitvi ali v pogovornem oknu za prijavo (v vaši seji)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Prijavljanje…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

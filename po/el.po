@@ -293,6 +293,22 @@ msgstr "το username δεν πρέπει να αρχίζει με «-» ούτ�
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Το αρχείο δεν είναι σύνδεση GlobalProtect VPN"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "Σύνδεση SAML:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "Στην υπηρεσία (προεπιλογή)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "Στο παράθυρο σύνδεσης"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Πού εκτελείται η σύνδεση μέσω προγράμματος περιήγησης: στην υπηρεσία ή στο παράθυρο σύνδεσης (στη συνεδρία σας)."
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "Φράση πρόσβασης πιστοποιητικού"

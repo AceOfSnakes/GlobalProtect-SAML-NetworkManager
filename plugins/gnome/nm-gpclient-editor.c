@@ -34,6 +34,7 @@ struct _NMGpclientEditor {
     GtkWidget *hip_script_label;
     GtkWidget *hip_script_entry;
     GtkWidget *fix_openssl_combo;
+    GtkWidget *saml_auth_combo;
     GtkWidget *usercert_entry;
     GtkWidget *userkey_entry;
     GtkWidget *cert_pass_entry;
@@ -356,6 +357,22 @@ build_ui (NMGpclientEditor *self)
     g_signal_connect (self->browser_combo, "changed", G_CALLBACK (browser_combo_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->browser_combo, 1, row++, 1, 1);
 
+    /* Where the SAML login runs (vpn.data saml-auth) */
+    label = gtk_label_new (_("SAML login:"));
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+
+    self->saml_auth_combo = gtk_combo_box_text_new ();
+    gtk_widget_set_hexpand (self->saml_auth_combo, TRUE);
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->saml_auth_combo), _("In the service (default)"));
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (self->saml_auth_combo), _("In the login dialog"));
+    gtk_widget_set_tooltip_text (self->saml_auth_combo,
+        _("Where the browser login runs: in the service, or in the login dialog (in your session)."));
+    gtk_combo_box_set_active (GTK_COMBO_BOX (self->saml_auth_combo),
+                              nm_gpclient_editor_saml_auth_index (s_vpn));
+    g_signal_connect (self->saml_auth_combo, "changed", G_CALLBACK (combo_changed_cb), self);
+    gtk_grid_attach (GTK_GRID (grid), self->saml_auth_combo, 1, row++, 1, 1);
+
     /* Connect timeout (NetworkManager's vpn.timeout, not a vpn.data item) */
     label = gtk_label_new (_("Connect timeout:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
@@ -667,6 +684,9 @@ update_connection (NMVpnEditor *editor,
     /* Save the legacy TLS workaround */
     nm_gpclient_editor_save_fix_openssl (s_vpn,
         gtk_combo_box_get_active (GTK_COMBO_BOX (self->fix_openssl_combo)));
+
+    nm_gpclient_editor_save_saml_auth (s_vpn,
+        gtk_combo_box_get_active (GTK_COMBO_BOX (self->saml_auth_combo)));
 
     /* Save HIP */
     nm_setting_vpn_add_data_item (s_vpn, "hip",

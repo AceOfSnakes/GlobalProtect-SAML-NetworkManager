@@ -394,7 +394,7 @@
         "tests/unit/test_gpclient_command.py::test_log_format_is_one_global_option_before_the_subcommand",
         "tests/unit/test_log_json.py::TestParseLogRecord::test_a_record",
         "tests/unit/test_log_json.py::TestParseLogRecord::test_anything_else_is_a_text_line",
-        "tests/unit/test_log_json.py::TestMatchersThroughRecords::test_text_lines_take_the_old_path"
+        "tests/unit/test_log_json.py::TestMatchersThroughRecords::test_text_lines_do_not_match"
       ]
     },
     {

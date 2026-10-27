@@ -127,6 +127,7 @@ connection editor starts:
   next to the plugin is checked then. There is **no screenshot**: showing the
   Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.
   The widget itself runs in a QtTest (`plugins/plasma/tests/gpclientwidgettest.cpp`)
+  (and its SAML login in `gpclientauthwidgettest.cpp`, with a fake gpauth)
   that `ctest` runs in the package build (`override_dh_auto_test` in
   `debian/rules`), not in this smoke test.
 
@@ -151,7 +152,7 @@ log, or leftovers after the disconnect. A negative scenario closes the sign-in
 window and expects a clean failure.
 
 ```bash
-tests/e2e/run.sh all            # gnome, kde, routing, auth-cancel (about 25 min with the builds)
+tests/e2e/run.sh all            # gnome, kde, routing, auth-cancel, saml-dialog (about 25 min with the builds)
 tests/e2e/run.sh gnome --webp   # also makes docs/images/demo-gnome.webp
 ```
 

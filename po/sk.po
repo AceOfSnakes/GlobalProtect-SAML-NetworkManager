@@ -293,6 +293,22 @@ msgstr "meno používateľa nesmie začínať znakom „-“ ani obsahovať riad
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "Súbor nie je pripojenie GlobalProtect VPN"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "Prihlásenie SAML:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "V službe (predvolené)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "V prihlasovacom dialógu"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kde beží prihlásenie v prehliadači: v službe, alebo v prihlasovacom dialógu (vo vašej relácii)."
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "Heslová fráza certifikátu"

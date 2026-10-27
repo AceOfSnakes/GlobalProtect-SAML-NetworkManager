@@ -28,6 +28,7 @@ the browser wrapper and Microsoft Edge. Only these parts are fake:
 | `kde` | Tray > Networks > configure > "+" > GlobalProtect, fill the editor, save, connect from the tray, sign in. Animation: `demo-kde.webp` |
 | `routing` | Terminal: `ip route` and `resolvectl` before connecting, with the default settings, and with "Use this connection only for resources on its network" (Settings > VPN > IPv4). Animation: `demo-routing-dns.webp` |
 | `auth-cancel` | Negative: the user closes the sign-in window. The connection must fail cleanly. No animation |
+| `saml-dialog` | `saml-auth=dialog`: the auth dialog runs gpauth in the user's session and the service gives the result to `gpclient --cookie-on-stdin`. gpauth is not a child of gpclient. No animation |
 
 After each scenario `checks.py` runs in the container and writes
 `results.json` (`{"scenario", "ok", "checks": [{"name", "ok", "detail"}]}`). The
@@ -49,6 +50,8 @@ run fails when one of these is wrong:
   `deny` line in `nm-gpclient.conf`);
 - after the disconnect: the tunnel or a route through it is left, DNS is not back to
   the wired link's 192.168.1.1, a gpclient/gpauth/Edge process is left;
+- `saml-dialog`: a gpauth process has gpclient or sudo among its ancestors, or
+  the fake gpclient did not read the result from stdin (it also started no gpauth);
 - `auth-cancel`: the VPN is active, helpers are left, routes or DNS changed, no
   clean failure in the service log, or the connection attempt ended without an
   error.
@@ -63,7 +66,7 @@ Requirements: Docker with BuildKit and permission to run privileged containers
 `arm64` package for this image), network access for the build.
 
 ```bash
-tests/e2e/run.sh all             # gnome, kde, routing, auth-cancel
+tests/e2e/run.sh all             # gnome, kde, routing, auth-cancel, saml-dialog
 tests/e2e/run.sh gnome --webp    # also docs/images/demo-gnome.webp
 ```
 

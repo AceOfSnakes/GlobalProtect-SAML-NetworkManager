@@ -397,6 +397,10 @@ void GpclientWidgetTest::readsBooleansIgnoringCase_data()
     QTest::newRow("fix-openssl TRUE") << "fix-openssl" << "TRUE" << "true";
     QTest::newRow("fix-openssl False") << "fix-openssl" << "False" << "false";
     QTest::newRow("fix-openssl other is auto") << "fix-openssl" << "yes" << "";
+    QTest::newRow("saml-auth dialog") << "saml-auth" << "dialog" << "dialog";
+    QTest::newRow("saml-auth Dialog is the service") << "saml-auth" << "Dialog" << "";
+    QTest::newRow("saml-auth service") << "saml-auth" << "service" << "";
+    QTest::newRow("saml-auth other is the service") << "saml-auth" << "yes" << "";
 }
 
 void GpclientWidgetTest::readsBooleansIgnoringCase()
@@ -614,6 +618,8 @@ void GpclientWidgetTest::passwordStorage()
     saved.fromMap(widget.setting());
     QCOMPARE(saved.data().value(QStringLiteral("password-flags")), expectedFlags);
     QCOMPARE(saved.data().value(QStringLiteral("otp-flags")), expectedOtpFlags);
+    // gpauth-result-flags follows the same rule as otp-flags
+    QCOMPARE(saved.data().value(QStringLiteral("gpauth-result-flags")), expectedOtpFlags);
     QCOMPARE(saved.secrets().value(QStringLiteral("password")), expectedSecret);
 }
 

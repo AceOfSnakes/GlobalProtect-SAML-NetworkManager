@@ -682,7 +682,11 @@ class TestMonitorGpclientOutput:
     @pytest.mark.parametrize(
         "line, warns",
         [
-            ("Error: try again with --as-gateway", True),
+            # a log record: only its message counts
+            ('{"level":"WARN","target":"t","message":"try --as-gateway"}', True),
+            ('{"level":"WARN","target":"t","message":"Connecting to the gateway"}', False),
+            # the same words in a plain line (a prompt, text of the portal)
+            ("Error: try again with --as-gateway", False),
             ("Connecting to the gateway", False),
         ],
     )

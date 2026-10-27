@@ -368,6 +368,31 @@ msgstr "dns peab olema komade, semikoolonite või tühikutega eraldatud IPv4- v�
 msgid "hip-script must be an absolute path"
 msgstr "hip-script peab olema absoluutne tee"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML-sisselogimine:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Teenuses (vaikimisi)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Sisselogimisdialoogis"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kus brauseriga sisselogimine töötab: teenuses või sisselogimisdialoogis (teie seansis)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Sisselogimine…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

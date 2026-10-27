@@ -97,6 +97,8 @@ int main (int argc, char **argv)
     else if (!strcmp (op, "default_otp")) { nm_gpclient_editor_default_otp_flags (v, atoi (a[0])); have_ret = 0; }
     else if (!strcmp (op, "save_mtu")) { nm_gpclient_editor_save_mtu (v, atoi (a[0]), a[1], atoi (a[2])); have_ret = 0; }
     else if (!strcmp (op, "save_fix_openssl")) { nm_gpclient_editor_save_fix_openssl (v, atoi (a[0])); have_ret = 0; }
+    else if (!strcmp (op, "saml_auth_index")) ret = nm_gpclient_editor_saml_auth_index (v);
+    else if (!strcmp (op, "save_saml_auth")) { nm_gpclient_editor_save_saml_auth (v, atoi (a[0])); have_ret = 0; }
     else if (!strcmp (op, "save_browser")) { nm_gpclient_editor_save_browser (v, a[0]); have_ret = 0; }
     else if (!strcmp (op, "constants")) { printf ("saml=%d\nauto=%s\nbrowsers=", SAML_TIMEOUT_DEFAULT, GATEWAY_AUTO_LABEL);
         for (i = 0; browser_values[i]; i++) { printf ("%s;", browser_values[i]); }
@@ -334,13 +336,15 @@ def test_save_cert(program, args, items, data, secrets, flags):
     assert got_flags == flags
 
 
-# --- default_otp: only a new profile without the key gets "2"
+# --- default_otp: only a new profile without the key gets "2" (otp-flags and gpauth-result-flags)
 @pytest.mark.parametrize("args, items, expected", [
-    ((1,), [], {"otp-flags": "2"}),
-    ((1,), ["d:otp-flags=0"], {"otp-flags": "0"}),
+    ((1,), [], {"otp-flags": "2", "gpauth-result-flags": "2"}),
+    ((1,), ["d:otp-flags=0"], {"otp-flags": "0", "gpauth-result-flags": "2"}),
+    ((1,), ["d:gpauth-result-flags=0"], {"otp-flags": "2", "gpauth-result-flags": "0"}),
     ((0,), [], {}),
     ((0,), ["d:gateway=g"], {"gateway": "g"}),
     ((0,), ["d:otp-flags=0"], {"otp-flags": "0"}),
+    ((0,), ["d:gpauth-result-flags=0"], {"gpauth-result-flags": "0"}),
 ])
 def test_default_otp_flags(program, args, items, expected):
     assert run(program, "default_otp", *a(*args), *items)[1] == expected
@@ -394,3 +398,22 @@ def test_save_browser_saves(program, text):
 def test_save_browser_removes(program, text):
     assert run(program, "save_browser", *a(text), "d:browser=edge", "d:dns=1")[1] == {"dns": "1"}
     assert run(program, "save_browser", *a(text))[1] == {}
+
+
+# --- saml_auth_index: 1 only for "dialog" (case-sensitive); the rest is the service
+@pytest.mark.parametrize("items, expected", [
+    (["d:saml-auth=dialog"], 1), (["d:saml-auth=Dialog"], 0), (["d:saml-auth=service"], 0),
+    (["d:saml-auth="], 0), (["d:saml-auth=dialogx"], 0), ([], 0), (["nosetting"], 0),
+])
+def test_saml_auth_index(program, items, expected):
+    assert run(program, "saml_auth_index", *items)[0] == expected
+
+
+# --- save_saml_auth: 1 -> dialog; the default (and any other index) removes the key
+def test_save_saml_auth_writes_dialog(program):
+    assert run(program, "save_saml_auth", *a(1))[1] == {"saml-auth": "dialog"}
+
+
+@pytest.mark.parametrize("index", [0, 2, -1])
+def test_save_saml_auth_removes_the_key_for_the_default(program, index):
+    assert run(program, "save_saml_auth", *a(index), "d:saml-auth=dialog", "d:other=1")[1] == {"other": "1"}

@@ -65,6 +65,16 @@ snapshot() {
         resolvectl status "$tun" 2>&1
         echo "## processes"
         ps -eo user:12,pid,comm,args --no-headers | awk '$3 ~ /^(msedge|microsoft-edge.*|gpclient|gpauth)$/' | cut -c1-200
+        echo "## gpauth ancestors"
+        # one line per gpauth: its pid, then its own name and its parents up to init
+        for pid in $(pgrep -x gpauth); do
+            chain="" p=$pid
+            while [ "${p:-0}" -gt 1 ]; do
+                chain="$chain $(ps -o comm= -p "$p" | tr -d ' ')"
+                p=$(ps -o ppid= -p "$p" | tr -d ' ')
+            done
+            echo "$pid:$chain"
+        done
         echo "## windows"
         xdotool search --onlyvisible --name "." 2> /dev/null | while read -r w; do xdotool getwindowname "$w"; done
     } > "$DEMO_OUT/state-$1.txt" 2>&1

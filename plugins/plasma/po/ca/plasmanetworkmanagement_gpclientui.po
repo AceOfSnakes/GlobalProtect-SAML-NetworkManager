@@ -368,6 +368,31 @@ msgstr "dns ha de ser adreces IPv4 o IPv6 separades per comes, punts i coma o es
 msgid "hip-script must be an absolute path"
 msgstr "hip-script ha de ser un camí absolut"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Inici de sessió SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Al servei (per defecte)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Al diàleg d'inici de sessió"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "On s'executa l'inici de sessió amb el navegador: al servei o al diàleg d'inici de sessió (a la vostra sessió)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "S'està iniciant la sessió…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

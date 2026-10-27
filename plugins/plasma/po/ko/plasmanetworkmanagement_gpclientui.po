@@ -394,6 +394,31 @@ msgstr "dns는 쉼표, 세미콜론 또는 공백으로 구분한 IPv4 또는 IP
 msgid "hip-script must be an absolute path"
 msgstr "hip-script는 절대 경로여야 합니다"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML 로그인:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "서비스에서 (기본값)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "로그인 대화 상자에서"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "브라우저 로그인을 실행하는 위치: 서비스 또는 로그인 대화 상자(사용자 세션)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "로그인 중…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

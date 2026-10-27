@@ -1,25 +1,31 @@
 #!/usr/bin/python3
 """Fake gpauth for the README demo (installed as /usr/bin/gpauth, desktop user).
 
-  gpauth --browser <path> <url>
+  gpauth --log-format json [--gateway] [--fix-openssl] --browser=<path> -- <server>
+  gpauth --browser <path> <url>            (older form)
 
 Starts `<path> <url>` detached (the real gpauth does the same; the path is
 /usr/libexec/gpclient/browser-wrapper, which opens Edge and closes it when this
 process exits), then waits for /run/gp-demo/auth-done, which sso-server.py
 creates when the user finishes the sign-in. Prints a fake result and exits 0;
 exits 1 after 300 s (GP_DEMO_AUTH_TIMEOUT or /run/gp-demo/auth-timeout
-change that). It never touches the browser itself.
+change that). It never touches the browser itself. On success the last line of
+stdout is a result of the real shape ({"success": {...}}), on a timeout (the
+user closed the browser) it is {"cancelled":null} and the exit status is 1.
 
 The process must be called "gpauth" (comm), because the wrapper finds it with
 `pgrep -x gpauth`: a script with this file name has that comm.
 """
 
+import argparse
+import json
 import os
 import subprocess
 import sys
 import time
 
 AUTH_DONE_FILE = "/run/gp-demo/auth-done"
+SAML_URL = "https://vpn.contoso.example/global-protect/prelogin.esp?saml=1"
 TIMEOUT = 300
 
 
@@ -38,11 +44,15 @@ def auth_timeout(default):
 
 
 def main():
-    args = sys.argv[1:]
-    if len(args) != 3 or args[0] != "--browser":
-        print("usage: gpauth --browser <path> <url>", file=sys.stderr)
-        return 2
-    browser, url = args[1], args[2]
+    parser = argparse.ArgumentParser(prog="gpauth")
+    parser.add_argument("--log-format", choices=("text", "json"), default="text")
+    parser.add_argument("--gateway", action="store_true")
+    parser.add_argument("--fix-openssl", action="store_true")
+    parser.add_argument("--browser", required=True)  # "--browser=<path>" or "--browser <path>"
+    parser.add_argument("server")  # a portal name, or a URL in the older form
+    args = parser.parse_args()
+    browser = args.browser
+    url = args.server if "://" in args.server else SAML_URL
 
     try:
         subprocess.Popen(
@@ -60,13 +70,24 @@ def main():
     while time.monotonic() < deadline:
         if os.path.exists(AUTH_DONE_FILE):
             print(
-                '{"method":"saml","username":"alex.morgan@contoso.example",'
-                '"authcookie":"DEMO-NOT-A-REAL-COOKIE"}',
+                json.dumps(
+                    {
+                        "success": {
+                            "username": "alex.morgan@contoso.example",
+                            "preloginCookie": "DEMO-NOT-A-REAL-COOKIE",
+                            "portalUserauthcookie": None,
+                            "token": None,
+                            "hostId": None,
+                        }
+                    },
+                    separators=(",", ":"),
+                ),
                 flush=True,
             )
             return 0
         time.sleep(0.5)
 
+    print('{"cancelled":null}', flush=True)
     print("SAML authentication timed out", file=sys.stderr)
     return 1
 

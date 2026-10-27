@@ -394,6 +394,31 @@ msgstr "dns moet bestaan uit IPv4- of IPv6-adressen gescheiden door komma's, pun
 msgid "hip-script must be an absolute path"
 msgstr "hip-script moet een absoluut pad zijn"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML-aanmelding:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "In de service (standaard)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "In het aanmeldvenster"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Waar de aanmelding via de browser draait: in de service of in het aanmeldvenster (in uw sessie)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Bezig met aanmelden…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

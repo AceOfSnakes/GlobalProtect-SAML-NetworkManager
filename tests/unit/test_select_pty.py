@@ -9,6 +9,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import json
 import os
 import pty
 import sys
@@ -16,7 +17,13 @@ import sys
 import pytest
 
 FAKE_GPCLIENT = r'''
-import os, sys, tty
+import json, os, sys, tty
+
+
+def rec(message):
+    # one log record line, as gpclient --log-format json writes it
+    return json.dumps({"timestamp": "t", "level": "INFO",
+        "target": "gpclient::connect", "message": message}) + "\r\n"
 
 OPTIONS = [
     "gw-warsaw (gw1.example.com)",
@@ -55,8 +62,7 @@ while True:
         elif pending[:1] in (b"\r", b"\n"):
             pending = pending[1:]
             sys.stdout.write(
-                "[INFO  gpclient::connect] Connecting to the selected gateway: %s\r\n"
-                % OPTIONS[cursor]
+                rec("Connecting to the selected gateway: %s" % OPTIONS[cursor])
             )
             sys.stdout.flush()
             sys.exit(0)
@@ -75,7 +81,13 @@ while True:
 # wrapping and stops at the last entry, Home goes to the first entry; a key that
 # does not change the cursor causes no redraw at all.
 FAKE_INCREMENTAL_GPCLIENT = r"""
-import os, sys, tty
+import json, os, sys, tty
+
+
+def rec(message):
+    # one log record line, as gpclient --log-format json writes it
+    return json.dumps({"timestamp": "t", "level": "INFO",
+        "target": "gpclient::connect", "message": message}) + "\r\n"
 
 PAGE = 7
 OPTIONS = ["gw-%02d (gw%d.example.com)" % (i, i) for i in range(20)]
@@ -174,10 +186,7 @@ def move_to(new):
 tty.setraw(0)
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
 if FOUND:
-    sys.stdout.write(
-        "[2026-07-20T12:44:26Z INFO  gpapi::portal::config] "
-        "Found %s gateways in portal config\r\n" % FOUND
-    )
+    sys.stdout.write(rec("Found %s gateways in portal config" % FOUND))
 sys.stdout.flush()
 
 start = 0
@@ -218,8 +227,7 @@ while True:
                 % (downs, pages, homes)
             )
             sys.stdout.write(
-                "[INFO  gpclient::connect] Connecting to the selected gateway: %s\r\n"
-                % OPTIONS[cursor]
+                rec("Connecting to the selected gateway: %s" % OPTIONS[cursor])
             )
             sys.stdout.flush()
             sys.exit(0)
@@ -234,7 +242,13 @@ while True:
 # and nothing is left in the output tail. The service used to look only at the
 # tail, so it never saw a prompt from a real gpclient (issue #2 log).
 FAKE_TERMINATED_PROMPTS_GPCLIENT = r'''
-import os, sys, tty
+import json, os, sys, tty
+
+
+def rec(message):
+    # one log record line, as gpclient --log-format json writes it
+    return json.dumps({"timestamp": "t", "level": "INFO",
+        "target": "gpclient::connect", "message": message}) + "\r\n"
 
 
 def read_answer():
@@ -266,8 +280,7 @@ sys.stdout.flush()
 
 if user == "jdoe" and password == "s3cret":
     sys.stdout.write(
-        "[INFO  gpclient::connect] Connecting to the only available gateway: "
-        "gw-a (a.example.com)\r\n"
+        rec("Connecting to the only available gateway: gw-a (a.example.com)")
     )
 else:
     sys.stdout.write("Authentication failure: got %r / %r\r\n" % (user, password))
@@ -276,7 +289,13 @@ sys.exit(0)
 '''
 
 FAKE_CREDENTIALS_GPCLIENT = r'''
-import os, sys, tty
+import json, os, sys, tty
+
+
+def rec(message):
+    # one log record line, as gpclient --log-format json writes it
+    return json.dumps({"timestamp": "t", "level": "INFO",
+        "target": "gpclient::connect", "message": message}) + "\r\n"
 
 
 def read_answer():
@@ -313,8 +332,7 @@ password = ask("Password", True)
 
 if user == "jdoe" and password == "s3cret":
     sys.stdout.write(
-        "[INFO  gpclient::connect] Connecting to the only available gateway: "
-        "gw-a (a.example.com)\r\n"
+        rec("Connecting to the only available gateway: gw-a (a.example.com)")
     )
 else:
     sys.stdout.write("Authentication failure: got %r / %r\r\n" % (user, password))
@@ -418,7 +436,7 @@ class TestIncrementalRedrawOverPty:
     @staticmethod
     def _connected_to(plugin):
         found = [
-            line.split("gateway: ", 1)[1].strip()
+            json.loads(line)["message"].split("gateway: ", 1)[1]
             for line in plugin._recent_lines
             if "Connecting to the selected gateway: " in line
         ]
@@ -764,17 +782,23 @@ class TestPagedCollectionOverPty:
 
 
 FAKE_ONLY_GATEWAY_GPCLIENT = r"""
-import os, sys, tty
+import json, os, sys, tty
+
+
+def rec(message):
+    # one log record line, as gpclient --log-format json writes it
+    return json.dumps({"timestamp": "t", "level": "INFO",
+        "target": "gpclient::connect", "message": message}) + "\r\n"
+
+if os.environ.get("FAKE_TEXT"):  # the same words in a plain line
+    rec = lambda message: message + "\r\n"
 
 tty.setraw(0)
 if os.environ.get("FAKE_FOUND"):
-    sys.stdout.write(
-        "[INFO  gpapi::portal::config] Found %s gateways in portal config\r\n"
-        % os.environ["FAKE_FOUND"]
-    )
+    sys.stdout.write(rec("Found %s gateways in portal config" % os.environ["FAKE_FOUND"]))
 sys.stdout.write(
-    "[INFO  gpclient::connect] Connecting to the %s gateway: gw-a (a.example.com)\r\n"
-    % os.environ.get("FAKE_KIND", "only available")
+    rec("Connecting to the %s gateway: gw-a (a.example.com)"
+        % os.environ.get("FAKE_KIND", "only available"))
 )
 sys.stdout.flush()
 """
@@ -811,6 +835,17 @@ class TestOnlyAvailableGatewayOverPty:
             ("gateway-list", "gw-a (a.example.com)"),
             ("gateway-list-count", "1"),
         ]
+
+    def test_a_plain_line_does_not_replace_the_stored_list(
+        self, service_module, tmp_path, monkeypatch
+    ):
+        # Only a log record counts: the same words in a plain line do not
+        plugin = self._run(
+            service_module, tmp_path, monkeypatch, FAKE_FOUND="1", FAKE_TEXT="1"
+        )
+
+        assert plugin._lap_entries == []
+        assert plugin._gateway_list == []
 
     @pytest.mark.parametrize(
         "env",

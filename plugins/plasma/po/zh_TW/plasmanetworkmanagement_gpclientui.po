@@ -368,6 +368,31 @@ msgstr "dns 必須是以逗號、分號或空格分隔的 IPv4 或 IPv6 位址"
 msgid "hip-script must be an absolute path"
 msgstr "hip-script 必須是絕對路徑"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML 登入:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "在服務中(預設)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "在登入對話方塊中"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "瀏覽器登入的執行位置:在服務中,或在登入對話方塊中(在您的工作階段內)。"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "正在登入…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

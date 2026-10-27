@@ -394,6 +394,31 @@ msgstr "dns turi būti kableliais, kabliataškiais ar tarpais atskirti IPv4 arba
 msgid "hip-script must be an absolute path"
 msgstr "hip-script turi būti absoliutusis kelias"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML prisijungimas:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Tarnyboje (numatytasis)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Prisijungimo dialogo lange"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kur vykdomas prisijungimas naršykle: tarnyboje arba prisijungimo dialogo lange (jūsų sesijoje)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Prisijungiama…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

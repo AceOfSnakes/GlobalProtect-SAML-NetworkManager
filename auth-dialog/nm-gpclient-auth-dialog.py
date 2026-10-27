@@ -18,6 +18,12 @@ Two modes:
     A hint prefixed with "x-vpn-message:" carries the human-readable
     prompt message from the VPN service.
 
+SAML mode (saml-auth=dialog, hint "x-gp-saml:<JSON>"): the dialog runs gpauth in
+the user's session and returns its result line as the secret "gpauth-result"
+(no window of its own: gpauth opens the browser). The same line goes to
+gpclient's stdin in the service. A cancelled or failed login exits with 1. The
+secret "standard" means that the server has no SAML login.
+
 External UI mode (--external-ui-mode, enabled by supports-external-ui-mode in
 nm-gpclient-service.name): no window and no "key\nvalue" pairs. The dialog
 prints a GKeyFile and exits at once, without waiting for QUIT:
@@ -36,6 +42,12 @@ a NOT_SAVED (2) password is always asked, even when a stored value comes in.
 
 import argparse
 import gettext
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
 import sys
 
 # The catalog po/NetworkManager-gpclient.pot, installed by the package; the
@@ -63,7 +75,26 @@ PLAIN_TEXT_HINTS = ("username", "otp")
 # One-time secrets: a stored value is worse than none, because the gateway
 # rejects a reused passcode and the whole login fails. Never answer these from
 # what the connection happens to have saved, and never pre-fill them.
-ONE_TIME_HINTS = ("otp",)
+ONE_TIME_HINTS = ("otp", "gpauth-result")
+
+# SAML in the dialog: the gpauth to run (debian/rules, Makefile and the RPM
+# spec install it here) and the names the service uses
+GPAUTH_BINARY = "/usr/bin/gpauth"
+effective_uid = os.geteuid  # replaced in the tests
+SAML_RESULT_KEY = "gpauth-result"
+SAML_HINT_PREFIX = "x-gp-saml:"
+SAML_STANDARD = "standard"
+# Same rules as the service: nothing from the hint may become an option, a
+# command or a line of its own
+UNSAFE_SERVER_RE = re.compile(r"[\s\x00-\x1f\x7f]")
+BROWSER_RE = re.compile(r"^(?:/[^\s\x00-\x1f\x7f]*|[A-Za-z0-9][A-Za-z0-9._+-]*)$")
+# gpauth fails with the same errors as gpclient (see the service)
+OPENSSL_LEGACY_RE = re.compile(
+    r"unsafe legacy renegotiation disabled"
+    r"|requires unsafe legacy TLS renegotiation"
+    r"|--fix-openssl"
+)
+NON_SAML_RE = re.compile(r"non-SAML prelogin")
 
 
 def read_stdin_data():
@@ -157,16 +188,161 @@ def header_text(vpn_name, message, reprompt):
     return _("Credentials are required to connect to “%s”.") % vpn_name
 
 
+def parse_saml_hint(text):
+    """The checked dict of an x-gp-saml hint; ValueError for anything else"""
+    try:
+        saml = json.loads(text)
+    except (ValueError, RecursionError):
+        raise ValueError("the SAML hint is not JSON") from None
+    if not isinstance(saml, dict):
+        raise ValueError("the SAML hint is not an object")
+    server = saml.get("server")
+    if (
+        not isinstance(server, str)
+        or not server
+        or server.startswith("-")
+        or UNSAFE_SERVER_RE.search(server)
+    ):
+        raise ValueError("the SAML hint has no valid server")
+    if not isinstance(saml.get("gateway"), bool):
+        raise ValueError("the SAML hint has no valid gateway flag")
+    if saml.get("fix_openssl") not in ("auto", "true", "false"):
+        raise ValueError("the SAML hint has no valid fix_openssl")
+    browser = saml.get("browser")
+    if not isinstance(browser, str) or not BROWSER_RE.match(browser):
+        raise ValueError("the SAML hint has no valid browser")
+    target = saml.get("browser_target")
+    if target is not None and (not isinstance(target, str) or not BROWSER_RE.match(target)):
+        raise ValueError("the SAML hint has no valid browser target")
+    return saml
+
+
 def parse_hints(raw_hints):
-    """Split hints into requested secret keys and an optional message"""
+    """Split hints into requested secret keys, an optional message and the
+    SAML request (None without one; ValueError when it is not valid)"""
     keys = []
     message = None
+    saml = None
     for hint in raw_hints:
         if hint.startswith("x-vpn-message:"):
             message = hint[len("x-vpn-message:") :]
+        elif hint.startswith(SAML_HINT_PREFIX):
+            saml = parse_saml_hint(hint[len(SAML_HINT_PREFIX) :])
         else:
             keys.append(hint)
-    return keys, message
+    return keys, message, saml
+
+
+def run_gpauth_once(saml, fix_openssl):
+    """Run gpauth; (exit status, stdout, stderr). SIGTERM, or the end of stdin
+    (the agent is gone), stops it."""
+    cmd = [GPAUTH_BINARY, "--log-format", "json"]
+    if saml["gateway"]:
+        cmd.append("--gateway")
+    if fix_openssl:
+        cmd.append("--fix-openssl")
+    cmd += [f"--browser={saml['browser']}", "--", saml["server"]]
+    env = dict(os.environ)
+    env.pop("GP_BROWSER", None)
+    if saml["browser_target"]:
+        env["GP_BROWSER"] = saml["browser_target"]
+
+    proc = subprocess.Popen(  # noqa: S603  # fixed binary, checked arguments
+        cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    out = {proc.stdout: [], proc.stderr: []}
+    selector = selectors.DefaultSelector()
+    for pipe in out:
+        selector.register(pipe, selectors.EVENT_READ)
+    try:
+        selector.register(0, selectors.EVENT_READ)
+    except (ValueError, OSError):  # no usable stdin
+        pass
+    try:
+        open_pipes = set(out)
+        while open_pipes:
+            for key, _ in selector.select():
+                if key.fileobj == 0:
+                    if not os.read(0, 4096):  # EOF: nobody waits for the answer
+                        raise SystemExit(1)
+                    continue
+                chunk = os.read(key.fd, 65536)
+                if chunk:
+                    out[key.fileobj].append(chunk)
+                else:
+                    selector.unregister(key.fileobj)
+                    open_pipes.discard(key.fileobj)
+        status = proc.wait()
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        selector.close()
+    text = [b"".join(parts).decode("utf-8", "replace") for parts in out.values()]
+    return status, text[0], text[1]
+
+
+def run_gpauth(saml):
+    """The answer for the service: gpauth's success line, "standard" for a
+    server without SAML, None when the login did not succeed"""
+    retried = saml["fix_openssl"] == "true"  # already passed from the start
+    fix = retried
+    while True:
+        try:
+            status, stdout, stderr = run_gpauth_once(saml, fix)
+        except OSError as e:
+            print(f"Cannot run {GPAUTH_BINARY}: {e}", file=sys.stderr)
+            return None
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        if status == 0 and lines:
+            try:
+                result = json.loads(lines[-1])
+            except (ValueError, RecursionError):
+                result = None
+            if isinstance(result, dict) and "success" in result:
+                return lines[-1]
+            print("The SAML login did not succeed", file=sys.stderr)
+            return None
+        if status == 1 and NON_SAML_RE.search(stderr):
+            return SAML_STANDARD
+        if (
+            saml["fix_openssl"] == "auto"
+            and not retried
+            and OPENSSL_LEGACY_RE.search(stderr)
+        ):
+            retried = fix = True
+            continue
+        print(f"gpauth failed (status {status})", file=sys.stderr)
+        return None
+
+
+def answer_saml(args, saml, message):
+    """Run gpauth and return its result as the secret; 1 when there is none"""
+    if not args.allow_interaction:
+        print("The SAML login needs the user and interaction is not allowed", file=sys.stderr)
+        return 1
+    if effective_uid() == 0:
+        # an agent that runs as root: gpauth and the browser must not run as root
+        print("The SAML login does not run as root; start the VPN as the desktop user",
+              file=sys.stderr)
+        return 1
+    result = run_gpauth(saml)
+    if result is None:
+        return 1
+    if args.external_ui_mode:
+        output_external_ui(
+            _("Authenticate VPN: %s") % args.name,
+            header_text(args.name, message, False),
+            [(SAML_RESULT_KEY, result, secret_label(SAML_RESULT_KEY), False, False)],
+        )
+        return 0
+    output_secrets({SAML_RESULT_KEY: result})
+    wait_for_quit()
+    return 0
 
 
 def ask_user(vpn_name, requested, message, existing_secrets, data, reprompt):
@@ -301,8 +477,17 @@ def main():
         print(f"Unsupported VPN service: {args.service}", file=sys.stderr)
         return 1
 
+    # SIGTERM: leave through SystemExit, which stops gpauth (run_gpauth_once)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+
     data, existing_secrets = read_stdin_data()
-    requested, message = parse_hints(args.hint)
+    try:
+        requested, message, saml = parse_hints(args.hint)
+    except ValueError as e:
+        print(f"Invalid request from the VPN service: {e}", file=sys.stderr)
+        return 1
+    if saml is not None:
+        return answer_saml(args, saml, message)
 
     if args.external_ui_mode:
         return external_ui(args, data, existing_secrets, requested, message)

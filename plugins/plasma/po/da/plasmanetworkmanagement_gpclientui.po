@@ -368,6 +368,31 @@ msgstr "dns skal være IPv4- eller IPv6-adresser adskilt af kommaer, semikolon e
 msgid "hip-script must be an absolute path"
 msgstr "hip-script skal være en absolut sti"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML-login:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "I tjenesten (standard)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "I login-dialogen"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Hvor browser-login kører: i tjenesten eller i login-dialogen (i din session)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Logger ind…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"

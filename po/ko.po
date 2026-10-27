@@ -321,6 +321,22 @@ msgstr "사용자 이름은 '-'로 시작하거나 제어 문자를 포함할 �
 msgid "The file is not a GlobalProtect VPN connection"
 msgstr "이 파일은 GlobalProtect VPN 연결이 아닙니다"
 
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "SAML 로그인:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "서비스에서 (기본값)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "로그인 대화 상자에서"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "브라우저 로그인을 실행하는 위치: 서비스 또는 로그인 대화 상자(사용자 세션)."
+
 #: auth-dialog/nm-gpclient-auth-dialog.py
 msgid "Certificate passphrase"
 msgstr "인증서 암호 문구"

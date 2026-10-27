@@ -368,6 +368,31 @@ msgstr "يجب أن يكون dns عناوين IPv4 أو IPv6 مفصولة بفو
 msgid "hip-script must be an absolute path"
 msgstr "يجب أن يكون hip-script مساراً مطلقاً"
 
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "تسجيل دخول SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "في الخدمة (الافتراضي)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "في مربع حوار تسجيل الدخول"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "المكان الذي يعمل فيه تسجيل الدخول عبر المتصفح: في الخدمة، أو في مربع حوار تسجيل الدخول (ضمن جلستك)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "جارٍ تسجيل الدخول…"
+
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Certificate passphrase"
