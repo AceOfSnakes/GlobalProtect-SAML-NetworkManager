@@ -769,7 +769,7 @@ def _dirty(plugin):
     plugin.cert_pass = "cp"
     plugin.usercert = "/a/c.pem"
     plugin.userkey = "/a/k.pem"
-    plugin._answered_cert_pass = True
+    plugin._cert_pass_tried = {"x"}
     plugin._interactive = True
     plugin._auth_banner = "banner"
     plugin._answering = True
@@ -917,7 +917,7 @@ class TestDisconnect:
             "cert_pass",
             "usercert",
             "userkey",
-            "_answered_cert_pass",
+            "_cert_pass_tried",
             "_interactive",
             "_auth_banner",
             "_answering",

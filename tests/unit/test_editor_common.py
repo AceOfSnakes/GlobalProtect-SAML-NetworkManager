@@ -25,6 +25,7 @@ HELPERS = [
     "nm_gpclient_editor_parse_timeout",
     "nm_gpclient_editor_password_flags_initial",
     "nm_gpclient_editor_save_password",
+    "nm_gpclient_editor_save_cert",
     "nm_gpclient_editor_default_otp_flags",
     "nm_gpclient_editor_save_mtu",
     "nm_gpclient_editor_save_fix_openssl",

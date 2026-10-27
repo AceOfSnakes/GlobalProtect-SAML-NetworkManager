@@ -161,6 +161,30 @@ nm_gpclient_editor_save_password (NMSettingVpn *s_vpn,
     }
 }
 
+/* Save the client certificate: the two paths (stripped) and the passphrase of
+ * the key. Without a certificate the stored passphrase is removed (its flags
+ * are kept), like the Plasma editor. */
+static inline void
+nm_gpclient_editor_save_cert (NMSettingVpn *s_vpn,
+                              const char *usercert,
+                              const char *userkey,
+                              gboolean is_new,
+                              NMSettingSecretFlags menu_flags,
+                              NMSettingSecretFlags flags,
+                              const char *pass)
+{
+    gchar *cert = g_strstrip (g_strdup (usercert ? usercert : ""));
+    gchar *key = g_strstrip (g_strdup (userkey ? userkey : ""));
+
+    nm_gpclient_editor_set_or_remove (s_vpn, "usercert", cert);
+    nm_gpclient_editor_set_or_remove (s_vpn, "userkey", key);
+    nm_gpclient_editor_save_password (s_vpn, "cert-pass", is_new, menu_flags, flags, *cert != '\0', pass);
+    if (*cert == '\0')
+        nm_setting_vpn_remove_secret (s_vpn, "cert-pass");
+    g_free (cert);
+    g_free (key);
+}
+
 /* A one-time code is never stored. The service sets this after the first
  * code too; a new connection starts with it. */
 static inline void

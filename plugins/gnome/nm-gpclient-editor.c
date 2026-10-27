@@ -677,17 +677,13 @@ update_connection (NMVpnEditor *editor,
     nm_gpclient_editor_set_or_remove (s_vpn, "hip-script", script);
     g_free (script);
 
-    /* Save the client certificate; the passphrase only with a certificate */
-    gchar *usercert = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->usercert_entry))));
-    gchar *userkey = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->userkey_entry))));
-    nm_gpclient_editor_set_or_remove (s_vpn, "usercert", usercert);
-    nm_gpclient_editor_set_or_remove (s_vpn, "userkey", userkey);
-    nm_gpclient_editor_save_password (s_vpn, "cert-pass", self->is_new, self->cert_pass_menu_flags,
+    /* Save the client certificate and the passphrase of its key (common header) */
+    nm_gpclient_editor_save_cert (s_vpn,
+        gtk_editable_get_text (GTK_EDITABLE (self->usercert_entry)),
+        gtk_editable_get_text (GTK_EDITABLE (self->userkey_entry)),
+        self->is_new, self->cert_pass_menu_flags,
         nma_utils_menu_to_secret_flags (self->cert_pass_entry),
-        *usercert != '\0',
         gtk_editable_get_text (GTK_EDITABLE (self->cert_pass_entry)));
-    g_free (usercert);
-    g_free (userkey);
 
     return TRUE;
 }

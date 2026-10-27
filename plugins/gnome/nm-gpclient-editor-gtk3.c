@@ -677,20 +677,13 @@ update_connection (NMVpnEditor *iface,
         g_free (script);
     }
 
-    if (self->usercert_entry && self->userkey_entry && self->cert_pass_entry) {
-        /* The passphrase is saved only with a certificate */
-        gchar *usercert = g_strstrip (g_strdup (gtk_entry_get_text (self->usercert_entry)));
-        gchar *userkey = g_strstrip (g_strdup (gtk_entry_get_text (self->userkey_entry)));
-
-        nm_gpclient_editor_set_or_remove (s_vpn, "usercert", usercert);
-        nm_gpclient_editor_set_or_remove (s_vpn, "userkey", userkey);
-        nm_gpclient_editor_save_password (s_vpn, "cert-pass", self->is_new, self->cert_pass_menu_flags,
+    if (self->usercert_entry && self->userkey_entry && self->cert_pass_entry)
+        nm_gpclient_editor_save_cert (s_vpn,
+            gtk_entry_get_text (self->usercert_entry),
+            gtk_entry_get_text (self->userkey_entry),
+            self->is_new, self->cert_pass_menu_flags,
             nma_utils_menu_to_secret_flags (GTK_WIDGET (self->cert_pass_entry)),
-            *usercert != '\0',
             gtk_entry_get_text (self->cert_pass_entry));
-        g_free (usercert);
-        g_free (userkey);
-    }
 
     return TRUE;
 }

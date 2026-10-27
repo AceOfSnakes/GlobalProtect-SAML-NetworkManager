@@ -93,6 +93,7 @@ int main (int argc, char **argv)
     else if (!strcmp (op, "parse_timeout")) ret = (long) nm_gpclient_editor_parse_timeout (a[0], 0, 4294967295.0);
     else if (!strcmp (op, "password_flags_initial")) ret = nm_gpclient_editor_password_flags_initial (v, a[0], atoi (a[1]));
     else if (!strcmp (op, "save_password")) { nm_gpclient_editor_save_password (v, a[0], atoi (a[1]), atoi (a[2]), atoi (a[3]), atoi (a[4]), a[5]); have_ret = 0; }
+    else if (!strcmp (op, "save_cert")) { nm_gpclient_editor_save_cert (v, a[0], a[1], atoi (a[2]), atoi (a[3]), atoi (a[4]), a[5]); have_ret = 0; }
     else if (!strcmp (op, "default_otp")) { nm_gpclient_editor_default_otp_flags (v, atoi (a[0])); have_ret = 0; }
     else if (!strcmp (op, "save_mtu")) { nm_gpclient_editor_save_mtu (v, atoi (a[0]), a[1], atoi (a[2])); have_ret = 0; }
     else if (!strcmp (op, "save_fix_openssl")) { nm_gpclient_editor_save_fix_openssl (v, atoi (a[0])); have_ret = 0; }
@@ -309,6 +310,26 @@ def test_cert_pass_flags_initial(program, args, items, expected):
 def test_save_cert_pass(program, args, items, secrets, flags):
     _, _, got_secrets, got_flags = run(program, "save_password", *a("cert-pass", *args), *items)
 
+    assert got_secrets == secrets
+    assert got_flags == flags
+
+
+# --- save_cert(usercert, userkey, is_new, menu_flags, flags, passphrase)
+@pytest.mark.parametrize("args, items, data, secrets, flags", [
+    # paths are stripped; the passphrase is saved with a certificate
+    (("  /a/me.p12 ", " /a/me.key", 0, 0, 0, "pp"), [], {"usercert": "/a/me.p12", "userkey": "/a/me.key"}, {"cert-pass": "pp"}, {}),
+    # an empty key path is removed, the certificate stays
+    (("/a/me.p12", "", 0, 0, 0, "pp"), ["d:userkey=/old"], {"usercert": "/a/me.p12"}, {"cert-pass": "pp"}, {}),
+    # no certificate: the paths and the stored passphrase go, the flags stay
+    (("", "/a/me.key", 0, 0, 0, "pp"), ["d:usercert=/old", "s:cert-pass=old", "f:cert-pass=1"], {"userkey": "/a/me.key"}, {}, {"cert-pass": 1}),
+    (("  ", None, 0, 0, 0, ""), ["d:usercert=/old", "s:cert-pass=old"], {}, {}, {}),
+    # another secret is not touched
+    (("", "", 0, 0, 0, ""), ["s:password=pw", "s:cert-pass=old"], {}, {"password": "pw"}, {}),
+])
+def test_save_cert(program, args, items, data, secrets, flags):
+    _, got_data, got_secrets, got_flags = run(program, "save_cert", *a(*args), *items)
+
+    assert got_data == data
     assert got_secrets == secrets
     assert got_flags == flags
 

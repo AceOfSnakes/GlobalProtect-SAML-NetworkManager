@@ -132,6 +132,10 @@ VPNC_NOTIFY_ENV = (
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
 # Secret name of the passphrase of the client certificate key (vpn.secrets)
 CERT_PASS_SECRET_KEY = "cert-pass"  # noqa: S105  # a D-Bus secret name, not a password
+# Secret names the service itself asks for
+KNOWN_SECRET_KEYS = ("username", "password", OTP_SECRET_KEY, CERT_PASS_SECRET_KEY)
+# Passphrase prompts answered per connection attempt before the login fails
+CERT_PASS_MAX_TRIES = 3
 # The passphrase prompt of gpclient (contract item passphrase-prompt); the type
 # is "PEM" or "PKCS#12". Only this label is the key passphrase: the VPN
 # password must never be typed there, and the key passphrase never at a login
@@ -670,6 +674,30 @@ def validate_cert_path(name: str, path: str) -> str:
     if not os.path.isabs(path) or any(ord(c) < 32 or ord(c) == 127 for c in path):
         raise ValueError(f"{name} must be an absolute path")
     return path
+
+
+CERT_FILE_MAX_BYTES = 1024 * 1024
+
+
+def check_cert_file(name: str, path: str, uid: int) -> None:
+    """Raise ValueError unless the certificate or key file `path` is safe to read.
+
+    gpclient runs as root and reads the file without a limit, so a profile of an
+    unprivileged user must not point it at a file of someone else (a root-only
+    key), a device (/dev/zero) or a FIFO. Like the owner checks of hip-script:
+    a regular file of the desktop user, at most 1 MiB. stat() follows symbolic
+    links, so a link to a file of another user is refused too.
+    """
+    try:
+        info = os.stat(path)
+    except OSError as e:
+        raise ValueError(f"{name}: cannot read the file: {e.strerror or e}") from e
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"{name}: {path} is not a regular file")
+    if info.st_uid != uid:
+        raise ValueError(f"{name}: {path} is not owned by the desktop user (uid {uid})")
+    if info.st_size > CERT_FILE_MAX_BYTES:
+        raise ValueError(f"{name}: {path} is larger than {CERT_FILE_MAX_BYTES} bytes")
 
 
 def password_not_required(data: Dict[str, Any]) -> bool:
@@ -1729,7 +1757,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
-        self._answered_cert_pass = False
+        self._cert_pass_tried: set = set()
         self._login_failed = False
 
         logger.info("GpclientVPNPlugin initialized with python-sdbus")
@@ -1840,7 +1868,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
-        self._answered_cert_pass = False
+        self._cert_pass_tried = set()
         self._login_failed = False
         self._reset_output_state()
         self._gateway_list = []
@@ -2219,7 +2247,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
-        self._answered_cert_pass = False
+        self._cert_pass_tried = set()
         self._login_failed = False
 
     @dbus_method_async("a{sv}")
@@ -2534,6 +2562,15 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 self._get_real_user
             )
             logger.info(f"Will run gpclient as user: {real_user}")
+
+            # Before anything is spawned: the files are read by root
+            for key, path in (("usercert", self.usercert), ("userkey", self.userkey)):
+                if path:
+                    try:
+                        check_cert_file(key, path, real_uid)
+                    except ValueError as e:
+                        logger.error(f"Rejected {e}")
+                        return False
 
             # gpauth left over from an earlier run of OUR gpclient. Never
             # `pkill gpauth`: it would also kill the gpauth of a gpclient the
@@ -3253,15 +3290,21 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     )
                 self._answered_username = True
             elif kind == CERT_PASS_SECRET_KEY:
-                # Once from the profile: gpclient asks again after a wrong one
-                if self.cert_pass and not self._answered_cert_pass:
+                # gpclient asks again after a wrong PEM passphrase, and an
+                # agent may hand back the stored (wrong) value silently: stop
+                # at a passphrase that was already typed, and after a few tries
+                if len(self._cert_pass_tried) >= CERT_PASS_MAX_TRIES:
+                    raise Exception("wrong certificate passphrase")
+                if self.cert_pass and self.cert_pass not in self._cert_pass_tried:
                     logger.info("Answering passphrase prompt from stored passphrase")
                     answer = self.cert_pass
                 else:
                     answer = await self._request_secret_interactive(
                         CERT_PASS_SECRET_KEY, label, banner_msg
                     )
-                self._answered_cert_pass = True
+                    if answer in self._cert_pass_tried:
+                        raise Exception("wrong certificate passphrase")
+                self._cert_pass_tried.add(answer)
             elif kind == "otp":
                 logger.info(
                     "Prompt looks like a one-time secret (token/OTP/challenge), "
@@ -3886,8 +3929,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         value = secrets.get(secret_key, "")
         if not value and len(secrets) == 1:
-            # Some agents return the secret under a different key
-            value = next(iter(secrets.values()))
+            # Some agents return the secret under a different key - but never
+            # one that is another known secret: the VPN password must not be
+            # typed at the passphrase prompt, nor the passphrase at a login
+            key, lone = next(iter(secrets.items()))
+            if key not in KNOWN_SECRET_KEYS:
+                value = lone
         if not value:
             raise Exception(f"User did not provide {secret_key!r}")
 

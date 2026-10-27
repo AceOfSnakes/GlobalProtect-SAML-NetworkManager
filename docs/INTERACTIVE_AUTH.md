@@ -111,17 +111,26 @@ nmcli connection modify "My VPN" vpn.secrets cert-pass=...
 
 - The service passes `--certificate=<usercert>` and `--sslkey=<userkey>` to
   gpclient. Both must be absolute paths.
-- **The files must be readable by the desktop user.** gpclient runs as root, but
-  gpclient starts the browser sign-in (gpauth) as the desktop user, and gpauth
-  reads the same files.
+- **The files must be owned by the desktop user** (the user whose session shows
+  the browser), be regular files (a link is followed) of at most 1 MiB. gpclient
+  runs as root and reads them without a limit, so the service refuses a file of
+  another user, a directory, a device or a FIFO before it starts gpclient, and
+  the connection fails with the reason in the log. They must also be readable by
+  that user: gpclient starts the browser sign-in (gpauth) as the desktop user,
+  and gpauth reads the same files.
 - The passphrase is never put on the command line (any user can read it in
   `/proc`). When the key or the PKCS#12 file is encrypted, gpclient asks
   "Enter the PEM passphrase:" or "Enter the PKCS#12 passphrase:". The service
   answers this prompt (and only this prompt) with the `cert-pass` secret. It
-  uses the stored value once; when gpclient asks again, or when none is stored,
-  the secret agent asks you. The VPN password is never typed there.
+  uses the stored value once. When none is stored, the secret agent is asked.
+  The VPN password is never typed there.
   `cert-pass-flags` works like `password-flags` (`1` agent, `0` profile file,
   `2` not saved, asked every time).
+- A wrong passphrase: only a PEM key is asked again by gpclient. The service
+  stops the login with "wrong certificate passphrase" when the same passphrase
+  comes back (an agent can return the stored, wrong value without asking you) or
+  after 3 passphrases. Correct or remove the stored `cert-pass`, then connect
+  again. A wrong PKCS#12 passphrase makes gpclient exit with an error at once.
 - Limitation of upstream gpclient: in SAML mode it hands the key passphrase to
   gpauth on the command line, where other users of the machine can read it for
   as long as gpauth runs. Prefer a key without a passphrase in a file with mode
