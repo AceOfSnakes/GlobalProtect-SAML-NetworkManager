@@ -13,7 +13,15 @@ nmcli connection add type vpn vpn-type gpclient con-name "Contoso VPN" \
 pause 3
 snapshot start
 
-nmcli connection up "Contoso VPN" > "$DEMO_OUT/nmcli-up.log" 2>&1 &
+# Not "nmcli connection up": nmcli registers its own secret agent and takes the
+# gpauth-result request. Activate over D-Bus like the GNOME menu, so the
+# GNOME Shell agent (the auth dialog) answers.
+uuid=$(nmcli -g connection.uuid connection show "Contoso VPN") || fail "no VPN profile"
+path=$(busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager/Settings \
+    org.freedesktop.NetworkManager.Settings GetConnectionByUuid s "$uuid" | awk '{print $2}' | tr -d '"')
+busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager \
+    org.freedesktop.NetworkManager ActivateConnection ooo "$path" / / > "$DEMO_OUT/nmcli-up.log" 2>&1 \
+    || fail "cannot activate the VPN profile"
 edge_signin
 wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active"
 pause 1.5
