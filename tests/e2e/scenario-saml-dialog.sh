@@ -22,11 +22,6 @@ path=$(busctl --system call org.freedesktop.NetworkManager /org/freedesktop/Netw
 busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager \
     org.freedesktop.NetworkManager ActivateConnection ooo "$path" / / > "$DEMO_OUT/nmcli-up.log" 2>&1 \
     || fail "cannot activate the VPN profile"
-# Which helpers run (auth dialog, gpauth, wrapper): for a failure of this scenario
-(for _ in $(seq 30); do
-    { date +%T; ps -eo pid,ppid,user,args | grep -E "auth-dialog|gpauth|wrapper|gpclient|msedge" | grep -v grep; } >> "$DEMO_OUT/processes.log"
-    sleep 2
-done) &
 edge_signin
 wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active"
 pause 1.5

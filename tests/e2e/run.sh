@@ -65,12 +65,7 @@ webp_of() {
     routing) echo demo-routing-dns.webp ;;
     esac
 }
-env_of() {
-    case "$1" in
-    auth-cancel) echo "-e GP_DEMO_AUTH_TIMEOUT=15" ;;
-    saml-dialog) echo "-e GP_DEMO_NM_DEBUG=1" ;;
-    esac
-}
+env_of() { case "$1" in auth-cancel) echo "-e GP_DEMO_AUTH_TIMEOUT=15" ;; esac; }
 
 export DOCKER_BUILDKIT=1
 declare -A built
