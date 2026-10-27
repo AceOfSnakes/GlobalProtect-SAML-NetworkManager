@@ -1,6 +1,6 @@
 #!/bin/bash
-# End-to-end scenario (GNOME): saml-auth=dialog. The secret agent (the GNOME
-# auth dialog) runs gpauth as the user; the service gives the result to
+# End-to-end scenario (GNOME desktop): saml-auth=dialog. The secret agent of
+# nmcli --ask runs the auth dialog, which runs gpauth as the user; the service gives the result to
 # gpclient --cookie-on-stdin. gpauth must not be a child of gpclient (root).
 # Not recorded for an animation. Runs as user demo; see lib.sh.
 # shellcheck disable=SC2034 # the EDGE_* settings are read by lib.sh
@@ -13,15 +13,12 @@ nmcli connection add type vpn vpn-type gpclient con-name "Contoso VPN" \
 pause 3
 snapshot start
 
-# Not "nmcli connection up": nmcli registers its own secret agent and takes the
-# gpauth-result request. Activate over D-Bus like the GNOME menu, so the
-# GNOME Shell agent (the auth dialog) answers.
-uuid=$(nmcli -g connection.uuid connection show "Contoso VPN") || fail "no VPN profile"
-path=$(busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager/Settings \
-    org.freedesktop.NetworkManager.Settings GetConnectionByUuid s "$uuid" | awk '{print $2}' | tr -d '"')
-busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager \
-    org.freedesktop.NetworkManager ActivateConnection ooo "$path" / / > "$DEMO_OUT/nmcli-up.log" 2>&1 \
-    || fail "cannot activate the VPN profile"
+# "nmcli --ask": nmcli's own secret agent runs the auth dialog
+# (--external-ui-mode), which runs gpauth as this user; the result is not asked
+# (ShouldAsk=false), so nothing is read from stdin. Without --ask nmcli does not
+# run the dialog ("No valid secrets"). GNOME Shell's agent is not used here: in
+# this container NetworkManager did not hand it the request.
+nmcli --ask connection up "Contoso VPN" < /dev/null > "$DEMO_OUT/nmcli-up.log" 2>&1 &
 edge_signin
 wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active"
 pause 1.5
