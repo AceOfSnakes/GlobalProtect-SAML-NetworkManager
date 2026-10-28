@@ -140,7 +140,7 @@ class TestScriptsHaveNoExpressions:
     def test_the_steps_order_and_the_artifact(self):
         names = step_names("build-rpm")
 
-        assert names == ["Checkout code", BUILD, VERIFY, ATTEST, UPLOAD, INSTALL]
+        assert names == ["Checkout code", "Vendor the crates", BUILD, VERIFY, ATTEST, UPLOAD, INSTALL]
         lines = "\n".join(workflow_steps.step_lines(WORKFLOW, UPLOAD))
         assert "name: rpms-${{ matrix.target }}-${{ matrix.arch }}" in lines
         assert "path: output/${{ matrix.target }}-${{ matrix.arch }}/*.rpm" in lines

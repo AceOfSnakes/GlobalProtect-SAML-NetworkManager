@@ -43,6 +43,12 @@ HAS_CORE := $(filter network-manager-gpclient,${CONTROL_PACKAGES})
 %:
 	dh $@
 
+# With vendor/config.toml (scripts/vendor-crates.sh) the crates come from vendor/ and
+# cargo does not use the network; without it cargo downloads them. cargo resolves the
+# directory of the config relative to the parent of vendor/, so any build path works.
+VENDOR_CONFIG := $(CURDIR)/vendor/config.toml
+CARGO_VENDOR_FLAGS := $(if $(wildcard $(VENDOR_CONFIG)),--offline --config $(VENDOR_CONFIG),)
+
 override_dh_auto_build:
 ifneq ($(HAS_CORE),)
 	# Ensure GlobalProtect-openconnect nested submodules (openconnect + libxml2)
@@ -74,7 +80,7 @@ ifneq ($(HAS_CORE),)
 	# Cargo will reuse compiled dependencies from target cache volume
 	# Only local crates (gpauth, gpclient, gpapi, common, openconnect) will be recompiled
 	@echo "Building gpclient and gpauth (reusing cached dependencies)..."
-	cd external/GlobalProtect-openconnect && cargo auditable build --locked --release --bin gpclient --bin gpauth
+	cd external/GlobalProtect-openconnect && cargo auditable build --locked $(CARGO_VENDOR_FLAGS) --release --bin gpclient --bin gpauth
 endif
 
 # Run the QtTest of the Plasma settings widget (plugins/plasma/tests) in the

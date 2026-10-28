@@ -622,7 +622,7 @@ def test_spec_strips_the_rust_binaries():
     # Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
     # upstream's release profile (strip = true)
     spec = read("rpm/network-manager-gpclient.spec")
-    assert "env -u RUSTFLAGS cargo auditable build --locked --release" in spec
+    assert "env -u RUSTFLAGS cargo auditable build --locked $vendor_flags --release" in spec
     assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
 
 

@@ -1,0 +1,83 @@
+name: Reproducible build
+
+# Builds the Ubuntu 24.04 amd64 packages twice from scratch (vendored crates, no
+# network, no shared cargo or target cache) and compares the .deb files. On a
+# difference diffoscope writes a report (artifact) and the job fails (issue #160).
+# Not run for pull requests: two package builds take long.
+
+on:
+  schedule:
+    - cron: "43 4 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproducible:
+    name: Two builds of Ubuntu 24.04 amd64
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Vendor the crates
+        run: |
+          cargo --version
+          bash scripts/vendor-crates.sh
+
+      - name: Build the packages twice
+        run: |
+          set -e
+          docker build --build-arg UBUNTU=24.04 -t gpclient-builder:repro -f Dockerfile.ubuntu .
+          for n in 1 2; do
+            mkdir -p "output/build$n"
+            chmod 777 "output/build$n"
+            # A fresh container and no cache volume per build
+            docker run --rm --network none \
+              -v "$PWD/output/build$n:/output" \
+              gpclient-builder:repro \
+              bash -c '
+                set -e
+                cp debian/control.ubuntu24.04 debian/control
+                dpkg-buildpackage -us -uc -b
+                cp /build/*.deb /output/
+              '
+          done
+
+      - name: Compare the packages
+        run: |
+          set -e
+          cd output
+          status=0
+          for deb in build1/*.deb; do
+            name=$(basename "$deb")
+            if ! cmp -s "$deb" "build2/$name"; then
+              echo "::error::$name is not reproducible"
+              status=1
+            fi
+          done
+          a=(build1/*) b=(build2/*)
+          [ "${#a[@]}" = "${#b[@]}" ] || { echo "::error::the builds made different file lists"; status=1; }
+          if [ "$status" -ne 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y diffoscope-minimal
+            mkdir -p ../diffoscope
+            for deb in build1/*.deb; do
+              name=$(basename "$deb")
+              diffoscope --html "../diffoscope/${name}.html" "$deb" "build2/$name" || true
+            done
+          fi
+          exit "$status"
+
+      - name: Upload the diffoscope report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diffoscope-report
+          path: diffoscope/
+          if-no-files-found: ignore
