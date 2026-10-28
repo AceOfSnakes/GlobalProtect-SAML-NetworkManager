@@ -609,6 +609,32 @@ def test_spec_strips_the_rust_binaries():
     assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
 
 
+def main_license_texts(spec):
+    """The license files of the main package: the %license lines up to the
+    first %files of a subpackage, with what %prep copies under another name"""
+    main = spec.split("%files gnome", 1)[0].split("\n%files", 1)[1]
+    copies = dict((dst, src) for src, dst in re.findall(r"^cp -p (\S+) (\S+)$", spec, re.M))
+    return [copies.get(name, name) for name in re.findall(r"^%license (\S+)$", main, re.M)]
+
+
+def test_spec_ships_the_gpl_text_of_gpclient_and_gpauth():
+    # #148: gpclient and gpauth are GPL-3.0-only; LICENSE is this project's LGPL-2.1
+    texts = main_license_texts(read("rpm/network-manager-gpclient.spec"))
+    assert "external/GlobalProtect-openconnect/LICENSE" in texts
+    assert "LICENSE" in texts
+
+
+@pytest.mark.parametrize("old, new", [
+    ("%license LICENSE.GPL-3.0\n", ""),  # not shipped
+    ("cp -p external/GlobalProtect-openconnect/LICENSE", "cp -p README.md"),  # another file
+])
+def test_a_missing_gpl_text_is_found(old, new):
+    spec = read("rpm/network-manager-gpclient.spec")
+    assert old in spec
+
+    assert "external/GlobalProtect-openconnect/LICENSE" not in main_license_texts(spec.replace(old, new, 1))
+
+
 CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
 
 
