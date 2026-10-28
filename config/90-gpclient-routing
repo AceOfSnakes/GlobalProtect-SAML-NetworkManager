@@ -126,8 +126,8 @@ elif [ "$never_def" = "1" ]; then
   echo "vpnc hook: NM never-default=1 -> removing default route from split-inc" >&2
   compact_split_inc_remove_default CISCO_SPLIT_INC MASK 0.0.0.0
   # IPv6 (#109): vpnc-script adds an IPv6 default route for a ::/0 entry, and
-  # when CISCO_IPV6_SPLIT_INC is empty. The helper leaves the count "0" (not
-  # empty) in both cases, as for IPv4: no IPv6 route from split-inc, and the
-  # INTERNAL_IP6_* address variables stay untouched.
+  # when CISCO_IPV6_SPLIT_INC is empty and INTERNAL_IP6_* is set. The helper
+  # leaves the count "0" (not empty) in both cases, as for IPv4: no IPv6 route
+  # from split-inc, and the INTERNAL_IP6_* address variables stay untouched.
   compact_split_inc_remove_default CISCO_IPV6_SPLIT_INC MASKLEN 0
 fi

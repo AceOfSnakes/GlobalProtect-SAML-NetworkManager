@@ -232,8 +232,8 @@ for resources on its network** (IPv4 tab of the connection,
 `ipv4.never-default yes`) only the networks the gateway announces go through
 the tunnel, and the VPN DNS servers answer only for the VPN's domains. On a
 dual-stack tunnel NetworkManager then adds no IPv6 default route either, and the
-vpnc hook removes the `::/0` entry from the gateway's IPv6 split-include list,
-so vpnc-script sets none
+vpnc hook removes the `::/0` entry from the gateway's IPv6 split-include list
+(or sets an empty list when the gateway sends none), so vpnc-script sets none
 ([#109](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/109)):
 
 ![ip route and resolvectl before connecting, with the default settings and with "Use this connection only for resources on its network"](docs/images/demo-routing-dns.webp)
