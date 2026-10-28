@@ -25,7 +25,13 @@ Name:           network-manager-gpclient
 Version:        %{project_version}
 Release:        %{debian_release}%{?dist}%{?pr_suffix}
 Summary:        NetworkManager VPN plugin for GlobalProtect
-License:        GPL-3.0-or-later AND LGPL-2.1-or-later
+# Per package, as debian/copyright says for the same files (checked by
+# tests/unit/test_rpm_license.py): the service and the editors are
+# LGPL-2.1-only; gpclient and gpauth are GPL-3.0-only (upstream Cargo.toml
+# "GPL-3.0") with MIT crates and the LGPL-2.1-only openconnect fork linked in;
+# nm-vpn-plugin-utils (in libnm-vpn-plugin-gpclient.so, this package) is
+# LGPL-2.0-or-later. RPM only: the bundled python-sdbus is LGPL-2.1-or-later.
+License:        GPL-3.0-only AND LGPL-2.1-only AND LGPL-2.0-or-later AND LGPL-2.1-or-later AND MIT
 URL:            https://github.com/WMP/GlobalProtect-SAML-NetworkManager
 Source0:        %{name}-%{version}.tar.gz
 Source1:        sdbus-%{sdbus_version}.tar.gz
@@ -109,6 +115,7 @@ The GUI packages add the connection editors.
 
 %package gnome
 Summary:        GNOME editor plugins for the GlobalProtect NetworkManager VPN
+License:        LGPL-2.1-only
 Requires:       %{name} = %{version}-%{release}
 %if 0%{?suse_version}
 Requires:       python3-gobject-Gdk
@@ -128,6 +135,7 @@ GTK-based desktops.
 
 %package plasma
 Summary:        KDE Plasma 6 editor plugin for the GlobalProtect NetworkManager VPN
+License:        LGPL-2.1-only
 Requires:       %{name} = %{version}-%{release}
 %if 0%{?suse_version}
 Requires:       plasma6-nm
