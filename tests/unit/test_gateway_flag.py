@@ -1,11 +1,12 @@
 """
 Tests for gpclient's --gateway (issue #53, item 1.4).
 
---gateway=<preferred-gateway> is passed only when the portal offered that name
-or address before (it is in the cached gateway-list); a stale cache makes
-gpclient fail with "Cannot find gateway specified", and the service restarts it
-once without the option. The editors store the whole cached entry
-"name (address)"; the service passes the address of the entry (its name when it has none).
+--gateway=<address of the cached entry> is passed only when preferred-gateway is
+an entry, name or address the portal offered before (it is in the cached
+gateway-list; the editors store the whole entry "name (address)"); an entry
+without an address gives its name. A stale cache makes gpclient fail with
+"Cannot find gateway specified", and the service restarts it once without the
+option.
 
 The real command is captured: a stand-in for gpclient records argv and stdin.
 
