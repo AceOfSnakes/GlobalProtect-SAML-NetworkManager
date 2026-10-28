@@ -562,6 +562,7 @@ build_ui (NMGpclientEditor *self)
     }
     gtk_widget_set_sensitive (self->hip_script_label, hip_enabled);
     gtk_widget_set_sensitive (GTK_WIDGET (self->hip_script_entry), hip_enabled);
+    add_choose_file_icon (self->hip_script_entry, N_("Choose the HIP script"));
     g_signal_connect (G_OBJECT (self->hip_script_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     g_signal_connect (G_OBJECT (self->hip_check), "toggled", G_CALLBACK (hip_toggled_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->hip_script_entry), 1, row++, 1, 1);

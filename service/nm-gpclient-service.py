@@ -1842,7 +1842,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # login portals where gpclient prompts on its terminal)
         self.vpn_username = ""
         self.vpn_password = ""
-        self._password_on_stdin = False  # --passwd-on-stdin: answered at spawn
         self.cert_pass = ""
         self.usercert = ""
         self.userkey = ""
@@ -2039,14 +2038,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # gpclient does not prompt for it - treat username as already
             # answered in every auth phase.
             self._username_prefilled = bool(self.vpn_username)
-            # A stored password of a standard login goes to gpclient's stdin
-            # at spawn; gpclient then never prompts for it. It asks for the
-            # username first unless --user is given, so that needs one too
-            self._password_on_stdin = bool(
-                self.vpn_password
-                and self.vpn_username
-                and data_dict.get("auth-mode", "saml") == "credentials"
-            )
             self._reset_phase_state()
             if self.vpn_username:
                 logger.info(f"Stored username: {self.vpn_username}")
@@ -2441,7 +2432,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
-        self._password_on_stdin = False
         self.cert_pass = ""
         self.usercert = ""
         self.userkey = ""
@@ -2841,12 +2831,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # so the user is not authenticated twice
             if self.as_gateway:
                 cmd.append("--as-gateway")
-            elif self._preferred_gateway_is_cached():
-                cmd.append(f"--gateway={self.preferred_gateway}")
-
-            # The stored password goes to gpclient's stdin (written below)
-            if self._password_on_stdin:
-                cmd.append("--passwd-on-stdin")
+            elif gateway_arg := self._cached_gateway_arg():
+                cmd.append(f"--gateway={gateway_arg}")
 
             # Tunnel MTU, set when the automatic value is too big for the
             # network (ESP falls back to HTTPS with "Message too long")
@@ -2969,12 +2955,6 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self._pty_master = master_fd
 
             logger.info(f"Started gpclient with PID {self.gpclient_process.pid}")
-
-            if self._password_on_stdin:
-                # In the PTY's input queue before gpclient reads it; the echo
-                # is masked in the log (the password is in _written_secrets)
-                self._written_secrets.add(self.vpn_password)
-                self._write_keys(self.vpn_password.encode() + b"\n", "password")
 
             if self._auth_result:
                 # shortcut: a blocking write, fine for the usual few hundred
@@ -3269,20 +3249,29 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         logger.error("Failed to restart gpclient with --fix-openssl")
         return False
 
-    def _preferred_gateway_is_cached(self) -> bool:
-        """May --gateway carry preferred-gateway? Only if the portal offered it.
+    def _cached_gateway_arg(self) -> str:
+        """Value for --gateway, or "" when preferred-gateway is not usable.
 
-        gpclient takes the exact name or address of a gateway of the portal's
-        list; the cached entries look like "name (address)".
+        Only a gateway the portal offered before (cached gateway-list) is
+        passed. The editors store the whole entry "name (address)"; nmcli
+        users write the name or the address. gpclient takes the first gateway
+        whose name or address equals the value. Names are not unique and the
+        cache may have changed a name (_gateway_entry), addresses are unique:
+        so the address of the entry is passed, its name only without one.
         """
         preferred = self.preferred_gateway
         if not preferred or self._gateway_flag_dropped:
-            return False
+            return ""
         for entry in self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR):
-            name, _, host = entry.partition("(")
-            if preferred in (name.strip(), host.strip(") ")):
-                return True
-        return False
+            entry = entry.strip()
+            name, host = entry, ""
+            if entry.endswith(")") and "(" in entry:
+                name, _, host = entry[:-1].rpartition("(")
+                name, host = name.strip(), host.strip()
+            # an entry without a name, "(address)", is matched by its address
+            if (name or host) and preferred in (entry, name, host):
+                return host or name
+        return ""
 
     async def _retry_without_gateway(self) -> bool:
         """Restart gpclient once without --gateway when it cannot find it.
@@ -3293,7 +3282,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """
         if not self._gateway_not_found_seen or self._gateway_flag_dropped:
             return False
-        if not self._preferred_gateway_is_cached():
+        if not self._cached_gateway_arg():
             return False
 
         logger.warning(
@@ -3559,7 +3548,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         prompt for it.
         """
         self._answered_username = self._username_prefilled
-        self._answered_password = self._password_on_stdin
+        self._answered_password = False
 
     def _classify_prompt_kind(self, label: str, banner_msg: str) -> str:
         """Decide how to answer a prompt: 'cert-pass', 'otp', 'username' or

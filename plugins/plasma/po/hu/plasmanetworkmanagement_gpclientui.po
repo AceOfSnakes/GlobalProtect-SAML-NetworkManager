@@ -466,3 +466,8 @@ msgstr "Válassza ki a kliens tanúsítványt"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Válassza ki a privát kulcsot"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Válassza ki a HIP-szkriptet"

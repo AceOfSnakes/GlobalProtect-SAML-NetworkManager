@@ -466,3 +466,8 @@ msgstr "Valitse asiakassertifikaatti"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Valitse yksityinen avain"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Valitse HIP-komentosarja"

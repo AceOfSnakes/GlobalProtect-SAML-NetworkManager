@@ -364,3 +364,7 @@ msgstr "Επιλογή πιστοποιητικού πελάτη"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the private key"
 msgstr "Επιλογή ιδιωτικού κλειδιού"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the HIP script"
+msgstr "Επιλογή σεναρίου HIP"
