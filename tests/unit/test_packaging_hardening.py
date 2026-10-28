@@ -272,8 +272,9 @@ def _builds_rust(path):
         return "rustup" in handle.read()
 
 
-# The images that build gpclient and gpauth (the neon variant builds only the
-# Plasma package and uses no cache volume)
+# The images that build gpclient and gpauth. build-all.sh mounts the volumes in
+# the neon image too, but it builds only the Plasma package and never runs cargo
+# (HAS_CORE is empty in debian/rules).
 DOCKERFILES = [p for p in sorted(glob.glob(os.path.join(ROOT, "Dockerfile.ubuntu*"))) if _builds_rust(p)]
 
 
