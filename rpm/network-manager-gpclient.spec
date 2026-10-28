@@ -234,6 +234,9 @@ install -D -m 0755 config/gpclient-nm-notify \
   %{buildroot}%{_sysconfdir}/vpnc/post-connect.d/90-gpclient-notify
 install -D -m 0755 config/gpclient-nm-notify \
   %{buildroot}%{_sysconfdir}/vpnc/reconnect.d/90-gpclient-notify
+# What gpclient runs with --script when a profile has nm-routing=yes
+install -D -m 0755 config/gpclient-nm-script \
+  %{buildroot}%{_prefix}/lib/NetworkManager/gpclient-nm-script
 
 %if 0%{?suse_version}
 # sdbus and PyGObject are in the site-packages of this python3.X: do not follow a
@@ -313,6 +316,7 @@ fi
 %{_bindir}/gpauth
 %{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
 %{_prefix}/lib/NetworkManager/nm-gpclient-service
+%{_prefix}/lib/NetworkManager/gpclient-nm-script
 %{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
 %{_prefix}/libexec/gpclient
 %dir %{_prefix}/libexec/NetworkManager

@@ -398,6 +398,11 @@ void GpclientWidgetTest::readsBooleansIgnoringCase_data()
     QTest::newRow("hip other is off") << "hip" << "yes" << "false";
     QTest::newRow("as-gateway TRUE") << "as-gateway" << "TRUE" << "true";
     QTest::newRow("as-gateway other is off") << "as-gateway" << "yes" << "";
+    QTest::newRow("nm-routing yes") << "nm-routing" << "yes" << "yes";
+    QTest::newRow("nm-routing YES") << "nm-routing" << "YES" << "yes";
+    QTest::newRow("nm-routing no") << "nm-routing" << "no" << "";
+    QTest::newRow("nm-routing true is on") << "nm-routing" << "true" << "yes";
+    QTest::newRow("nm-routing other is off") << "nm-routing" << "1" << "";
     QTest::newRow("fix-openssl TRUE") << "fix-openssl" << "TRUE" << "true";
     QTest::newRow("fix-openssl False") << "fix-openssl" << "False" << "false";
     QTest::newRow("fix-openssl other is auto") << "fix-openssl" << "yes" << "";

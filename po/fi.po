@@ -368,3 +368,11 @@ msgstr "Valitse yksityinen avain"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "Valitse HIP-komentosarja"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Anna NetworkManagerin asettaa reitit ja DNS (kokeellinen)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager määrittää tunnelin reitit, DNS:n ja oletusreitin yhdyskäytävän lähettämien tietojen perusteella vpnc-scriptin sijaan. Reitit, jotka yhdyskäytävä sulkee tunnelin ulkopuolelle, ohitetaan."

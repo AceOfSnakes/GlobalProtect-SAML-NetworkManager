@@ -578,6 +578,26 @@ class TestConnectData:
 
         assert plugin.as_gateway is False
 
+    @pytest.mark.parametrize(
+        "value, expected",
+        [("yes", True), ("YES", True), ("true", True),
+         ("no", False), ("", False), ("1", False), ("maybe", False)],
+    )
+    def test_nm_routing(self, service_module, monkeypatch, value, expected):
+        plugin = _plugin(service_module, monkeypatch)
+
+        connect(plugin, _conn(data={"gateway": "g", "nm-routing": value}))
+
+        assert plugin.nm_routing is expected
+
+    def test_nm_routing_absent_is_false(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch)
+        plugin.nm_routing = True
+
+        connect(plugin, _conn())
+
+        assert plugin.nm_routing is False
+
     def test_preferred_gateway_is_stripped(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
 

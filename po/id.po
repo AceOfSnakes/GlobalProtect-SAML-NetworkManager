@@ -368,3 +368,11 @@ msgstr "Pilih kunci pribadi"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "Pilih skrip HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Biarkan NetworkManager mengatur rute dan DNS (eksperimental)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager mengonfigurasi rute, DNS, dan rute bawaan terowongan dari data yang dikirim gateway, sebagai ganti vpnc-script. Rute yang dikecualikan gateway dari terowongan diabaikan."
