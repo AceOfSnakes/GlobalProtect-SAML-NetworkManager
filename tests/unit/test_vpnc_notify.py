@@ -1047,6 +1047,19 @@ class TestRoutingHookSplitInc:
         assert got["CISCO_IPV6_SPLIT_INC"] == "3"
         assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "0"
 
+    def test_no_ipv6_list_leaves_count_zero(self):
+        # openconnect sets no list when the gateway sends none; an empty count
+        # makes vpnc-script add an IPv6 default route for INTERNAL_IP6_ADDRESS
+        got = self.run_hook({"GPCLIENT_NM_NEVER_DEFAULT": "1", "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+
+    @pytest.mark.parametrize("never_default", ["0", ""])
+    def test_no_ipv6_list_stays_unset_without_never_default(self, never_default):
+        got = self.run_hook({"GPCLIENT_NM_NEVER_DEFAULT": never_default, "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert "CISCO_IPV6_SPLIT_INC" not in got
+
     def test_non_default_ipv6_entries_are_kept(self):
         env = {k: v for k, v in self.V6.items() if "_1_" not in k}
         env["CISCO_IPV6_SPLIT_INC"] = "2"
