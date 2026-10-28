@@ -106,6 +106,7 @@ install: all
 	install -D -m 755 gpauth /usr/bin/gpauth
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
+	install -D -m 755 config/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing
 	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
 	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 	# Install D-Bus policy, D-Bus activation file and systemd unit
@@ -195,6 +196,7 @@ install-dev: gnome-plugins mo
 
 	# Install the vpnc hooks: routing, and the tunnel notification
 	sudo install -m 755 config/90-gpclient-routing $(VPNC_DIR)/
+	sudo install -D -m 755 config/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing
 	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
 	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 
@@ -217,7 +219,7 @@ uninstall-dev:
 	sudo rm -f $(DBUS_SERVICES_DIR)/org.freedesktop.NetworkManager.gpclient.service
 	sudo rm -f $(DBUS_CONF_DIR)/nm-gpclient.conf
 	sudo rm -f $(SYSTEMD_DIR)/nm-gpclient.service
-	sudo rm -f $(VPNC_DIR)/90-gpclient-routing
+	sudo rm -f $(VPNC_DIR)/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing
 	sudo rm -f /etc/vpnc/post-connect.d/90-gpclient-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 	@echo "=== Uninstall complete ==="
 

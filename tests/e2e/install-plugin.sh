@@ -56,6 +56,8 @@ ln -sf /usr/lib/NetworkManager/nm-gpclient-service \
     "$dest/usr/libexec/NetworkManager/gpclient-nm-service"
 install -D -m 755 config/90-gpclient-routing \
     "$dest/etc/vpnc/connect.d/90-gpclient-routing"
+install -D -m 755 config/90-gpclient-routing \
+    "$dest/etc/vpnc/disconnect.d/90-gpclient-routing"
 for hook_dir in post-connect.d reconnect.d; do
     install -D -m 755 config/gpclient-nm-notify \
         "$dest/etc/vpnc/$hook_dir/90-gpclient-notify"
