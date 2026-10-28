@@ -25,11 +25,13 @@ VPN_DOMAIN = "contoso.example"
 WIRED_DEVICE = "enp0s31f6"
 WIRED_DNS = "192.168.1.1"
 VPN_NAME = "Contoso VPN"
+NM_SPLIT_ROUTES = ("10.20.0.0/16", "172.16.0.0/12")  # pushed by the fake gpclient with --script
 EDGE_RE = re.compile(r"msedge|microsoft-edge")
 
 # The states each scenario saves (name -> kind)
 #   baseline: no VPN, "full": connected with the default route through the VPN,
-#   "split": connected with "only for resources on its network"
+#   "split": connected with "only for resources on its network",
+#   "nm-split": the same with nm-routing=yes (NetworkManager sets the routes)
 SCENARIO_STATES = {
     "gnome": {"start": "baseline", "connected": "full", "disconnected": "baseline"},
     "kde": {"start": "baseline", "connected": "full", "disconnected": "baseline"},
@@ -39,6 +41,8 @@ SCENARIO_STATES = {
         "disconnected": "baseline",
         "connected-never-default": "split",
         "disconnected-final": "baseline",
+        "connected-nm-routing": "nm-split",
+        "disconnected-nm-routing": "baseline",
     },
     "auth-cancel": {"before": "baseline", "failed": "baseline"},
     # saml-auth=dialog: the login runs in the user's session (the auth dialog)
@@ -127,7 +131,7 @@ def check_state(results, run, name, kind, scenario):
         "; ".join(active),
     )
 
-    if kind in ("full", "split"):
+    if kind in ("full", "split", "nm-split"):
         results.add(
             f"{label} VPN activated",
             bool(lines_with(active, f"{VPN_NAME}:vpn:activated")),
@@ -155,6 +159,11 @@ def check_state(results, run, name, kind, scenario):
                 status,
             )
         else:
+            if kind == "nm-split":
+                # The fake gateway pushes these two split routes (and no default route)
+                routes = section(state, "ip route")
+                missing = [net for net in NM_SPLIT_ROUTES if not [r for r in routes if r.startswith(f"{net} ") and f"dev {tun}" in r]]
+                results.add(f"{label} nm-routing: split routes {', '.join(NM_SPLIT_ROUTES)} are on {tun}", not missing, "; ".join(routes))
             results.add(
                 f"{label} never-default: default route stays on the wired link",
                 bool(route_default)
