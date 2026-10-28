@@ -40,7 +40,6 @@ private:
     }
 
 private Q_SLOTS:
-    void initTestCase();
     void timeout_data();
     void timeout();
     void keepsUnknownDataKeys();
@@ -61,6 +60,7 @@ private Q_SLOTS:
     void mtuEmptyIsAutomatic_data();
     void mtuEmptyIsAutomatic();
     void mtuArrowsAndWheelStillStep();
+    void newConnectionOverridesPlasmaDefault();
     void passwordStorage_data();
     void passwordStorage();
     void certPassStorage_data();
@@ -571,13 +571,22 @@ void GpclientWidgetTest::doesNotInventPersistentAndUserName()
     QVERIFY(saved.username().isEmpty());
 }
 
-/* KWallet off (ctest sets XDG_CONFIG_HOME to tests/kwallet-off): plasma-nm's
- * PasswordField then starts at "all users" (in the profile as plain text), so
- * the "new, default is the agent" rows show that the editor sets the agent. */
-void GpclientWidgetTest::initTestCase()
+/* plasma-nm's PasswordField starts at "all users" (in the profile as plain
+ * text) when there is no wallet: KWallet off before plasma-nm 6.7 (ctest sets
+ * XDG_CONFIG_HOME to tests/kwallet-off), no QtKeychain backend since 6.7. */
+void GpclientWidgetTest::newConnectionOverridesPlasmaDefault()
 {
     PasswordField field;
-    QCOMPARE(field.passwordOption(), PasswordField::StoreForAllUsers);
+    if (field.passwordOption() != PasswordField::StoreForAllUsers) {
+        QSKIP("PasswordField starts at \"this user\" here (plasma-nm 6.7+ with a keychain)");
+    }
+
+    GpclientWidget widget(makeSetting({}, 0));
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+
+    QCOMPARE(saved.data().value(QStringLiteral("password-flags")), QStringLiteral("1"));
+    QCOMPARE(saved.data().value(QStringLiteral("cert-pass-flags")), QStringLiteral("1"));
 }
 
 void GpclientWidgetTest::passwordStorage_data()
