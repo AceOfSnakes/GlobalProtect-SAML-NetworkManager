@@ -677,7 +677,7 @@ class TestEndOfLifeReleases:
         pattern = r'echo "([A-Za-z0-9+/=]+)" \| base64 -d > /etc/apt/sources\.list\.d/ubuntu\.sources'
         for blob in re.findall(pattern, text):
             sources = base64.b64decode(blob).decode()
-            if "old-releases.ubuntu.com" in sources:
+            if re.search(r"^URIs:\s*https?://old-releases\.ubuntu\.com/", sources, re.M):
                 found.update(c for c in self.CODENAMES.values() if re.search(rf"\b{c}\b", sources))
         return found
 
