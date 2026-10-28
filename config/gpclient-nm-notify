@@ -18,6 +18,12 @@
 # The program takes the vpnc environment (reason, TUNDEV, VPNGATEWAY,
 # INTERNAL_IP4_*, ...) and the token from its own environment, which it
 # inherits from vpnc-script. This hook changes nothing in that environment.
+#
+# It adds one variable for this call only: GPCLIENT_VPNC_SCRIPT, the path of the
+# vpnc-script that runs ($0: this file is sourced, and openconnect runs the
+# script by its path). If the service has to SIGKILL gpclient, vpnc-script never
+# runs its disconnect; the service then runs the script itself with that path
+# (issue #162). It checks the path before it uses it.
 
 gpclient_nm_notify() {
   # vpnc-script-debug runs `sh -x`: do not trace the token into the journal
@@ -38,9 +44,9 @@ gpclient_nm_notify() {
 
   # A call that hangs (the service is stuck) must not block vpnc-script
   if command -v timeout >/dev/null 2>&1; then
-    timeout 10 "$GPCLIENT_NM_NOTIFY" --vpnc-notify
+    GPCLIENT_VPNC_SCRIPT=$0 timeout 10 "$GPCLIENT_NM_NOTIFY" --vpnc-notify
   else
-    "$GPCLIENT_NM_NOTIFY" --vpnc-notify
+    GPCLIENT_VPNC_SCRIPT=$0 "$GPCLIENT_NM_NOTIFY" --vpnc-notify
   fi || echo "vpnc hook: could not tell nm-gpclient-service about the tunnel ${TUNDEV:-} (reason ${reason:-})" >&2
   return 0
 }

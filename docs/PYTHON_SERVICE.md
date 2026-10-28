@@ -288,6 +288,21 @@ generation counter before they wait for `_lifecycle_lock` (issue #52), and
 `Notify` rejects a call when the generation is not the one of the session
 (`_session_gen`), even while the token is still set.
 
+### Disconnect after a kill
+On `Disconnect()` the service sends SIGTERM to gpclient, which logs out and
+makes openconnect run vpnc-script with `reason=disconnect` (it removes the
+routes and DNS settings it added). If gpclient does not exit within
+`GPCLIENT_TERMINATE_TIMEOUT` (10 s), the service sends SIGKILL, and that
+disconnect would never run. So the notify hook sends the path of the running
+vpnc-script (`GPCLIENT_VPNC_SCRIPT`, from `$0`) with the vpnc environment, and
+the service keeps both. After a SIGKILL it runs that script as root with
+`reason=disconnect`, a fixed `PATH` and a timeout of 10 s
+(`VPNC_DISCONNECT_TIMEOUT`). It uses the path only if it is absolute and a
+regular, executable file owned by root that group and others cannot write. With
+`nm-routing` there is nothing to undo, so the script does not send the path.
+Known limit: if gpclient crashes on its own, the service does not run the
+script.
+
 ### NetworkManager routing (`nm-routing`)
 
 With `nm-routing=yes` in `vpn.data`, NetworkManager configures the routes of the

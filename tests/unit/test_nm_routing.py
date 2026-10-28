@@ -98,10 +98,9 @@ class TestForwarding:
     @pytest.mark.parametrize(
         "name",
         [
-            "CISCO_SPLIT_EXC",
-            "CISCO_SPLIT_EXC_0_ADDR",
-            "CISCO_IPV6_SPLIT_EXC",
-            "CISCO_IPV6_SPLIT_EXC_0_ADDR",
+            "CISCO_SPLIT_EXC_256_ADDR",  # the exclude lists are sent (#162), capped
+            "CISCO_IPV6_SPLIT_EXC_256_ADDR",
+            "CISCO_SPLIT_EXC_0_ADDRESS",
             "CISCO_SPLIT_INC_256_ADDR",  # beyond the cap
             "CISCO_SPLIT_INC_-1_ADDR",
             "CISCO_SPLIT_INC_a_ADDR",
