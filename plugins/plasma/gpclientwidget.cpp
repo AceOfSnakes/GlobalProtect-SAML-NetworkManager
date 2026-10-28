@@ -165,6 +165,7 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->userKeyLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     addChooseFileAction(m_ui->userCertLineEdit, this, i18n("Choose the client certificate"));
     addChooseFileAction(m_ui->userKeyLineEdit, this, i18n("Choose the private key"));
+    addChooseFileAction(m_ui->hipScriptLineEdit, this, i18n("Choose the HIP script"));
     connect(m_ui->certPassLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->certPassFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
     // "Ask every time" stores nothing: no typing into the field (as the password)

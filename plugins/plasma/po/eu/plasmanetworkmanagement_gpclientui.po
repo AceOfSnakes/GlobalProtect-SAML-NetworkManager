@@ -466,3 +466,8 @@ msgstr "Aukeratu bezero-ziurtagiria"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Aukeratu gako pribatua"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Aukeratu HIP script-a"

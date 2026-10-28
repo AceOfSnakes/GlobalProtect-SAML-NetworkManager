@@ -466,3 +466,8 @@ msgstr "Trieu el certificat de client"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Trieu la clau privada"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Trieu l'script HIP"

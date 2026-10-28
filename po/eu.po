@@ -364,3 +364,7 @@ msgstr "Aukeratu bezero-ziurtagiria"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the private key"
 msgstr "Aukeratu gako pribatua"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the HIP script"
+msgstr "Aukeratu HIP script-a"
