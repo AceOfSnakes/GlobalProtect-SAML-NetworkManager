@@ -1,6 +1,35 @@
 #!/bin/sh
 set -e
 
+# Older wrappers ran as root and left /tmp/edge-wrapper-<uid> (a directory) and
+# /tmp/edge-wrapper-<uid>.log (a file) owned by root. The wrapper refuses a
+# directory it does not own and takes a new one on every login, so remove these.
+# Only the exact names with digits, only root-owned, never through a symlink
+# (find does not follow them; rm -rf does not either). /tmp has the sticky bit:
+# only root could have replaced or renamed a root-owned entry, so no other user
+# can swap it between the check and the removal.
+# Usage: remove_legacy_edge_wrapper directory [owner] (the owner is root; a test sets another)
+remove_legacy_edge_wrapper() {
+    legacy_dir=$1
+    legacy_owner=${2:-root}
+    for legacy_entry in "$legacy_dir"/edge-wrapper-[0-9]*; do
+        legacy_rest=${legacy_entry##*/edge-wrapper-}
+        legacy_id=${legacy_rest%.log}
+        case $legacy_id in
+            ''|*[!0-9]*) continue ;;
+        esac
+        if [ "$legacy_id" = "$legacy_rest" ]; then
+            legacy_type=d
+        else
+            legacy_type=f
+        fi
+        if [ -n "$(find "$legacy_entry" -maxdepth 0 -type "$legacy_type" \
+                -user "$legacy_owner" 2>/dev/null)" ]; then
+            rm -rf -- "$legacy_entry" || true
+        fi
+    done
+}
+
 case "$1" in
     configure|reconfigure)
         # Reload D-Bus configuration to pick up new service files
@@ -9,28 +38,35 @@ case "$1" in
                 /org/freedesktop/DBus org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 || true
         fi
 
-        # Kill old VPN service process if running, so NetworkManager can start fresh one
-        if pidof -x nm-gpclient-service >/dev/null 2>&1; then
+        # Stop the old VPN service, so NetworkManager starts the new one. The
+        # service is a Python script (shebang "#!/usr/bin/env python3"): its
+        # process name is python3, so match the whole command line. The pattern
+        # is anchored: it matches only an interpreter that runs the service file,
+        # not an editor, a shell or pkill itself that only names the file.
+        # The second path is the old name (a symlink in the old libexec directory).
+        service_re='^(/usr/bin/)?python3(\.[0-9]+)* /usr/lib/NetworkManager/nm-gpclient-service( |$)'
+        old_service_re='^(/usr/bin/)?python3(\.[0-9]+)* /usr/libexec/NetworkManager/gpclient-nm-service( |$)'
+        if pgrep -f "$service_re" >/dev/null 2>&1; then
             echo "Restarting nm-gpclient-service..."
-            pkill -x nm-gpclient-service || true
+            pkill -f "$service_re" || true
         fi
 
         # Also check for old process name
-        if pgrep -f "gpclient-nm-service" >/dev/null 2>&1; then
+        if pgrep -f "$old_service_re" >/dev/null 2>&1; then
             echo "Killing old gpclient-nm-service process..."
-            pkill -f "gpclient-nm-service" || true
+            pkill -f "$old_service_re" || true
         fi
 
-        # Ensure systemd-resolved is enabled in /etc/nsswitch.conf for split DNS
-        if [ -f /etc/nsswitch.conf ]; then
-            if ! grep -q "^hosts:.*resolve" /etc/nsswitch.conf; then
-                echo "Configuring /etc/nsswitch.conf to use systemd-resolved..."
-                # Backup original file
-                cp /etc/nsswitch.conf /etc/nsswitch.conf.gpclient-backup
-                # Add resolve to hosts line if not present
-                sed -i 's/^hosts:\(.*\)files/hosts:\1resolve [!UNAVAIL=return] files/' /etc/nsswitch.conf || true
-                echo "Note: /etc/nsswitch.conf has been modified. Backup saved to /etc/nsswitch.conf.gpclient-backup"
-            fi
+        remove_legacy_edge_wrapper /tmp
+
+        # Versions before 2.0.0 enabled nm-gpclient.service at boot; NetworkManager
+        # and D-Bus start it on demand, so remove the enable symlink on upgrade
+        # (purge: also the helper state, which no later purge of a static unit removes).
+        # The debhelper of 22.04 masked the unit when that version was removed, and
+        # a static unit gets no unmask snippet: unmask (only a mask the helper made).
+        if [ -n "$2" ] && dpkg --compare-versions "$2" lt 2.0.0~; then
+            deb-systemd-helper purge nm-gpclient.service >/dev/null 2>&1 || true
+            deb-systemd-helper unmask nm-gpclient.service >/dev/null 2>&1 || true
         fi
         ;;
 

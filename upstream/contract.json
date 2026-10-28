@@ -4,6 +4,27 @@
   "version": "3.2.0",
   "items": [
     {
+      "id": "log-json-level",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/log_format.rs",
+      "text": "\"level\": record.level().as_str(),",
+      "used_by": "service/nm-gpclient-service.py: parse_log_record"
+    },
+    {
+      "id": "log-json-target",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/log_format.rs",
+      "text": "\"target\": record.target(),",
+      "used_by": "service/nm-gpclient-service.py: parse_log_record"
+    },
+    {
+      "id": "log-json-message",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/log_format.rs",
+      "text": "\"message\": record.args().to_string(),",
+      "used_by": "service/nm-gpclient-service.py: parse_log_record"
+    },
+    {
       "id": "gateway-count",
       "kind": "anchor",
       "path": "crates/gpapi/src/portal/config.rs",
@@ -36,7 +57,35 @@
       "kind": "anchor",
       "path": "apps/gpclient/src/connect/mod.rs",
       "text": "Enter the {} passphrase:",
-      "used_by": "service/nm-gpclient-service.py: passphrase prompt detection (one-time secret prompts)"
+      "used_by": "service/nm-gpclient-service.py: CERT_PASS_PROMPT_RE (the prompt for the passphrase of the client certificate key)"
+    },
+    {
+      "id": "passphrase-type-pem",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/utils/identity_encoding.rs",
+      "text": "NoPassphrase(\"PEM\")",
+      "used_by": "service/nm-gpclient-service.py: CERT_PASS_PROMPT_RE (PEM)"
+    },
+    {
+      "id": "passphrase-type-pkcs12",
+      "kind": "anchor",
+      "path": "crates/gpapi/src/utils/request.rs",
+      "text": "NoPassphrase(\"PKCS#12\")",
+      "used_by": "service/nm-gpclient-service.py: CERT_PASS_PROMPT_RE (PKCS#12)"
+    },
+    {
+      "id": "cli-certificate",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) certificate: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --certificate (vpn.data usercert)"
+    },
+    {
+      "id": "cli-sslkey",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) sslkey: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --sslkey (vpn.data userkey)"
     },
     {
       "id": "login-default-message",
@@ -130,6 +179,24 @@
       "used_by": "service/nm-gpclient-service.py: SUDO_UID in the gpclient environment"
     },
     {
+      "id": "code-into-non-root",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/process/command_traits.rs",
+      "start": "fn into_non_root(mut self)",
+      "sha256": "e8906113bb8c754dd5dded9769ae89acc24a39394895a2258a990118e818dcb0",
+      "used_by": "service/nm-gpclient-service.py: SUDO_UID in the gpclient environment, no session environment copied into gpclient"
+    },
+    {
+      "id": "code-desktop-session-env",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/process/desktop_session_env.rs",
+      "start": "fn collect(user_id: u32)",
+      "sha256": "cb08c6f99e06dde8035ad0c28ce1483f26e0fa235ecc4b30482f71ed9f186a7b",
+      "used_by": "service/nm-gpclient-service.py: SUDO_UID in the gpclient environment, no session environment copied into gpclient"
+    },
+    {
       "id": "callback-handler-desktop",
       "kind": "anchor",
       "path": "crates/auth/src/callback.rs",
@@ -172,6 +239,126 @@
       "used_by": "service/nm-gpclient-service.py: --as-gateway"
     },
     {
+      "id": "cli-gateway",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) gateway: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --gateway"
+    },
+    {
+      "id": "cli-passwd-on-stdin",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) passwd_on_stdin: bool,",
+      "used_by": "service/nm-gpclient-service.py: --passwd-on-stdin"
+    },
+    {
+      "id": "cli-cookie-on-stdin",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) cookie_on_stdin: bool,",
+      "used_by": "service/nm-gpclient-service.py: --cookie-on-stdin"
+    },
+    {
+      "id": "stdin-auth-result-read",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/credential.rs",
+      "text": "fn read_auth_result_from_stdin(&self) -> anyhow::Result<SamlAuthResult> {",
+      "used_by": "service/nm-gpclient-service.py: parse_auth_result (the one line gpclient reads from stdin)"
+    },
+    {
+      "id": "stdin-credential-rule",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/credential.rs",
+      "text": "cookie_on_stdin && (!prelogin_is_gateway || as_gateway)",
+      "used_by": "service/nm-gpclient-service.py: --cookie-on-stdin is used for a portal, or for the server with --as-gateway"
+    },
+    {
+      "id": "saml-launch-record",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/credential.rs",
+      "text": "SAML auth launch: gateway={}",
+      "used_by": "service/nm-gpclient-service.py: SAML_GATEWAY_LAUNCH_RE"
+    },
+    {
+      "id": "code-saml-auth-data",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/auth.rs",
+      "start": "pub struct SamlAuthData",
+      "sha256": "1ad4d9a5c95c987df02de1460989c43ab6fd9a0d3d061204a7c8f4d83d20f75e",
+      "used_by": "service/nm-gpclient-service.py: parse_auth_result"
+    },
+    {
+      "id": "code-saml-auth-result",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/auth.rs",
+      "start": "pub enum SamlAuthResult",
+      "sha256": "7f0eb7f3518c55163aeea5ab181a15bb4141fb2f59bdc6f12b6c04b8a5d8b6c5",
+      "used_by": "service/nm-gpclient-service.py: parse_auth_result"
+    },
+    {
+      "id": "code-gpauth-print-result",
+      "kind": "block",
+      "role": "code",
+      "path": "apps/gpauth/src/cli.rs",
+      "start": "pub fn print_auth_result(",
+      "sha256": "cd6ddc691f91a0785bc5645b69ea8eec47d07f14d7b072ad5cd988c5139c8fa0",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: run_gpauth (reads the line gpauth prints)"
+    },
+    {
+      "id": "code-gpauth-outcome",
+      "kind": "block",
+      "role": "code",
+      "path": "apps/gpauth/src/cli.rs",
+      "start": "fn auth_outcome(",
+      "sha256": "a5ca9db2ad9c1539940746fa351a4c03779003ea8b535a3cbd6fbf953a3886e5",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: run_gpauth (reads the line gpauth prints)"
+    },
+    {
+      "id": "non-saml-prelogin",
+      "kind": "anchor",
+      "path": "crates/auth/src/lib.rs",
+      "text": "Received non-SAML prelogin response",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: NON_SAML_RE"
+    },
+    {
+      "id": "gpauth-cli-gateway",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  gateway: bool,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --gateway"
+    },
+    {
+      "id": "gpauth-cli-fix-openssl",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  fix_openssl: bool,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --fix-openssl"
+    },
+    {
+      "id": "gpauth-cli-browser",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  browser: Option<String>,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --browser"
+    },
+    {
+      "id": "gpauth-cli-log-format",
+      "kind": "anchor",
+      "path": "apps/gpauth/src/cli.rs",
+      "text": "  log_format: LogFormat,",
+      "used_by": "auth-dialog/nm-gpclient-auth-dialog.py: gpauth --log-format"
+    },
+    {
+      "id": "gateway-not-found",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/mod.rs",
+      "text": "Cannot find gateway specified",
+      "used_by": "service/nm-gpclient-service.py: GATEWAY_NOT_FOUND_RE"
+    },
+    {
       "id": "cli-user",
       "kind": "anchor",
       "path": "apps/gpclient/src/connect/args.rs",
@@ -191,6 +378,105 @@
       "path": "apps/gpclient/src/connect/args.rs",
       "text": "pub(super) hip: Option<String>,",
       "used_by": "service/nm-gpclient-service.py: --hip"
+    },
+    {
+      "id": "cli-mtu",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) mtu: Option<u32>,",
+      "used_by": "service/nm-gpclient-service.py: --mtu"
+    },
+    {
+      "id": "cli-interface",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) interface: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --interface"
+    },
+    {
+      "id": "tunnel-settings-interface",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": "VPN interface: {}",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "tunnel-settings-ipv4",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": "VPN IPv4: {}",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "tunnel-settings-dns",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": "VPN DNS: {}",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "tunnel-settings-search-domains",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": "VPN search domains: {}",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "tunnel-settings-split-dns",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": "VPN split DNS: {}",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "tunnel-settings-mtu",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": "VPN MTU: {mtu}",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "tunnel-settings-truncated",
+      "kind": "anchor",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "text": " ({} of {} shown; truncated)",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "code-tunnel-log-configuration",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "start": "pub(crate) fn log_configuration(",
+      "sha256": "8520217a7c48cf07f6567d4ce86dcdeb577fce3552ac9973a02aefbf5f836ab1",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "code-tunnel-values",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "start": "fn values(",
+      "sha256": "4b54ccfd5e27385d7da5b96c7bc6075651e4e39acbba28f3f15c237d993e2c16",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "code-tunnel-escaped",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gptunnel/src/configuration.rs",
+      "start": "fn escaped(",
+      "sha256": "ae1d19b01989e7d58a2b88b152cac59099d3bef2004b6f41a6f6716037b142ea",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
+    },
+    {
+      "id": "code-tunnel-address-display",
+      "kind": "block",
+      "role": "code",
+      "path": "crates/gpapi/src/session/tunnel.rs",
+      "start": "pub fn display(&self) -> String {",
+      "sha256": "4b0d7bf9da4f7a10c26a98edf67853328bc667fe614268ed2ab802bee214e5bc",
+      "used_by": "service/nm-gpclient-service.py: TUNNEL_MESSAGE_RE"
     },
     {
       "id": "code-obtain-credential",
@@ -476,7 +762,7 @@
       "kind": "cargo-lock",
       "package": "inquire",
       "version": "0.9.4",
-      "used_by": "service/nm-gpclient-service.py: ScreenBuffer, EscapeTokenizer, OutputScanner, SELECT_HELP_RE (model the inquire rendering)"
+      "used_by": "service/nm-gpclient-service.py: ScreenBuffer, EscapeTokenizer, OutputScanner, SELECT_HELP_RE, detect_screen_prompt (model the inquire rendering)"
     },
     {
       "id": "cargo-crossterm",

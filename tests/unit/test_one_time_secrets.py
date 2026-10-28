@@ -76,22 +76,29 @@ class TestForgetOneTimeSecret:
 
         calls = []
 
-        async def record(*arguments):
-            calls.append(arguments)
+        async def record(data, drop_secrets=()):
+            calls.append((data, list(drop_secrets)))
             return True
 
-        plugin._nmcli_modify = record
+        plugin._update_profile = record
         return plugin, calls
 
-    def test_marks_not_saved_and_drops_the_value(self, service_module):
+    def _with_results(self, plugin, calls, results):
+        async def flaky(data, drop_secrets=()):
+            calls.append((data, list(drop_secrets)))
+            return results.pop(0)
+
+        plugin._update_profile = flaky
+
+    ONE_WRITE = ({"otp-flags": "2"}, ["otp"])
+
+    def test_marks_not_saved_and_drops_the_value_in_one_write(self, service_module):
         plugin, calls = self._plugin(service_module)
 
         asyncio.run(plugin._forget_one_time_secret())
 
-        assert calls == [
-            ("+vpn.data", "otp-flags=2"),
-            ("-vpn.secrets", "otp"),
-        ]
+        assert calls == [self.ONE_WRITE]
+        assert plugin._otp_flags_written is True
 
     def test_only_done_once_per_connection(self, service_module):
         plugin, calls = self._plugin(service_module)
@@ -99,7 +106,7 @@ class TestForgetOneTimeSecret:
         asyncio.run(plugin._forget_one_time_secret())
         asyncio.run(plugin._forget_one_time_secret())
 
-        assert len(calls) == 2  # from the first call only
+        assert len(calls) == 1  # from the first call only
 
     def test_nothing_without_a_uuid(self, service_module):
         plugin, calls = self._plugin(service_module)
@@ -109,119 +116,42 @@ class TestForgetOneTimeSecret:
 
         assert calls == []
 
-    def test_failed_nmcli_is_retried_on_the_next_prompt(self, service_module):
+    def test_failed_write_is_retried_on_the_next_prompt(self, service_module):
         """A failed write must not count as done: the code would stay in the
         profile and the agent would hand it back without asking."""
         plugin, calls = self._plugin(service_module)
-        results = [False, True, True]  # the first attempt stops after one call
-
-        async def flaky(*arguments):
-            calls.append(arguments)
-            return results.pop(0)
-
-        plugin._nmcli_modify = flaky
+        self._with_results(plugin, calls, [False, True])
 
         asyncio.run(plugin._forget_one_time_secret())
         assert plugin._otp_flags_written is False
+        assert plugin._otp_flag_attempts == 1
 
         asyncio.run(plugin._forget_one_time_secret())
         assert plugin._otp_flags_written is True
-        assert calls[1:] == [
-            ("+vpn.data", "otp-flags=2"),
-            ("-vpn.secrets", "otp"),
-        ]
+        assert calls == [self.ONE_WRITE] * 2
 
         # Done for real now: no third round
         asyncio.run(plugin._forget_one_time_secret())
-        assert len(calls) == 3
-
-    def test_dropping_the_stored_value_failing_is_retried(self, service_module):
-        plugin, calls = self._plugin(service_module)
-        results = [True, False, True, True]
-
-        async def flaky(*arguments):
-            calls.append(arguments)
-            return results.pop(0)
-
-        plugin._nmcli_modify = flaky
-
-        asyncio.run(plugin._forget_one_time_secret())
-        asyncio.run(plugin._forget_one_time_secret())
-
-        assert len(calls) == 4
-        assert plugin._otp_flags_written is True
-
-    def test_failing_flag_write_does_not_try_to_drop_the_value(self, service_module):
-        """Without the not-saved flag the secret cannot be dropped for good:
-        the second nmcli call is not run, but the attempt still counts."""
-        plugin, calls = self._plugin(service_module)
-
-        async def first_fails(*arguments):
-            calls.append(arguments)
-            return False
-
-        plugin._nmcli_modify = first_fails
-
-        asyncio.run(plugin._forget_one_time_secret())
-
-        assert calls == [("+vpn.data", "otp-flags=2")]
-        assert plugin._otp_flag_attempts == 1
-        assert plugin._otp_flags_written is False
-
-    def test_flag_written_but_drop_failing_runs_both_calls(self, service_module):
-        plugin, calls = self._plugin(service_module)
-        results = [True, False]
-
-        async def second_fails(*arguments):
-            calls.append(arguments)
-            return results.pop(0)
-
-        plugin._nmcli_modify = second_fails
-
-        asyncio.run(plugin._forget_one_time_secret())
-
-        assert calls == [("+vpn.data", "otp-flags=2"), ("-vpn.secrets", "otp")]
-        assert plugin._otp_flag_attempts == 1
-        assert plugin._otp_flags_written is False
-
-    def test_failure_then_success_on_retry_is_done(self, service_module):
-        plugin, calls = self._plugin(service_module)
-        results = [False, True, True]
-
-        async def flaky(*arguments):
-            calls.append(arguments)
-            return results.pop(0)
-
-        plugin._nmcli_modify = flaky
-
-        asyncio.run(plugin._forget_one_time_secret())
-        assert plugin._otp_flags_written is False
-
-        asyncio.run(plugin._forget_one_time_secret())
-        assert plugin._otp_flags_written is True
-
-        asyncio.run(plugin._forget_one_time_secret())
-        assert len(calls) == 3  # nothing after success
+        assert len(calls) == 2
 
     def test_permanent_failure_stops_after_two_attempts(
         self, service_module, caplog
     ):
-        """Every nmcli call may wait 10 s: a profile that cannot be changed
-        must not cost 20 s at every one-time prompt."""
+        """Every write may wait 10 s: a profile that cannot be changed must
+        not cost 10 s at every one-time prompt."""
         plugin, calls = self._plugin(service_module)
 
-        async def failing(*arguments):
-            calls.append(arguments)
+        async def failing(data, drop_secrets=()):
+            calls.append((data, list(drop_secrets)))
             return False
 
-        plugin._nmcli_modify = failing
+        plugin._update_profile = failing
 
         with caplog.at_level("WARNING", logger=service_module.logger.name):
             for _ in range(5):
                 asyncio.run(plugin._forget_one_time_secret())
 
-        # Two attempts; the first call of each failed, so no second call
-        assert calls == [("+vpn.data", "otp-flags=2")] * 2
+        assert calls == [self.ONE_WRITE] * 2
         assert plugin._otp_flags_written is False
         # Said once, when giving up
         assert caplog.text.count("Giving up on marking the one-time code") == 1
@@ -229,11 +159,11 @@ class TestForgetOneTimeSecret:
     def test_first_failure_does_not_give_up_yet(self, service_module, caplog):
         plugin, calls = self._plugin(service_module)
 
-        async def failing(*arguments):
-            calls.append(arguments)
+        async def failing(data, drop_secrets=()):
+            calls.append((data, list(drop_secrets)))
             return False
 
-        plugin._nmcli_modify = failing
+        plugin._update_profile = failing
 
         with caplog.at_level("WARNING", logger=service_module.logger.name):
             asyncio.run(plugin._forget_one_time_secret())
@@ -434,3 +364,43 @@ class TestUtf8SplitAcrossReads:
         plugin._reset_output_state()
 
         assert plugin._decode_output(b"b") == "b"
+
+
+class TestNewSecretsUsername:
+    """NewSecrets() takes a username with the rules of _do_connect"""
+
+    def _new_secrets(self, service_module, username):
+        plugin = service_module.GpclientVPNPlugin()
+        connection = {"vpn": {"data": ("a{ss}", {"username": username}), "secrets": {}}}
+        asyncio.run(plugin.NewSecrets(connection))
+        return plugin
+
+    def test_valid_username_is_stored(self, service_module):
+        plugin = self._new_secrets(service_module, "jdoe@corp.example")
+
+        assert plugin.vpn_username == "jdoe@corp.example"
+
+    @pytest.mark.parametrize(
+        "username",
+        ["-x", "--script=/tmp/x", "bob\nhunter2", "a\x00b"],
+        ids=["dash", "option", "newline", "nul"],
+    )
+    def test_unsafe_username_is_ignored_and_not_logged(
+        self, service_module, caplog, username
+    ):
+        with caplog.at_level("DEBUG", logger=service_module.logger.name):
+            plugin = self._new_secrets(service_module, username)
+
+        assert plugin.vpn_username == ""
+        assert "ignoring an invalid username" in caplog.text
+        assert "hunter2" not in caplog.text
+        assert "--script" not in caplog.text
+
+    def test_unsafe_username_keeps_the_stored_one(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin.vpn_username = "jdoe"
+        connection = {"vpn": {"data": ("a{ss}", {"username": "-x"}), "secrets": {}}}
+
+        asyncio.run(plugin.NewSecrets(connection))
+
+        assert plugin.vpn_username == "jdoe"

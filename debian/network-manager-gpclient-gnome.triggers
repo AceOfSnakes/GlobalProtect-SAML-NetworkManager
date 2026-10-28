@@ -1,0 +1,3 @@
+# The legacy symlink /usr/lib/libnm-gpclient-properties points to a shared library
+# in a directory of the dynamic linker: keep the ldconfig cache up to date
+activate-noawait ldconfig

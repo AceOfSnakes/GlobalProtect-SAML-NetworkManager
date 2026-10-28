@@ -11,6 +11,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import json
+import re
 import sys
 
 import pytest
@@ -51,6 +53,18 @@ NEAR_MISSES = [
 ]
 
 
+def _record(line):
+    """`line` (a text-form log line) as the JSON record gpclient writes"""
+    return json.dumps(
+        {
+            "timestamp": "2026-01-01T00:00:01Z",
+            "level": "INFO",
+            "target": "gpclient::connect::internal",
+            "message": re.sub(r"^\[[^\]]*\] ", "", line),
+        }
+    )
+
+
 def _plugin(service_module, monkeypatch, tmp_path, line, hang):
     script = tmp_path / "gpclient.py"
     script.write_text(
@@ -85,7 +99,9 @@ async def _run(plugin, timeout=10):
 def test_internal_network_session_fails_activation(
     service_module, monkeypatch, tmp_path, dbus_signals, line
 ):
-    plugin = _plugin(service_module, monkeypatch, tmp_path, line, hang=True)
+    plugin = _plugin(
+        service_module, monkeypatch, tmp_path, _record(line), hang=True
+    )
 
     process = asyncio.run(_run(plugin))
 
@@ -110,15 +126,41 @@ def test_internal_network_session_fails_activation(
     ]
     + NEAR_MISSES,
 )
+@pytest.mark.parametrize("as_record", [True, False])
 def test_tunnel_log_lines_do_not_count_as_internal_network(
+    service_module, monkeypatch, tmp_path, dbus_signals, line, as_record
+):
+    plugin = _plugin(
+        service_module,
+        monkeypatch,
+        tmp_path,
+        _record(line) if as_record else line,
+        hang=False,
+    )
+
+    process = asyncio.run(_run(plugin))
+
+    assert process.returncode == 0
+    # The line is no login failure. The stand-in exits 0 unasked, which the
+    # monitor reports as a failed connect (#52) - and only that.
+    assert dbus_signals == [
+        ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+        ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+    ]
+    assert plugin._login_failed is False
+
+
+@pytest.mark.parametrize("line", INTERNAL_LINES)
+def test_internal_network_text_line_is_not_a_status(
     service_module, monkeypatch, tmp_path, dbus_signals, line
 ):
+    # Only a log record counts: the same words in a plain line (a prompt, text
+    # the portal controls) must not stop the connection
     plugin = _plugin(service_module, monkeypatch, tmp_path, line, hang=False)
 
     process = asyncio.run(_run(plugin))
 
     assert process.returncode == 0
-    assert dbus_signals == []
     assert plugin._login_failed is False
 
 

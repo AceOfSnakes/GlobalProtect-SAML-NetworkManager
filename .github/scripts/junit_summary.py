@@ -41,14 +41,14 @@ def parse(path):
         with open(path, "rb") as handle:
             raw = handle.read()
     except OSError as exc:
-        raise ValueError(str(exc))
+        raise ValueError(str(exc)) from exc
     # Entity expansion is the one thing in XML that can hurt a parser
     if re.search(rb"<!(DOCTYPE|ENTITY)", raw, re.IGNORECASE):
         raise ValueError("DOCTYPE/ENTITY not allowed")
     try:
-        root = ET.fromstring(raw)
+        root = ET.fromstring(raw)  # noqa: S314  # DOCTYPE/ENTITY rejected above
     except ET.ParseError as exc:
-        raise ValueError("not XML: %s" % exc)
+        raise ValueError("not XML: %s" % exc) from exc
 
     if root.tag == "testsuite":
         suites = [root]

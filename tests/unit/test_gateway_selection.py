@@ -738,35 +738,39 @@ class TestGatewayListCache:
     def test_gateway_chosen_regex_rejects_other_lines(self, service_module, line):
         assert service_module.GATEWAY_CHOSEN_RE.search(line) is None
 
-    def test_unchanged_list_does_not_touch_the_profile(self, service_module):
+    def test_unchanged_list_does_not_touch_the_profile(self, service_module, monkeypatch):
         plugin = service_module.GpclientVPNPlugin()
         plugin._connection_uuid = "1234"
         plugin._gateway_list = ["gw-a (a.example.com)"]
         plugin._stored_gateway_list = "gw-a (a.example.com)"
 
-        async def fail(*_args, **_kwargs):
-            raise AssertionError("nmcli must not be called")
+        calls = []
+        # _update_profile swallows errors: record the call instead of raising
+        monkeypatch.setattr(
+            service_module.NmSettingsInterface,
+            "new_proxy",
+            lambda *args, **kwargs: calls.append(args),
+            raising=False,
+        )
+        asyncio.run(plugin._persist_gateway_list())
 
-        original = asyncio.create_subprocess_exec
-        asyncio.create_subprocess_exec = fail
-        try:
-            asyncio.run(plugin._persist_gateway_list())
-        finally:
-            asyncio.create_subprocess_exec = original
+        assert calls == []
 
-    def test_nothing_is_written_without_a_uuid(self, service_module):
+    def test_nothing_is_written_without_a_uuid(self, service_module, monkeypatch):
         plugin = service_module.GpclientVPNPlugin()
         plugin._gateway_list = ["gw-a (a.example.com)"]
 
-        async def fail(*_args, **_kwargs):
-            raise AssertionError("nmcli must not be called")
+        calls = []
+        # _update_profile swallows errors: record the call instead of raising
+        monkeypatch.setattr(
+            service_module.NmSettingsInterface,
+            "new_proxy",
+            lambda *args, **kwargs: calls.append(args),
+            raising=False,
+        )
+        asyncio.run(plugin._persist_gateway_list())
 
-        original = asyncio.create_subprocess_exec
-        asyncio.create_subprocess_exec = fail
-        try:
-            asyncio.run(plugin._persist_gateway_list())
-        finally:
-            asyncio.create_subprocess_exec = original
+        assert calls == []
 
 
 class TestGatewayCountLine:
@@ -1005,11 +1009,11 @@ class TestCollectGatewayPages:
         plugin._connection_uuid = "1234"
         writes = []
 
-        async def record(key, value):
-            writes.append((key, value))
+        async def record(data, drop_secrets=()):
+            writes.extend(data.items())
             return True
 
-        plugin._write_vpn_data = record
+        plugin._update_profile = record
 
         self._run(plugin)
         asyncio.run(plugin._persist_gateway_list())
@@ -1324,11 +1328,11 @@ class TestPersistGatewayList:
         plugin._gateway_count = found
         writes = []
 
-        async def record(key, value):
-            writes.append((key, value))
+        async def record(data, drop_secrets=()):
+            writes.extend(data.items())
             return True
 
-        plugin._write_vpn_data = record
+        plugin._update_profile = record
         return plugin, writes
 
     def test_partial_list_does_not_replace_a_longer_one(self, service_module):
@@ -1446,35 +1450,21 @@ class TestPersistGatewayList:
 
         assert writes == []
 
-    def test_count_is_not_written_when_the_list_write_fails(self, service_module):
-        plugin, writes = self._plugin(service_module, ["gw-a"], lap=["gw-a"], found=1)
-
-        async def fail(key, value):
-            writes.append((key, value))
-            return False
-
-        plugin._write_vpn_data = fail
-
-        asyncio.run(plugin._persist_gateway_list())
-
-        assert writes == [("gateway-list", "gw-a")]
-        assert plugin._stored_gateway_count is None
-
-
-    def test_failed_count_write_warns_that_the_list_is_read_again(
+    def test_list_and_count_are_one_write_and_nothing_is_stored_when_it_fails(
         self, service_module, caplog
     ):
         plugin, writes = self._plugin(service_module, ["gw-a"], lap=["gw-a"], found=1)
 
-        async def fail_count(key, value):
-            writes.append((key, value))
-            return key != "gateway-list-count"
+        async def fail(data, drop_secrets=()):
+            writes.extend(data.items())
+            return False
 
-        plugin._write_vpn_data = fail_count
+        plugin._update_profile = fail
 
         asyncio.run(plugin._persist_gateway_list())
 
         assert writes == [("gateway-list", "gw-a"), ("gateway-list-count", "1")]
+        assert plugin._stored_gateway_list == ""
         assert plugin._stored_gateway_count is None
         assert "next connection reads the gateway list again" in caplog.text
 
@@ -1566,20 +1556,62 @@ class TestResolveBrowser:
         )
 
     @pytest.mark.parametrize(
-        "value", ["/opt/manual", "/opt/remote/browser", "manual-browser", "remote2"]
+        "value", ["/opt/manual", "/opt/remote/browser"]
     )
+    def test_paths_merely_containing_a_mode_are_passed_through(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (value, None)
+
+    @pytest.mark.parametrize("value", ["manual-browser", "remote2"])
     def test_names_merely_containing_a_mode_are_passed_through(
         self, service_module, monkeypatch, value
     ):
         self._with_wrapper(service_module, monkeypatch)
         assert service_module.resolve_browser(value) == (value, None)
 
-    @pytest.mark.parametrize("value", ["safari", "/usr/bin/safari", "epiphany"])
-    def test_unknown_browser_is_passed_through_untouched(
+    @pytest.mark.parametrize("value", ["/usr/bin/safari", "/opt/me/epiphany"])
+    def test_unknown_absolute_browser_is_passed_through_untouched(
         self, service_module, monkeypatch, value
     ):
         self._with_wrapper(service_module, monkeypatch)
         assert service_module.resolve_browser(value) == (value, None)
+
+    @pytest.mark.parametrize(
+        "value", ["safari", "epiphany", "brave-browser", "opera", "my.browser_2+x"]
+    )
+    def test_bare_command_name_is_passed_through_untouched(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (value, None)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "--script=/tmp/x.sh",
+            "-S",
+            "-brave",
+            "relative/wrapper",
+            "./wrapper",
+            "x --script=/tmp/x",
+            "two words",
+            "tab\tname",
+            "new\nline",
+            "nul\x00byte",
+            "caf\u00e9",
+            "name;rm",
+        ],
+    )
+    def test_unsafe_relative_browser_uses_the_default_browser(
+        self, service_module, monkeypatch, value
+    ):
+        self._with_wrapper(service_module, monkeypatch)
+        assert service_module.resolve_browser(value) == (
+            service_module.BROWSER_WRAPPER,
+            "default",
+        )
 
     def test_without_wrapper_and_binary_the_name_is_returned(
         self, service_module, monkeypatch

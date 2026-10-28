@@ -3,14 +3,28 @@
 ## Overview
 
 `browser-wrapper` handles the awkward requirements of running a browser for
-SAML/2FA authentication from inside NetworkManager's sandboxed environment: a
-session environment that has to be reconstructed, a read-only home directory,
-privilege dropping, and knowing when the authentication window may be closed.
+SAML/2FA authentication from a root system service: a session environment that
+has to be reconstructed, privilege dropping, a home directory that may be
+read-only (only when the service runs in NetworkManager's sandbox), and knowing
+when the authentication window may be closed.
 
 It works with Edge, Chrome, Chromium, Firefox and your desktop's default
 browser; `edge-wrapper` remains as a thin shim (`GP_BROWSER=edge`) so profiles
 created before the generalisation keep working. Which browser is used comes from
 `vpn.data browser` in the connection - see [Alternative Browsers](#alternative-browsers).
+
+### Who starts the wrapper
+
+- `saml-auth=service` (default): the service starts gpclient as root with
+  `SUDO_UID`, gpclient starts gpauth as the desktop user, and gpauth runs the
+  wrapper. The wrapper still finds the session as described below.
+- `saml-auth=dialog`: the NetworkManager auth dialog starts gpauth as the
+  desktop user with `--browser=/usr/libexec/gpclient/browser-wrapper` and
+  `GP_BROWSER` set from the profile. The wrapper runs as that user and takes
+  its own UID as the real user, so the root-only steps (user lookup from
+  `SUDO_UID`, privilege drop) do not run. gpclient starts
+  no browser. See
+  [INTERACTIVE_AUTH.md](INTERACTIVE_AUTH.md#saml-login-in-the-auth-dialog).
 
 ## Why Microsoft Edge?
 
@@ -42,8 +56,8 @@ Edge (with the wrapper's policy configuration) automatically handles this protoc
 
 ### 1. Display Detection
 
-NetworkManager runs VPN services in a sandboxed environment with no session
-context, so display variables are missing or wrong. The wrapper reads them from
+The VPN service runs as a system service with no session context, so display
+variables are missing or wrong. The wrapper reads them from
 the processes that own the session:
 
 ```bash
@@ -57,42 +71,70 @@ Supports both X11 (`DISPLAY=:0`) and Wayland (`WAYLAND_DISPLAY=wayland-0`); the
 Chromium `--ozone-platform=wayland` flags are only added on an actual Wayland
 session, so X11 sessions are no longer broken by them.
 
-The service does the same thing on its side (`_get_session_env()`), so gpauth and
-browsers launched without this wrapper get a usable environment too. Passing only
-`DISPLAY=:0` was why `browser=firefox` opened no window at all on Wayland
-([#7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)).
+The service does not pass the session environment to gpclient. gpclient starts
+gpauth as the desktop user (it finds the user by `SUDO_UID`) and rebuilds the
+session environment itself from the user's own processes, with defaults for
+`XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` (upstream
+`crates/gpapi/src/process/desktop_session_env.rs`). Passing only `DISPLAY=:0`
+was why `browser=firefox` opened no window at all on Wayland
+([#7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)); gpauth now
+gets the full environment from upstream.
 
 ### 2. Sandbox Workaround (ProtectHome)
 
-NetworkManager uses systemd's `ProtectHome=read-only` for security, making the user's home directory read-only. Edge needs writable directories for:
+The service normally runs in its own unit (`nm-gpclient.service`), where the home
+directory is writable: the wrapper then uses the user's own browser profile. Only
+when the service runs in NetworkManager's sandbox (the fallback when `systemctl`
+cannot start the unit), systemd's `ProtectHome=read-only` makes the user's home
+directory read-only. Edge needs writable directories for:
 - User profile
 - Cache
 - Crash reports
 
-The wrapper creates temporary directories:
+The wrapper creates temporary directories in a private base directory:
 ```
-/tmp/edge-wrapper-$UID/
-├── profile/     # Edge user data
+<base>/
+├── profile/     # Edge user data (profile-firefox/ for Firefox)
 ├── home/        # Fake HOME
 ├── cache/       # XDG_CACHE_HOME
-└── data/        # XDG_DATA_HOME
+├── data/        # XDG_DATA_HOME
+└── wrapper.log  # log file (mode 600)
 ```
+
+`<base>` is `/tmp/edge-wrapper-$UID`. The wrapper creates it with mode 700 and
+uses it only if it is a real directory, owned by the user, with mode 700. A
+directory from an older wrapper that is owned by the user (mode 755) gets
+`chmod 700` and is then used: only its owner could have written in it. The older
+wrapper ran `mkdir` as root, so on many systems the leftover directory is owned
+by root. The wrapper cannot fix it: it logs "left by an older version of the
+wrapper (owned by root)", uses a new directory, and you can remove the old one
+with `sudo rm -rf /tmp/edge-wrapper-$UID`. If someone else created it first (a
+symlink, a directory with other owner, a file), the wrapper does not use it: it
+logs a "planted by another user?" warning and takes a new directory from
+`mktemp` (`/tmp/edge-wrapper-$UID.XXXXXXXX`, mode 700). After the run, the
+wrapper empties such a `mktemp` directory but keeps `wrapper.log`, so you can
+read the log of a failed login. If a file cannot be removed (the browser may
+still write for a moment), it tries 3 times, 1 second apart. When the wrapper
+runs as root, it creates the directories and checks that the home is writable as
+the desktop user (through `sudo -u "#$UID"`), so they never belong to root and
+root never follows a symlink.
+The Chromium policy file and the `Crash Reports` directories are also written
+after the privilege drop, as the desktop user.
 
 #### Security Considerations
 
-**Why temporary profile?**
-- NetworkManager's `ProtectHome=read-only` is a security feature that prevents VPN services from reading/writing user's home directory
-- Edge cannot function without a writable profile directory
-- The wrapper creates a fresh profile in `/tmp` for each authentication session
+**Which profile?**
+- Normally (service in `nm-gpclient.service`): your own Edge profile (`~/.config/microsoft-edge`) with its saved sign-ins, cookies and Intune/Entra registration, which single sign-on needs. The journal says "home is writable; using the user's own browser profile".
+- Fallback (service in NetworkManager's sandbox, `ProtectHome=read-only`): Edge cannot write its profile, so the wrapper uses a separate profile in a private directory (see above), not your normal one. It is reused until you delete it. The journal says "home is read-only (sandboxed); using temp HOME".
 
-**Implications:**
-- Your main Edge profile (`~/.config/microsoft-edge`) with saved passwords, cookies, and browsing history is **not used**
-- Each VPN authentication starts with a clean browser profile
-- Intune/Entra authentication still works because it uses device certificates (stored in system keychain, not browser profile)
+**Implications of the fallback profile:**
+- Your main Edge profile with saved passwords, cookies, and browsing history is **not used**
+- The browser profile does not contain your normal browsing data
+- Intune/Entra authentication may need a new sign-in in that profile
 
 **Security tradeoffs:**
-- `/tmp` is typically world-readable on Linux systems
-- The wrapper creates directories with user-only permissions (`/tmp/edge-wrapper-$UID/`)
+- `/tmp` is shared between all users, so the wrapper never trusts a directory there that it did not create with mode 700 for the right user
+- All directories have user-only permissions (mode 700)
 - Temporary profile may contain session cookies during authentication
 - Profile is not automatically cleaned up after use
 
@@ -167,22 +209,32 @@ waits for the browser to exit or for the safety timeout (`GP_AUTH_TIMEOUT`,
 --disable-background-networking   # Don't fetch data in background
 --app=$URL                        # Open in app mode (minimal UI)
 --window-size=896,964             # Fixed window size
---user-data-dir=$PROFILE_DIR      # Custom profile directory
+--user-data-dir=$PROFILE_DIR      # Custom profile directory (not for a snap
+                                  # browser with a writable home: it keeps
+                                  # its own under ~/snap)
 ```
 
 ## Log Files
 
-Debug logs are written to:
+Debug logs are written to the private base directory (see above):
 ```
-/tmp/edge-wrapper-$UID.log
+<base>/wrapper.log        # /tmp/edge-wrapper-$UID/wrapper.log (or the mktemp directory)
 ```
+The file has mode 600 and is created by the desktop user, never by root. The
+messages from before the base directory exists (user lookup, browser and session
+detection) go to stderr and syslog (`logger -t gpclient-browser-wrapper`). As
+root, the wrapper itself never opens the log file: all its own messages go to
+syslog, and only the part that runs as the desktop user (the browser start and
+stop) writes `wrapper.log`. A log file in
+the shared `/tmp` is not used, because another user could replace it with a
+symlink or read it.
 
 Example log:
 ```
 [2025-01-26 10:30:15] called with args: https://vpn.company.com/SAML
 [2025-01-26 10:30:15] resolved real user: john (uid=1000) home=/home/john
 [2025-01-26 10:30:15] using wayland socket: /run/user/1000/wayland-0
-[2025-01-26 10:30:15] home is read-only (sandboxed); using temp HOME
+[2025-01-26 10:30:15] home is writable; using the user's own browser profile
 [2025-01-26 10:30:15] tracking gpauth PID 12344
 [2025-01-26 10:30:16] started browser with PID=12345
 [2025-01-26 10:31:22] done: gpauth (12344) exited - authentication finished, closing browser
@@ -198,7 +250,11 @@ The last line always starts with `done:` and says why the wrapper finished:
 
 ```bash
 # Check log file
-cat /tmp/edge-wrapper-$(id -u).log
+# Messages of the part that runs as the desktop user (browser start and stop)
+cat /tmp/edge-wrapper-$(id -u)/wrapper.log   # or <base>/wrapper.log
+# Messages from before the base directory exists, and all messages written as
+# root (the normal case with NetworkManager): in the journal, not in wrapper.log
+journalctl -t gpclient-browser-wrapper
 
 # Test manually (any browser, without a VPN connection involved)
 GP_BROWSER=firefox /usr/libexec/gpclient/browser-wrapper "https://example.com"
@@ -210,7 +266,9 @@ close it.
 
 Check the reason in the log:
 ```bash
-grep "done:" /tmp/edge-wrapper-$(id -u).log
+grep "done:" /tmp/edge-wrapper-$(id -u)/wrapper.log
+# if wrapper.log has no "done:" line, look in the journal too
+journalctl -t gpclient-browser-wrapper | grep "done:"
 ```
 `timeout after 300s` means the login took longer than the safety timeout. Raise
 it for the whole service:
@@ -231,14 +289,17 @@ the VPN is unaffected.
 
 Edge policy may not be applied. Check:
 ```bash
-cat /tmp/edge-wrapper-$(id -u)/home/.config/microsoft-edge/policies/managed/globalprotect.json
+# <base> is /tmp/edge-wrapper-$(id -u)
+cat <base>/home/.config/microsoft-edge/policies/managed/globalprotect.json
 ```
 
 ### Wrong display / window doesn't appear
 
 Check detected display:
 ```bash
-grep "detected DISPLAY" /tmp/edge-wrapper-$(id -u).log
+# The wrapper writes this message before the base directory exists (and as root),
+# so it is in the journal, not in wrapper.log
+journalctl -t gpclient-browser-wrapper | grep "detected DISPLAY"
 ```
 
 For Wayland, ensure `WAYLAND_DISPLAY` is correct:
@@ -256,8 +317,13 @@ nmcli connection modify "My VPN" +vpn.data "browser=firefox"    # or chrome, chr
 
 The service maps these names (and the old `/usr/bin/firefox`-style paths) to
 `browser-wrapper` and passes the binary in `GP_BROWSER`, so every browser gets
-the session-environment fixup that used to be Edge-only. A value that is not a
-known browser - your own wrapper script - is passed to gpclient untouched.
+the session-environment fixup that used to be Edge-only. Your own wrapper
+script can be given as an absolute path (for example `/opt/me/my-wrapper`) or as
+a plain command name (for example `brave-browser` or `opera`: letters, digits,
+`.`, `_`, `+` and `-`, not starting with `-`). Both are passed to gpclient
+untouched. Any other unknown value (a relative path, a value that starts with
+`-`, a value with spaces) is logged and falls back to the desktop's default
+browser.
 
 | Value | Launched as |
 |-------|-------------|
@@ -273,7 +339,9 @@ Two caveats for non-Edge browsers:
   so the first authentication shows a "open GlobalProtect callback?" prompt that
   you have to confirm.
 - Browsers that hand the URL to an already running instance exit immediately, so
-  the wrapper cannot close the window afterwards.
+  the wrapper cannot close the window afterwards. A browser that exits with a
+  non-zero status while gpauth runs did not open the page: the wrapper logs it as `ERROR` in
+  `wrapper.log` and in syslog (`journalctl -t gpclient-browser-wrapper`).
 
 ## Installation Paths
 

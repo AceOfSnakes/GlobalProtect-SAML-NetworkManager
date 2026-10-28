@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install build dependencies (GNOME + Plasma)
 RUN apt-get update && apt-get install -y \
     build-essential \
+    gettext \
     debhelper \
     devscripts \
     pkg-config \
@@ -63,6 +64,12 @@ ENV CARGO_HOME=/cargo-cache
 
 # Copy source code (this layer invalidates when source changes)
 COPY --chown=builder:builder . /build/source/
+
+# Mount point of the Rust target cache of build-all.sh (a named volume): Docker
+# gives a new volume the owner of this directory, builder. The directory is not
+# in the build context (.dockerignore), so without it the volume is root's and
+# cargo cannot write to it (issue #139).
+RUN mkdir -p external/GlobalProtect-openconnect/target
 
 # Default command (can be overridden)
 CMD ["bash"]

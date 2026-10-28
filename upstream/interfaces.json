@@ -1,6 +1,76 @@
 {
   "functions": [
     {
+      "function": "service/nm-gpclient-service.py::parse_auth_result",
+      "kind": "reads-output",
+      "upstream": [
+        "stdin-auth-result-read",
+        "code-saml-auth-data",
+        "code-saml-auth-result"
+      ],
+      "tests": [
+        "tests/unit/test_saml_dialog_service.py::TestParseAuthResult::test_a_success_is_returned_as_one_compact_line",
+        "tests/unit/test_saml_dialog_service.py::TestParseAuthResult::test_anything_but_a_plain_success_is_rejected"
+      ]
+    },
+    {
+      "function": "auth-dialog/nm-gpclient-auth-dialog.py",
+      "kind": "runs-upstream",
+      "upstream": [
+        "gpauth-cli-gateway",
+        "gpauth-cli-fix-openssl",
+        "gpauth-cli-browser",
+        "gpauth-cli-log-format",
+        "code-gpauth-print-result",
+        "code-gpauth-outcome",
+        "non-saml-prelogin"
+      ],
+      "tests": [
+        "tests/unit/test_saml_auth_dialog.py::TestSuccess::test_the_gtk_path_returns_the_line_without_a_window",
+        "tests/unit/test_saml_auth_dialog.py::TestSuccess::test_the_options_follow_the_request",
+        "tests/unit/test_saml_auth_dialog.py::TestNoAnswer::test_a_login_that_did_not_succeed_exits_with_1",
+        "tests/unit/test_saml_auth_dialog.py::TestNonSamlPortal::test_standard_is_the_answer",
+        "tests/unit/test_saml_auth_dialog.py::TestNonSamlPortal::test_another_error_is_not_standard",
+        "tests/unit/test_saml_auth_dialog.py::TestLegacyTls::test_auto_retries_once_with_the_flag"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::parse_log_record",
+      "kind": "reads-output",
+      "upstream": [
+        "log-json-level",
+        "log-json-target",
+        "log-json-message"
+      ],
+      "tests": [
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_a_record",
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_anything_else_is_a_text_line"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::parse_tunnel_settings_line",
+      "kind": "reads-output",
+      "upstream": [
+        "tunnel-settings-interface",
+        "tunnel-settings-ipv4",
+        "tunnel-settings-dns",
+        "tunnel-settings-search-domains",
+        "tunnel-settings-split-dns",
+        "tunnel-settings-mtu",
+        "tunnel-settings-truncated",
+        "code-tunnel-log-configuration",
+        "code-tunnel-values",
+        "code-tunnel-escaped",
+        "code-tunnel-address-display"
+      ],
+      "tests": [
+        "tests/unit/test_tunnel_settings_log.py::TestParseLines::test_each_line_kind",
+        "tests/unit/test_tunnel_settings_log.py::TestRejectedValues::test_dns_that_cannot_be_trusted_is_not_used",
+        "tests/unit/test_tunnel_settings_log.py::TestOtherLines::test_the_record_is_not_changed",
+        "tests/unit/test_tunnel_settings_log.py::TestParseLines::test_a_text_line_with_a_log_prefix_is_ignored"
+      ]
+    },
+    {
       "function": "service/nm-gpclient-service.py::parse_gateway_count",
       "kind": "reads-output",
       "upstream": [
@@ -84,6 +154,17 @@
       ]
     },
     {
+      "function": "service/nm-gpclient-service.py::detect_screen_prompt",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_text_prompt_screen.py::TestDetectScreenPrompt::test_rows_below_the_cursor_are_ignored",
+        "tests/unit/test_text_prompt_screen.py::TestDetectScreenPrompt::test_no_prompt"
+      ]
+    },
+    {
       "function": "service/nm-gpclient-service.py::resolve_browser",
       "kind": "runs-upstream",
       "upstream": [
@@ -104,18 +185,24 @@
         "gateway-chosen-only",
         "auth-banner",
         "tls-legacy-detail",
+        "gateway-not-found",
         "internal-network",
         "internal-gateway-state",
-        "code-maintenance-state"
+        "code-maintenance-state",
+        "saml-launch-record"
       ],
       "tests": [
         "tests/unit/test_select_pty.py::test_username_and_password_are_typed_from_the_profile",
+        "tests/unit/test_gateway_flag.py::TestGatewayNotFoundRestart::test_restarts_once_without_the_flag",
+        "tests/unit/test_gateway_flag.py::TestGatewayNotFoundRestart::test_a_second_failure_is_not_retried",
         "tests/unit/test_openssl_retry.py::test_v3_legacy_tls_error_triggers_retry",
         "tests/unit/test_openssl_retry.py::test_v3_unrelated_tls_error_does_not_trigger_retry",
         "tests/unit/test_internal_network.py::test_internal_network_session_fails_activation",
         "tests/unit/test_internal_network.py::test_tunnel_log_lines_do_not_count_as_internal_network",
         "tests/unit/test_internal_network.py::test_every_internal_state_line_matches",
-        "tests/unit/test_internal_network.py::test_near_misses_do_not_match"
+        "tests/unit/test_internal_network.py::test_near_misses_do_not_match",
+        "tests/unit/test_saml_dialog_service.py::TestGatewaySamlLogin::test_the_record_fails_the_login",
+        "tests/unit/test_saml_dialog_service.py::TestGatewaySamlLogin::test_other_records_do_not"
       ]
     },
     {
@@ -147,11 +234,14 @@
       "upstream": [
         "login-default-username",
         "login-default-password",
-        "mfa-prompt"
+        "mfa-prompt",
+        "passphrase-prompt"
       ],
       "tests": [
         "tests/unit/test_interactive_prompts.py::test_first_prompt_is_username_even_if_localized",
-        "tests/unit/test_interactive_prompts.py::test_password_after_username"
+        "tests/unit/test_interactive_prompts.py::test_password_after_username",
+        "tests/unit/test_client_cert.py::test_passphrase_prompt_is_the_certificate_passphrase",
+        "tests/unit/test_client_cert.py::test_other_prompts_are_not_the_certificate_passphrase"
       ]
     },
     {
@@ -173,40 +263,62 @@
         "cli-fix-openssl",
         "cli-hip",
         "cli-as-gateway",
+        "cli-gateway",
+        "cli-passwd-on-stdin",
+        "cli-cookie-on-stdin",
+        "stdin-credential-rule",
+        "cli-mtu",
+        "cli-interface",
         "cli-user",
         "cli-browser",
         "sudo-uid",
+        "code-into-non-root",
+        "code-desktop-session-env",
         "callback-handler-desktop"
       ],
       "tests": [
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_passes_flags_and_environment",
+        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_does_not_copy_the_session_environment",
+        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_does_not_read_the_environment_of_user_processes",
+        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_passes_the_mtu_before_the_browser",
+        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_leaves_out_the_mtu_when_automatic",
+        "tests/unit/test_tunnel_interface_name.py::TestCommandLine::test_interface_follows_connect_and_comes_before_the_gateway",
+        "tests/unit/test_tunnel_interface_name.py::TestCommandLine::test_no_interface_without_a_usable_uuid",
         "tests/unit/test_upstream_interfaces.py::test_start_gpclient_leaves_out_optional_flags_by_default",
-        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_fails_cleanly_when_the_binary_is_missing"
+        "tests/unit/test_upstream_interfaces.py::test_start_gpclient_fails_cleanly_when_the_binary_is_missing",
+        "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item",
+        "tests/unit/test_gateway_flag.py::TestGatewayFlag::test_passed_when_the_portal_offered_it",
+        "tests/unit/test_gateway_flag.py::TestGatewayFlag::test_left_out_otherwise",
+        "tests/unit/test_gateway_flag.py::TestPasswordOnStdin::test_password_goes_to_stdin_once",
+        "tests/unit/test_gateway_flag.py::TestPasswordOnStdin::test_not_used_otherwise",
+        "tests/unit/test_saml_dialog_service.py::TestGpclientCommand::test_the_result_goes_to_stdin_and_there_is_no_browser",
+        "tests/unit/test_saml_dialog_service.py::TestGpclientCommand::test_the_old_command_without_a_result"
       ]
     },
     {
       "function": "service/nm-gpclient-service.py::GpclientVPNPlugin.Disconnect",
       "kind": "runs-upstream",
       "upstream": [
-        "cli-disconnect-subcommand",
         "lock-file"
       ],
       "tests": [
-        "tests/unit/test_upstream_interfaces.py::test_disconnect_terminates_gpclient_and_runs_gpclient_disconnect",
-        "tests/unit/test_upstream_interfaces.py::test_disconnect_survives_a_failing_gpclient_disconnect"
+        "tests/unit/test_upstream_interfaces.py::test_disconnect_terminates_gpclient_and_runs_no_gpclient_disconnect",
+        "tests/unit/test_upstream_interfaces.py::test_disconnect_without_gpclient_runs_nothing_either"
       ]
     },
     {
       "function": "service/nm-gpclient-service.py::GpclientVPNPlugin._cleanup_stale_gpd0",
       "kind": "runs-upstream",
       "upstream": [
-        "cli-disconnect-subcommand",
         "lock-file"
       ],
       "tests": [
-        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient",
+        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient_and_gpservice",
         "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_while_gpclient_runs",
-        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_without_gpd0"
+        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_while_gpservice_runs",
+        "tests/unit/test_upstream_interfaces.py::test_cleanup_stale_gpd0_does_nothing_without_gpd0",
+        "tests/unit/test_tunnel_interface_name.py::TestStaleInterface::test_stale_named_interface_is_removed_and_gpd0_kept",
+        "tests/unit/test_tunnel_interface_name.py::TestStaleInterface::test_an_interface_of_another_name_is_left_alone"
       ]
     },
     {
@@ -243,6 +355,28 @@
       "tests": [
         "tests/unit/test_upstream_interfaces.py::test_tokens_text_joins_the_text_tokens",
         "tests/unit/test_upstream_interfaces.py::test_tokens_text_removes_control_characters_and_escape_tokens"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::mask_secrets",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::test_value_is_replaced_everywhere_in_the_line",
+        "tests/unit/test_log_redaction.py::test_line_stays_without_a_matching_non_empty_secret"
+      ]
+    },
+    {
+      "function": "service/nm-gpclient-service.py::mask_secret_prompts",
+      "kind": "reads-output",
+      "upstream": [
+        "cargo-inquire"
+      ],
+      "tests": [
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_everything_after_the_label_is_hidden",
+        "tests/unit/test_log_redaction.py::TestMaskSecretPrompts::test_line_stays_without_a_matching_label_or_text"
       ]
     },
     {

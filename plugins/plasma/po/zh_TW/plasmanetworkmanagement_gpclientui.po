@@ -1,0 +1,468 @@
+# Chinese (Traditional) translation of plasmanetworkmanagement_gpclientui.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the plasmanetworkmanagement_gpclientui package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Chinese (Traditional)\n"
+"Language: zh_TW\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: rc.cpp
+#, kde-format
+msgid " bytes"
+msgstr " 位元組"
+
+#: rc.cpp
+#, kde-format
+msgid " s"
+msgstr " 秒"
+
+#: rc.cpp
+#, kde-format
+msgid "Address is a gateway (skip the portal)"
+msgstr "位址是閘道（略過入口網站）"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"GlobalProtect 入口網站的位址（例如 vpn.company.com）。\n"
+"如果您的組織提供的是閘道位址，請同時勾選下方的「位址是閘道」。"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Always on"
+msgstr "永遠開啟"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Ask every time (not saved)"
+msgstr "每次詢問（不儲存）"
+
+#: rc.cpp
+#, kde-format
+msgid "Authentication:"
+msgstr "驗證："
+
+#: rc.cpp
+#, kde-format
+msgid "Automatic"
+msgstr "自動"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Automatic (enable when the portal needs it)"
+msgstr "自動（入口網站需要時啟用）"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "瀏覽器（SAML、通行金鑰、2FA）"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"用於 SAML/2FA 驗證的瀏覽器。「edge」是測試最完整的選項；「default」使用您桌面的預設瀏覽器。\n"
+"選擇「自訂...」可指定您自己的可執行檔的完整路徑。"
+
+#: rc.cpp
+#, kde-format
+msgid "Browser:"
+msgstr "瀏覽器："
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"瀏覽器：入口網站會開啟瀏覽器視窗進行單一登入（預設）。\n"
+"使用者名稱和密碼：入口網站在終端機中詢問 - 憑證和權杖（如有）改為在對話框中要求。"
+
+#: rc.cpp
+#, kde-format
+msgid "Connect timeout:"
+msgstr "連線逾時："
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Custom..."
+msgstr "自訂..."
+
+#: rc.cpp
+#, kde-format
+msgid "DNS Servers:"
+msgstr "DNS 伺服器："
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: built-in HIP report"
+msgstr "留空：使用內建 HIP 報告"
+
+#: rc.cpp
+#, kde-format
+msgid "Enable HIP (Host Integrity Protection) to send host information to the VPN gateway. This is required by some organizations for security compliance."
+msgstr "啟用 HIP（Host Integrity Protection），將主機資訊傳送到 VPN 閘道。部分組織為符合資安合規要求而需要此功能。"
+
+#: rc.cpp
+#, kde-format
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "啟用 Host Integrity Protection (HIP)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"當上方的位址是閘道而非入口網站時啟用。\n"
+"未啟用時會先嘗試入口網站流程，這可能導致您驗證兩次。"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "First proposed by portal (automatic)"
+msgstr "入口網站提議的第一個（自動）"
+
+#: rc.cpp
+#, kde-format
+msgid "GlobalProtect VPN"
+msgstr "GlobalProtect VPN"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP script:"
+msgstr "HIP 指令稿："
+
+#: rc.cpp
+#, kde-format
+msgid "HIP:"
+msgstr "HIP："
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"NetworkManager 等待 VPN 連線的時間，包括在瀏覽器中登入的時間 (vpn.timeout)。\n"
+"0 使用 NetworkManager 的預設值，通常為 60 秒 - 對於使用 MFA 的 SAML 登入往往太短。使用瀏覽器驗證的新連線從 360 秒開始。當連線沒有自己的逾時 (0) 且您未變更此欄位時，選擇瀏覽器驗證會將其設為 360 秒。"
+
+#: rc.cpp
+#, kde-format
+msgid "Leave empty for automatic VPN DNS (recommended)"
+msgstr "留空以使用自動 VPN DNS（建議）"
+
+#: rc.cpp
+#, kde-format
+msgid "Legacy TLS renegotiation:"
+msgstr "舊版 TLS 重新協商："
+
+#: rc.cpp
+#, kde-format
+msgid "MTU:"
+msgstr "MTU："
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"通道中封包的最大大小。\n"
+"自動 (0)：由 openconnect 選擇該值。降低此值（例如降到 1300-1400）可能有助於通道從 ESP 退回 HTTPS 並出現「Message too long」時的情況。\n"
+"僅在閘道未傳送自己的 MTU 時才有效。1 到 575 的值會儲存為 576，即使用的最小值。"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager default (usually 60 s)"
+msgstr "NetworkManager 預設值（通常為 60 秒）"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Never"
+msgstr "永不"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional"
+msgstr "選用"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"自訂 HIP 可執行檔的選用絕對路徑，以 --hip=<path> 傳遞給 gpclient。\n"
+"服務以 root 身分執行它：它必須是屬於 root 且群組與其他使用者不可寫入的檔案，位於屬於 root 且群組與其他使用者不可寫入的目錄中。否則連線會失敗。\n"
+"HIP 關閉時會忽略。"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "選用。供在終端機中詢問憑證的入口網站使用，這樣就不必每次都詢問使用者名稱。"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by the \"Username and password\" authentication."
+msgstr "選用。供「使用者名稱和密碼」驗證使用。"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Password"
+msgstr "密碼"
+
+#: rc.cpp
+#, kde-format
+msgid "Password storage:"
+msgstr "密碼儲存："
+
+#: rc.cpp
+#, kde-format
+msgid "Password:"
+msgstr "密碼："
+
+#: rc.cpp
+#, kde-format
+msgid "Portal or gateway address:"
+msgstr "入口網站或閘道位址："
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"使用舊版 TLS 堆疊的入口網站需要重新協商，而 OpenSSL 3 預設會拒絕。\n"
+"自動：當入口網站要求時，使用替代方法重試一次，之後將此設定切換為「永遠開啟」，這樣失敗的第一次嘗試就不會重複。"
+
+#: rc.cpp
+#, kde-format
+msgid "Preferred gateway:"
+msgstr "偏好的閘道："
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"建議：留空以使用來自 VPN 的 DNS 伺服器和自動 split DNS 設定。\n"
+"Split DNS 允許透過 VPN DNS 解析 VPN 專用網域，同時對其他網域使用本機 DNS。\n"
+"覆寫：輸入以分號分隔的 DNS 伺服器（例如 8.8.8.8;8.8.4.4）以改用自訂 DNS。"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for all users (system)"
+msgstr "為所有使用者儲存（系統）"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for this user only (agent)"
+msgstr "僅為此使用者儲存（代理程式）"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Token / one-time code"
+msgstr "權杖／一次性代碼"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Username"
+msgstr "使用者名稱"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Username and password (RSA token)"
+msgstr "使用者名稱和密碼（RSA 權杖）"
+
+#: rc.cpp
+#, kde-format
+msgid "Username:"
+msgstr "使用者名稱："
+
+#: rc.cpp
+#, kde-format
+msgid "Where the password is kept. \"Ask every time\" stores nothing."
+msgstr "密碼的儲存位置。「每次詢問」不會儲存任何內容。"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"要連線到哪個閘道。此清單會在首次成功連線後填入。\n"
+"如果入口網站不再提供所選閘道，則改用第一個提議。"
+
+#: rc.cpp
+#, kde-format
+msgid "vpn.company.com"
+msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "無法匯出連線：%1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "無法匯入連線：%1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "連線 \"%1\" 未儲存在 NetworkManager 中"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "此檔案不是 GlobalProtect VPN 連線"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "閘道為必填"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "閘道不能以「-」開頭，也不能包含空格或控制字元"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "使用者名稱不能以「-」開頭，也不能包含控制字元"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "瀏覽器必須是名稱、指令名稱或不含空格的絕對路徑"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns 必須是以逗號、分號或空格分隔的 IPv4 或 IPv6 位址"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script 必須是絕對路徑"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML 登入:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "在服務中(預設)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "在登入對話方塊中"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "瀏覽器登入的執行位置:在服務中,或在登入對話方塊中(在您的工作階段內)。"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "正在登入…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "憑證密碼短語"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "憑證密碼短語："
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "用戶端憑證："
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "留空：沒有用戶端憑證"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "留空：金鑰在憑證檔案中"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "用戶端憑證檔案(PEM 或 PKCS#12)的選用絕對路徑，必須歸桌面使用者所有。"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "私密金鑰檔案(PEM)的選用絕對路徑，必須歸桌面使用者所有。沒有用戶端憑證時會忽略。"
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "密碼短語儲存位置："
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "私密金鑰："
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert 必須是絕對路徑"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey 必須是絕對路徑"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "選擇檔案"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "選擇用戶端憑證"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "選擇私密金鑰"

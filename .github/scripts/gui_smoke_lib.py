@@ -21,16 +21,22 @@ USERNAME = "test-user"
 AUTH_ITEMS = ["Browser (SAML, passkey, 2FA)", "Username and password (RSA token)"]
 AUTH_ACTIVE = "Username and password (RSA token)"  # for auth-mode=credentials
 AS_GATEWAY_LABEL = "Address is a gateway (skip the portal)"
-# vpn.timeout of the test connection: a value "the user set" (not 0, not 180)
-TIMEOUT = 240
-# What a new profile with browser authentication starts with (issue #46)
-SAML_TIMEOUT = 180
+# vpn.timeout of the test connection: a value "the user set" (not 0, not 360)
+VPN_TIMEOUT = 240
+# What browser authentication starts with (issue #46)
+SAML_TIMEOUT = 360
 
-# Save scenarios of the connect timeout. Each case opens the editor (a new
-# profile has only the service type, an existing one has vpn.data and a stored
-# vpn.timeout), applies the steps ("auth", combo index) and ("spin", value),
-# then compares the spin button (shown) and the vpn.timeout that
-# update_connection() writes (saved) with the expectation.
+# Save scenarios of the connect timeout. Each case opens the editor and applies
+# the steps; the editor is shown in a window first, like in the real hosts.
+#   new      a new profile has only the service type, an existing one has vpn.data
+#   timeout  the stored vpn.timeout (also of a new profile)
+#   vpn_data the vpn.data of an existing profile (default: vpn_data())
+#   steps    ("auth", combo index) selects an authentication mode, ("spin", int)
+#            sets the value like the +/- buttons, ("type", "digits") types text
+#            into the spin button without committing it (no Enter, no focus-out)
+#   shown    the number in the spin button after the steps (what the user sees)
+#   saved    the vpn.timeout that update_connection() writes
+STEP_KINDS = ("auth", "spin", "type")
 TIMEOUT_CASES = [
     {"name": "new profile", "new": True, "timeout": 0, "steps": [],
      "shown": SAML_TIMEOUT, "saved": SAML_TIMEOUT},
@@ -40,11 +46,186 @@ TIMEOUT_CASES = [
      "steps": [("auth", 1), ("auth", 0)], "shown": SAML_TIMEOUT, "saved": SAML_TIMEOUT},
     {"name": "new profile, own value, credentials", "new": True, "timeout": 0,
      "steps": [("spin", 300), ("auth", 1)], "shown": 300, "saved": 300},
+    {"name": "new profile, typed value, credentials", "new": True, "timeout": 0,
+     "steps": [("type", "500"), ("auth", 1)], "shown": 500, "saved": 500},
+    {"name": "new profile with a timeout, credentials", "new": True, "timeout": 90,
+     "steps": [("auth", 1)], "shown": 90, "saved": 90},
     {"name": "existing SAML profile without timeout", "new": False, "timeout": 0, "steps": [],
      "vpn_data": {"gateway": GATEWAY}, "shown": 0, "saved": 0},
-    {"name": "existing profile with timeout, browser", "new": False, "timeout": TIMEOUT,
-     "steps": [("auth", 0)], "shown": TIMEOUT, "saved": TIMEOUT},
+    {"name": "existing credentials profile without timeout, browser", "new": False, "timeout": 0,
+     "steps": [("auth", 0)], "shown": SAML_TIMEOUT, "saved": SAML_TIMEOUT},
+    {"name": "existing profile with timeout, browser", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("auth", 0)], "shown": VPN_TIMEOUT, "saved": VPN_TIMEOUT},
+    {"name": "existing profile, typed value", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "300")], "shown": 300, "saved": 300},
+    # a numeric spin button accepts a sign; GTK parses with g_strtod and clamps
+    {"name": "existing profile, typed sign", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "+90")], "shown": 90, "saved": 90},
+    {"name": "existing profile, typed negative value", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "-5")], "shown": -5, "saved": 0},
+    {"name": "existing profile, typed value above the range", "new": False, "timeout": VPN_TIMEOUT,
+     "steps": [("type", "99999999999999999999")], "shown": 99999999999999999999, "saved": 4294967295},
+    # vpn.timeout is a guint32: values above 2^31 must survive a save
+    {"name": "existing profile with a timeout above 2^31", "new": False, "timeout": 3000000000,
+     "steps": [], "shown": 3000000000, "saved": 3000000000},
+    {"name": "existing profile with the largest timeout", "new": False, "timeout": 4294967295,
+     "steps": [], "shown": 4294967295, "saved": 4294967295},
 ]
+
+# Name of the MTU spin button (gtk_widget_set_name in the GTK editors); the
+# editors save less than MTU_MIN as MTU_MIN, 0 = automatic (no key).
+MTU_SPIN_NAME = "mtu_spin"
+MTU_MAX = 1500
+MTU_MIN = 576
+
+# Save scenarios of the MTU (vpn.data mtu). Each case opens the editor for an
+# existing profile with "vpn_data", sets the spin button to each value of
+# "spins" in turn (none = untouched), then compares the spin button (shown) and the vpn.data mtu that
+# update_connection() writes (saved, None = no key) with the expectation.
+def _mtu_case(name, stored, spin, shown, saved):
+    data = {"gateway": GATEWAY}
+    if stored is not None:
+        data["mtu"] = stored
+    spins = [] if spin is None else spin if isinstance(spin, list) else [spin]
+    return {"name": "mtu: " + name, "vpn_data": data, "spins": spins, "shown": shown, "saved": saved}
+
+
+MTU_CASES = [
+    _mtu_case("stored value", "1300", None, 1300, "1300"),
+    _mtu_case("not stored", None, None, 0, None),
+    _mtu_case("stored with leading zero", "01300", None, 1300, "1300"),
+    _mtu_case("stored 500 is shown as 576", "500", None, 576, "576"),
+    _mtu_case("stored 00 is automatic", "00", None, 0, None),
+    # A stored value the spin button cannot show (it shows 0) is kept while the
+    # spin button is untouched. Setting 0 changes nothing (it is already 0), so
+    # that keeps the key too.
+    _mtu_case("stored 1501 is kept when untouched", "1501", None, 0, "1501"),
+    _mtu_case("stored 1600 is kept when untouched", "1600", None, 0, "1600"),
+    _mtu_case("stored abc is kept when untouched", "abc", None, 0, "abc"),
+    _mtu_case("stored 1600, 0 set: the key stays", "1600", 0, 0, "1600"),
+    _mtu_case("stored 1600 replaced by 1300", "1600", 1300, 1300, "1300"),
+    # touched: the user set a value and then 0, so 0 means automatic now
+    _mtu_case("stored 1600, 1300 then 0: the key is removed", "1600", [1300, 0], 0, None),
+    _mtu_case("stored abc replaced by 400", "abc", 400, 400, "576"),
+    _mtu_case("0 removes the key", "1300", 0, 0, None),
+    _mtu_case("400 is saved as 576", None, 400, 400, "576"),
+    _mtu_case("1400 is saved", None, 1400, 1400, "1400"),
+]
+
+
+# Save scenarios of the fields that a cleared entry must remove from vpn.data
+# (issue #61), and of the required gateway. Each case opens the editor for an
+# existing profile with "vpn_data", applies the "steps" and calls
+# update_connection(). A step is (kind, key, text): "type" sets the entry (the
+# text of the combo for "browser") of that vpn.data key, text "" clears it;
+# "choose" selects that item of the browser combo. "error": update_connection() must fail
+# (and leave vpn.data as it was); otherwise vpn.data must be "saved" (the stored
+# values with "changes" applied, None = key removed).
+EDIT_LABELS = {
+    "gateway": "Portal or gateway address:",
+    "username": "Username:",
+    "browser": "Browser:",
+    "dns": "DNS Servers:",
+    "hip-script": "HIP script:",
+}
+EDIT_STORED = {
+    "gateway": GATEWAY,
+    "username": USERNAME,
+    "browser": "firefox",
+    "dns": "10.0.0.1;10.0.0.2",
+    "hip-script": "/opt/hip/check.sh",
+}
+CUSTOM_BROWSER = "Custom..."
+MISSING_GATEWAY_ERROR = "gateway is required"
+BAD_DNS_ERROR = "dns must be IPv4 or IPv6 addresses"
+
+
+def _edit_case(name, steps, changes=None, error=False, stored=None):
+    data = dict(EDIT_STORED if stored is None else stored)
+    expected = dict(data)
+    for key, value in (changes or {}).items():
+        if value is None:
+            expected.pop(key, None)
+        else:
+            expected[key] = value
+    return {
+        "name": "edit: " + name,
+        "vpn_data": data,
+        "steps": steps,
+        "error": error,
+        "saved": data if error else expected,
+    }
+
+
+EDIT_CASES = [
+    # a cleared field removes its key, the others stay
+    _edit_case("clearing DNS removes dns", [("type", "dns", "")], {"dns": None}),
+    _edit_case("clearing the username removes username", [("type", "username", "")], {"username": None}),
+    _edit_case("clearing the HIP script removes hip-script", [("type", "hip-script", "")], {"hip-script": None}),
+    _edit_case("Custom browser with an empty entry removes browser", [("choose", "browser", CUSTOM_BROWSER)],
+               {"browser": None}),
+    _edit_case("clearing a custom browser entry removes browser", [("type", "browser", "")], {"browser": None},
+               stored={**EDIT_STORED, "browser": "/opt/mybrowser/bin/browser"}),
+    # the negative counterparts: a field that is not cleared keeps its value
+    _edit_case("untouched fields keep their values", []),
+    _edit_case("untouched custom browser keeps its value", [],
+               stored={**EDIT_STORED, "browser": "/opt/mybrowser/bin/browser"}),
+    _edit_case("a changed DNS is saved", [("type", "dns", "9.9.9.9")], {"dns": "9.9.9.9"}),
+    _edit_case("a typed custom browser is saved", [("type", "browser", "/opt/mybrowser/bin/browser")],
+               {"browser": "/opt/mybrowser/bin/browser"}),
+    _edit_case("a listed browser is saved", [("choose", "browser", "chrome")], {"browser": "chrome"}),
+    # the gateway is required; the shared rules (nm-gpclient-validate.h) refuse a bad field
+    _edit_case("an empty gateway is refused and nothing is saved", [("type", "gateway", "")],
+               error=MISSING_GATEWAY_ERROR),
+    _edit_case("a DNS name is refused and nothing is saved", [("type", "dns", "dns.example.com")],
+               error=BAD_DNS_ERROR),
+    _edit_case("a changed gateway is saved", [("type", "gateway", "other.example.com")],
+               {"gateway": "other.example.com"}),
+]
+
+
+def check_edit_results(results):
+    """The problems of the EDIT_CASES (empty list = fine): `results` maps the
+    name of a case to {"error": message or None, "data": vpn.data after the
+    save as a dict}."""
+    problems = []
+    for case in EDIT_CASES:
+        name = case["name"]
+        if name not in results:
+            problems.append(f"edit case {name!r} did not run")
+            continue
+        error, data = results[name]["error"], results[name]["data"]
+        if case["error"] and (error is None or case["error"] not in error):
+            problems.append(f"{name}: update_connection did not fail with {case['error']!r} (got {error!r})")
+        elif not case["error"] and error is not None:
+            problems.append(f"{name}: update_connection failed: {error}")
+        for key in sorted(set(case["saved"]) | set(data)):
+            if key in EXTRA_SAVED_KEYS or data.get(key) == case["saved"].get(key):
+                continue
+            problems.append(f"{name}: vpn.data {key} is {data.get(key)!r}, expected {case['saved'].get(key)!r}")
+    return problems
+
+
+# keys the editor adds on every save ("hip" is written whatever the fields are)
+EXTRA_SAVED_KEYS = ("hip",)
+
+
+def step_problems(step):
+    """The problems of one step of a TIMEOUT_CASES entry (empty list = fine)"""
+    if not isinstance(step, tuple) or len(step) != 2:
+        return [f"step {step!r} is not a (kind, value) pair"]
+    kind, value = step
+    if kind not in STEP_KINDS:
+        return [f"unknown step kind {kind!r}"]
+    if kind == "auth":
+        if type(value) is not int or value not in (0, 1):
+            return [f"auth index {value!r} is not the int 0 or 1"]
+    elif kind == "spin":
+        if type(value) is not int or not 0 <= value <= 4294967295:
+            return [f"spin value {value!r} is not an int in 0..4294967295"]
+    elif not isinstance(value, str) or not value.isascii() or not re.fullmatch(r"[+-]?[0-9]+", value):
+        return [f"typed text {value!r} is not an ASCII number with an optional sign"]
+    return []
 
 
 def parse_name_file(text):
@@ -127,9 +308,9 @@ def check_editor(root, width, height):
     spins = [n for n in nodes if n.get("kind") == "spin"]
     if not spins:
         problems.append("no spin button for the connect timeout")
-    elif not any(n.get("value") == TIMEOUT for n in spins):
+    elif not any(n.get("value") == VPN_TIMEOUT for n in spins):
         shown = [n.get("value") for n in spins]
-        problems.append(f"the connect timeout is not {TIMEOUT} (shown: {shown})")
+        problems.append(f"the connect timeout is not {VPN_TIMEOUT} (shown: {shown})")
 
     checks = [n for n in nodes if n.get("kind") == "check" and n.get("text") == AS_GATEWAY_LABEL]
     if not checks:
@@ -141,18 +322,42 @@ def check_editor(root, width, height):
 
 def check_timeout_results(results):
     """The problems of the connect timeout scenarios (empty list = fine):
-    `results` maps the name of a TIMEOUT_CASES entry to (shown, saved)."""
+    `results` maps the name of a TIMEOUT_CASES entry to a dict with
+    "shown" (number in the spin button), "saved" (vpn.timeout after
+    update_connection()), "silent_steps" (steps after which the editor did not
+    emit "changed") and "changed_on_save" ("changed" during update_connection())."""
     problems = []
     for case in TIMEOUT_CASES:
         name = case["name"]
         if name not in results:
             problems.append(f"connect timeout case {name!r} did not run")
             continue
+        result = results[name]
+        if result["shown"] != case["shown"]:
+            problems.append(f"{name}: the connect timeout shown is {result['shown']}, expected {case['shown']}")
+        if result["saved"] != case["saved"]:
+            problems.append(f"{name}: the connect timeout saved is {result['saved']}, expected {case['saved']}")
+        if result["silent_steps"] != 0:
+            problems.append(f"{name}: a user action did not emit changed ({result['silent_steps']} steps)")
+        if result["changed_on_save"] != 0:
+            problems.append(f"{name}: update_connection emitted changed ({result['changed_on_save']} times)")
+    return problems
+
+
+def check_mtu_results(results):
+    """The problems of the MTU scenarios (empty list = fine): `results` maps the
+    name of a MTU_CASES entry to (shown, saved)."""
+    problems = []
+    for case in MTU_CASES:
+        name = case["name"]
+        if name not in results:
+            problems.append(f"MTU case {name!r} did not run")
+            continue
         shown, saved = results[name]
         if shown != case["shown"]:
-            problems.append(f"{name}: the connect timeout shown is {shown}, expected {case['shown']}")
+            problems.append(f"{name}: the MTU shown is {shown}, expected {case['shown']}")
         if saved != case["saved"]:
-            problems.append(f"{name}: the connect timeout saved is {saved}, expected {case['saved']}")
+            problems.append(f"{name}: the MTU saved is {saved!r}, expected {case['saved']!r}")
     return problems
 
 

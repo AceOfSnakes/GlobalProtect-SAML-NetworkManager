@@ -6,26 +6,77 @@
 #include "gpclientwidget.h"
 #include "ui_gpclientwidget.h"
 
+// The MTU and field rules (plain C, shared with the GTK editors)
+#include "nm-gpclient-mtu.h"
+#include "nm-gpclient-validate.h"
+
+#include <KLocalizedString>
 #include <NetworkManagerQt/Utils>
+#include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QIcon>
 #include <QLineEdit>
 #include <QSignalBlocker>
-#include <QSpinBox>
+#include <QStyle>
+#include <QDoubleSpinBox>
 #include <QString>
 #include <QStringList>
 
-#include <climits>
-
 /* First entry of the preferred-gateway combo: let the portal decide. Stored as
  * no vpn.data value at all, so existing profiles keep behaving the same. */
-static const QString gatewayAutoLabel = QStringLiteral("First proposed by portal (automatic)");
+static QString gatewayAutoLabel()
+{
+    return i18n("First proposed by portal (automatic)");
+}
+
+/* A "choose a file" icon in a path field: the chosen file goes into the field
+ * (typing still works). The dialog starts in the folder of the current path. */
+static void addChooseFileAction(QLineEdit *edit, QWidget *parent, const QString &title)
+{
+    auto *action = new QAction(QIcon::fromTheme(QStringLiteral("document-open"), edit->style()->standardIcon(QStyle::SP_DialogOpenButton)),
+                               i18n("Choose a file"), edit);
+    action->setToolTip(i18n("Choose a file"));
+    edit->addAction(action, QLineEdit::TrailingPosition);
+    QObject::connect(action, &QAction::triggered, edit, [edit, parent, title]() {
+        const QString current = edit->text().trimmed();
+        const QString startDir = QFileInfo(current).isAbsolute() ? QFileInfo(current).absolutePath() : QString();
+        const QString path = QFileDialog::getOpenFileName(parent, title, startDir);
+        if (!path.isEmpty()) {
+            edit->setText(path);
+        }
+    });
+}
+
+/* Last entry of the browser combo: the user types the path of a browser. */
+static QString customBrowserLabel()
+{
+    return i18n("Custom...");
+}
+
+/* The browser to store: empty for the "Custom..." entry itself. In another
+ * language that label is not a valid browser name ("Własna..."), so it must not
+ * reach the validator either. */
+static QString browserValue(const QString &text)
+{
+    const QString browser = text.trimmed();
+    return browser == customBrowserLabel() ? QString() : browser;
+}
 
 /* NetworkManager stops a VPN activation after vpn.timeout seconds (0 = its
  * default, usually 60 s), which is too short for a SAML login with MFA. A new
- * connection with browser authentication starts with this value (issue #46). */
-static const int samlTimeoutDefault = 180;
+ * connection with browser authentication starts with this value (issue #46).
+ * It is longer than the limit of the browser login itself (GP_AUTH_TIMEOUT,
+ * 300 s, scripts/browser-wrapper.sh) plus the time to connect after the login,
+ * so that limit and its clearer error come first. */
+static const int samlTimeoutDefault = 360;
+
+/* The "Password storage" combo, as NMSettingSecretFlags: 1 = agent-owned
+ * (this user only), 0 = system-owned (all users, in the profile), 2 = not saved
+ * (asked every time). A new connection starts with the agent. */
+static const uint passwordFlagsByIndex[] = {1, 0, 2};
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const QStringList browserValues = {
@@ -39,21 +90,33 @@ static const QStringList browserValues = {
 GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, QWidget *parent)
     : SettingWidget(setting, parent)
     , m_ui(new Ui::GpclientWidget)
-    , m_setting(setting)
 {
     m_ui->setupUi(this);
 
     m_ui->browserComboBox->addItems(browserValues);
-    m_ui->browserComboBox->addItem(QStringLiteral("Custom..."));
+    m_ui->browserComboBox->addItem(customBrowserLabel());
 
-    m_ui->authModeComboBox->addItem(QStringLiteral("Browser (SAML, passkey, 2FA)"));
-    m_ui->authModeComboBox->addItem(QStringLiteral("Username and password (RSA token)"));
+    m_ui->authModeComboBox->addItem(i18n("Browser (SAML, passkey, 2FA)"));
+    m_ui->authModeComboBox->addItem(i18n("Username and password (RSA token)"));
 
-    m_ui->preferredGatewayComboBox->addItem(gatewayAutoLabel);
+    m_ui->preferredGatewayComboBox->addItem(gatewayAutoLabel());
 
-    m_ui->fixOpensslComboBox->addItem(QStringLiteral("Automatic (enable when the portal needs it)"));
-    m_ui->fixOpensslComboBox->addItem(QStringLiteral("Always on"));
-    m_ui->fixOpensslComboBox->addItem(QStringLiteral("Never"));
+    m_ui->passwordFlagsComboBox->addItem(i18n("Store for this user only (agent)"));
+    m_ui->passwordFlagsComboBox->addItem(i18n("Store for all users (system)"));
+    m_ui->passwordFlagsComboBox->addItem(i18n("Ask every time (not saved)"));
+    m_ui->certPassFlagsComboBox->addItem(i18n("Store for this user only (agent)"));
+    m_ui->certPassFlagsComboBox->addItem(i18n("Store for all users (system)"));
+    m_ui->certPassFlagsComboBox->addItem(i18n("Ask every time (not saved)"));
+
+    m_ui->fixOpensslComboBox->addItem(i18n("Automatic (enable when the portal needs it)"));
+    m_ui->fixOpensslComboBox->addItem(i18n("Always on"));
+    m_ui->fixOpensslComboBox->addItem(i18n("Never"));
+
+    m_ui->samlAuthComboBox->addItem(i18n("In the service (default)"));
+    m_ui->samlAuthComboBox->addItem(i18n("In the login dialog"));
+
+    // vpn.timeout is a guint32, so the field is a QDoubleSpinBox without decimals
+    // (a QSpinBox stops at INT_MAX).
 
     // Load configuration if available
     loadConfig(setting);
@@ -64,30 +127,72 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->preferredGatewayComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->authModeComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->authModeComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        // The password is used only by "Username and password"
+        setPasswordVisible(index == 1);
         if (m_timeoutFollowsAuthMode) {
             // Keep following: only the user's own choice stops it
             const QSignalBlocker blocker(m_ui->timeoutSpinBox);
-            m_ui->timeoutSpinBox->setValue(index == 0 ? samlTimeoutDefault : 0);
+            m_ui->timeoutSpinBox->setValue(index == 0 ? static_cast<double>(samlTimeoutDefault) : 0.0);
         }
     });
-    connect(m_ui->timeoutSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
-        // The user chose a value: keep it whatever the authentication mode
+    connect(m_ui->timeoutSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
+        // The user chose a value: keep it whatever the authentication mode.
         m_timeoutFollowsAuthMode = false;
+        // plasma-nm 5 watches only QSpinBox in watchChangedSetting(), so a
+        // QDoubleSpinBox needs our own emit there (checked by the timeout test).
+        // plasma-nm 6 also watches QDoubleSpinBox, so there settingChanged comes
+        // twice, which is harmless.
+        Q_EMIT settingChanged();
+    });
+    connect(m_ui->mtuSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+        // loadConfig() blocks this signal while it sets the value
+        m_mtuTouched = true;
         Q_EMIT settingChanged();
     });
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->passwordLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->passwordFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
+    // "Ask every time" stores nothing: no typing into the field (as in GNOME)
+    connect(m_ui->passwordFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        m_ui->passwordLineEdit->setEnabled(index != 2);
+        if (index == 2) {
+            m_ui->passwordLineEdit->clear();
+        }
+    });
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->userCertLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->userKeyLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    addChooseFileAction(m_ui->userCertLineEdit, this, i18n("Choose the client certificate"));
+    addChooseFileAction(m_ui->userKeyLineEdit, this, i18n("Choose the private key"));
+    connect(m_ui->certPassLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->certPassFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
+    // "Ask every time" stores nothing: no typing into the field (as the password)
+    connect(m_ui->certPassFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        m_ui->certPassLineEdit->setEnabled(index != 2);
+        if (index == 2) {
+            m_ui->certPassLineEdit->clear();
+        }
+    });
     connect(m_ui->hipCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
+    connect(m_ui->hipScriptLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    // The HIP script only matters while HIP is on
+    connect(m_ui->hipCheckBox, &QCheckBox::toggled, m_ui->hipScriptLabel, &QWidget::setEnabled);
+    connect(m_ui->hipCheckBox, &QCheckBox::toggled, m_ui->hipScriptLineEdit, &QWidget::setEnabled);
     connect(m_ui->fixOpensslComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->samlAuthComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
 
     auto update_valid = [this]() {
         Q_EMIT validChanged(isValid());
     };
     connect(m_ui->gatewayLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, update_valid);
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, update_valid);
-    connect(m_ui->browserComboBox, &QComboBox::editTextChanged, this, update_valid);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->hipCheckBox, &QCheckBox::toggled, this, update_valid);
+    connect(m_ui->hipScriptLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->userCertLineEdit, &QLineEdit::textChanged, this, update_valid);
+    connect(m_ui->userKeyLineEdit, &QLineEdit::textChanged, this, update_valid);
 
     watchChangedSetting();
     update_valid();
@@ -98,6 +203,24 @@ GpclientWidget::~GpclientWidget()
     delete m_ui;
 }
 
+void GpclientWidget::setPasswordVisible(bool visible)
+{
+    m_ui->passwordLabel->setVisible(visible);
+    m_ui->passwordLineEdit->setVisible(visible);
+    m_ui->passwordFlagsLabel->setVisible(visible);
+    m_ui->passwordFlagsComboBox->setVisible(visible);
+}
+
+void GpclientWidget::loadSecrets(const NetworkManager::Setting::Ptr &setting)
+{
+    const NetworkManager::VpnSetting::Ptr vpnSetting = setting.staticCast<NetworkManager::VpnSetting>();
+
+    if (vpnSetting) {
+        m_ui->passwordLineEdit->setText(vpnSetting->secrets().value(QLatin1String("password")));
+        m_ui->certPassLineEdit->setText(vpnSetting->secrets().value(QLatin1String("cert-pass")));
+    }
+}
+
 void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
 {
     NetworkManager::VpnSetting::Ptr vpnSetting = setting.staticCast<NetworkManager::VpnSetting>();
@@ -105,6 +228,9 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
     if (vpnSetting) {
         const NMStringMap data = vpnSetting->data();
         m_originalData = data;
+        // toMap() always writes these, so a fresh setting() would reset them on save
+        m_persistent = vpnSetting->persistent();
+        m_userName = vpnSetting->username();
 
         // Load the portal / gateway address
         if (data.contains(QLatin1String("gateway"))) {
@@ -144,20 +270,43 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         m_ui->authModeComboBox->setCurrentIndex(
             data.value(QLatin1String("auth-mode")) == QLatin1String("credentials") ? 1 : 0);
 
+        // Password storage: a new connection asks the agent; an existing one
+        // keeps its flags (a missing key is 0, system-owned)
+        m_isNew = data.isEmpty();
+        const uint passwordFlags = data.value(QLatin1String("password-flags")).toUInt();
+        m_passwordFlagsIndex = m_isNew || (passwordFlags & 1u) ? 0 : 1;
+        if (!m_isNew && (passwordFlags & 2u)) {
+            m_passwordFlagsIndex = 2;
+        }
+        m_ui->passwordFlagsComboBox->setCurrentIndex(m_passwordFlagsIndex);
+        // Loaded before the combo's signal is connected: "Ask every time" here too
+        m_ui->passwordLineEdit->setEnabled(m_passwordFlagsIndex != 2);
+        // The passphrase of the client certificate: the same rules
+        const uint certPassFlags = data.value(QLatin1String("cert-pass-flags")).toUInt();
+        m_certPassFlagsIndex = m_isNew || (certPassFlags & 1u) ? 0 : 1;
+        if (!m_isNew && (certPassFlags & 2u)) {
+            m_certPassFlagsIndex = 2;
+        }
+        m_ui->certPassFlagsComboBox->setCurrentIndex(m_certPassFlagsIndex);
+        m_ui->certPassLineEdit->setEnabled(m_certPassFlagsIndex != 2);
+        loadSecrets(setting);
+        setPasswordVisible(m_ui->authModeComboBox->currentIndex() == 1);
+
         // Connect timeout: NetworkManager's own vpn.timeout, not a vpn.data item.
         // A profile that exists has at least the gateway in vpn.data; only a new
-        // one gets the default for the authentication mode.
+        // one gets the default for the authentication mode as its first value.
+        // While the value is 0 (new or existing profile) it follows the
+        // authentication mode until the user sets a value.
         const bool isNew = data.isEmpty();
         const uint stored = vpnSetting->timeout();
-        int timeoutValue = static_cast<int>(qMin<uint>(stored, INT_MAX));
-        m_timeoutFollowsAuthMode = false;
+        uint timeoutValue = stored;
+        m_timeoutFollowsAuthMode = (stored == 0);
         if (isNew && stored == 0) {
             timeoutValue = m_ui->authModeComboBox->currentIndex() == 0 ? samlTimeoutDefault : 0;
-            m_timeoutFollowsAuthMode = true;
         }
         {
             const QSignalBlocker blocker(m_ui->timeoutSpinBox);
-            m_ui->timeoutSpinBox->setValue(timeoutValue);
+            m_ui->timeoutSpinBox->setValue(static_cast<double>(timeoutValue));
         }
 
         // Username for portals that ask for credentials on the terminal
@@ -189,9 +338,31 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
             m_ui->fixOpensslComboBox->setCurrentIndex(0);
         }
 
+        // Where the SAML login runs: only "dialog" selects the dialog
+        m_ui->samlAuthComboBox->setCurrentIndex(data.value(QLatin1String("saml-auth")) == QLatin1String("dialog") ? 1 : 0);
+
+        // Tunnel MTU: a missing or invalid value shows as automatic (0)
+        const int mtuShown = nm_gpclient_mtu_parse(data.value(QLatin1String("mtu")).toUtf8().constData());
+        m_mtuTouched = false;
+        {
+            const QSignalBlocker blocker(m_ui->mtuSpinBox);
+            m_ui->mtuSpinBox->setValue(mtuShown > 0 ? mtuShown : 0);
+        }
+
         // Load HIP (default: enabled)
         const QString hipValue = data.value(QLatin1String("hip"), QLatin1String("true"));
         m_ui->hipCheckBox->setChecked(hipValue.toLower() == QLatin1String("true"));
+
+        // Load HIP script
+        if (data.contains(QLatin1String("hip-script")) && !data.value(QLatin1String("hip-script")).isEmpty()) {
+            m_ui->hipScriptLineEdit->setText(data.value(QLatin1String("hip-script")));
+        }
+
+        // Client certificate and key
+        m_ui->userCertLineEdit->setText(data.value(QLatin1String("usercert")));
+        m_ui->userKeyLineEdit->setText(data.value(QLatin1String("userkey")));
+        m_ui->hipScriptLabel->setEnabled(m_ui->hipCheckBox->isChecked());
+        m_ui->hipScriptLineEdit->setEnabled(m_ui->hipCheckBox->isChecked());
     }
 }
 
@@ -205,8 +376,9 @@ QVariantMap GpclientWidget::setting() const
     NMStringMap data = m_originalData;
 
     // Save the portal / gateway address
-    if (!m_ui->gatewayLineEdit->text().isEmpty()) {
-        data.insert(QLatin1String("gateway"), m_ui->gatewayLineEdit->text());
+    const QString gateway = m_ui->gatewayLineEdit->text().trimmed();
+    if (!gateway.isEmpty()) {
+        data.insert(QLatin1String("gateway"), gateway);
     } else {
         data.remove(QLatin1String("gateway"));
     }
@@ -220,7 +392,7 @@ QVariantMap GpclientWidget::setting() const
 
     // Save the preferred gateway (the automatic entry stores nothing)
     const QString preferred = m_ui->preferredGatewayComboBox->currentText().trimmed();
-    if (!preferred.isEmpty() && preferred != gatewayAutoLabel) {
+    if (!preferred.isEmpty() && preferred != gatewayAutoLabel()) {
         data.insert(QLatin1String("preferred-gateway"), preferred);
     } else {
         data.remove(QLatin1String("preferred-gateway"));
@@ -240,9 +412,33 @@ QVariantMap GpclientWidget::setting() const
         data.remove(QLatin1String("username"));
     }
 
+    // Save the password flags: a new connection gets the default, an existing
+    // one keeps its own (an untouched combo writes nothing)
+    const int flagsIndex = m_ui->passwordFlagsComboBox->currentIndex();
+    const uint passwordFlags = passwordFlagsByIndex[qBound(0, flagsIndex, 2)];
+    if (m_isNew || flagsIndex != m_passwordFlagsIndex) {
+        data.insert(QLatin1String("password-flags"), QString::number(passwordFlags));
+    }
+
+    const int certFlagsIndex = m_ui->certPassFlagsComboBox->currentIndex();
+    const uint certPassFlags = passwordFlagsByIndex[qBound(0, certFlagsIndex, 2)];
+    if (m_isNew || certFlagsIndex != m_certPassFlagsIndex) {
+        data.insert(QLatin1String("cert-pass-flags"), QString::number(certPassFlags));
+    }
+
+    // A one-time code is never stored. The service sets this after the first
+    // code too; a new connection starts with it. The same holds for the result
+    // of gpauth (secret gpauth-result) in the mode saml-auth=dialog.
+    if (m_isNew && !data.contains(QLatin1String("otp-flags"))) {
+        data.insert(QLatin1String("otp-flags"), QStringLiteral("2"));
+    }
+    if (m_isNew && !data.contains(QLatin1String("gpauth-result-flags"))) {
+        data.insert(QLatin1String("gpauth-result-flags"), QStringLiteral("2"));
+    }
+
     // Save Browser
-    const QString browserText = m_ui->browserComboBox->currentText().trimmed();
-    if (!browserText.isEmpty() && browserText != QLatin1String("Custom...")) {
+    const QString browserText = browserValue(m_ui->browserComboBox->currentText());
+    if (!browserText.isEmpty()) {
         data.insert(QLatin1String("browser"), browserText);
     } else {
         data.remove(QLatin1String("browser"));
@@ -270,11 +466,73 @@ QVariantMap GpclientWidget::setting() const
         break;
     }
 
+    // Save where the SAML login runs (the service is the default, no key)
+    if (m_ui->samlAuthComboBox->currentIndex() == 1) {
+        data.insert(QLatin1String("saml-auth"), QStringLiteral("dialog"));
+    } else {
+        data.remove(QLatin1String("saml-auth"));
+    }
+
+    // Save the MTU: 0 = automatic (no key), below 576 is saved as 576. An
+    // invalid stored value shows as 0; while the user did not touch the spin box
+    // the key keeps its text (data starts from m_originalData).
+    const int mtu = m_ui->mtuSpinBox->value();
+    const bool keepStored = !m_mtuTouched
+        && nm_gpclient_mtu_parse(m_originalData.value(QLatin1String("mtu")).toUtf8().constData()) < 0;
+    if (keepStored) {
+        // nothing to do
+    } else if (mtu <= 0) {
+        data.remove(QLatin1String("mtu"));
+    } else {
+        data.insert(QLatin1String("mtu"), QString::number(qBound(MTU_MIN, mtu, MTU_MAX)));
+    }
+
     // Save HIP
     data.insert(QLatin1String("hip"),
                 m_ui->hipCheckBox->isChecked() ? QLatin1String("true") : QLatin1String("false"));
 
+    // Save HIP script (also when HIP is off: the service ignores it then)
+    const QString hipScript = m_ui->hipScriptLineEdit->text().trimmed();
+    if (!hipScript.isEmpty()) {
+        data.insert(QLatin1String("hip-script"), hipScript);
+    } else {
+        data.remove(QLatin1String("hip-script"));
+    }
+
+    // Save the client certificate and key paths
+    const QString userCert = m_ui->userCertLineEdit->text().trimmed();
+    const QString userKey = m_ui->userKeyLineEdit->text().trimmed();
+    if (!userCert.isEmpty()) {
+        data.insert(QLatin1String("usercert"), userCert);
+    } else {
+        data.remove(QLatin1String("usercert"));
+    }
+    if (!userKey.isEmpty()) {
+        data.insert(QLatin1String("userkey"), userKey);
+    } else {
+        data.remove(QLatin1String("userkey"));
+    }
+
     setting.setData(data);
+
+    // The password stays out of the connection when it is not to be saved. An
+    // agent-owned secret goes to NetworkManager, which hands it to the agent and
+    // keeps it out of the profile file.
+    const QString password = m_ui->passwordLineEdit->text();
+    NMStringMap secrets;
+    if (!password.isEmpty() && !(passwordFlags & 2u)) {
+        secrets.insert(QStringLiteral("password"), password);
+    }
+    // The passphrase of the key is saved only with a certificate, like the password
+    const QString certPass = m_ui->certPassLineEdit->text();
+    if (!userCert.isEmpty() && !certPass.isEmpty() && !(certPassFlags & 2u)) {
+        secrets.insert(QStringLiteral("cert-pass"), certPass);
+    }
+    if (!secrets.isEmpty()) {
+        setting.setSecrets(secrets);
+    }
+    setting.setPersistent(m_persistent);
+    setting.setUsername(m_userName);
 
     // toMap() always writes the timeout, so leaving it out here would reset a
     // value set with nmcli (vpn.timeout) to 0 on every save
@@ -285,6 +543,15 @@ QVariantMap GpclientWidget::setting() const
 
 bool GpclientWidget::isValid() const
 {
-    // The portal / gateway address is required
-    return !m_ui->gatewayLineEdit->text().isEmpty();
+    // The same rules as the GNOME editors (nm-gpclient-validate.h): the
+    // gateway must be set, the other fields must be what the service accepts
+    return nm_gpclient_validate_form(m_ui->gatewayLineEdit->text().toUtf8().constData(),
+                                     m_ui->usernameLineEdit->text().toUtf8().constData(),
+                                     browserValue(m_ui->browserComboBox->currentText()).toUtf8().constData(),
+                                     m_ui->dnsLineEdit->text().toUtf8().constData(),
+                                     m_ui->hipCheckBox->isChecked(),
+                                     m_ui->hipScriptLineEdit->text().toUtf8().constData(),
+                                     m_ui->userCertLineEdit->text().toUtf8().constData(),
+                                     m_ui->userKeyLineEdit->text().toUtf8().constData())
+        == nullptr;
 }

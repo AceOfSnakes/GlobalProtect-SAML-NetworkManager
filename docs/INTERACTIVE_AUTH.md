@@ -57,21 +57,28 @@ will be asked in a dialog on every connect:
 nmcli connection modify "My VPN" +vpn.data username=jdoe
 ```
 
-Optionally also store the second-phase (gateway/AD) password:
-
-```bash
-nmcli connection modify "My VPN" +vpn.secrets password=SuperSecret
-```
+Optionally also store the second-phase (gateway/AD) password. Type it in the
+**Password** field of the editor, or let `nmcli` ask for it (see the next
+section). Do not put the password on the `nmcli` command line: other users can
+read it in the process list, and your shell keeps it in its history.
 
 ### Plain username + password portal (no SAML, no MFA)
 
-Fully non-interactive setup — ask NetworkManager to collect and store the
-password upfront:
+Ask NetworkManager to collect the password upfront. In the editor, choose
+**Username and password** and type the password in the **Password** field: the
+storage menu (the icon in the field in GNOME, the **Password storage** list in
+Plasma) sets `password-flags` (1 = this user only, 0 = all users, in the
+profile as plain text, 2 = ask every time). Emptying the field does not delete
+a stored password (NetworkManager keeps the old one): choose "ask every time"
+to remove it from the profile. A new connection starts with
+`password-flags=1` and `otp-flags=2`. With `nmcli`, do not give the password on
+the command line. Set the flags and let `nmcli` ask:
 
 ```bash
 nmcli connection modify "My VPN" +vpn.data username=jdoe
 nmcli connection modify "My VPN" +vpn.data auth-mode=credentials
-nmcli connection modify "My VPN" +vpn.secrets password=SuperSecret
+nmcli connection modify "My VPN" +vpn.data password-flags=1
+nmcli --ask connection up "My VPN"
 ```
 
 With `auth-mode=credentials` the service reports to NetworkManager that the
@@ -82,7 +89,125 @@ password is only requested mid-connection when gpclient actually asks.
 ### SAML portals
 
 Nothing changes — `auth-mode` defaults to `saml` and authentication happens
-in the browser as before.
+in the browser as before. gpclient starts the browser itself (through
+`gpauth`), as the desktop user, and this stays the default
+(`saml-auth=service`). For the other way see the next section.
+
+### SAML login in the auth dialog
+
+With `vpn.data saml-auth=dialog` (and `auth-mode=saml`) the login runs in your
+desktop session, not in the root service. The connection editors set it in the
+field **SAML login** (**In the service (default)** removes the key, **In the
+login dialog** writes `dialog`):
+
+1. The service asks the secret agent for the secret `gpauth-result`. The
+   request carries the hint `x-gp-saml:<JSON>` with the server, the
+   `--gateway` and `--fix-openssl` settings and the browser.
+2. The auth dialog (`nm-gpclient-auth-dialog`, it runs as you) starts
+   `/usr/bin/gpauth --log-format json` with the wrapper
+   (`/usr/libexec/gpclient/browser-wrapper`, see
+   [EDGE_WRAPPER.md](EDGE_WRAPPER.md#who-starts-the-wrapper)). It shows no
+   window of its own. When gpauth reports the legacy TLS error and
+   `fix-openssl=auto`, it runs gpauth once more with `--fix-openssl`.
+3. The dialog returns gpauth's result line. The service checks it (only a
+   successful result with a username and a cookie is accepted; anything else
+   fails the login), writes it once to gpclient's stdin
+   (`gpclient connect --cookie-on-stdin`) and keeps it in memory only, until
+   the tunnel is up or gpclient exits. It is never logged and never stored.
+   gpclient gets no `--browser` and no `SUDO_UID` in this mode.
+
+Other results:
+
+- Cancel (or close) the browser, or a failed login: the dialog exits with 1.
+  NetworkManager treats this as a cancel.
+- The server has a standard (password) login: gpauth fails with "non-SAML
+  prelogin". The dialog answers `standard` and the service runs gpclient the
+  usual way, with the prompts described above.
+- The agent goes away (SIGTERM, end of stdin): the dialog stops gpauth.
+- KDE Plasma: plasma-nm does not start the GNOME auth dialog. Its password
+  dialog loads the Plasma plugin (`GpclientAuthWidget`), which runs gpauth
+  with the same checks as the auth dialog and closes the password dialog by
+  itself: it shows "Signing in…" and asks nothing. plasma-nm has no
+  non-interactive answer for a VPN plugin, so the widget calls `accept()` (the
+  result is ready) or `reject()` (cancelled, failed) on its window. This holds
+  for the plasma-nm versions checked (5.24.7, 5.27.11, 6.3.5), whose
+  `SecretAgent` shows the dialog and reads `secrets()` after `accepted`. The dialog is visible for the time of the
+  login.
+
+Limits:
+
+- **One login per connection.** gpclient uses the result for the portal, or
+  for the server when **Address is a gateway** is set. If a portal gateway
+  wants its own SAML login, gpclient would have to start gpauth as root, which
+  does not work here. The service sees the log record `SAML auth launch:
+  gateway=true`, stops and fails the login with a message. Tick **Address is
+  a gateway**, or use `saml-auth=service`.
+- The connection must be started with a desktop agent (GNOME Shell,
+  plasma-nm). A start without an agent fails at once with a clear message.
+  nmcli does not work: its agent runs the auth dialog (external UI mode) but
+  keeps only the entries it asks for and drops the result (`ShouldAsk=false`),
+  so `nmcli --ask` asks for `gpauth-result` on the terminal. Use
+  `saml-auth=service` with nmcli.
+- The auth dialog refuses to run gpauth as root (an agent that runs as
+  root): start the connection as the desktop user.
+- The result is a one-time secret: flag `gpauth-result-flags=2` (not saved)
+  is written to the profile before the request, and the dialog never fills it
+  from a stored value.
+
+## Client certificate
+
+A portal or gateway can also ask for a client certificate (a certificate per
+device, with SAML or with username and password,
+[#134](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/134)).
+Give gpclient the files with `vpn.data` keys; the editors have the same fields
+(**Client certificate**, **Private key**, **Certificate passphrase**). In the
+editors, type the path or click the file icon in the field to choose the file:
+
+```bash
+# PKCS#12 file (.p12, .pfx) or PEM file with the certificate and the key
+nmcli connection modify "My VPN" +vpn.data usercert=/home/alice/.certs/me.p12
+# a separate PEM key
+nmcli connection modify "My VPN" +vpn.data userkey=/home/alice/.certs/me.key
+# the passphrase of an encrypted key, kept for this user only (the keyring)
+nmcli connection modify "My VPN" +vpn.data cert-pass-flags=1
+nmcli connection modify "My VPN" vpn.secrets cert-pass=...
+```
+
+- The service passes `--certificate=<usercert>` and `--sslkey=<userkey>` to
+  gpclient. Both must be absolute paths.
+- **The files must be owned by the desktop user** (the user whose session shows
+  the browser) and be regular files of at most 1 MiB (a link is followed). They
+  must be readable by that user too. The service opens each file once, checks
+  the open file, and gives gpclient (root) and gpauth a private copy in a
+  directory below `/run/nm-gpclient` that only root can write: owned by the
+  desktop user, mode `0400`, with the extension of the original. gpclient never
+  reads your path, so changing or replacing the original after the check does
+  not change the copy (it is made at each connect). The service refuses another
+  owner, a directory, a device or a FIFO, and the connection fails with the
+  reason in the log. It deletes the copies when the connection ends or fails,
+  and when the service stops; after a crash they stay until the next reboot
+  (`/run`).
+  The service finds no desktop user in some setups (no session): then it
+  refuses `usercert`/`userkey` and the connection fails.
+- Upstream picks the format by the extension only: `.p12` or `.pfx` is PKCS#12,
+  any other name is PEM. The copy keeps the extension.
+- The passphrase is never put on the command line (any user can read it in
+  `/proc`). When the key or the PKCS#12 file is encrypted, gpclient asks
+  "Enter the PEM passphrase:" or "Enter the PKCS#12 passphrase:". The service
+  answers this prompt (and only this prompt) with the `cert-pass` secret. It
+  uses the stored value once. When none is stored, the secret agent is asked.
+  The VPN password is never typed there.
+  `cert-pass-flags` works like `password-flags` (`1` agent, `0` profile file,
+  `2` not saved, asked every time).
+- A wrong passphrase: only a PEM key is asked again by gpclient. The service
+  stops the login with "wrong certificate passphrase" when the same passphrase
+  comes back (an agent can return the stored, wrong value without asking you) or
+  after 3 passphrases. Correct or remove the stored `cert-pass`, then connect
+  again. A wrong PKCS#12 passphrase makes gpclient exit with an error at once.
+- Limitation of upstream gpclient: in SAML mode it hands the key passphrase to
+  gpauth on the command line, where other users of the machine can read it for
+  as long as gpauth runs. Prefer a key without a passphrase in a file with mode
+  `0600` that only you can read, or report this upstream.
 
 ## Gateway selection
 
@@ -146,10 +271,15 @@ nmcli connection modify "My VPN" -vpn.data preferred-gateway
 nmcli -g vpn.data connection show "My VPN"
 ```
 
-`--gateway` is deliberately never passed to `gpclient`: it makes gpclient abort
-with `Cannot find gateway specified` when the value is unknown, which would
-remove any chance of falling back
+`--gateway` is never set to the server address: it makes gpclient abort with
+`Cannot find gateway specified` when the value is unknown
 ([issue #7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)).
+It is passed only for `preferred-gateway`, and only when the portal offered that
+exact name or address before (it is in `gateway-list`). When gpclient does not
+find it after all, the service starts gpclient once more without the option and
+answers the gateway prompt as before. With `--gateway` gpclient shows no
+gateway prompt, so `gateway-list` is refreshed only on a connect without it (for
+example when the preferred gateway is not in the list, or none is set).
 
 ### Portal or gateway address?
 
@@ -207,7 +337,7 @@ to the address in the connection.
 The user has 300 s to answer an interactive secrets request; afterwards the
 connection fails with `LOGIN_FAILED`.
 
-The browser window for SAML authentication has its own, separate timeout
+The browser window for SAML authentication has its own timeout
 (`GP_AUTH_TIMEOUT`, 300 s by default) - see
 [EDGE_WRAPPER.md](EDGE_WRAPPER.md#environment-variables).
 
@@ -215,5 +345,22 @@ NetworkManager also stops a VPN activation after its own connect timeout
 (`vpn.timeout`, 0 = default, usually 60 s). The login in the browser counts
 towards it, so a slow SAML login with MFA can fail with "connect timeout
 exceeded". Set it in the editor (**Connect timeout**) or with
-`nmcli connection modify "My VPN" vpn.timeout 180`; new connections with
-browser login start with 180 s.
+`nmcli connection modify "My VPN" vpn.timeout 360`.
+
+The connect timeout must be longer than `GP_AUTH_TIMEOUT` plus the time to
+connect after the login. Then the limit of the browser login, with its clearer
+error, comes first. 360 s fits the 300 s default. A new connection with browser
+login starts with 360 s. While a connection has no timeout of its own (0) and
+you have not changed the field, choosing browser login sets 360 s. If you
+raise `GP_AUTH_TIMEOUT`, raise `vpn.timeout` too.
+
+With `saml-auth=dialog` the request for `gpauth-result` has the same 300 s
+limit as any secret request and covers the whole browser login; the wrapper
+keeps its own `GP_AUTH_TIMEOUT` limit (read from the dialog's environment
+now, which is the desktop session's, not the service's). `vpn.timeout`
+applies as above.
+
+`GP_AUTH_TIMEOUT` applies to each browser login. A portal that asks for a second
+login at the gateway can open the browser twice, so 360 s may not be enough.
+Then tick **Address is a gateway** (one login) or raise `vpn.timeout` (for
+example to 660 s).

@@ -24,13 +24,21 @@ class FakePlugin:
     def __init__(self):
         self.exported = []
         self.stopped = 0
+        self.removed = 0  # _remove_cert_copies calls
+        self.idle_callback = None
         FakePlugin.instances.append(self)
 
     def export_to_dbus(self, path):
         self.exported.append(path)
 
+    def enable_idle_exit(self, callback):
+        self.idle_callback = callback
+
     async def _stop_gpclient(self):
         self.stopped += 1
+
+    def _remove_cert_copies(self):
+        self.removed += 1
 
 
 @pytest.fixture
@@ -63,6 +71,8 @@ def env(service_module, monkeypatch):
     monkeypatch.setattr(service_module, "GpclientVPNPlugin", FakePlugin)
     monkeypatch.setattr(service_module.sys, "argv", ["nm-gpclient-service"])
     monkeypatch.delenv("GPCLIENT_DEBUG", raising=False)
+    monkeypatch.delenv("NM_VPN_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("NM_VPN_LOG_SYSLOG", raising=False)
     calls.bus = bus
     yield calls
     logger.setLevel(saved_level)
@@ -80,7 +90,7 @@ def run_service(service_module, fire=True):
         loop = asyncio.get_running_loop()
         loop.add_signal_handler = lambda sig, cb: handlers.__setitem__(sig, cb)
         task = asyncio.ensure_future(service_module.main_async())
-        while len(handlers) < 2 and not task.done():
+        while len(handlers) < 2 and not task.done():  # noqa: ASYNC110  # yields to the loop until the service registers its handlers
             await asyncio.sleep(0)
         if fire and not task.done():
             handlers[signal.SIGTERM]()
@@ -238,17 +248,19 @@ class TestShutdown:
             loop = asyncio.get_running_loop()
             loop.add_signal_handler = lambda s, cb: handlers.__setitem__(s, cb)
             task = asyncio.ensure_future(service_module.main_async())
-            while len(handlers) < 2:
+            while len(handlers) < 2:  # noqa: ASYNC110  # same
                 await asyncio.sleep(0)
             # Still running until a signal arrives
             await asyncio.sleep(0)
             assert not task.done()
             assert FakePlugin.instances[0].stopped == 0
+            assert FakePlugin.instances[0].removed == 0
             handlers[sig]()
             return await task
 
         assert asyncio.run(driver()) == 0
         assert FakePlugin.instances[0].stopped == 1
+        assert FakePlugin.instances[0].removed == 1
 
     def test_error_while_waiting_returns_one_and_still_stops_gpclient(
         self, service_module, env, monkeypatch
@@ -273,6 +285,7 @@ class TestShutdown:
 
         assert result == 1
         assert FakePlugin.instances[0].stopped == 1
+        assert FakePlugin.instances[0].removed == 1
 
     def test_stop_gpclient_error_is_not_swallowed(
         self, service_module, env, monkeypatch
@@ -306,3 +319,170 @@ class TestMain:
 
         with pytest.raises(RuntimeError, match="fail"):
             service_module.main()
+
+
+class TestIdleExit:
+    def test_idle_callback_ends_the_service(self, service_module, env):
+        async def driver():
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler = lambda sig, cb: None
+            task = asyncio.ensure_future(service_module.main_async())
+            while not (FakePlugin.instances and FakePlugin.instances[0].idle_callback):  # noqa: ASYNC110  # yield until main_async wires the plugin
+                await asyncio.sleep(0)
+            FakePlugin.instances[0].idle_callback()  # no signal arrives
+            return await asyncio.wait_for(task, 1)
+
+        result = asyncio.run(driver())
+
+        assert result == 0
+        assert FakePlugin.instances[0].stopped == 1
+
+    def test_persist_keeps_the_service_running(
+        self, service_module, env, monkeypatch
+    ):
+        monkeypatch.setattr(service_module.sys, "argv", ["svc", "--persist"])
+
+        run_service(service_module)
+
+        (plugin,) = FakePlugin.instances
+        assert plugin.idle_callback is None
+
+    def test_idle_exit_is_on_by_default(self, service_module, env):
+        run_service(service_module)
+
+        (plugin,) = FakePlugin.instances
+        assert plugin.idle_callback is not None
+
+
+class TestLogLevelFromNetworkManager:
+    @pytest.mark.parametrize("value", ["7", "8", " 7 "])
+    def test_debug_level_enables_debug(self, service_module, env, monkeypatch, value):
+        monkeypatch.setenv("NM_VPN_LOG_LEVEL", value)
+
+        run_service(service_module)
+
+        assert service_module.logger.level == logging.DEBUG
+
+    @pytest.mark.parametrize("value", ["6", "0", "-1", "junk", ""])
+    def test_other_values_keep_info(self, service_module, env, monkeypatch, value):
+        monkeypatch.setenv("NM_VPN_LOG_LEVEL", value)
+
+        run_service(service_module)
+
+        assert service_module.logger.level == logging.INFO
+
+    def test_unset_keeps_info(self, service_module, env):
+        run_service(service_module)
+
+        assert service_module.logger.level == logging.INFO
+
+
+class FakeSystemctl:
+    """asyncio.create_subprocess_exec for `systemctl start`"""
+
+    def __init__(self, returncode=0, error=None, hang=False):
+        self.calls = []
+        self.killed = False
+        self.returncode = returncode
+        self.error = error
+        self.hang = hang
+
+    async def __call__(self, *argv, **kwargs):
+        self.calls.append(argv)
+        if self.error is not None:
+            raise self.error
+        fake = self
+
+        class Proc:
+            returncode = None if fake.hang else fake.returncode
+            killed = False
+
+            def kill(self):
+                Proc.killed = True
+                fake.killed = True
+
+            async def communicate(self):
+                if fake.hang:
+                    await asyncio.sleep(60)
+                return b"", b"Job for nm-gpclient.service failed."
+
+        return Proc()
+
+
+@pytest.fixture
+def spawned_by_nm(service_module, monkeypatch, tmp_path):
+    """NetworkManager's environment, with systemd running"""
+    monkeypatch.setenv("NM_VPN_LOG_SYSLOG", "1")
+    monkeypatch.setattr(service_module, "SYSTEMD_RUNTIME_DIR", str(tmp_path))
+    systemctl = FakeSystemctl()
+    monkeypatch.setattr(
+        service_module.asyncio, "create_subprocess_exec", systemctl
+    )
+    return systemctl
+
+
+class TestHandOverToUnit:
+    def test_started_by_networkmanager_the_unit_takes_over(
+        self, service_module, env, spawned_by_nm
+    ):
+        result, _ = run_service(service_module)
+
+        assert result == 0
+        assert spawned_by_nm.calls == [("systemctl", "start", "nm-gpclient.service")]
+        # This process neither takes the bus name nor runs a plugin
+        assert env.opened == []
+        assert env.names == []
+        assert FakePlugin.instances == []
+
+    def test_not_started_by_networkmanager_runs_here(
+        self, service_module, env, spawned_by_nm, monkeypatch
+    ):
+        # systemd starts the unit (D-Bus activation, systemctl): no NM variable
+        monkeypatch.delenv("NM_VPN_LOG_SYSLOG")
+
+        run_service(service_module)
+
+        assert spawned_by_nm.calls == []
+        assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
+
+    def test_without_systemd_runs_here(
+        self, service_module, env, spawned_by_nm, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            service_module, "SYSTEMD_RUNTIME_DIR", str(tmp_path / "missing")
+        )
+
+        run_service(service_module)
+
+        assert spawned_by_nm.calls == []
+        assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"returncode": 1},
+            {"returncode": 5},  # unit not installed
+            {"error": FileNotFoundError("systemctl")},
+            {"hang": True},
+        ],
+    )
+    def test_a_failed_unit_start_runs_here(
+        self, service_module, env, spawned_by_nm, monkeypatch, caplog, kwargs
+    ):
+        systemctl = FakeSystemctl(**kwargs)
+        monkeypatch.setattr(
+            service_module.asyncio, "create_subprocess_exec", systemctl
+        )
+        monkeypatch.setattr(service_module, "UNIT_START_TIMEOUT", 0.05)
+
+        with caplog.at_level(logging.WARNING, logger=service_module.logger.name):
+            result, _ = run_service(service_module)
+
+        assert result == 0
+        assert len(systemctl.calls) == 1
+        assert env.names == [service_module.NM_DBUS_SERVICE_GPCLIENT]
+        assert "Could not start nm-gpclient.service" in caplog.text
+        if kwargs.get("returncode"):
+            assert "Job for nm-gpclient.service failed." in caplog.text
+        # a systemctl that still waits is stopped, none other is
+        assert systemctl.killed == bool(kwargs.get("hang"))

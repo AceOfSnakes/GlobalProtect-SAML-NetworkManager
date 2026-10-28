@@ -9,5 +9,5 @@ plugin=libnm-vpn-plugin-gpclient.so
 [GNOME]
 auth-dialog=/usr/libexec/nm-gpclient-auth-dialog
 properties=libnm-gpclient-properties
-supports-external-ui-mode=false
+supports-external-ui-mode=true
 supports-hints=true

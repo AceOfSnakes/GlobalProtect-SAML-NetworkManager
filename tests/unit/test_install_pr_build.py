@@ -1,8 +1,8 @@
 """
 Tests for scripts/install-pr-build.sh, which installs the test packages of a
-pull request (release "pr-<N>") with apt.
+pull request (release "pr-<N>") with apt, dnf or zypper.
 
-curl, dpkg, dpkg-query, id, sudo and apt are fakes found through PATH, the os-release file
+curl, dpkg, dpkg-query, uname, id, sudo, apt, dnf and zypper are fakes found through PATH, the os-release file
 is a fixture and the release API is a file: nothing touches the network, apt or
 the real system. Every positive test has negative counterparts: whatever is
 rejected exits non-zero with a message and never reaches apt.
@@ -12,7 +12,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import json
 import os
-import shlex
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -27,12 +27,11 @@ TAG_URL = f"https://github.com/{REPO}/releases/download/pr-24"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/tags/pr-24"
 VERSION = "1.4.2-1"
 
-CODENAMES = {"jammy": "22.04", "noble": "24.04", "oracular": "24.10", "resolute": "26.04"}
+CODENAMES = {"jammy": "22.04", "noble": "24.04", "resolute": "26.04"}
 # What debian/control.ubuntu<version> builds; Ubuntu 24.04 has one more build, for KDE neon (amd64 only)
 PACKAGES = {
     "jammy": ["", "-gnome", "-plasma"],
     "noble": ["", "-gnome", "-plasma"],
-    "oracular": ["", "-gnome", "-plasma"],
     "resolute": ["", "-gnome", "-plasma"],
 }
 CORE = "network-manager-gpclient"
@@ -42,11 +41,38 @@ CORE = "network-manager-gpclient"
 BUILD = "+pr24.57"
 
 
-def deb(suffix, codename, arch, tilde=False, build=""):
+def deb(suffix, codename, arch, tilde=False, build="", version=None):
     """File name of a release asset. GitHub stores the "~" of the version as ".".
     `build` is the suffix of a pull request's build (BUILD), none for a release's."""
     sep = "~" if tilde else "."
-    return f"{CORE}{suffix}_{VERSION}{sep}{codename}1{build}_{arch}.deb"
+    return f"{CORE}{suffix}_{version or VERSION}{sep}{codename}1{build}_{arch}.deb"
+
+
+TARGETS_FILE = os.path.join(os.path.dirname(SCRIPT), "..", "rpm", "targets")
+# What the script has to recognise for each target of rpm/targets: the os-release file of such a machine
+RPM_OS = {
+    "fedora43": 'ID=fedora\nVERSION_ID=43\n',
+    "fedora44": 'ID=fedora\nVERSION_ID=44\n',
+    "fedora45": 'ID=fedora\nVERSION_ID=45\n',
+    "el10": 'ID="almalinux"\nID_LIKE="rhel centos fedora"\nVERSION_ID="10.0"\n',
+    "leap16.0": 'ID="opensuse-leap"\nID_LIKE="suse opensuse"\nVERSION_ID="16.0"\n',
+    "tumbleweed": 'ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\nVERSION_ID="20261020"\n',
+}
+RPM_DIST = {"fedora43": ".fc43", "fedora44": ".fc44", "fedora45": ".fc45", "el10": ".el10",
+            "leap16.0": ".lp160", "tumbleweed": ".tw"}
+RPM_ZYPPER = ("leap16.0", "tumbleweed")
+
+
+def rpm(suffix, target="fedora44", arch="x86_64", build="", version="1.4.2", revision="1"):
+    """File name of an RPM release asset; `build` is BUILD_RPM for a pull request's build"""
+    return f"{CORE}{suffix}-{version}-{revision}{RPM_DIST[target]}{build}.{arch}.rpm"
+
+
+def all_rpm_assets(target="fedora44", arch="x86_64", build=""):
+    return [rpm(suffix, target, arch, build) for suffix in ("", "-gnome", "-plasma")]
+
+
+BUILD_RPM = ".pr24.57"
 
 
 def all_assets(tilde=False, build=""):
@@ -128,6 +154,51 @@ echo "$*" >> "$FAKE_DIR/sudo_calls"
 exec "$@"
 """
 
+# uname -m is the machine of the test, not of the host running it
+FAKE_UNAME = r"""#!/bin/bash
+[ "$1" = "-m" ] && [ $# -eq 1 ] || exit 2
+echo "$FAKE_MACHINE"
+"""
+
+# dnf and zypper: record the name and the arguments; the packages have to exist while they run
+FAKE_RPM_MANAGER = r"""#!/bin/bash
+echo "$(basename "$0")" > "$FAKE_DIR/rpm_manager"
+printf '%s\n' "$@" > "$FAKE_DIR/rpm_manager_args"
+for arg in "$@"; do
+    case "$arg" in
+        /*.rpm) cat "$arg" >> "$FAKE_DIR/rpm_payloads"; stat -c '%a' "$arg" >> "$FAKE_DIR/rpm_modes" ;;
+    esac
+done
+exit "${FAKE_RPM_EXIT:-0}"
+"""
+
+# gh attestation verify <file> --repo <repo> --signer-workflow <workflow>: fails for the file names in
+# $FAKE_DIR/gh_bad and, like the real one with an attestation of another workflow, when the signer
+# workflow is not the one of the release build
+FAKE_GH = r"""#!/bin/bash
+echo "$*" >> "$FAKE_DIR/gh_calls"
+if [ "$1 $2" = "auth status" ]; then
+    [ "$3 $4" = "--hostname github.com" ] && [ ! -e "$FAKE_DIR/gh_logged_out" ]; exit
+fi
+# gh before 2.49 has no attestation command, 2.49 and 2.50 no --signer-workflow
+if [ "$1" = attestation ] && [ -e "$FAKE_DIR/gh_old" ]; then echo 'unknown command "attestation" for "gh"' >&2; exit 1; fi
+[ "$1 $2" = "attestation verify" ] || exit 2
+if [ "$3" = --help ]; then
+    echo "  -R, --repo string"
+    [ -e "$FAKE_DIR/gh_no_signer_flag" ] || echo "      --signer-workflow string"
+    exit 0
+fi
+file="$3"; repo=""; signer=""
+while [ $# -gt 0 ]; do
+    case "$1" in --repo) repo="$2" ;; --signer-workflow) signer="$2" ;; esac
+    shift
+done
+[ -n "$repo" ] && [ "$signer" = "$repo/.github/workflows/build-release.yml" ] \
+    || { echo "wrong repository or signer workflow" >&2; exit 1; }
+grep -qxF "$(basename "$file")" "$FAKE_DIR/gh_bad" 2>/dev/null && { echo "no attestation" >&2; exit 1; }
+exit 0
+"""
+
 FAKE_APT = r"""#!/bin/bash
 {
     printf '%s\n' "$@"
@@ -160,7 +231,8 @@ class Sandbox:
             directory.mkdir()
         for name, body in (
             ("curl", FAKE_CURL), ("dpkg", FAKE_DPKG), ("dpkg-query", FAKE_DPKG_QUERY),
-            ("id", FAKE_ID), ("sudo", FAKE_SUDO), ("apt", FAKE_APT),
+            ("id", FAKE_ID), ("sudo", FAKE_SUDO), ("apt", FAKE_APT), ("uname", FAKE_UNAME),
+            ("dnf", FAKE_RPM_MANAGER), ("zypper", FAKE_RPM_MANAGER), ("gh", FAKE_GH),
         ):
             path = self.bin / name
             path.write_text(body)
@@ -195,7 +267,8 @@ class Sandbox:
     def set_api_status(self, status):
         (self.fake / "api_status").write_text(str(status))
 
-    def run(self, *args, arch="amd64", desktop="ubuntu:GNOME", uid=1000, api=True, stdin="", **extra_env):
+    def run(self, *args, arch="amd64", desktop="ubuntu:GNOME", uid=1000, api=True, stdin="",
+            machine="x86_64", **extra_env):
         env = {
             "PATH": f"{self.bin}:{os.path.dirname(sys.executable)}:/usr/bin:/bin",
             "HOME": str(self.root),
@@ -203,6 +276,7 @@ class Sandbox:
             "OS_RELEASE_FILE": str(self.os_release),
             "FAKE_DIR": str(self.fake),
             "FAKE_ARCH": arch,
+            "FAKE_MACHINE": machine,
             "FAKE_UID": str(uid),
             "FAKE_APT_READ": "",
             "XDG_CURRENT_DESKTOP": desktop,
@@ -228,6 +302,23 @@ class Sandbox:
         """File names handed to apt (None when apt was not called)"""
         args = self.apt_args()
         return None if args is None else [os.path.basename(a) for a in args if a.endswith(".deb")]
+
+    def set_rpm_target(self, target, build=""):
+        """This machine is a `target` of rpm/targets, the release has its packages"""
+        self.set_os(target, RPM_OS[target])
+        self.set_assets(all_rpm_assets(target, "x86_64", build) + all_rpm_assets(target, "aarch64", build))
+
+    def rpm_manager(self):
+        """(tool, arguments) of the dnf or zypper call, None when neither was called"""
+        name = self.read("rpm_manager")
+        if name is None:
+            return None
+        return name.strip(), self.read("rpm_manager_args").splitlines()
+
+    def installed_rpms(self):
+        """File names handed to dnf or zypper (None when neither was called)"""
+        call = self.rpm_manager()
+        return None if call is None else [os.path.basename(a) for a in call[1] if a.endswith(".rpm")]
 
     def curl_urls(self):
         return (self.read("curl_urls") or "").splitlines()
@@ -259,8 +350,7 @@ class TestInstall:
             ("resolute", "amd64", "ubuntu:GNOME", ["", "-gnome"]),
             ("jammy", "amd64", "KDE", ["", "-plasma"]),
             ("noble", "amd64", "KDE", ["", "-plasma"]),
-            ("oracular", "amd64", "KDE", ["", "-plasma"]),
-            ("oracular", "arm64", "x-cinnamon", ["", "-gnome"]),
+            ("resolute", "arm64", "x-cinnamon", ["", "-gnome"]),
             ("noble", "amd64", "", ["", "-gnome"]),
             ("noble", "amd64", "plasma:kde", ["", "-plasma"]),
         ],
@@ -277,6 +367,14 @@ class TestInstall:
         assert box.apt_args()[:2] == ["install", box.apt_args()[1]]
         assert "-y" not in box.apt_args()
         assert list(box.tmp.iterdir()) == []
+
+    @pytest.mark.parametrize("tilde, build", [(False, ""), (True, ""), (False, BUILD), (True, BUILD)])
+    def test_a_native_version_without_a_revision_is_accepted(self, box, tilde, build):
+        box.set_assets([deb(s, "noble", "amd64", tilde, build, "2.0.0") for s in ("", "-gnome", "-plasma")])
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
 
     def test_the_release_api_url_is_the_one_of_the_pr(self, box):
         result = box.run("24")
@@ -326,7 +424,7 @@ class TestInstall:
         assert box.installed() == [deb("", "noble", "amd64", True), deb("-gnome", "noble", "amd64", True)]
 
     @pytest.mark.parametrize("tilde", [False, True])
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_the_packages_of_a_pr_build_are_found_under_both_spellings(self, box, codename, tilde):
         box.set_os(codename)
         box.set_assets(all_assets(tilde, BUILD))
@@ -380,9 +478,9 @@ class TestInstall:
 
         result = box.run("24")
 
-        assert "pip3 install sdbus" in result.stdout
+        assert "sudo pip3 install sdbus" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["noble", "resolute"])
     def test_the_python3_sdbus_note_is_not_shown_elsewhere(self, box, codename):
         box.set_os(codename)
 
@@ -398,7 +496,7 @@ class TestInstall:
         assert "sudo apt remove network-manager-gpclient network-manager-gpclient-plasma" in result.stdout
         assert "docs/APT_REPO.md" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_the_way_back_selects_the_release_by_suite(self, box, codename):
         box.set_os(codename)
 
@@ -407,7 +505,7 @@ class TestInstall:
         assert result.returncode == 0, result.stderr
         assert f"sudo apt install --allow-downgrades network-manager-gpclient/{codename} network-manager-gpclient-gnome/{codename}" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute"])
     def test_the_way_back_does_not_reinstall_or_use_bare_names(self, box, codename):
         box.set_os(codename)
 
@@ -502,7 +600,6 @@ class TestRejected:
             ('ID=debian\nVERSION_ID="12"\nVERSION_CODENAME=bookworm\n', "not Ubuntu"),
             ('ID=linuxmint\nID_LIKE="ubuntu debian"\nVERSION_ID="21"\nVERSION_CODENAME=vanessa\n', "not Ubuntu"),
             ("", "not Ubuntu"),
-            ("ID=fedora\nVERSION_ID=40\n", "not Ubuntu"),
             ('ID=neonlike\nID_LIKE="ubuntu debian"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n', "not Ubuntu or KDE neon"),
             ('ID="neon;x"\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n', "not Ubuntu or KDE neon"),
         ],
@@ -526,6 +623,8 @@ class TestRejected:
         [
             "ID=ubuntu\nVERSION_ID=\"20.04\"\nVERSION_CODENAME=focal\n",
             "ID=ubuntu\nVERSION_ID=\"25.10\"\nVERSION_CODENAME=questing\n",
+            "ID=ubuntu\nVERSION_ID=\"24.10\"\nVERSION_CODENAME=oracular\n",
+            "ID=ubuntu\nVERSION_ID=\"24.10\"\n",
             "ID=ubuntu\nVERSION_ID=\"20.04\"\n",
             "ID=ubuntu\n",
             "ID=ubuntu\nVERSION_CODENAME=noble;x\n",
@@ -653,6 +752,13 @@ class TestRejected:
 
         assert_rejected(box, result, "more than one")
 
+    def test_a_native_version_of_another_pr_is_not_accepted(self, box):
+        box.set_assets([deb(s, "noble", "amd64", False, "+pr25.57", "2.0.0") for s in ("", "-gnome", "-plasma")])
+
+        result = box.run("24")
+
+        assert_rejected(box, result, f"no {CORE} package for noble/amd64")
+
     def test_two_candidates_are_ambiguous(self, box):
         box.set_assets(all_assets() + [f"{CORE}_1.5.0-1.noble1_amd64.deb"])
 
@@ -710,7 +816,7 @@ class TestRejected:
         "base, replace",
         [
             ("https://evil.example/pr-24", None),
-            (f"https://github.com/other/repo/releases/download/pr-24", None),
+            ("https://github.com/other/repo/releases/download/pr-24", None),
             (f"https://github.com/{REPO}/releases/download/pr-25", None),
             (f"http://github.com/{REPO}/releases/download/pr-24", None),
             (f"https://github.com.evil.example/{REPO}/releases/download/pr-24", None),
@@ -792,7 +898,7 @@ class TestPlasmaPackage:
         assert box.installed() == [deb("", "noble", "amd64"), deb(self.PLASMA6, "noble", "amd64")]
         assert box.read("dpkg_query_calls") is None
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     def test_plasma_6_is_refused_on_the_other_releases(self, box, codename):
         box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
 
@@ -829,12 +935,12 @@ class TestPlasmaPackage:
         assert result.returncode == 0, result.stderr
         assert "sudo apt install --allow-downgrades network-manager-gpclient/noble network-manager-gpclient-plasma-6/noble" in result.stdout
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     @pytest.mark.parametrize("plasma_nm", ["4:6.1.5-0ubuntu1", "4:6.7.5-0zneon+24.04+noble+release+build62"])
     def test_other_releases_never_get_the_plasma_6_package(self, box, codename, plasma_nm):
         box.set_assets(all_assets() + [deb(self.PLASMA6, codename, "amd64")])
 
-        result = self.plasma(box, codename=codename, plasma_nm=plasma_nm)
+        self.plasma(box, codename=codename, plasma_nm=plasma_nm)
 
         assert box.installed() == [deb("", codename, "amd64"), deb("-plasma", codename, "amd64")]
 
@@ -848,7 +954,7 @@ class TestPlasmaPackage:
     def test_kde_neon_with_gnome_chosen_gets_the_gnome_package(self, box):
         box.set_os("noble", NEON_OS_RELEASE)
 
-        result = box.run("24", "--desktop", "gnome", desktop="KDE")
+        box.run("24", "--desktop", "gnome", desktop="KDE")
 
         assert box.installed() == [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
 
@@ -883,7 +989,7 @@ class TestPlasmaPackage:
         assert_rejected(box, result, f"no {CORE}-gnome package for noble/arm64")
         assert "amd64 only" not in result.stderr
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     def test_kde_neon_on_another_base_is_refused(self, box, codename):
         box.set_os(codename, NEON_OS_RELEASE.replace("noble", codename).replace("24.04", CODENAMES[codename]))
 
@@ -908,14 +1014,14 @@ class TestPlasmaPackage:
         assert_rejected(box, result, f"no {CORE}-plasma package for {codename}/amd64")
 
     def test_gnome_does_not_look_at_plasma_nm(self, box):
-        result = self.plasma(box, codename="oracular", plasma_nm="4:5.27.11-0ubuntu1", desktop="ubuntu:GNOME")
+        result = self.plasma(box, codename="resolute", plasma_nm="4:5.27.11-0ubuntu1", desktop="ubuntu:GNOME")
 
         assert result.returncode == 0, result.stderr
-        assert box.installed() == [deb("", "oracular", "amd64"), deb("-gnome", "oracular", "amd64")]
+        assert box.installed() == [deb("", "resolute", "amd64"), deb("-gnome", "resolute", "amd64")]
         assert box.read("dpkg_query_calls") is None
 
     def test_plasma_nm_is_asked_for_on_ubuntu_24_04_only(self, box):
-        for codename in ("jammy", "oracular", "resolute"):
+        for codename in ("jammy", "resolute"):
             self.plasma(box, codename=codename, plasma_nm="4:6.1.5-0ubuntu1")
             assert box.read("dpkg_query_calls") is None, codename
 
@@ -999,3 +1105,326 @@ class TestRepository:
         result = box.run("24", "--repo")
 
         assert_rejected(box, result, "--repo needs a value", network=False)
+
+
+def assert_rpm_rejected(box, result, message, network=True):
+    """Like assert_rejected for an RPM machine: no package manager, no sudo, nothing left behind."""
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert message in result.stderr, result.stderr
+    assert box.rpm_manager() is None, "dnf or zypper was called"
+    assert box.apt_args() is None, "apt was called"
+    assert box.read("sudo_calls") is None, "sudo was called"
+    assert list(box.tmp.iterdir()) == [], "the temp dir was not removed"
+    if not network:
+        assert box.curl_urls() == [], "the network was used"
+
+
+def rpm_targets_file():
+    """(target, image, dist, family) of every line of rpm/targets"""
+    assert os.path.exists(TARGETS_FILE), "rpm/targets is missing"
+    with open(TARGETS_FILE, encoding="utf-8") as handle:
+        lines = [l.split("#")[0].split() for l in handle]
+    return [fields for fields in lines if fields]
+
+
+class TestRpmInstall:
+    @pytest.mark.parametrize("target", sorted(RPM_OS))
+    @pytest.mark.parametrize("machine", ["x86_64", "aarch64"])
+    @pytest.mark.parametrize("desktop, suffix", [("GNOME", "-gnome"), ("KDE", "-plasma")])
+    def test_the_core_and_the_desktop_package_of_this_target_and_machine_are_installed(
+        self, box, target, machine, desktop, suffix
+    ):
+        box.set_rpm_target(target)
+
+        result = box.run("24", machine=machine, desktop=desktop)
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed_rpms() == [rpm(s, target, machine) for s in ("", suffix)]
+        tool, args = box.rpm_manager()
+        assert tool == ("zypper" if target in RPM_ZYPPER else "dnf")
+        assert box.apt_args() is None
+        assert list(box.tmp.iterdir()) == []
+
+    def test_the_packages_exist_and_are_readable_while_the_tool_runs(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert box.read("rpm_payloads") == f"deb:{rpm('')}\ndeb:{rpm('-gnome')}\n"
+        assert set(box.read("rpm_modes").split()) == {"644"}
+
+    @pytest.mark.parametrize("target", sorted(RPM_OS))
+    def test_a_pull_request_build_is_picked_with_its_suffix(self, box, target):
+        box.set_rpm_target(target, BUILD_RPM)
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert box.installed_rpms() == [rpm(s, target, "x86_64", BUILD_RPM) for s in ("", "-gnome")]
+
+    def test_dnf_asks_unless_yes_is_given(self, box):
+        box.set_rpm_target("fedora44")
+
+        assert box.run("24").returncode == 0
+        asking = box.rpm_manager()[1]
+        (box.fake / "rpm_manager").unlink()
+        assert box.run("24", "--yes").returncode == 0
+        assumed = box.rpm_manager()[1]
+
+        assert asking[0] == "install" and "-y" not in asking
+        assert assumed[0] == "install" and "-y" in assumed
+
+    def test_zypper_takes_unsigned_packages_and_goes_non_interactive_only_with_yes(self, box):
+        box.set_rpm_target("tumbleweed")
+
+        assert box.run("24").returncode == 0
+        asking = box.rpm_manager()[1]
+        (box.fake / "rpm_manager").unlink()
+        assert box.run("24", "--yes").returncode == 0
+        assumed = box.rpm_manager()[1]
+
+        assert asking[0] == "install" and "--allow-unsigned-rpm" in asking and "--non-interactive" not in asking
+        assert assumed[:2] == ["--non-interactive", "install"] and "--allow-unsigned-rpm" in assumed
+
+    def test_the_package_manager_runs_through_sudo_for_a_user(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", uid=1000)
+
+        assert result.returncode == 0, result.stderr
+        assert box.read("sudo_calls").startswith("dnf install ")
+
+    def test_el10_tells_about_epel_and_crb(self, box):
+        box.set_rpm_target("el10")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "EPEL" in result.stdout and "CRB" in result.stdout
+
+    def test_every_target_of_rpm_targets_is_recognised_with_its_dist_tag(self):
+        targets = rpm_targets_file()
+        assert sorted(t[0] for t in targets) == sorted(RPM_OS), "rpm/targets and RPM_OS differ"
+        assert {t[0]: t[2] for t in targets} == RPM_DIST
+
+    def test_the_dist_tags_of_rpm_targets_select_the_assets(self, tmp_path):
+        for target, _image, dist, _family in rpm_targets_file():
+            (tmp_path / target).mkdir()
+            box = Sandbox(tmp_path / target)
+            box.set_os(target, RPM_OS[target])
+            box.set_assets([f"{CORE}{s}-1.4.2-1{dist}.x86_64.rpm" for s in ("", "-gnome", "-plasma")])
+
+            result = box.run("24")
+
+            assert result.returncode == 0, (target, result.stderr)
+
+
+class TestRpmRejected:
+    def test_el9_is_refused_with_the_reason(self, box):
+        box.set_os("noble", 'ID="almalinux"\nVERSION_ID="9.5"\n')
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "EL 9", network=False)
+        assert "webkit2gtk-4.1" in result.stderr
+
+    @pytest.mark.parametrize(
+        "content, message",
+        [
+            ('ID=fedora\nVERSION_ID=40\n', "Fedora 40 is not supported"),
+            ('ID=fedora\nVERSION_ID=42\n', "Fedora 42 is not supported"),
+            ('ID=fedora\nVERSION_ID=46\n', "Fedora 46 is not supported"),
+            ('ID=fedora\n', "Fedora ? is not supported"),
+            ('ID="rocky"\nVERSION_ID="8.10"\n', "not supported"),
+            ('ID="rhel"\nVERSION_ID="11.0"\n', "EL 10 only"),
+            ('ID="opensuse-leap"\nVERSION_ID="15.6"\n', "Leap 15.6 is not supported"),
+            ('ID="opensuse-leap"\n', "Leap ? is not supported"),
+            ('ID="sles"\nVERSION_ID="16.0"\n', "not Ubuntu or KDE neon"),
+            ('ID="centos-stream"\nVERSION_ID="10"\n', "not Ubuntu or KDE neon"),
+            ('ID="fedora-asahi-remix"\nVERSION_ID="44"\n', "not Ubuntu or KDE neon"),
+            ('ID="fedora;x"\nVERSION_ID="44"\n', "not Ubuntu or KDE neon"),
+        ],
+    )
+    def test_unsupported_distributions_and_versions(self, box, content, message):
+        box.set_os("noble", content)
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, message, network=False)
+
+    @pytest.mark.parametrize("machine", ["i686", "ppc64le", "s390x", "riscv64", "armv7l"])
+    def test_unsupported_machines(self, box, machine):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", machine=machine)
+
+        assert_rpm_rejected(box, result, "is not supported", network=False)
+        assert "x86_64 and aarch64" in result.stderr
+
+    def test_plasma_6_is_for_ubuntu_only(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", "--desktop", "plasma-6")
+
+        assert_rpm_rejected(box, result, "--desktop plasma-6 is for Ubuntu 24.04", network=False)
+
+    def test_the_packages_of_another_architecture_are_not_taken(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets("fedora44", "aarch64"))
+
+        result = box.run("24", machine="x86_64")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    @pytest.mark.parametrize("other", [t for t in sorted(RPM_OS) if t != "fedora44"])
+    def test_the_packages_of_another_target_are_not_taken(self, box, other):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets(other))
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    def test_the_packages_of_another_pull_request_are_not_taken(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets("fedora44", "x86_64", ".pr99.57"))
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            f"{CORE}-1.4.2-1.fc44.src.rpm",
+            f"{CORE}-debuginfo-1.4.2-1.fc44.x86_64.rpm",
+            f"{CORE}-debugsource-1.4.2-1.fc44.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc440.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.x86_64.rpm.sig",
+            f"x{CORE}-1.4.2-1.fc44.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.pr24.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.pr24.57x.x86_64.rpm",
+            f"{CORE}-1.4.2-1.fc44.pr124.57.x86_64.rpm",
+        ],
+    )
+    def test_other_files_are_not_taken_for_the_core_package(self, box, name):
+        box.set_rpm_target("fedora44")
+        box.set_assets([name, rpm("-gnome")])
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient package for fedora44/x86_64")
+
+    def test_two_builds_of_the_same_package_are_refused(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets(all_rpm_assets("fedora44") + [rpm("", revision="2")])
+
+        result = box.run("24")
+
+        assert_rpm_rejected(box, result, "more than one network-manager-gpclient package")
+
+    def test_a_missing_desktop_package_is_named(self, box):
+        box.set_rpm_target("fedora44")
+        box.set_assets([rpm(""), rpm("-plasma")])
+
+        result = box.run("24", desktop="GNOME")
+
+        assert_rpm_rejected(box, result, "no network-manager-gpclient-gnome package for fedora44/x86_64")
+
+    def test_a_failing_package_manager_is_reported(self, box):
+        box.set_rpm_target("fedora44")
+
+        result = box.run("24", FAKE_RPM_EXIT="1")
+
+        assert result.returncode != 0
+        assert "dnf failed" in result.stderr
+        assert "Installed." not in result.stdout
+        assert list(box.tmp.iterdir()) == []
+
+
+class TestProvenance:
+    """`gh attestation verify`, when gh is installed and logged in"""
+
+    NOBLE_GNOME = [deb("", "noble", "amd64"), deb("-gnome", "noble", "amd64")]
+    SIGNER = f"--signer-workflow {REPO}/.github/workflows/build-release.yml"
+
+    def test_every_package_is_verified_against_the_repository_and_the_release_workflow(self, box):
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "Build provenance verified" in result.stdout
+        verify_calls = [c for c in box.read("gh_calls").splitlines() if c.startswith("attestation verify ") and c != "attestation verify --help"]
+        assert sorted(os.path.basename(c.split()[2]) for c in verify_calls) == sorted(self.NOBLE_GNOME)
+        assert all(c.endswith(f"--repo {REPO} {self.SIGNER}") for c in verify_calls)
+        # the source ref of a pull request build is its merge ref: not pinned
+        assert not any("--source-ref" in c for c in verify_calls)
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_the_fake_gh_refuses_another_signer_workflow(self, box):
+        """The check that the flags are passed has teeth: without the flag the fake fails"""
+        gh = subprocess.run(
+            [str(box.bin / "gh"), "attestation", "verify", "x.deb", "--repo", REPO],
+            env={"FAKE_DIR": str(box.fake)}, capture_output=True, text=True)
+        assert gh.returncode == 1
+        gh = subprocess.run(
+            [str(box.bin / "gh"), "attestation", "verify", "x.deb", "--repo", REPO,
+             "--signer-workflow", f"{REPO}/.github/workflows/other.yml"],
+            env={"FAKE_DIR": str(box.fake)}, capture_output=True, text=True)
+        assert gh.returncode == 1
+
+    def test_the_script_does_not_look_for_sha256sums(self, box):
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert not any("SHA256SUMS" in url for url in box.curl_urls())
+
+    @pytest.mark.parametrize("bad", NOBLE_GNOME)
+    def test_a_failed_attestation_is_refused(self, box, bad):
+        (box.fake / "gh_bad").write_text(bad + "\n")
+
+        result = box.run("24")
+
+        assert_rejected(box, result, f"no valid build provenance for {bad}")
+
+    def test_without_gh_the_provenance_is_reported_as_not_checked(self, box):
+        (box.bin / "gh").unlink()
+        if shutil.which("gh", path="/usr/bin:/bin:" + os.path.dirname(sys.executable)):
+            pytest.skip("gh is installed in a system directory of this machine")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is not installed: build provenance not checked" in result.stdout
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_a_gh_that_is_not_logged_in_reports_the_provenance_as_not_checked(self, box):
+        (box.fake / "gh_logged_out").write_text("")
+        (box.fake / "gh_bad").write_text(self.NOBLE_GNOME[0] + "\n")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is not logged in (gh auth login): build provenance not checked" in result.stdout
+        assert "attestation verify" not in box.read("gh_calls")
+        assert box.installed() == self.NOBLE_GNOME
+
+    @pytest.mark.parametrize("old", ["gh_old", "gh_no_signer_flag"])
+    def test_a_gh_without_the_attestation_command_reports_the_provenance_as_not_checked(self, box, old):
+        (box.fake / old).write_text("")
+
+        result = box.run("24")
+
+        assert result.returncode == 0, result.stderr
+        assert "gh is too old for 'gh attestation verify --signer-workflow' (2.51 or newer needed): build provenance not checked" in result.stdout
+        assert box.installed() == self.NOBLE_GNOME
+
+    def test_rpm_packages_are_checked_too(self, box):
+        box.set_rpm_target("fedora44")
+        (box.fake / "gh_bad").write_text(rpm("") + "\n")
+
+        result = box.run("24")
+
+        assert result.returncode != 0
+        assert f"no valid build provenance for {rpm('')}" in result.stderr
+        assert box.rpm_manager() is None

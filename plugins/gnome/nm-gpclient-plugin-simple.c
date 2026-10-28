@@ -1,12 +1,11 @@
 /* Minimal NetworkManager gpclient VPN plugin */
 
-#define GETTEXT_PACKAGE "NetworkManager-gpclient"
-
 #include <glib.h>
 #include <glib/gi18n-lib.h>
 #include <gmodule.h>
 #include <NetworkManager.h>
 #include "nm-vpn-plugin-utils.h"
+#include "nm-gpclient-keyfile.h"
 
 typedef struct {
     GObject parent;
@@ -43,7 +42,7 @@ gpclient_plugin_get_property (GObject *object, guint prop_id,
         g_value_set_string (value, "GlobalProtect");
         break;
     case PROP_DESC:
-        g_value_set_string (value, "GlobalProtect VPN Client");
+        g_value_set_string (value, _("GlobalProtect VPN Client"));
         break;
     case PROP_SERVICE:
         g_value_set_string (value, "org.freedesktop.NetworkManager.gpclient");
@@ -59,6 +58,9 @@ gpclient_plugin_class_init (GpclientPluginClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
     object_class->get_property = gpclient_plugin_get_property;
+
+    bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
     
     g_object_class_install_property (object_class, PROP_NAME,
         g_param_spec_string (NM_VPN_EDITOR_PLUGIN_NAME, "", "",
@@ -119,7 +121,26 @@ get_editor (NMVpnEditorPlugin *plugin, NMConnection *connection, GError **error)
 static guint32
 get_capabilities (NMVpnEditorPlugin *plugin)
 {
-    return 0;
+    return NM_VPN_EDITOR_PLUGIN_CAPABILITY_IMPORT | NM_VPN_EDITOR_PLUGIN_CAPABILITY_EXPORT;
+}
+
+static NMConnection *
+import_from_file (NMVpnEditorPlugin *plugin, const char *path, GError **error)
+{
+    return nm_gpclient_keyfile_import (path, error);
+}
+
+static gboolean
+export_to_file (NMVpnEditorPlugin *plugin, const char *path,
+                NMConnection *connection, GError **error)
+{
+    return nm_gpclient_keyfile_export (connection, path, error);
+}
+
+static char *
+get_suggested_filename (NMVpnEditorPlugin *plugin, NMConnection *connection)
+{
+    return nm_gpclient_keyfile_suggested_filename (nm_connection_get_id (connection));
 }
 
 static void
@@ -127,6 +148,9 @@ gpclient_plugin_interface_init (NMVpnEditorPluginInterface *iface)
 {
     iface->get_editor = get_editor;
     iface->get_capabilities = get_capabilities;
+    iface->import_from_file = import_from_file;
+    iface->export_to_file = export_to_file;
+    iface->get_suggested_filename = get_suggested_filename;
 }
 
 G_MODULE_EXPORT NMVpnEditorPlugin *

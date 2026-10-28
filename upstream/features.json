@@ -2,11 +2,73 @@
   "baseline": "2.6.5",
   "entries": [
     {
+      "version": "3.2.0",
+      "section": "Added",
+      "text": "Added Local Proxy mode with configurable SOCKS5 and HTTP listeners, so selected apps can use the VPN without changing system routes or DNS.",
+      "status": "not-applicable",
+      "reason": "The service runs gpclient in tunnel mode; NetworkManager owns routes and DNS. Local Proxy mode is a gpservice/GUI flow that we do not use."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Added",
+      "text": "Added a gateway IP preference for trying IPv4 or IPv6 first, available in Settings and through `gpclient connect --ip-preference`.",
+      "status": "no-action",
+      "reason": "The default of --ip-preference is auto, which keeps the previous address resolution. The service does not pass the flag. The help text of --disable-ipv6 changed too; the service does not pass that flag either."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Improved",
+      "text": "Enabled switching between the macOS main window and menu bar popover without restarting the app.",
+      "status": "not-applicable",
+      "reason": "GUI only, macOS only."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Improved",
+      "text": "Refined gateway selection, connection status, and proxy listener details.",
+      "status": "no-action",
+      "reason": "The gateway list, the Select prompt and the chosen-gateway lines that the service reads are unchanged: contract items gateway-count, gateway-chosen-*, gateway-select-prompt and code-connect-portal are OK on v3.2.0."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Improved",
+      "text": "Made numeric settings validation clearer before saving.",
+      "status": "not-applicable",
+      "reason": "GUI only: settings of gpgui."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Fixed",
+      "text": "Fixed VPN shutdown waiting too long when a gateway stops responding to logout.",
+      "status": "no-action",
+      "reason": "The fix is in the bundled openconnect (logout watchdog). gpclient disconnect and the exit on SIGTERM are unchanged; the service still waits for the logout and kills after its own timeout."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Fixed",
+      "text": "Fixed segmented controls sometimes losing the selected option when clicked.",
+      "status": "not-applicable",
+      "reason": "GUI only."
+    },
+    {
+      "version": "3.2.0",
+      "section": "Fixed",
+      "text": "Fixed app shortcuts failing to open with some Linux and BSD desktop launchers.",
+      "status": "not-applicable",
+      "reason": "GUI shortcuts of gpgui. The desktop file that we install is unchanged (contract item desktop-exec is OK)."
+    },
+    {
       "version": "3.1.0",
       "section": "Added",
       "text": "Added a Connection Details panel showing VPN information and live upload and download activity.",
-      "status": "not-applicable",
-      "reason": "GUI only: the service does not run gpgui. The matching CLI log lines are tracked in issue 37."
+      "status": "tested",
+      "reason": "The panel is GUI only. The service reads the matching CLI log lines (VPN interface, DNS, search domains, split DNS, MTU) as a cross-check and a fallback for the DNS the vpnc hook reports, never for routing (issue 37).",
+      "tests": [
+        "tests/unit/test_tunnel_settings_log.py::TestParseLines::test_each_line_kind",
+        "tests/unit/test_tunnel_settings_log.py::TestRejectedValues::test_dns_that_cannot_be_trusted_is_not_used",
+        "tests/unit/test_tunnel_settings_log.py::TestFallbackAndCrossCheck::test_log_dns_is_used_when_the_hook_wrote_none",
+        "tests/unit/test_tunnel_settings_log.py::TestFallbackAndCrossCheck::test_the_hook_wins_on_a_mismatch_with_one_warning"
+      ]
     },
     {
       "version": "3.1.0",
@@ -305,9 +367,14 @@
       "version": "3.0.0",
       "section": "Added",
       "text": "More control over device compliance reports (HIP), including generated reports and custom scripts.",
-      "status": "follow-up",
-      "reason": "The service passes only --hip and cannot use generated reports or custom scripts yet.",
-      "issue": 38
+      "status": "tested",
+      "reason": "The profile setting hip-script passes a custom script as one --hip=<path> argument, after the service checks that only root can change it. gpclient generates reports itself when the service passes a bare --hip.",
+      "tests": [
+        "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item",
+        "tests/unit/test_hip_script.py::test_hip_script_is_not_passed_when_hip_is_off",
+        "tests/unit/test_hip_script.py::test_valid_script_is_accepted",
+        "tests/unit/test_hip_script.py::test_connect_with_an_invalid_hip_script_fails"
+      ]
     },
     {
       "version": "3.0.0",
@@ -321,10 +388,13 @@
       "section": "Added",
       "text": "JSON log output for CLI integrations and automation.",
       "status": "tested",
-      "reason": "The service relies on text output, a foreground process and its own browser wrapper: it never passes --log-format json.",
+      "reason": "The service passes --log-format json once, before the subcommand, and reads the level and the message of each log record (parse_log_record). A line that is no record (println! output, prompts) is read as text.",
       "tests": [
-        "tests/unit/test_gpclient_command.py::test_connect_command_never_uses_unsupported_modes",
-        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags"
+        "tests/unit/test_gpclient_command.py::test_connect_command_passes_expected_flags",
+        "tests/unit/test_gpclient_command.py::test_log_format_is_one_global_option_before_the_subcommand",
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_a_record",
+        "tests/unit/test_log_json.py::TestParseLogRecord::test_anything_else_is_a_text_line",
+        "tests/unit/test_log_json.py::TestMatchersThroughRecords::test_text_lines_do_not_match"
       ]
     },
     {

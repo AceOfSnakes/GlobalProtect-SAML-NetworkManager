@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -45,17 +46,13 @@ def start_env(service_module, monkeypatch, tmp_path):
     monkeypatch.setattr(service_module, "GPCLIENT_BINARY", str(binary))
     for name in ("SUDO_UID", "SUDO_USER", "GP_BROWSER", "DISPLAY"):
         monkeypatch.delenv(name, raising=False)
-    # The pkill of old gpauth processes must not run
+    # Nothing may run a real tool (there is no pkill of gpauth any more)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
 
     plugin = service_module.GpclientVPNPlugin()
     plugin.gateway = "portal.example.com"
     plugin.browser = "default"
     plugin._get_real_user = lambda: (4321, "alice", "/home/alice")
-    plugin._get_session_env = lambda uid, home: {
-        "DISPLAY": ":7",
-        "XDG_RUNTIME_DIR": "/run/user/4321",
-    }
 
     async def no_monitor():
         pass
@@ -101,21 +98,20 @@ def test_start_gpclient_passes_flags_and_environment(start_env):
 
     dumped = json.loads(start_env.dump.read_text())
     assert dumped["argv"] == [
+        "--log-format",
+        "json",
         "--fix-openssl",
         "connect",
         "--hip",
         "--as-gateway",
-        "--user",
-        "alice",
-        "--browser",
-        "default",
+        "--user=alice",
+        "--browser=default",
+        "--",
         "portal.example.com",
     ]
     env = dumped["env"]
     assert env["SUDO_UID"] == "4321"
     assert env["SUDO_USER"] == "alice"
-    assert env["DISPLAY"] == ":7"
-    assert env["XDG_RUNTIME_DIR"] == "/run/user/4321"
     assert env["GP_BROWSER"] == "/usr/bin/firefox"
     assert pty_seen and isinstance(pty_seen[0], int)  # the PTY master was set
 
@@ -129,6 +125,26 @@ def test_start_gpclient_leaves_out_optional_flags_by_default(start_env):
     assert "GP_BROWSER" not in dumped["env"]
 
 
+def test_start_gpclient_passes_the_mtu_before_the_browser(start_env):
+    start_env.plugin.mtu = 1300
+
+    assert start_env.start() is True  # _start_gpclient
+
+    argv = json.loads(start_env.dump.read_text())["argv"]
+    assert argv[argv.index("--mtu") + 1] == "1300"
+    browser = next(a for a in argv if a.startswith("--browser="))
+    assert argv.index("connect") < argv.index("--mtu") < argv.index(browser)
+
+
+@pytest.mark.parametrize("mtu", [None, 0])
+def test_start_gpclient_leaves_out_the_mtu_when_automatic(start_env, mtu):
+    start_env.plugin.mtu = mtu
+
+    assert start_env.start() is True  # _start_gpclient
+
+    assert "--mtu" not in json.loads(start_env.dump.read_text())["argv"]
+
+
 def test_start_gpclient_without_a_real_user_sets_no_session_env(start_env):
     # root with no desktop user: no SUDO_UID and no session variables
     start_env.plugin._get_real_user = lambda: (0, "root", "/root")
@@ -138,6 +154,102 @@ def test_start_gpclient_without_a_real_user_sets_no_session_env(start_env):
     env = json.loads(start_env.dump.read_text())["env"]
     for name in ("SUDO_UID", "SUDO_USER", "DISPLAY"):
         assert name not in env
+
+
+# gpclient starts gpauth as the desktop user and builds the session environment
+# itself (gpapi desktop_session_env::apply, from /proc/<pid>/environ of the
+# user's own processes). The service must not copy it into the root process.
+SESSION_KEYS = (
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+)
+
+
+@pytest.fixture
+def user_session(service_module, start_env, monkeypatch, tmp_path):
+    """A desktop session in a fake /proc whose processes expose every session
+    key. Reading any environ file from it fails the test."""
+    proc = tmp_path / "proc"
+    (proc / "777").mkdir(parents=True)
+    (proc / "777" / "comm").write_text("gnome-shell\n")
+    (proc / "777" / "environ").write_bytes(
+        b"".join(f"{key}=from-session-{key}".encode() + b"\0" for key in SESSION_KEYS)
+    )
+    monkeypatch.setattr(service_module, "PROC_PATH", str(proc))
+    for key in SESSION_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    # pgrep finds the session leader, as it would on a real desktop
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "777\n", ""),
+    )
+
+    reads = []
+    real_open = open
+
+    def guarded_open(file, *args, **kwargs):
+        if str(file).startswith(str(proc)):
+            reads.append(str(file))
+            raise AssertionError(f"the service must not read {file}")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", guarded_open)
+    start_env.reads = reads
+    return start_env
+
+
+def test_start_gpclient_does_not_copy_the_session_environment(user_session):
+    assert user_session.start() is True  # _start_gpclient
+
+    env = json.loads(user_session.dump.read_text())["env"]
+    for key in SESSION_KEYS:
+        assert key not in env
+    assert env["SUDO_UID"] == "4321"
+    assert env["SUDO_USER"] == "alice"
+
+
+def test_start_gpclient_does_not_read_the_environment_of_user_processes(
+    user_session,
+):
+    assert user_session.start() is True  # _start_gpclient
+
+    assert user_session.reads == []
+    env = json.loads(user_session.dump.read_text())["env"]
+    # Only the user ID tells gpclient whose session to use
+    assert env["SUDO_UID"] == "4321"
+
+
+def test_start_gpclient_keeps_the_service_own_environment(user_session, monkeypatch):
+    # What the service itself got from its parent is not removed
+    monkeypatch.setenv("DISPLAY", ":from-service")
+
+    assert user_session.start() is True  # _start_gpclient
+
+    env = json.loads(user_session.dump.read_text())["env"]
+    assert env["DISPLAY"] == ":from-service"
+    assert "WAYLAND_DISPLAY" not in env
+
+
+def test_start_gpclient_looks_up_the_user_off_the_event_loop(start_env):
+    # _get_real_user runs blocking loginctl calls: they must not stall the loop
+    threads = []
+
+    def real_user():
+        threads.append(threading.current_thread())
+        return (4321, "alice", "/home/alice")
+
+    start_env.plugin._get_real_user = real_user
+
+    assert start_env.start() is True  # _start_gpclient
+
+    assert len(threads) == 1
+    assert threads[0] is not threading.main_thread()
 
 
 def test_start_gpclient_fails_cleanly_when_the_binary_is_missing(
@@ -197,6 +309,9 @@ def fake_exec(monkeypatch):
         async def __call__(self, *argv, **_kwargs):
             self.commands.append(list(argv))
             key = argv[1] if len(argv) > 1 else argv[0]
+            full = " ".join(argv)
+            if full in self.codes or full in self.raises:
+                key = full
             if key in self.raises:
                 raise self.raises[key]
             return FakeProc(self.codes.get(key, 0))
@@ -232,7 +347,6 @@ def _dirty_plugin(service_module):
     plugin.gpclient_process = RecordingGpclient()
     plugin.hip_enabled = False
     plugin.never_default = True
-    plugin.custom_routes = ["10.0.0.0/8"]
     plugin.dns_servers = ["10.0.0.53"]
     plugin.browser_target = "/usr/bin/firefox"
     return plugin
@@ -242,43 +356,33 @@ def _assert_cleaned(plugin):
     assert plugin.gpclient_process is None
     assert plugin.hip_enabled is True
     assert plugin.never_default is False
-    assert plugin.custom_routes == []
     assert plugin.dns_servers == []
     assert plugin.browser_target is None
 
 
-def test_disconnect_terminates_gpclient_and_runs_gpclient_disconnect(
+def test_disconnect_terminates_gpclient_and_runs_no_gpclient_disconnect(
     service_module, fake_exec, dbus_signals
 ):
+    # `gpclient disconnect` signals the PID of the shared lock file: after our
+    # own gpclient is stopped that can only be a session that is not ours
     plugin = _dirty_plugin(service_module)
     process = plugin.gpclient_process
 
     asyncio.run(plugin.Disconnect())  # Disconnect
 
     assert process.terminated
-    assert fake_exec.commands == [["/usr/bin/gpclient", "disconnect"]]
+    assert fake_exec.commands == []
     _assert_cleaned(plugin)
 
 
-@pytest.mark.parametrize(
-    "failure",
-    ["exit-code", "cannot-start", "hangs"],
-)
-def test_disconnect_survives_a_failing_gpclient_disconnect(
-    service_module, fake_exec, dbus_signals, failure
+def test_disconnect_without_gpclient_runs_nothing_either(
+    service_module, fake_exec, dbus_signals
 ):
-    if failure == "exit-code":
-        fake_exec.codes["disconnect"] = 1
-    elif failure == "cannot-start":
-        fake_exec.raises["disconnect"] = FileNotFoundError("gpclient")
-    else:
-        fake_exec.codes["disconnect"] = None  # never exits: the timeout hits
-    plugin = _dirty_plugin(service_module)
+    plugin = service_module.GpclientVPNPlugin()
 
-    asyncio.run(plugin.Disconnect())  # Disconnect: must not raise
+    asyncio.run(plugin.Disconnect())  # Disconnect
 
-    assert fake_exec.commands == [["/usr/bin/gpclient", "disconnect"]]
-    _assert_cleaned(plugin)
+    assert fake_exec.commands == []
 
 
 # ---------------------------------------------------------------------------
@@ -296,18 +400,18 @@ def net_sysfs(service_module, monkeypatch, tmp_path):
     return net
 
 
-def test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient(
+def test_cleanup_stale_gpd0_runs_the_cleanup_without_gpclient_and_gpservice(
     service_module, fake_exec, net_sysfs
 ):
     (net_sysfs / "gpd0").mkdir()
-    fake_exec.codes["-x"] = 1  # pgrep -x gpclient: no process
+    fake_exec.codes["-x"] = 1  # pgrep -x: no process
 
     plugin = service_module.GpclientVPNPlugin()
     asyncio.run(plugin._cleanup_stale_gpd0())
 
     assert fake_exec.commands == [
         ["pgrep", "-x", "gpclient"],
-        ["/usr/bin/gpclient", "disconnect"],
+        ["pgrep", "-x", "gpservice"],
         ["ip", "link", "del", "gpd0"],  # the fake does not remove gpd0
     ]
 
@@ -322,6 +426,23 @@ def test_cleanup_stale_gpd0_does_nothing_while_gpclient_runs(
     asyncio.run(plugin._cleanup_stale_gpd0())
 
     assert fake_exec.commands == [["pgrep", "-x", "gpclient"]]
+
+
+def test_cleanup_stale_gpd0_does_nothing_while_gpservice_runs(
+    service_module, fake_exec, net_sysfs
+):
+    # The GUI client's gpservice owns gpd0 and no gpclient runs
+    (net_sysfs / "gpd0").mkdir()
+    fake_exec.codes["pgrep -x gpclient"] = 1
+    fake_exec.codes["pgrep -x gpservice"] = 0
+
+    plugin = service_module.GpclientVPNPlugin()
+    asyncio.run(plugin._cleanup_stale_gpd0())
+
+    assert fake_exec.commands == [
+        ["pgrep", "-x", "gpclient"],
+        ["pgrep", "-x", "gpservice"],
+    ]
 
 
 def test_cleanup_stale_gpd0_does_nothing_without_gpd0(
@@ -343,6 +464,22 @@ def test_cleanup_stale_gpd0_does_nothing_when_pgrep_cannot_run(
     asyncio.run(plugin._cleanup_stale_gpd0())
 
     assert fake_exec.commands == [["pgrep", "-x", "gpclient"]]
+
+
+def test_cleanup_stale_gpd0_does_nothing_when_the_gpservice_check_fails(
+    service_module, fake_exec, net_sysfs
+):
+    (net_sysfs / "gpd0").mkdir()
+    fake_exec.codes["pgrep -x gpclient"] = 1
+    fake_exec.raises["pgrep -x gpservice"] = FileNotFoundError("pgrep")
+
+    plugin = service_module.GpclientVPNPlugin()
+    asyncio.run(plugin._cleanup_stale_gpd0())
+
+    assert fake_exec.commands == [
+        ["pgrep", "-x", "gpclient"],
+        ["pgrep", "-x", "gpservice"],
+    ]
 
 
 # ---------------------------------------------------------------------------

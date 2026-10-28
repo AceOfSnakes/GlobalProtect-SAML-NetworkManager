@@ -81,9 +81,31 @@ source $HOME/.cargo/env
 ./build-all.sh 26.04
 ./build-all.sh 24.04
 ./build-all.sh 22.04
+
+# Build a release variant (Dockerfile.ubuntu<version>-<variant>), for example KDE neon (amd64 only; skipped on arm64 when building all)
+./build-all.sh 24.04-neon
+
+# Add the version suffix that CI adds to pull request builds.
+# The ~<codename>1 tag is added only with a suffix: a plain local build stays e.g. 1.5.0-1, above the released 1.5.0-1~noble1.
+VERSION_SUFFIX=+pr54.1 ./build-all.sh 24.04
 ```
 
-Packages will be in `output/ubuntu26.04/`, `output/ubuntu24.04/` or `output/ubuntu22.04/`.
+Packages will be in `output/ubuntu26.04/`, `output/ubuntu24.04/`, `output/ubuntu24.04-neon/` or `output/ubuntu22.04/`.
+
+The script keeps Cargo's downloads and the Rust build in the Docker volumes
+`gpclient-cargo-cache-<version>` and `gpclient-target-cache-<version>`, so a
+second build is faster. If a build fails with `failed to create directory
+.../target/release ... Permission denied`, the target volume belongs to root
+(it was made by a version of the script before issue #139): remove it with
+`docker volume rm gpclient-target-cache-<version>` and build again.
+
+### Build RPM packages:
+
+```bash
+rpm/build.sh fedora44 amd64     # targets: rpm/targets; output: output/fedora44-amd64/
+```
+
+Details: [RPM_REPO.md](RPM_REPO.md).
 
 ### Build individual components (for development):
 

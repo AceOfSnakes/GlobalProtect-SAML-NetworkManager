@@ -28,12 +28,11 @@ sudo dpkg -i <downloaded-packages>.deb
 sudo apt-get install -f  # install dependencies
 ```
 
+Fedora, RHEL 10 and openSUSE: see [RPM_REPO.md](RPM_REPO.md).
+
 ### Building from Source
 
-```bash
-./build-all.sh          # Build for all Ubuntu versions
-./build-all.sh 24.04    # Build for Ubuntu 24.04 only
-```
+Run `./build-all.sh`: see [BUILD.md](BUILD.md) for targets, output directories and options.
 
 ## Configuring Your VPN
 
@@ -46,7 +45,7 @@ sudo apt-get install -f  # install dependencies
 4. Configure:
    - **Gateway**: Your VPN server (e.g., `vpn.company.com`)
    - **Browser**: Path to browser for 2FA (default: `/usr/bin/edge-wrapper`)
-   - **Connect timeout**: Seconds NetworkManager waits for the VPN, including the browser login (`0` = NetworkManager default, new connections start with 180)
+   - **Connect timeout**: Seconds NetworkManager waits for the VPN, including the browser login (`0` = NetworkManager default, new connections with browser login start with 360 s)
    - **DNS Servers**: Optional custom DNS (e.g., `8.8.8.8;8.8.4.4`)
 5. Click **Save**
 
@@ -165,8 +164,7 @@ nm-connection-editor
 
 /usr/bin/
 ├── gpclient    # VPN client
-├── gpauth      # SAML auth handler
-└── gpservice   # Background service
+└── gpauth      # SAML auth handler
 ```
 
 ### Configuration Storage
@@ -192,6 +190,7 @@ VPN settings are stored as NetworkManager data items:
 - [PYTHON_SERVICE.md](PYTHON_SERVICE.md) - VPN service implementation details
 - [GNOME_SETTINGS_INTEGRATION.md](GNOME_SETTINGS_INTEGRATION.md) - GNOME/GTK plugin details
 - [PLASMA_IMPLEMENTATION.md](PLASMA_IMPLEMENTATION.md) - KDE Plasma plugin details
+- [TRANSLATIONS.md](TRANSLATIONS.md) - Translations: add a language, refresh the catalogs, test
 
 ## License
 

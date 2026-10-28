@@ -8,7 +8,7 @@ This project builds **3 separate Debian packages** to support different desktop 
 ┌─────────────────────────────────────────┐
 │  network-manager-gpclient (BASE)        │
 │  ├── Python VPN service                 │
-│  ├── gpclient, gpauth, gpservice        │
+│  ├── gpclient, gpauth                   │
 │  ├── Configuration files                │
 │  └── Helper scripts (edge-wrapper)      │
 └─────────────────────────────────────────┘
@@ -34,8 +34,43 @@ Contents:
 - `/usr/lib/NetworkManager/nm-gpclient-service` - Python VPN service
 - `/usr/lib/NetworkManager/VPN/nm-gpclient-service.name` - Service descriptor
 - `/usr/libexec/gpclient/edge-wrapper` - Browser wrapper script
-- `/usr/bin/gpclient`, `/usr/bin/gpauth`, `/usr/bin/gpservice` - VPN client binaries
+- `/usr/bin/gpclient`, `/usr/bin/gpauth` - VPN client binaries
 - D-Bus and systemd configuration files
+
+The unit `config/nm-gpclient.service` (used for D-Bus activation) runs the
+service as root with a small set of sandbox options (issue #54):
+`ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups`,
+`LockPersonality`, `RestrictRealtime`, `RestrictSUIDSGID` and
+`SystemCallArchitectures=native`. The unit file lists, with reasons, the
+options it does not use: the browser runs inside this unit's process tree, so
+`ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, `RestrictNamespaces`,
+`MemoryDenyWriteExecute`, `PrivateNetwork`, `ProtectProc`, `PrivateDevices`
+and `ProtectSystem=strict` stay off. `ProtectClock` stays off too: systemd
+before 252 (Ubuntu 22.04) turns it into a device allow-list that blocks
+`/dev/net/tun`.
+
+An upgrade does not reload systemd (the unit is installed with `--no-restart-after-upgrade`
+and is not enabled), so the new options apply from the next start of the service after
+`systemctl daemon-reload` or a reboot.
+
+How to test a change of the sandbox options (on a real machine, on Ubuntu
+22.04 with systemd 249 as well as on a current release, because some options
+behave differently in older systemd):
+
+- [ ] `systemd-analyze security nm-gpclient.service` before and after.
+- [ ] After an upgrade and `systemctl daemon-reload`:
+      `systemctl show nm-gpclient.service -p ProtectKernelModules` shows `yes`.
+- [ ] `systemctl show nm-gpclient.service -p DeviceAllow -p DevicePolicy`
+      while connected: `DeviceAllow` is empty and `DevicePolicy=auto`.
+- [ ] SAML login with each browser: Edge, Firefox (also the snap on Ubuntu),
+      Chrome and the default one.
+- [ ] Login with credentials and with RSA or another one-time password.
+- [ ] Login with a HIP script.
+- [ ] DNS with systemd-resolved, and with a plain `/etc/resolv.conf`.
+- [ ] A connection with `never-default`: the default route stays unchanged.
+- [ ] Disconnect: the tun device, routes and DNS settings are removed.
+- [ ] `journalctl -b -u nm-gpclient.service` and `journalctl -b -k` show no
+      "Operation not permitted" or `seccomp` denials.
 
 Dependencies:
 - `network-manager`
@@ -64,9 +99,9 @@ Dependencies:
 
 **For KDE Plasma desktop.**
 
-Contents (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 24.10 and 26.04):
+Contents (Qt5 on Ubuntu 22.04 and 24.04, Qt6 on 26.04):
 - `/usr/lib/<multiarch>/qt5/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so`
-  (`qt6/` on 24.10 and 26.04)
+  (`qt6/` on 26.04)
 - `/usr/share/kservices5/plasmanetworkmanagement_gpclientui.desktop` (Qt5 only)
 
 Supports:
@@ -74,7 +109,7 @@ Supports:
 
 Dependencies:
 - `network-manager-gpclient (= ${binary:Version})`
-- `plasma-nm` (on Ubuntu 22.04 and 24.04 `plasma-nm (<< 4:6)`, on 24.10 and 26.04
+- `plasma-nm` (on Ubuntu 22.04 and 24.04 `plasma-nm (<< 4:6)`, on 26.04
   `plasma-nm (>= 4:6)`: the plugin fits the Plasma generation of its Qt)
 
 ### 4. network-manager-gpclient-plasma-6
@@ -102,18 +137,27 @@ on `plasma-nm (<< 4:6)`, so apt refuses it on Plasma 6.
 
 ### Recommended method (Docker-based):
 
-```bash
-# Build for all Ubuntu versions
-./build-all.sh
+Run `./build-all.sh` (all targets) or `./build-all.sh <target>`. Targets, the
+neon variant, output directories and `VERSION_SUFFIX` are in [BUILD.md](BUILD.md).
 
-# Build for specific version
-./build-all.sh 24.04
-./build-all.sh 22.04
-```
+RPM packages (Fedora, EL 10, openSUSE; the same three packages, Plasma 6 only)
+are built with `rpm/build.sh <target> <amd64|arm64>`: see [RPM_REPO.md](RPM_REPO.md).
 
-Packages will be in:
-- `output/ubuntu24.04/*.deb`
-- `output/ubuntu22.04/*.deb`
+On Fedora and EL, the core RPM also installs the
+`network-manager-gpclient` SELinux policy module. The NetworkManager-launched
+VPN service needs access to its PTY (`ptmx`/`devpts`) and to inspect the
+desktop session bus socket while starting SAML authentication. The module is
+loaded by the RPM scriptlets and removed when the package is removed.
+
+### Version in `debian/changelog`
+
+The package is native (`debian/source/format` is `3.0 (native)`), so a new entry has the
+form `X.Y.Z` with no Debian revision (`2.0.0`, not `2.0.0-1`); the top line is for example
+`network-manager-gpclient (2.0.0) unstable; urgency=medium`. Entries up to `1.5.0-1` keep
+their revision. The release tag is `vX.Y.Z`; `build-release.yml` (`check_tag_version.py`)
+rejects a tag that differs from the entry and a revision on a version from 2.0.0 on. CI adds `~<codename>1` (and `+pr<N>.<run>` for a
+pull request). When a file lists a version, such as `debian/*.maintscript`, write it so that
+`dpkg --compare-versions` orders it correctly: use `2.0.0~`, not `2.0.0-1~`.
 
 ### Local build:
 
@@ -142,14 +186,13 @@ sudo apt-get install -f  # install dependencies
 |----------------|------|------|---------|
 | 22.04 LTS      | ✅   | ❌   | ✅ (Qt5) |
 | 24.04 LTS      | ✅   | ✅   | ✅ (Qt5; Qt6 on KDE neon, `amd64`) |
-| 24.10          | ✅   | ✅   | ✅ (Qt6) |
 | 26.04 LTS      | ✅   | ✅   | ✅ (Qt6) |
 
 Notes:
 - Packages are built for `amd64` and `arm64`; `<multiarch>` in the paths above is
   `x86_64-linux-gnu` or `aarch64-linux-gnu` respectively.
 - GTK4 editor requires `libnma-gtk4` which is not available on Ubuntu 22.04.
-- The Plasma plugin is built against Qt5/KF5 on 22.04/24.04 and Qt6/KF6 on 24.10/26.04, the one the
+- The Plasma plugin is built against Qt5/KF5 on 22.04/24.04 and Qt6/KF6 on 26.04, the one the
   `Build-Depends` of `debian/control.ubuntu<version>` list (`debian/rules` reads it);
   install paths differ (`/usr/lib/<multiarch>/qt5/plugins/...` vs `qt6/`).
 

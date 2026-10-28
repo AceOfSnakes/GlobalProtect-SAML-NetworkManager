@@ -1,8 +1,9 @@
 Source: network-manager-gpclient
 Section: net
 Priority: optional
-Maintainer: WMP
+Maintainer: WMP <45381+WMP@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13),
+               gettext,
                pkg-config,
                libglib2.0-dev,
                libnm-dev,
@@ -60,6 +61,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          network-manager-gpclient (= ${binary:Version}),
          network-manager-gnome,
+         python3,
          python3-gi,
          gir1.2-gtk-3.0
 Description: NetworkManager GlobalProtect VPN plugin - GNOME GUI

@@ -1,11 +1,18 @@
 name: Publish APT repository
 
-# Publishes the apt repository to GitHub Pages.
+# Publishes the apt repository and the RPM repositories (under /rpm) to GitHub
+# Pages. The file keeps its name: build-release.yml and the docs call it.
 #
 # GitHub Releases are the source of truth: every run rebuilds the whole
-# repository from the .deb assets of all published releases, so the run is
+# repositories from the .deb and .rpm assets of all published releases, so the run is
 # idempotent and the repository can be recreated from scratch at any time
 # (after a key rotation, for example). Nothing is committed to the repo.
+#
+# Every package is verified before it is signed: the release's SHA256SUMS has
+# a build provenance attestation (one gh attestation verify call per release)
+# and the SHA256 of the package is the one in it. Only the releases of
+# .github/legacy-unattested-releases.txt are exempt (today every published
+# release is one of them).
 #
 # Called by build-release.yml after a tagged release, or manually.
 
@@ -15,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  attestations: read
   pages: write
   id-token: write
 
@@ -25,18 +33,19 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install repository tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y dpkg-dev apt-utils
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
 
       - name: Import signing key
         env:
@@ -67,32 +76,68 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p incoming
-          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
-            -q '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' > tags.txt
+          mkdir -p incoming verify
+          # --paginate: no fixed limit, so an old release is never dropped from
+          # the repository when there are many releases.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            -q '.[] | select(.draft == false and .prerelease == false) | .tag_name' > tags.txt
           if [ ! -s tags.txt ]; then
             echo "::error::No published releases to build the repository from"
             exit 1
           fi
           while read -r tag; do
             echo "::group::$tag"
-            gh release download "$tag" -D incoming --pattern '*.deb' --clobber \
-              || echo "::warning::$tag has no .deb assets"
+            # Read the asset names once: a failing download must fail the job,
+            # never drop a release from the repositories silently.
+            assets="$(gh release view "$tag" --json assets -q '.assets[].name')"
+            mkdir "verify/$tag"
+            if grep -q '\.deb$' <<< "$assets"; then
+              gh release download "$tag" -D "verify/$tag" --pattern '*.deb'
+            else
+              echo "::warning::$tag has no .deb assets"
+            fi
+            # Releases before the RPM packages have none
+            if grep -q '\.rpm$' <<< "$assets"; then
+              gh release download "$tag" -D "verify/$tag" --pattern '*.rpm'
+            else
+              echo "::warning::$tag has no .rpm assets"
+            fi
+            # Releases after v1.5.0 have a SHA256SUMS asset; the legacy ones
+            # (.github/legacy-unattested-releases.txt) do not.
+            if grep -qx 'SHA256SUMS' <<< "$assets"; then
+              gh release download "$tag" -D "verify/$tag" --pattern 'SHA256SUMS'
+            fi
+            # Attested SHA256SUMS and the checksum of every package: a failure
+            # stops the run before anything is signed.
+            bash .github/scripts/verify-release-assets.sh "$tag" "verify/$tag"
+            find "verify/$tag" \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} incoming/ \;
             echo "::endgroup::"
           done < tags.txt
           ls -la incoming
 
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
       - name: Build the repository
+        env:
+          APT_REPO_URL: ${{ steps.pages.outputs.base_url }}
         run: bash .github/scripts/build-apt-repo.sh incoming site "$APT_GPG_KEY"
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      # After the apt repository: it writes the landing page, which gets the RPM
+      # part here (or loses it when no release has RPMs). The signing key is
+      # the one imported above, found through GNUPGHOME and never passed as an
+      # argument.
+      - name: Build the RPM repositories
+        run: bash .github/scripts/build-rpm-repo.sh --index site/index.html --allow-empty incoming site/rpm "$APT_GPG_KEY"
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+          # since v4 dotfiles are left out by default; the site has .nojekyll
+          include-hidden-files: true
 
       - name: Deploy to Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

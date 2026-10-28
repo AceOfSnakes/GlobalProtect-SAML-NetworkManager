@@ -2,15 +2,14 @@
 The Plasma editor package. v1.4.1 shipped one package for it,
 network-manager-gpclient-plasma, built with the Qt of the Plasma of the Ubuntu
 release; 1.5.0 keeps that: one package of that name on every release, Qt5 on
-22.04 and 24.04, Qt6 on 24.10 and 26.04. No -plasma-5 / -plasma-6 packages and
+22.04 and 24.04, Qt6 on 26.04. No -plasma-5 / -plasma-6 packages and
 no transitional packages are built.
 
 Test packages of pull requests (versions like 1.5.0-1~noble1+pr31.62) did have
 network-manager-gpclient-plasma-5 (Qt5 releases) and -plasma-6 (Qt6 releases)
 with the same files as the new package, so every control file replaces and breaks
 the ones that were built for its release below 1.5.1~, and no other: -plasma-5
-on Ubuntu 22.04 and 24.04, -plasma-6 on 26.04, both on 24.10 (its test builds
-produced both).
+on Ubuntu 22.04 and 24.04, -plasma-6 on 26.04.
 
 debian/rules builds the plugin against the Qt that debian/control lists in
 Build-Depends (qtbase5-dev or qt6-base-dev, exactly one), and the Dockerfile of
@@ -27,6 +26,7 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import glob
 import os
+import pwd
 import re
 import subprocess
 
@@ -48,7 +48,6 @@ QT = {
     "control": "qt5",
     "control.ubuntu22.04": "qt5",
     "control.ubuntu24.04": "qt5",
-    "control.ubuntu24.10": "qt6",
     "control.ubuntu26.04": "qt6",
 }
 # The former test packages every control file replaces and breaks
@@ -56,7 +55,6 @@ FORMERS = {
     "control": [PLASMA + "-5"],
     "control.ubuntu22.04": [PLASMA + "-5"],
     "control.ubuntu24.04": [PLASMA + "-5"],
-    "control.ubuntu24.10": [PLASMA + "-5", PLASMA + "-6"],
     "control.ubuntu26.04": [PLASMA + "-6"],
 }
 # What the Plasma package of every control file conflicts with: on Ubuntu 24.04 the
@@ -65,7 +63,6 @@ CONFLICTS = {
     "control": [PLASMA6],
     "control.ubuntu22.04": [],
     "control.ubuntu24.04": [PLASMA6],
-    "control.ubuntu24.10": [],
     "control.ubuntu26.04": [],
 }
 # The plasma-nm the Plasma package of every control file depends on: the plugin is built with
@@ -75,7 +72,6 @@ PLASMA_NM = {
     "control": "plasma-nm (<< 4:6)",
     "control.ubuntu22.04": "plasma-nm (<< 4:6)",
     "control.ubuntu24.04": "plasma-nm (<< 4:6)",
-    "control.ubuntu24.10": "plasma-nm (>= 4:6)",
     "control.ubuntu26.04": "plasma-nm (>= 4:6)",
 }
 # What the core package recommends: on Ubuntu 24.04 the package for KDE neon is one of the alternatives, or
@@ -84,13 +80,11 @@ RECOMMENDS = {
     "control": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
     "control.ubuntu22.04": "%s-gnome | %s" % (CORE, PLASMA),
     "control.ubuntu24.04": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
-    "control.ubuntu24.10": "%s-gnome | %s" % (CORE, PLASMA),
     "control.ubuntu26.04": "%s-gnome | %s" % (CORE, PLASMA),
 }
 DOCKERFILES = {
     "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
     "control.ubuntu24.04": "Dockerfile.ubuntu24.04",
-    "control.ubuntu24.10": "Dockerfile.ubuntu24.10",
     "control.ubuntu26.04": "Dockerfile.ubuntu26.04",
 }
 # What the Plasma plugin needs to build, by Qt (the plugin's CMakeLists.txt)
@@ -440,16 +434,15 @@ class TestControlFiles:
     def test_a_file_that_replaces_other_former_packages_than_its_own_is_reported(self, name):
         qt = QT[name]
         assert check_control(read(name), qt, **expected(name, formers=["network-manager-gpclient-plasma-7"])) != []
-        if name != "control.ubuntu24.10":
-            # only 24.10 had test builds of both
-            assert check_control(read(name), qt, **expected(name, formers=BOTH)) != []
+        # no release has test builds of both
+        assert check_control(read(name), qt, **expected(name, formers=BOTH)) != []
 
     def test_debian_control_is_the_copy_for_ubuntu_24_04(self):
         assert read("control") == read("control.ubuntu24.04")
 
     @pytest.mark.parametrize("name, qt", [("control.ubuntu22.04", "qt5"), ("control.ubuntu24.04", "qt5"),
-                                          ("control.ubuntu24.10", "qt6"), ("control.ubuntu26.04", "qt6")])
-    def test_qt5_on_22_04_and_24_04_and_qt6_on_24_10_and_26_04(self, name, qt):
+                                          ("control.ubuntu26.04", "qt6")])
+    def test_qt5_on_22_04_and_24_04_and_qt6_on_26_04(self, name, qt):
         package = parse_control(read(name))[PLASMA]
         expected = [relation(f) for f in FORMERS[name]]
         assert relations(package["replaces"]) == expected
@@ -458,13 +451,12 @@ class TestControlFiles:
         assert ("qtbase5-dev" in build) == (qt == "qt5")
         assert ("qt6-base-dev" in build) == (qt == "qt6")
 
-    def test_24_10_replaces_and_breaks_both_former_packages(self):
-        package = parse_control(read("control.ubuntu24.10"))[PLASMA]
-        for field in ("replaces", "breaks"):
-            assert relations(package[field]) == [relation(PLASMA + "-5"), relation(PLASMA + "-6")]
+    @pytest.mark.parametrize("name", ["debian/control.ubuntu24.10", "Dockerfile.ubuntu24.10"])
+    def test_ubuntu_24_10_is_not_built_any_more(self, name):
+        assert not os.path.exists(os.path.join(ROOT, name))
 
     @pytest.mark.parametrize("missing", BOTH)
-    def test_a_24_10_file_without_one_of_the_former_packages_is_reported(self, missing):
+    def test_a_file_without_one_of_the_former_packages_is_reported(self, missing):
         text = good("qt6", BOTH)
         assert check_control(text, "qt6", BOTH) == []
         broken = text.replace(",\n         %s (<< 1.5.1~)" % missing, "").replace(
@@ -472,7 +464,7 @@ class TestControlFiles:
         assert broken != text
         assert any("lacks" in p and missing in p for p in check_control(broken, "qt6", BOTH))
 
-    def test_the_file_of_24_04_does_not_pass_as_the_one_of_24_10(self):
+    def test_the_file_of_24_04_does_not_pass_as_one_that_replaces_both(self):
         assert check_control(read("control.ubuntu24.04"), "qt5", **expected("control.ubuntu24.04", formers=BOTH)) != []
 
     @pytest.mark.parametrize("name", sorted(QT))
@@ -611,7 +603,7 @@ class TestDockerfiles:
 
 
 # The Build-Depends of the neon control file: what the Plasma 6 plugin needs and nothing of the rest
-NEON_BUILD_DEPENDS = BUILD_DEPENDS["qt6"] | {"debhelper-compat", "cmake", "extra-cmake-modules", "plasma-nm"}
+NEON_BUILD_DEPENDS = BUILD_DEPENDS["qt6"] | {"debhelper-compat", "gettext", "cmake", "extra-cmake-modules", "plasma-nm"}
 NEON_DEPENDS = ["${shlibs:Depends}", "${misc:Depends}", CORE + VERSIONED, "plasma-nm (>= 4:6)"]
 
 
@@ -720,11 +712,10 @@ class TestNeonControl:
         assert relations(noble["replaces"]) == [relation(PLASMA + "-5")]
 
     def test_the_package_is_not_a_former_test_package_that_a_control_file_replaces(self):
-        # 1.5.0 builds network-manager-gpclient-plasma-6 for neon; the 24.10 and 26.04 files still
-        # replace and break the -plasma-6 of the pull request test builds below 1.5.1~, which have
-        # the same files in the same Qt6 directory
-        for name in ("control.ubuntu24.10", "control.ubuntu26.04"):
-            assert relation(PLASMA6) in relations(parse_control(read(name))[PLASMA]["breaks"])
+        # 1.5.0 builds network-manager-gpclient-plasma-6 for neon; the 26.04 file still
+        # replaces and breaks the -plasma-6 of the pull request test builds below 1.5.1~, which
+        # have the same files in the same Qt6 directory
+        assert relation(PLASMA6) in relations(parse_control(read("control.ubuntu26.04"))[PLASMA]["breaks"])
 
 
 NEON_DOCKERFILE = "Dockerfile.ubuntu24.04-neon"
@@ -742,7 +733,7 @@ class TestNeonDockerfile:
         return dockerfile_packages(text[text.index("bash /usr/local/sbin/neon-repo.sh"):])
 
     def test_it_installs_the_build_depends_of_the_neon_control_file_and_the_build_tools(self):
-        tools = {"build-essential", "debhelper", "fakeroot"}
+        tools = {"build-essential", "debhelper", "fakeroot", "lintian"}
         assert self.packages() - tools == build_depends_of(read(NEON)) - {"debhelper-compat"}
         assert tools <= self.packages()
 
@@ -938,7 +929,9 @@ class TestRules:
         install = [l for l in RULES.splitlines() if "plasmanetworkmanagement_gpclientui" in l]
         assert install
         for line in install:
-            if "$(CURDIR)" in line:
+            if "install-mo" in line:  # the catalog: make puts it in /usr/share/locale (test_translations.py)
+                assert "DESTDIR=$(CURDIR)/debian/$(PLASMA_PACKAGE)" in line, line
+            elif "$(CURDIR)" in line:
                 assert "debian/$(PLASMA_PACKAGE)/usr/" in line, line
         assert "/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/" in RULES
 
@@ -967,7 +960,7 @@ class TestRulesPlasmaOnly:
 
     @pytest.mark.parametrize("name, package", [
         (NEON, PLASMA6), ("control.ubuntu22.04", PLASMA), ("control.ubuntu24.04", PLASMA),
-        ("control.ubuntu24.10", PLASMA), ("control.ubuntu26.04", PLASMA), ("control", PLASMA),
+        ("control.ubuntu26.04", PLASMA), ("control", PLASMA),
     ])
     def test_the_variables_follow_the_packages_of_the_control_file(self, tmp_path, name, package):
         variables = make_variables(tmp_path, read(name))
@@ -999,16 +992,29 @@ class TestRulesPlasmaOnly:
 
         assert result.returncode == 0, result.stderr
         # cmake builds the plugin for Qt6, then make runs; no GNOME plugins, no submodules, no cargo
-        assert log == ["cmake .. -DQT_MAJOR_VERSION=6", "fakemake "]
+        # (then make mo compiles the translations)
+        assert log == ["cmake .. -DQT_MAJOR_VERSION=6", "fakemake ", "fakemake mo"]
 
     @pytest.mark.parametrize("name", [n for n in sorted(QT) if n != "control"])
     def test_the_other_control_files_build_everything(self, tmp_path, name):
         result, log = run_rules(tmp_path, read(name), "override_dh_auto_build")
 
         assert result.returncode == 0, result.stderr
+        # the GNOME make gets the dpkg build flags (hardening) on its command line
+        assert log[1].startswith("fakemake gnome-plugins CPPFLAGS=")
+        assert " CFLAGS=" in log[1] and " LDFLAGS=" in log[1] and "-Wl,-z,relro" in log[1]
+        log[1] = "fakemake gnome-plugins"
         assert log == ["fakemake init-submodules", "fakemake gnome-plugins",
-                       "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ",
-                       "cargo build --release --bin gpclient --bin gpauth --bin gpservice"]
+                       "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ", "fakemake mo",
+                       "cargo build --locked --release --bin gpclient --bin gpauth"]
+
+    def test_gpservice_is_neither_built_nor_installed(self, tmp_path):
+        # nothing in this project starts gpservice: the callback path is gpclient launch-gui -> gpauth
+        result, log = run_rules(tmp_path, read("control.ubuntu24.04"), "override_dh_auto_build")
+
+        assert result.returncode == 0, result.stderr
+        assert not any("gpservice" in line.split(" CPPFLAGS=")[0] for line in log)  # the flags hold the test path
+        assert "gpservice" not in RULES
 
     @pytest.mark.parametrize("name", [NEON, "control.ubuntu24.04", "control.ubuntu26.04"])
     @pytest.mark.parametrize("extra", [PLASMA, PLASMA6])
@@ -1111,9 +1117,8 @@ class TestMaintainerScripts:
         assert found == [CORE + ".postinst", CORE + ".postrm"]
 
     @pytest.mark.parametrize("script, kept", [
-        ("postinst", ["org.freedesktop.DBus.ReloadConfig", "pkill -x nm-gpclient-service", "/etc/nsswitch.conf",
-                      "#DEBHELPER#"]),
-        ("postrm", ["org.freedesktop.DBus.ReloadConfig", "pkill -f \"gpclient.*service\"", "#DEBHELPER#"]),
+        ("postinst", ["org.freedesktop.DBus.ReloadConfig", "pkill -f \"$service_re\"", "#DEBHELPER#"]),
+        ("postrm", ["org.freedesktop.DBus.ReloadConfig", "pkill -f \"$service_re\"", "#DEBHELPER#"]),
     ])
     def test_the_core_package_keeps_its_maintainer_scripts(self, script, kept):
         text = read(CORE + "." + script)
@@ -1127,6 +1132,80 @@ class TestMaintainerScripts:
         scripts = [s for s in MAINTAINER_SCRIPTS if os.path.exists(os.path.join(DEBIAN, first + "." + s))]
         assert scripts == ([] if first != CORE else ["postinst", "postrm"])
         assert (first == CORE) == (name != NEON)
+
+
+class TestPostinstLegacyWrapperFiles:
+    """The postinst removes root-owned /tmp/edge-wrapper-<uid> leftovers of old wrappers"""
+
+    def run_cleanup(self, tmp_path, *args):
+        text = read(CORE + ".postinst")
+        start = text.index("remove_legacy_edge_wrapper() {")
+        func = text[start:text.index("\n}\n", start) + 3]
+        subprocess.run(["sh", "-c", func + '\nremove_legacy_edge_wrapper "$@"', "sh", str(tmp_path), *args],
+                       check=True)
+
+    def make(self, tmp_path, names):
+        for name in names:
+            if name.endswith("/"):
+                (tmp_path / name).mkdir()
+                (tmp_path / name / "wrapper.log").write_text("x")
+            else:
+                (tmp_path / name).write_text("x")
+
+    LEGACY = ["edge-wrapper-1000/", "edge-wrapper-1000.log", "edge-wrapper-0/"]
+    OTHER = ["edge-wrapper-1000.XXXX/", "edge-wrapper-abc/", "edge-wrapper-10x.log", "edge-wrapper-/",
+             "edge-wrapper-1000.log.old", "edge-wrapper-1000.txt", "other-1000/", "edge-wrapper-.log"]
+
+    def test_entries_of_the_owner_are_removed(self, tmp_path):
+        # The owner is the current user here, so that this runs without root
+        self.make(tmp_path, self.LEGACY)
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert os.listdir(tmp_path) == []
+
+    def test_entries_of_another_owner_are_kept(self, tmp_path):
+        # Without an argument the owner is root: as root, a file of "nobody" stays; as a user, none is root's
+        self.make(tmp_path, self.LEGACY)
+        if os.getuid() == 0:
+            for path in [*tmp_path.iterdir(), *tmp_path.glob("*/*")]:
+                os.chown(path, 65534, 65534)
+        self.run_cleanup(tmp_path)
+        assert sorted(os.listdir(tmp_path)) == sorted(n.rstrip("/") for n in self.LEGACY)
+
+    @pytest.mark.skipif(os.getuid() != 0, reason="needs root to create root-owned entries")
+    def test_root_owned_entries_are_removed_by_default(self, tmp_path):
+        self.make(tmp_path, self.LEGACY)
+        self.run_cleanup(tmp_path)
+        assert os.listdir(tmp_path) == []
+
+    @pytest.mark.parametrize("name", OTHER)
+    def test_other_names_are_kept(self, tmp_path, name):
+        self.make(tmp_path, [name])
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert os.listdir(tmp_path) == [name.rstrip("/")]
+
+    def test_the_wrong_type_is_kept(self, tmp_path):
+        self.make(tmp_path, ["edge-wrapper-1000", "edge-wrapper-1001.log/"])
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert sorted(os.listdir(tmp_path)) == ["edge-wrapper-1000", "edge-wrapper-1001.log"]
+
+    def test_a_symlink_is_kept_and_its_target_too(self, tmp_path):
+        target = tmp_path / "target"
+        target.mkdir()
+        (target / "precious").write_text("x")
+        os.symlink(target, tmp_path / "edge-wrapper-1000")
+        os.symlink(target / "precious", tmp_path / "edge-wrapper-1000.log")
+        self.run_cleanup(tmp_path, pwd.getpwuid(os.getuid()).pw_name)
+        assert (target / "precious").exists()
+        assert (tmp_path / "edge-wrapper-1000").is_symlink()
+        assert (tmp_path / "edge-wrapper-1000.log").is_symlink()
+
+    def test_an_empty_directory_is_fine(self, tmp_path):
+        self.run_cleanup(tmp_path)
+        assert os.listdir(tmp_path) == []
+
+    def test_the_postinst_runs_the_cleanup_when_configuring(self):
+        text = read(CORE + ".postinst")
+        assert text.index("configure|reconfigure)") < text.index("\n        remove_legacy_edge_wrapper /tmp\n")
 
 
 class TestChangelog:

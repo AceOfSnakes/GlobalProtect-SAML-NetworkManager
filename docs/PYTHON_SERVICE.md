@@ -12,12 +12,15 @@ The `nm-gpclient-service` is a Python3-based VPN service that implements the Net
    - Implements D-Bus interface `org.freedesktop.NetworkManager.VPN.Plugin`
    - Communicates with NetworkManager via System Bus
    - Manages the `gpclient` process
-   - Monitors tunnel interfaces (`gpd0` and any `tunN`, discovered at runtime)
+   - Learns about the tunnel (`gp-<UUID>`, or the name vpnc-script reports
+     without a UUID) from the vpnc hook: no polling
 
 2. **D-Bus Interface**
    - Service name: `org.freedesktop.NetworkManager.gpclient`
-   - Object path: `/org/freedesktop/NetworkManager/gpclient`
+   - Object path: `/org/freedesktop/NetworkManager/VPN/Plugin`
    - Interface: `org.freedesktop.NetworkManager.VPN.Plugin`
+   - Interface of the vpnc hook, on the same object:
+     `org.freedesktop.NetworkManager.gpclient.Tunnel` (`Notify`, below)
 
 ### D-Bus Methods
 
@@ -33,19 +36,70 @@ Starts VPN connection.
 
 **Process:**
 1. Gets configuration from NetworkManager
-2. Runs `gpclient connect --browser X --gateway Y Z`
+2. Runs `gpclient connect --browser X Z`. It adds `--gateway=<preferred-gateway>`
+   when the portal offered that name or address before (it is in `gateway-list`),
+   and `--passwd-on-stdin` (the stored password is written to the PTY at once)
+   for a standard login with a stored username and password (gpclient asks
+   for the username first, unless `--user` is given)
+   With `saml-auth=dialog` it first asks the auth dialog for the SAML result
+   and then adds `--cookie-on-stdin` (no `--browser`, no `SUDO_UID`); see
+   [INTERACTIVE_AUTH.md](INTERACTIVE_AUTH.md#saml-login-in-the-auth-dialog).
+   The checked result line (`parse_auth_result`) is written once to the PTY,
+   which has echo and line mode switched off for it
 3. Monitors gpclient stdout in separate thread
-4. Checks for tunnel interface every 500ms
-5. After detecting interface, emits `Ip4Config` signal
+4. Waits for the vpnc hook to call `Notify` (see "Tunnel Notification"); the
+   service has no timer of its own, NetworkManager's `vpn.timeout` ends an
+   activation that never gets there
+5. On `Notify`, emits `Config`, `Ip4Config` only with an IPv4 address and
+   `Ip6Config` only with an IPv6 address, then `StateChanged(STARTED)`. With
+   neither address, or with only an IPv6 address and an `ipv6.method` other
+   than `auto`, it emits `Failure(BAD_IP_CONFIG)` instead
 
 #### `Disconnect()`
 Disconnects VPN.
 
 **Process:**
-1. Stops interface monitoring
-2. Terminates gpclient process (SIGTERM, then SIGKILL if needed)
-3. Runs `gpclient disconnect`
-4. Clears internal state
+1. Cancels the session tasks and forgets the token of gpclient
+2. Notes the `gpauth` processes below our own gpclient (name and start time)
+3. Terminates gpclient process (SIGTERM, then SIGKILL if needed)
+4. Stops the noted `gpauth` processes (SIGTERM, then SIGKILL after 2 s). A PID
+   whose start time changed is never signalled
+5. Clears internal state
+
+The service does not run `gpclient disconnect` and does not run `pkill gpauth`.
+Both act on processes the service does not own: a `gpclient` the user started
+from a terminal, or the `gpservice` of the GUI. gpclient keeps its default
+lock file (`/var/run/gpclient.lock`): this is what limits it to one session,
+so the service passes no private `--lock-file`.
+
+#### `Notify(ssa{ss})` on `org.freedesktop.NetworkManager.gpclient.Tunnel`
+Called by the vpnc hook (`nm-gpclient-service --vpnc-notify`), never by
+NetworkManager: vpnc-script has configured the tunnel (address, routes, DNS).
+The D-Bus policy lets only root call the service.
+
+**Parameters:**
+- `reason` - the vpnc-script reason: `connect` (the first call, from
+  `post-connect.d`) or `reconnect` (the same tunnel again)
+- `token` - the token the service gave this gpclient
+- `env` - the vpnc environment, only these variables: `TUNDEV`, `VPNGATEWAY`,
+  `INTERNAL_IP4_ADDRESS`, `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`,
+  `INTERNAL_IP4_MTU`, `INTERNAL_IP4_DNS`, `INTERNAL_IP6_ADDRESS`,
+  `INTERNAL_IP6_NETMASK`, `INTERNAL_IP6_DNS`, `CISCO_DEF_DOMAIN`,
+  `CISCO_SPLIT_DNS`
+
+The service rejects the call with the D-Bus error
+`org.freedesktop.NetworkManager.gpclient.Tunnel.Error.Rejected` and changes
+nothing when: there is no running session (or a `Disconnect()` or a new
+`Connect()` is stopping it), the token is empty or not the current one
+(`hmac.compare_digest`; the token is never logged), the reason is unknown, a
+`connect` comes when the tunnel is already up or the session is not starting,
+a `reconnect` comes before the first `connect` or after the session failed, or `TUNDEV` is not the
+interface the service asked for (`--interface`). Without a connection UUID the
+service takes any `TUNDEV` that is a valid interface name. The token is not
+a secret (gpauth and the browser run as the desktop user and inherit it, and
+it is readable in `/proc/<pid>/environ`). The D-Bus policy, which lets only
+root call the service, is the barrier; the token only ties a call to the
+current gpclient session, not to a stale or foreign root process.
 
 #### `SetConfig(a{sv})`
 Optional method for compatibility (not used).
@@ -66,25 +120,65 @@ Informs NetworkManager about service state change.
 - `6` - STOPPED
 
 #### `Ip4Config(a{sv})`
-Passes IP configuration to NetworkManager.
+Passes IP configuration to NetworkManager. Skipped for an IPv6-only tunnel
+(`has-ip4` is false then).
 
 **Parameters:**
-- `tundev` (string) - tunnel interface name (e.g., "gpd0")
+- `tundev` (string) - tunnel interface name (e.g., "gp-1a2b3c4d")
 - `address`, `prefix`, `gateway` (uint32) - the tunnel's IPv4 configuration
 - `dns` (array of uint32) - DNS servers as `in_addr_t` values: the profile's
   `dns` override, otherwise the servers the gateway pushed
-- `domains` (array of string) - search domains: the gateway's default domain
-  and split-DNS list plus the profile's `dns-domains`
+- `domains` (array of string) - the gateway's default domain and the
+  profile's `dns-domains` as search domains, and the gateway's split-DNS list
+  with a `~` prefix (`~corp.example`: routing-only domains, no search). A
+  split-DNS domain that is also a search domain stays a plain search domain.
 
-The gateway's DNS reaches the service through the vpnc hook
-`/etc/vpnc/connect.d/90-gpclient-routing`: vpnc-script sources it with
-openconnect's environment (`INTERNAL_IP4_DNS`, `CISCO_DEF_DOMAIN`,
-`CISCO_SPLIT_DNS`, ...) and, when `GPCLIENT_NM_DNS_STATE` names a file (the
-service sets it to `/run/nm-gpclient/dns-state`), the hook writes those
-variables there. Tunnel detection reads the file and reports the values in
-`Ip4Config`. Without this, NetworkManager only knows about an assumed tunnel
-device with an empty DNS configuration and wipes vpnc-script's resolver
-settings from systemd-resolved on its next DNS recalculation (issue #15).
+There is no `routes` key: NetworkManager applies the connection's
+`ipv4.routes` itself on top of the VPN configuration, so the service does not
+send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook.
+
+#### `Ip6Config(a{sv})`
+Sent after `Ip4Config` (or first, for an IPv6-only tunnel), only for a tunnel
+with an IPv6 address (the
+`Config` signal has `has-ip6` set then, and never otherwise). The address and
+prefix are in the vpnc environment (`INTERNAL_IP6_ADDRESS` and
+`INTERNAL_IP6_NETMASK`, `address/prefix`). Without a valid IPv6 address there
+is no `Ip6Config` and `has-ip6` is false.
+
+**Parameters:**
+- `tundev` (string) - tunnel interface name
+- `address` (array of byte, 16 bytes), `prefix` (uint32) - the tunnel's IPv6
+  configuration
+- `dns` (array of 16-byte arrays) - IPv6 DNS servers: the IPv6 entries of the
+  profile's `dns` when it has a valid address of either family, otherwise the
+  gateway's `INTERNAL_IP6_DNS`
+- `domains` (array of string) - the same list as in `Ip4Config`
+- `never-default` (boolean) - true when the profile has `ipv4.never-default`,
+  so NetworkManager adds no IPv6 default route either (an IPv6 default route
+  that vpnc-script adds itself stays: issue #109)
+
+The gateway's DNS reaches the service in the `Notify` call: vpnc-script runs
+the hooks with openconnect's environment (`INTERNAL_IP4_DNS`,
+`CISCO_DEF_DOMAIN`, `CISCO_SPLIT_DNS`, ...), and the hook
+`/etc/vpnc/post-connect.d/90-gpclient-notify` passes it on. The routing hook
+`/etc/vpnc/connect.d/90-gpclient-routing` runs before vpnc-script configures
+the tunnel; it keeps the route policy (`ignore-auto-routes`, `never-default`)
+and adds the profile's `dns-domains` to `CISCO_DEF_DOMAIN`. The address is
+`INTERNAL_IP4_ADDRESS` with prefix 32 always: vpnc-script adds it as
+`/32 peer`, whatever the netmask says, and a wider prefix would make
+NetworkManager add a second address and a prefix route. The
+`gateway` of `Config` is the VPN server from `VPNGATEWAY` (`u` for IPv4, `ay`
+for IPv6); NetworkManager routes it via the physical device. `Ip4Config`
+`gateway` is read only by old-style plugins (for a new-style plugin NetworkManager
+reads only `internal-gateway` from it); it is the IPv4 server, or the tunnel's
+own address when `VPNGATEWAY` is not an IPv4 address. The `mtu` of
+`Config` is `INTERNAL_IP4_MTU` when that is a number from 68 to
+65535, else the profile's `mtu`.
+Without this, NetworkManager only knows about an assumed tunnel device with
+an empty DNS configuration and wipes vpnc-script's resolver settings from
+systemd-resolved on its next DNS recalculation (issue #15). The internal
+gateway is a separate key (`internal-gateway`) that the service does not
+send.
 
 #### `Failure(u)`
 Reports connection failure.
@@ -111,43 +205,91 @@ env['XAUTHORITY'] = '/home/user/.Xauthority'  # For X11
 ```
 
 ### Stdout Monitoring
-Background thread reads gpclient stdout and detects messages:
-- "ESP tunnel connected"
-- "Connected to"
-- "Tunnel is up"
-- "VPN connected"
+A background task reads the gpclient terminal output. It answers prompts,
+finds the gateway list and the tunnel settings gpclient logs, and detects
+errors. It does not look for the tunnel: that is the vpnc hook's job.
 
-After detecting message, immediately checks for tunnel interface.
+### Tunnel Notification
+The service does not look for the tunnel (it used to scan `/sys/class/net`,
+parse `ip` output and read the file descriptors of gpclient; issue #53).
+vpnc-script, which gpclient (openconnect) runs as root, configures the tunnel,
+and then sources the hooks of `post-connect.d`. Our hook
+`90-gpclient-notify` runs `nm-gpclient-service --vpnc-notify`, which calls
+`Notify` on the running service (see above).
 
-### Tunnel Interface Detection
-Every 500ms `/sys/class/net` is scanned for `gpdN`/`tunN` devices (`gpd0`
-first, then `tunN` in numeric order). The candidate list is *not* hardcoded:
-openconnect falls back to a kernel-assigned `tunN` name whenever `gpd0` is
-unavailable, and N is the first free number - with two other tun-based VPNs
-already up, our own tunnel lands on `tun2`
-([#13](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/13)).
+The service gives gpclient two variables, which the hook needs:
 
-A candidate is accepted only when all of the following hold:
+- `GPCLIENT_NM_NOTIFY`: the absolute path of the service program (the file
+  NetworkManager started).
+- `GPCLIENT_NM_TOKEN`: a new random token (`secrets.token_hex(16)`) for every
+  start of gpclient, also the one after `--fix-openssl`. It is forgotten on
+  `Disconnect()`.
 
-1. It has an IPv4 address.
-2. It is not one of the interfaces that already existed with the same address
-   when `Connect()` started (a stale `gpd0`, or another VPN client's tunnel -
-   [#7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)).
-   That snapshot is taken from the same scan, so any number of foreign
-   tunnels may be active.
-3. If gpclient's own file descriptors name a tunnel interface
-   (`iff:` in `/proc/PID/fdinfo/N`, looked up across gpclient and its
-   children), the candidate is that interface. This keeps another VPN that
-   comes up mid-connect from being adopted; when the information is
-   unavailable the snapshot decides on its own.
+The hook does nothing without both, so a gpclient started by hand is not
+affected. It runs the program with `timeout 10`, so a hung call cannot block
+vpnc-script, it never exits or changes the environment of vpnc-script, and a
+failure is a warning on stderr (`vpnc hook: could not tell ...`).
+`--vpnc-notify` sends `reason`, the token and the allow-listed variables of its
+environment; it exits 0 when the service accepted the call, 1 with a message on
+stderr otherwise.
 
-After finding interface:
-1. Reads the DNS the gateway pushed from the vpnc hook's state file
-   (waits up to 2 s for it) and builds the IP configuration (interface name,
-   address, DNS servers, search domains)
-2. Emits `Ip4Config` signal
-3. Emits `StateChanged(STARTED)` signal
-4. Stops timer
+A connection with a UUID names its tunnel: the service starts gpclient with
+`--interface=gp-<first 8 hex digits of the UUID>` (for example `gp-1a2b3c4d`),
+and `Notify` takes no other `TUNDEV`. Before the start, a stale interface of
+that name (left by a crashed session) is removed when no gpclient runs; `gpd0`
+and `tunN` are never touched. Every NetworkManager connection has a UUID, so
+the cleanup of a stale `gpd0` (issue #7) runs only for a connection without
+one (gpclient 3.x does not create `gpd0` itself). Without a usable UUID the
+service does not pass `--interface` and takes the `TUNDEV` that vpnc-script
+reports.
+
+On `connect` the service:
+1. Builds the IP configuration from the environment (interface name, address,
+   VPN server, MTU, DNS servers, search domains) and the settings gpclient
+   logged (see below)
+2. Emits `Config`, `Ip4Config` only when the tunnel has an IPv4 address
+   (`has-ip4`), and `Ip6Config` when it has an IPv6 address (`has-ip6`). A
+   tunnel with neither address fails with `BAD_IP_CONFIG`; so does an
+   IPv6-only tunnel when the profile's `ipv6.method` is not `auto`
+   (NetworkManager 1.46 and newer ignore `has-ip6` then; on 1.36 this refuses
+   a tunnel NetworkManager would have brought up, which is accepted: the
+   profile does not ask for automatic IPv6). The `Config`
+   `gateway` is the VPN server: `u` for IPv4, `ay` for IPv6 (NetworkManager
+   1.36 and 1.46 read both from that key); without a server address, the
+   tunnel's own address
+3. Emits `StateChanged(STARTED)`
+4. Starts a task that writes the gateway list and `fix-openssl` to the
+   profile. `Disconnect()` cancels it.
+
+On `reconnect` it only emits `Config` again, `Ip4Config` only with an IPv4
+address, and `Ip6Config` only with an IPv6 address. A `reconnect` without a
+usable address (or IPv6-only with a non-`auto` `ipv6.method`) fails the
+connection: `Failure`, `STOPPED`, and gpclient is terminated.
+
+Everything from the checks to the signals runs without an `await`, so a
+`Disconnect()` or `Connect()` cannot come in between. Both raise the
+generation counter before they wait for `_lifecycle_lock` (issue #52), and
+`Notify` rejects a call when the generation is not the one of the session
+(`_session_gen`), even while the token is still set.
+
+### Tunnel Settings in the gpclient Log
+Since GlobalProtect-openconnect 3.1.0 gpclient logs the negotiated tunnel
+settings (`VPN interface:`, `VPN IPv4:`, `VPN DNS:`, `VPN search domains:`,
+`VPN split DNS:`, `VPN MTU:`;
+[#37](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/37)).
+The service keeps them in one immutable record (`TunnelSettings`, read by
+`parse_tunnel_settings_line`). The record is reset when a connection starts,
+when gpclient is started again and on disconnect. Upstream says these are
+negotiated settings, not proof that the system was configured, so the vpnc
+hook stays the source and the record is only a cross-check:
+
+- The hook has no DNS servers or no search domains, and the log has a complete
+  list for the same interface: the log values go into `Ip4Config`.
+- Both have values and they differ: the hook values (the vpnc environment)
+  stay and one warning shows both.
+- The interface, the address and the routes are never taken from the log.
+- A list that gpclient cut (`(N of M shown; truncated)`), an escaped value or
+  an invalid address or domain is not used.
 
 ## Installation
 
@@ -173,7 +315,7 @@ sudo /usr/lib/NetworkManager/nm-gpclient-service --debug
 ```
 
 ### Command-line options:
-- `--persist` - don't close service after VPN disconnect
+- `--persist` - do not exit when there is no VPN session; without it the service exits after 180 s with no session, and NetworkManager starts it again when needed
 - `--debug` - enable detailed logging
 
 ### Testing connection via D-Bus:
@@ -202,14 +344,18 @@ Connect() called
 Gateway: portal.example.com
 Started gpclient with PID 12345
 gpclient output: ...
-VPN connected - tunnel interface gpd0 detected!
+VPN connected - vpnc-script reports tunnel gp-1a2b3c4d (connect)
 ```
 
 ### Log levels:
 - `INFO` - normal operations
 - `WARNING` - issues that don't block operation
 - `ERROR` - critical errors
-- `DEBUG` - detailed information (only with --debug)
+- `DEBUG` - detailed information (with `--debug` or `GPCLIENT_DEBUG=1`; in the unit:
+  `sudo systemctl edit nm-gpclient` with `[Service]` / `Environment=GPCLIENT_DEBUG=1`).
+  NetworkManager's level (`NM_VPN_LOG_LEVEL` 7 or higher) only counts when the
+  service runs without the unit (no systemd, or `systemctl` failed): the unit
+  does not get NetworkManager's environment.
 
 ## Troubleshooting
 

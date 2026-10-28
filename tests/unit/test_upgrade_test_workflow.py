@@ -127,7 +127,7 @@ class TestStepInTheWorkflow:
 
         assert names.index(UPLOAD_STEP) == names.index(STEP) + 1
         assert "        if: always()" in step
-        assert "uses: actions/upload-artifact@v4" in step
+        assert "uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2" in step
         assert "name: gui-smoke-ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}" in step
         assert "path: gui-smoke/*.png" in step
         assert "if-no-files-found: ignore" in step
@@ -154,12 +154,16 @@ class TestStepInTheWorkflow:
 
         assert "        if: always() && github.event_name != 'push'\n" in step
 
-    def test_the_build_job_gets_no_permissions_of_its_own(self):
+    def test_the_build_jobs_get_no_write_permission_but_the_attestations(self):
         with open(os.path.join(workflow_steps.WORKFLOWS, WORKFLOW), encoding="utf-8") as handle:
             text = handle.read()
 
         build = text.split("\n  build:\n")[1].split("\n  release:\n")[0]
-        assert "permissions:" not in build
+        # build and build-rpm: the contents stay read-only, the attestations of the packages
+        # (tests/unit/test_release_provenance_workflow.py) are all they may write
+        assert build.count("      contents: read\n      id-token: write\n      attestations: write\n") == 2
+        assert build.count("permissions:") == 2
+        assert "contents: write" not in build
 
 
 class TestRunningTheStep:
@@ -351,16 +355,17 @@ class TestUpgradeOrFresh:
 
     FAKE_CURL = r"""echo "$*" >> "$FAKE_DIR/curl_calls"
 case "$*" in
-    *keyring*) printf 'KEY' ;;
+    *keyring*) [ -n "$FAKE_KEY_FAIL" ] && exit 22; printf 'KEY' ;;
     *) printf '%s' "$FAKE_CODE" ;;
 esac
 """
     FAKE_APT_CACHE = r"""printf 'network-manager-gpclient-gnome:\n  Installed: (none)\n%s\n' "$FAKE_CANDIDATE"
 """
     FAKE_APT_GET = r"""echo "$*" >> "$FAKE_DIR/apt_calls"
+[ -z "$FAKE_APT_FAIL" ] || exit 100
 """
 
-    def decide(self, tmp_path, code, candidate):
+    def decide(self, tmp_path, code, candidate, **fake_env):
         """(result, files) of upgrade_possible with a released repository that answers `code` for its
         Release file and shows `candidate` (a policy line, e.g. '  Candidate: 1.4.1-1~noble1')"""
         bin_dir = make_bin(tmp_path, {"curl": self.FAKE_CURL, "apt-cache": self.FAKE_APT_CACHE,
@@ -375,7 +380,7 @@ esac
         result = subprocess.run(
             ["bash", "-c", script],
             env={"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_DIR": str(tmp_path), "FAKE_CODE": code,
-                 "FAKE_CANDIDATE": candidate},
+                 "FAKE_CANDIDATE": candidate, **fake_env},
             capture_output=True, text=True, timeout=30,
         )
         return result
@@ -411,6 +416,20 @@ esac
         assert result.returncode == 1
         assert "FRESH" not in result.stdout and "UPGRADE" not in result.stdout
         assert "FAIL: cannot read" in result.stderr
+
+    @pytest.mark.parametrize("fake_env, message", [
+        ({"FAKE_KEY_FAIL": "1"}, "FAIL: cannot download"),
+        ({"FAKE_APT_FAIL": "1"}, "FAIL: apt-get update failed"),
+    ])
+    def test_a_failing_keyring_download_or_apt_update_fails_instead_of_installing_fresh(
+            self, tmp_path, fake_env, message):
+        # upgrade_possible runs as an `if` condition (set -e is off): without the explicit
+        # `|| fail` a failure here would silently turn the upgrade test into a fresh install
+        result = self.decide(tmp_path, "200", "  Candidate: 1.4.1-1~noble1", **fake_env)
+
+        assert result.returncode == 1
+        assert "FRESH" not in result.stdout and "UPGRADE" not in result.stdout
+        assert message in result.stderr
 
 
 class TestFlow:
@@ -639,7 +658,7 @@ class TestGuiSmokeScript:
 class TestEndOfLifeReleases:
     """Ubuntu releases past their end of life are served by old-releases.ubuntu.com"""
 
-    CODENAMES = {"22.04": "jammy", "24.04": "noble", "24.10": "oracular", "26.04": "resolute"}
+    CODENAMES = {"22.04": "jammy", "24.04": "noble", "26.04": "resolute"}
 
     def script_text(self):
         with open(SCRIPT, encoding="utf-8") as handle:
@@ -662,7 +681,9 @@ class TestEndOfLifeReleases:
 
     def test_the_set_matches_the_dockerfiles(self):
         assert self.eol_in_script() == self.eol_in_dockerfiles()
-        assert "oracular" in self.eol_in_script()
+
+    def test_ubuntu_24_10_is_not_built_any_more(self):
+        assert not os.path.exists(os.path.join(ROOT, "Dockerfile.ubuntu24.10"))
 
     def test_a_current_release_is_not_in_the_set(self):
         assert not self.eol_in_script() & {"jammy", "noble", "resolute"}
@@ -672,10 +693,12 @@ class TestEndOfLifeReleases:
 
         assert text.index("old-releases.ubuntu.com/ubuntu/") < text.index("apt-get update")
 
-    def run_block(self, tmp_path, codename):
+    def run_block(self, tmp_path, codename, eol="oracular"):
         """Run the EOL block with /etc/apt redirected into tmp_path"""
         text = self.script_text()
         block = text[text.index("EOL_CODENAMES="):text.index("# neon_skip_reason:")]
+        # no release that is built is end of life now: pretend that one is, to test the block
+        block = block.replace('EOL_CODENAMES=""', f'EOL_CODENAMES="{eol}"')
         block = block.replace('$(. /etc/os-release && echo "${VERSION_CODENAME:-}")', codename)
         block = block.replace("/etc/apt/", f"{tmp_path}/")
         (tmp_path / "sources.list.d").mkdir()
@@ -691,9 +714,10 @@ class TestEndOfLifeReleases:
         assert "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n" in sources
         assert (tmp_path / "sources.list").read_text() == ""
 
-    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute", "oracular2", "x"])
-    def test_other_releases_keep_their_sources(self, tmp_path, codename):
-        self.run_block(tmp_path, codename)
+    @pytest.mark.parametrize("codename", ["jammy", "noble", "resolute", "oracular2", "x", ""])
+    @pytest.mark.parametrize("eol", ["oracular", ""])
+    def test_other_releases_keep_their_sources(self, tmp_path, codename, eol):
+        self.run_block(tmp_path, codename, eol)
 
         assert not (tmp_path / "sources.list.d" / "ubuntu.sources").exists()
         assert "archive.ubuntu.com" in (tmp_path / "sources.list").read_text()

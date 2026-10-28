@@ -1,0 +1,494 @@
+# Lithuanian translation of plasmanetworkmanagement_gpclientui.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the plasmanetworkmanagement_gpclientui package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Lithuanian\n"
+"Language: lt\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && (n%100<11 || n%100>19) ? 0 : n%10>=2 && n%10<=9 && (n%100<11 || n%100>19) ? 1 : 2);\n"
+
+#: rc.cpp
+#, kde-format
+msgid " bytes"
+msgstr " baitai"
+
+#: rc.cpp
+#, kde-format
+msgid " s"
+msgstr " s"
+
+#: rc.cpp
+#, kde-format
+msgid "Address is a gateway (skip the portal)"
+msgstr "Adresas yra šliuzas (praleisti portalą)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address "
+"is a gateway\" below."
+msgstr ""
+"GlobalProtect portalo adresas (pvz., vpn.company.com).\n"
+"Jei jūsų organizacija davė šliuzo adresą, taip pat pažymėkite „Adresas yra šliuzas“ žemiau."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Always on"
+msgstr "Visada įjungta"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Ask every time (not saved)"
+msgstr "Klausti kaskart (neįrašoma)"
+
+#: rc.cpp
+#, kde-format
+msgid "Authentication:"
+msgstr "Tapatybės patvirtinimas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Automatic"
+msgstr "Automatinis"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Automatinis (įjungti, kai portalui reikia)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Naršyklė (SAML, prieigos raktas, 2FA)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested "
+"option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Naršyklė, naudojama SAML/2FA tapatybei patvirtinti. „edge“ yra geriausiai išbandytas pasirinkimas; „default“ naudoja jūsų darbalaukio numatytąją naršyklę.\n"
+"Pasirinkite „Kita...“, jei norite nurodyti visą savo vykdomojo failo kelią."
+
+#: rc.cpp
+#, kde-format
+msgid "Browser:"
+msgstr "Naršyklė:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and "
+"any token are requested in a dialog instead."
+msgstr ""
+"Naršyklė: portalas atveria naršyklės langą vienkartiniam prisijungimui (numatytasis).\n"
+"Naudotojo vardas ir slaptažodis: portalas klausia terminale - vietoj to prisijungimo duomenys ir bet koks raktas prašomi dialogo lange."
+
+#: rc.cpp
+#, kde-format
+msgid "Connect timeout:"
+msgstr "Prisijungimo skirtasis laikas:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Custom..."
+msgstr "Kita..."
+
+#: rc.cpp
+#, kde-format
+msgid "DNS Servers:"
+msgstr "DNS serveriai:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: built-in HIP report"
+msgstr "Tuščia: įtaisytoji HIP ataskaita"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN "
+"gateway. This is required by some organizations for security compliance."
+msgstr "Įjunkite HIP (Host Integrity Protection), kad VPN šliuzui būtų siunčiama informacija apie kompiuterį. To reikalauja kai kurios organizacijos saugumo atitikčiai užtikrinti."
+
+#: rc.cpp
+#, kde-format
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Įjungti Host Integrity Protection (HIP)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you "
+"authenticate twice."
+msgstr ""
+"Įjunkite, kai aukščiau esantis adresas yra šliuzas, o ne portalas.\n"
+"Kitaip pirmiausia bandoma portalo eiga, todėl tapatybę gali tekti patvirtinti du kartus."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "First proposed by portal (automatic)"
+msgstr "Pirmasis portalo pasiūlytas (automatiškai)"
+
+#: rc.cpp
+#, kde-format
+msgid "GlobalProtect VPN"
+msgstr "GlobalProtect VPN"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP script:"
+msgstr "HIP scenarijus:"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP:"
+msgstr "HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in "
+"the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML "
+"login with MFA. A new connection with browser authentication starts with 360 "
+"s. While a connection has no timeout of its own (0) and you have not changed "
+"this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Kiek laiko NetworkManager laukia, kol prisijungs prie VPN, įskaitant prisijungimą naršyklėje (vpn.timeout).\n"
+"0 naudoja numatytąją NetworkManager reikšmę, paprastai 60 s - dažnai per trumpą SAML prisijungimui su MFA. Nauja ryšio sąranka su naršyklės tapatybės patvirtinimu prasideda nuo 360 s. Kol ryšys neturi savo skirtojo laiko (0), o jūs šio lauko nepakeitėte, pasirinkus naršyklės tapatybės patvirtinimą nustatoma 360 s."
+
+#: rc.cpp
+#, kde-format
+msgid "Leave empty for automatic VPN DNS (recommended)"
+msgstr "Palikite tuščią automatiniam VPN DNS (rekomenduojama)"
+
+#: rc.cpp
+#, kde-format
+msgid "Legacy TLS renegotiation:"
+msgstr "Senasis TLS pakartotinis derinimas:"
+
+#: rc.cpp
+#, kde-format
+msgid "MTU:"
+msgstr "MTU:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"Automatic (0): openconnect picks the value. Lowering it (for example to "
+"1300-1400) may help when the tunnel falls back from ESP to HTTPS with "
+"\"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from "
+"1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Didžiausias paketo dydis tunelyje.\n"
+"Automatinis (0): reikšmę parenka openconnect. Jį sumažinus (pvz., iki 1300-1400), gali padėti, kai tunelis iš ESP pereina į HTTPS su pranešimu „Message too long“.\n"
+"Veikia tik tada, kai šliuzas nesiunčia savo MTU. Reikšmės nuo 1 iki 575 įrašomos kaip 576 - mažiausia naudojama reikšmė."
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager default (usually 60 s)"
+msgstr "Numatytoji NetworkManager (paprastai 60 s)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Never"
+msgstr "Niekada"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional"
+msgstr "Neprivaloma"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --"
+"hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not "
+"writable by group or others, in root-owned directories that are not writable "
+"by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Neprivalomas absoliutusis kelias iki kito HIP vykdomojo failo, perduodamas gpclient kaip --hip=<path>.\n"
+"Paslauga jį vykdo kaip root: tai turi būti root savininko failas, kurio negali keisti grupė ar kiti, root savininko aplankuose, kurių negali keisti grupė ar kiti. Kitaip ryšys nepavyks.\n"
+"Nepaisoma, kai HIP išjungtas."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional. Used by portals that ask for credentials on the terminal, so you "
+"are not asked for the username every time."
+msgstr "Neprivaloma. Naudoja portalai, kurie prisijungimo duomenų klausia terminale, kad naudotojo vardo nebūtų klausiama kaskart."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by the \"Username and password\" authentication."
+msgstr "Neprivaloma. Naudojama „Naudotojo vardas ir slaptažodis“ tapatybės patvirtinimui."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Password"
+msgstr "Slaptažodis"
+
+#: rc.cpp
+#, kde-format
+msgid "Password storage:"
+msgstr "Slaptažodžio laikymas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Password:"
+msgstr "Slaptažodis:"
+
+#: rc.cpp
+#, kde-format
+msgid "Portal or gateway address:"
+msgstr "Portalo arba šliuzo adresas:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by "
+"default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and "
+"switch this setting to \"Always on\" afterwards, so the failed first attempt "
+"does not repeat."
+msgstr ""
+"Portalams su sena TLS krūva reikia pakartotinio derinimo, kurio OpenSSL 3 pagal numatytuosius nustatymus neleidžia.\n"
+"Automatinis: kartą bandyti dar kartą naudojant apėjimo būdą, kai to prašo portalas, o paskui perjungti šį nustatymą į „Visada įjungta“, kad nepavykęs pirmas bandymas nebesikartotų."
+
+#: rc.cpp
+#, kde-format
+msgid "Preferred gateway:"
+msgstr "Pageidaujamas šliuzas:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split "
+"DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using "
+"local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to "
+"use custom DNS instead."
+msgstr ""
+"Rekomenduojama: palikite tuščią, kad būtų naudojami VPN DNS serveriai su automatine suskaidyto DNS konfigūracija.\n"
+"Suskaidytas DNS leidžia VPN domenus išspręsti per VPN DNS, o kitus domenus - per vietinį DNS.\n"
+"Nepaisyti: įveskite kabliataškiais atskirtus DNS serverius (pvz., 8.8.8.8;8.8.4.4), kad vietoj to būtų naudojamas jūsų DNS."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for all users (system)"
+msgstr "Laikyti visiems naudotojams (sistemoje)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for this user only (agent)"
+msgstr "Laikyti tik šiam naudotojui (agente)"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Token / one-time code"
+msgstr "Raktas / vienkartinis kodas"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Username"
+msgstr "Naudotojo vardas"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Username and password (RSA token)"
+msgstr "Naudotojo vardas ir slaptažodis (RSA raktas)"
+
+#: rc.cpp
+#, kde-format
+msgid "Username:"
+msgstr "Naudotojo vardas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the password is kept. \"Ask every time\" stores nothing."
+msgstr "Kur laikomas slaptažodis. „Klausti kaskart“ nieko neįrašo."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Which gateway to connect to. The list is filled in after the first "
+"successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first "
+"proposal is used instead."
+msgstr ""
+"Prie kurio šliuzo jungtis. Sąrašas užpildomas po pirmo sėkmingo prisijungimo.\n"
+"Jei pasirinkto šliuzo portalas nebesiūlo, vietoj jo naudojamas pirmasis pasiūlymas."
+
+#: rc.cpp
+#, kde-format
+msgid "vpn.company.com"
+msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Nepavyko eksportuoti ryšio: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Nepavyko importuoti ryšio: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Ryšys \"%1\" neišsaugotas NetworkManager"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Failas nėra „GlobalProtect“ VPN ryšys"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "reikalingas šliuzas"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "šliuzas negali prasidėti „-“ ar turėti tarpų arba valdymo simbolių"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "naudotojo vardas negali prasidėti „-“ ar turėti valdymo simbolių"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "naršyklė turi būti pavadinimas, komandos pavadinimas arba absoliutusis kelias be tarpų"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns turi būti kableliais, kabliataškiais ar tarpais atskirti IPv4 arba IPv6 adresai"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script turi būti absoliutusis kelias"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "SAML prisijungimas:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "Tarnyboje (numatytasis)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "Prisijungimo dialogo lange"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kur vykdomas prisijungimas naršykle: tarnyboje arba prisijungimo dialogo lange (jūsų sesijoje)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Prisijungiama…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Sertifikato slaptafrazė"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Sertifikato slaptafrazė:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Kliento sertifikatas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Tuščia: be kliento sertifikato"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Tuščia: raktas yra sertifikato faile"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Pasirinktinis absoliutus kliento sertifikato failo kelias (PEM arba PKCS#12), kuris turi priklausyti darbalaukio naudotojui."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Pasirinktinis absoliutus privataus rakto failo kelias (PEM), kuris turi priklausyti darbalaukio naudotojui. Be kliento sertifikato ignoruojamas."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Slaptafrazės saugojimas:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Privatusis raktas:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert turi būti absoliutusis kelias"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey turi būti absoliutusis kelias"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Pasirinkti failą"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Pasirinkite kliento sertifikatą"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Pasirinkite privatųjį raktą"

@@ -1,0 +1,146 @@
+#!/bin/bash
+# README scenario (GNOME): the console slide. Shows the routes and the DNS
+# servers before connecting, after connecting with the default settings and
+# after enabling "Use this connection only for resources on its network".
+# Runs as user demo inside the container; see demo/lib.sh for the helpers.
+# shellcheck disable=SC2034 # the EDGE_* settings are read by lib.sh
+source /opt/gp-demo/lib.sh
+EDGE_DX=0
+EDGE_DY=0
+EDGE_LEFT=66 # the dock
+EDGE_TOP=40  # the top bar
+
+say() { type_slow "# $1" 45; key Return; pause 0.4; }
+run() { type_slow "$1" 50; pause 0.3; key Return; pause 0.4; }
+
+# The commands of the slide: default route, the way to the Internet and to a
+# company address, then the DNS servers and domains
+show_routing() {
+    run "ip route show default"
+    run "ip route get 9.9.9.9"
+    run "ip route get 10.20.0.10"
+    run "resolvectl dns"
+    run "resolvectl domain"
+}
+
+# Connect or disconnect with the VPN tile of the quick settings
+quick_vpn() {
+    click $((SCREEN_W - 53)) 15
+    pause 1.0
+    click $((SCREEN_W - 320)) 130
+    pause 0.8
+}
+
+# --- Setup, not in the animation --------------------------------------------------
+# The profile is made as in the main demo (the editor is shown there). One
+# complete sign-in fills the sign-in memory of the page, so that the sign-in
+# in the animation is the short one.
+nmcli connection add type vpn vpn-type gpclient con-name "Contoso VPN" \
+    vpn.data "gateway=vpn.contoso.example,browser=edge" > /dev/null || fail "cannot add the VPN profile"
+nmcli connection up "Contoso VPN" > "$DEMO_OUT/nmcli-warmup.log" 2>&1 &
+edge_signin
+wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active (setup)"
+# The D-Bus policy (config/nm-gpclient.conf) must keep a non-root caller away from
+# the running service. Record if the name is on the system bus and what a Ping
+# from this user returns; checks.py reads the file.
+{
+    if dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+        org.freedesktop.DBus.ListNames 2> /dev/null | grep -q '"org.freedesktop.NetworkManager.gpclient"'; then
+        echo "name-on-bus=yes"
+    else
+        echo "name-on-bus=no"
+    fi
+    ping_err=$(dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager.gpclient \
+        /org/freedesktop/NetworkManager/VPN/Plugin org.freedesktop.DBus.Peer.Ping 2>&1 > /dev/null)
+    echo "ping-exit=$?"
+    echo "ping-error=$(echo "$ping_err" | head -n 1)"
+} > "$DEMO_OUT/dbus-policy.txt"
+nmcli connection down "Contoso VPN" > /dev/null 2>&1
+for _ in $(seq 40); do
+    nmcli -t -f NAME connection show --active | grep -qx "Contoso VPN" || break
+    sleep 0.5
+done
+pause 1.0
+xdotool mousemove $((SCREEN_W * 4 / 5)) $((SCREEN_H * 3 / 4))
+mark_start
+
+# --- 1. Before connecting ---------------------------------------------------
+pause 1.0
+click 33 260
+term=$(wait_for_window "^demo@" 20) || fail "the terminal did not open"
+pause 1.2
+win_box "$term" || fail "cannot read the terminal geometry"
+TX=$((WX + WW / 2)); TY=$((WY + WH / 2))
+smooth_move "$TX" "$TY" 0.4 # away from the tooltip of the dock
+shot step-01-terminal
+snapshot before
+say "Before connecting: all traffic uses the wired link"
+show_routing
+pause 2.2
+shot step-01b-before
+
+# --- 2. Connect with the default settings ----------------------------------
+quick_vpn
+edge_sso_auto
+wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active"
+pause 1.0
+click "$TX" "$TY" 0.6
+key ctrl+l
+say "Connected, default settings: Internet goes via the VPN"
+show_routing
+pause 2.6
+shot step-02-connected-default
+snapshot connected-default
+
+# --- 3. Disconnect, set "only for resources on its network" ----------------
+quick_vpn
+for _ in $(seq 40); do
+    nmcli -t -f NAME connection show --active | grep -qx "Contoso VPN" || break
+    sleep 0.5
+done
+pause 1.0
+snapshot disconnected
+key Escape
+pause 0.8
+click 33 196
+win=$(wait_for_window "^Settings$" 20) || fail "Settings did not open"
+pause 1.0
+win_box "$win" || fail "cannot read the Settings geometry"
+SX=$((WX + 61)); SY=$((WY + 55))
+shot step-03-settings
+click $((SX + 876)) $((SY + 160))
+dlg=$(wait_for_window "^Contoso VPN$" 20) || fail "the VPN dialog did not open"
+pause 1.0
+win_box "$dlg" || fail "cannot read the dialog geometry"
+DX=$((WX + 61)); DY=$((WY + 55))
+click $((DX + 197)) $((DY + 64))
+pause 0.8
+shot step-04-ipv4
+click $((DX + 37)) $((DY + 456))
+pause 1.5
+shot step-05-checkbox
+click $((DX + 711)) $((DY + 23))
+wait_window_gone "^Contoso VPN$" 20 || fail "the VPN dialog did not close"
+pause 1.0
+click $((SX + 977)) $((SY + 23))
+wait_window_gone "^Settings$" 10 || fail "Settings did not close"
+pause 1.0
+
+# --- 4. Connect again --------------------------------------------------------
+quick_vpn
+edge_sso_auto
+wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active (second time)"
+pause 1.0
+click "$TX" "$TY" 0.6
+key ctrl+l
+say "Setting enabled: only company traffic goes via the VPN"
+show_routing
+pause 3.0
+shot step-06-connected-never-default
+snapshot connected-never-default
+mark_end
+
+# --- Disconnect for the checks (not in the animation) -----------------------------
+disconnect_vpn "Contoso VPN" || fail "the VPN did not disconnect"
+pause 1.5
+snapshot disconnected-final

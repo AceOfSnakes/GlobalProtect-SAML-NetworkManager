@@ -32,10 +32,16 @@ DEBS = [
     "network-manager-gpclient-gnome_1.4.2-1~noble1+pr24.57_amd64.deb",
 ]
 
+RPMS = [
+    "network-manager-gpclient-1.4.2-1.fc44.pr24.57.x86_64.rpm",
+    "network-manager-gpclient-gnome-1.4.2-1.fc44.pr24.57.x86_64.rpm",
+]
+
 FAKE_GH = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/gh_calls"
 case "$1 $2" in
     "pr view") cat "$FAKE_DIR/pr_view" ;;
+    "pr list") cat "$FAKE_DIR/pr_list" ;;
     "release view") [ -e "$FAKE_DIR/release_exists" ] ;;
     "release delete") echo "$*" >> "$FAKE_DIR/gh_deleted" ;;
     "run download")
@@ -100,6 +106,68 @@ def box(tmp_path):
     return Box(tmp_path)
 
 
+def outputs(box):
+    path = box.root / "output"
+    return dict(line.split("=", 1) for line in path.read_text().splitlines()) if path.exists() else {}
+
+
+class TestDecideWhatToDo:
+    PLAN = "Decide what to do"
+    ENV = {"CONCLUSION": "success", "HEAD_REPO": REPO, "ACTOR": "alice", "PR_AUTHOR": "alice"}
+
+    def plan(self, box, **env):
+        result = box.run(self.PLAN, **{**self.ENV, **env})
+        assert result.returncode == 0, result.stderr
+        return outputs(box)
+
+    def test_a_successful_build_of_the_own_repository_is_published(self, box):
+        assert self.plan(box) == {"state": "publish"}
+
+    @pytest.mark.parametrize("env", [
+        {"ACTOR": "dependabot[bot]"},
+        {"PR_AUTHOR": "dependabot[bot]"},
+        {"PR_AUTHOR": "app/dependabot"},
+        {"ACTOR": "dependabot[bot]", "PR_AUTHOR": "dependabot[bot]"},
+    ])
+    def test_a_dependabot_pull_request_is_not_published(self, box, env):
+        result = self.plan(box, **env)
+
+        assert result["state"] == "not-published"
+        assert "Dependabot" in result["reason"]
+
+    def test_a_fork_is_not_published(self, box):
+        assert self.plan(box, HEAD_REPO="someone/fork")["state"] == "not-published"
+
+    def test_a_failed_build_is_reported_as_failed_also_for_dependabot(self, box):
+        assert self.plan(box, CONCLUSION="failure", ACTOR="dependabot[bot]") == {"state": "failed"}
+
+    @pytest.mark.parametrize("actor, author", [("alice", "alice"), ("bob", "alice"), ("renovate[bot]", "bot")])
+    def test_other_users_are_published(self, box, actor, author):
+        assert self.plan(box, ACTOR=actor, PR_AUTHOR=author) == {"state": "publish"}
+
+    def test_the_plan_does_not_check_out_or_run_pull_request_code(self):
+        text = workflow_steps.read_workflow(WORKFLOW)
+        assert text.count("actions/checkout@") == 1
+        assert "ref: ${{ github.event.repository.default_branch }}" in text
+
+
+class TestFindThePullRequest:
+    FIND = "Find the pull request"
+
+    @pytest.mark.parametrize("listing, number, author", [
+        ("24 alice", "24", "alice"),
+        ("24 dependabot[bot]", "24", "dependabot[bot]"),
+        ("", "", ""),
+    ])
+    def test_number_and_author_are_read_from_the_listing(self, box, listing, number, author):
+        (box.fake / "pr_list").write_text(listing + "\n")
+
+        result = box.run(self.FIND)
+
+        assert result.returncode == 0, result.stderr
+        assert outputs(box) == {"number": number, "author": author}
+
+
 class TestRenderTheCheck:
     def render(self, box, state, release_outcome="", published="", reason="", debs=DEBS):
         (box.work / "upload").mkdir()
@@ -117,6 +185,19 @@ class TestRenderTheCheck:
         assert check["conclusion"] == "success"
         assert check["output"]["title"].startswith("Install: bash <(curl -fsSL ")
         assert "--repo" not in check["output"]["title"]
+
+    def test_the_rpms_of_the_upload_directory_are_part_of_the_check(self, box):
+        check = self.render(box, "publish", "success", "true", debs=DEBS + RPMS)
+
+        assert check["conclusion"] == "success"
+        assert f"Published packages ({len(DEBS) + len(RPMS)} files" in check["output"]["summary"]
+        assert f"- `{RPMS[0]}`" in check["output"]["summary"]
+
+    def test_an_upload_directory_of_rpms_only_is_published_too(self, box):
+        check = self.render(box, "publish", "success", "true", debs=RPMS)
+
+        assert check["conclusion"] == "success"
+        assert f"Published packages ({len(RPMS)} files, network-manager-gpclient" in check["output"]["summary"]
 
     def test_another_repository_is_named_in_the_command(self, box):
         (box.work / "upload").mkdir()
@@ -232,6 +313,30 @@ class TestDownload:
         assert result.returncode == 0, result.stdout + result.stderr
         assert sorted(os.listdir(box.work / "upload")) == sorted(DEBS)
         assert result.stderr.count("skipping a package with an unexpected file name") == 3
+
+    def test_the_rpm_artifacts_are_downloaded_and_only_plain_rpm_names_are_uploaded(self, box):
+        self.artifacts(box, {
+            "debs-ubuntu-24.04-amd64": DEBS,
+            "rpms-fedora44-x86_64": RPMS + ["network-manager-gpclient-1.4.2-1.fc44.src.rpm"],
+            "rpms-x": ["a b.rpm", "x.rpm", "network-manager-gpclient-debuginfo-1.4.2-1.fc44.x86_64.rpm", "evil;rm.rpm"],
+        })
+
+        result = box.run(self.STEP)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert sorted(os.listdir(box.work / "upload")) == sorted(DEBS + RPMS)
+        assert result.stderr.count("skipping a package with an unexpected file name") == 4
+        gh_calls = (box.fake / "gh_calls").read_text()
+        assert "--pattern debs-*" in gh_calls and "--pattern rpms-*" in gh_calls
+
+    def test_rpms_that_are_not_plain_are_not_enough(self, box):
+        self.artifacts(box, {"rpms-x": ["a b.rpm", "x.rpm", "network-manager-gpclient-1.4.2-1.fc44.src.rpm"]})
+
+        result = box.run(self.STEP)
+
+        assert result.returncode != 0
+        assert "no packages found" in result.stderr
+        assert not (box.work / "upload").exists()
 
     def test_no_acceptable_package_fails_the_step_and_uploads_nothing(self, box):
         self.artifacts(box, {"debs-x": ["a b.deb", "x.deb"]})

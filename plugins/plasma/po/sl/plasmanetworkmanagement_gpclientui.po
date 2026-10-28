@@ -1,0 +1,468 @@
+# Slovenian translation of plasmanetworkmanagement_gpclientui.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the plasmanetworkmanagement_gpclientui package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasmanetworkmanagement_gpclientui\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:43+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Slovenian\n"
+"Language: sl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n%100==1 ? 0 : n%100==2 ? 1 : n%100==3 || n%100==4 ? 2 : 3);\n"
+
+#: rc.cpp
+#, kde-format
+msgid " bytes"
+msgstr " bajtov"
+
+#: rc.cpp
+#, kde-format
+msgid " s"
+msgstr " s"
+
+#: rc.cpp
+#, kde-format
+msgid "Address is a gateway (skip the portal)"
+msgstr "Naslov je prehod (preskoči portal)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"Naslov portala GlobalProtect (npr. vpn.company.com).\n"
+"Če vam je organizacija dala naslov prehoda, spodaj označite tudi »Naslov je prehod«."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Always on"
+msgstr "Vedno vklopljeno"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Ask every time (not saved)"
+msgstr "Vprašaj vsakič (ne shrani)"
+
+#: rc.cpp
+#, kde-format
+msgid "Authentication:"
+msgstr "Overitev:"
+
+#: rc.cpp
+#, kde-format
+msgid "Automatic"
+msgstr "Samodejno"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Samodejno (vklopi, ko portal to zahteva)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Brskalnik (SAML, ključ za dostop, 2FA)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Brskalnik za overitev SAML/2FA. »edge« je najbolje preizkušena možnost; »default« uporabi privzeti brskalnik namizja.\n"
+"Izberite »Po meri...«, da vnesete polno pot do lastne izvedljive datoteke."
+
+#: rc.cpp
+#, kde-format
+msgid "Browser:"
+msgstr "Brskalnik:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Brskalnik: portal odpre okno brskalnika za enotno prijavo (privzeto).\n"
+"Uporabniško ime in geslo: portal vpraša v terminalu - poverilnice in morebitni žeton se namesto tega zahtevajo v pogovornem oknu."
+
+#: rc.cpp
+#, kde-format
+msgid "Connect timeout:"
+msgstr "Časovna omejitev povezave:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Custom..."
+msgstr "Po meri..."
+
+#: rc.cpp
+#, kde-format
+msgid "DNS Servers:"
+msgstr "Strežniki DNS:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: built-in HIP report"
+msgstr "Prazno: vgrajeno poročilo HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Enable HIP (Host Integrity Protection) to send host information to the VPN gateway. This is required by some organizations for security compliance."
+msgstr "Vklopite HIP (Host Integrity Protection), da se podatki o gostitelju pošljejo prehodu VPN. Nekatere organizacije to zahtevajo zaradi skladnosti z varnostnimi pravili."
+
+#: rc.cpp
+#, kde-format
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Vklopi Host Integrity Protection (HIP)"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Vklopite, če je zgornji naslov prehod in ne portal.\n"
+"Brez tega se najprej poskusi postopek prek portala, zaradi česar se boste morda morali overiti dvakrat."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "First proposed by portal (automatic)"
+msgstr "Prvi, ki ga predlaga portal (samodejno)"
+
+#: rc.cpp
+#, kde-format
+msgid "GlobalProtect VPN"
+msgstr "GlobalProtect VPN"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP script:"
+msgstr "Skript HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid "HIP:"
+msgstr "HIP:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Kako dolgo NetworkManager čaka na povezavo VPN, vključno s prijavo v brskalniku (vpn.timeout).\n"
+"0 uporabi privzeto vrednost NetworkManagerja, običajno 60 s - za prijavo SAML z MFA pogosto prekratko. Nova povezava z overitvijo v brskalniku se začne s 360 s. Dokler povezava nima lastne časovne omejitve (0) in tega polja niste spremenili, izbira overitve v brskalniku nastavi 360 s."
+
+#: rc.cpp
+#, kde-format
+msgid "Leave empty for automatic VPN DNS (recommended)"
+msgstr "Pustite prazno za samodejni DNS iz VPN (priporočeno)"
+
+#: rc.cpp
+#, kde-format
+msgid "Legacy TLS renegotiation:"
+msgstr "Starejše ponovno pogajanje TLS:"
+
+#: rc.cpp
+#, kde-format
+msgid "MTU:"
+msgstr "MTU:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Največja velikost paketa v tunelu.\n"
+"Samodejno (0): vrednost izbere openconnect. Znižanje (na primer na 1300-1400) lahko pomaga, ko tunel preide z ESP na HTTPS z napako »Message too long«.\n"
+"Učinkuje le, če prehod ne pošlje lastnega MTU. Vrednosti od 1 do 575 se shranijo kot 576, najnižja uporabljena vrednost."
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager default (usually 60 s)"
+msgstr "Privzeto za NetworkManager (običajno 60 s)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Never"
+msgstr "Nikoli"
+
+#: rc.cpp
+#, kde-format
+msgid "Optional"
+msgstr "Neobvezno"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Neobvezna absolutna pot do lastne izvedljive datoteke HIP, ki se gpclient posreduje kot --hip=<path>.\n"
+"Storitev jo zažene kot root: biti mora datoteka v lasti uporabnika root, v katero skupina in drugi ne smejo pisati, v imenikih v lasti uporabnika root, v katere skupina in drugi ne smejo pisati. Sicer povezava ne uspe.\n"
+"Prezrto, ko je HIP izklopljen."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Neobvezno. Uporabljajo portali, ki poverilnice zahtevajo v terminalu, da vas ni treba vsakič vprašati za uporabniško ime."
+
+#: rc.cpp
+#, kde-format
+msgid "Optional. Used by the \"Username and password\" authentication."
+msgstr "Neobvezno. Uporablja se pri overitvi »Uporabniško ime in geslo«."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Password"
+msgstr "Geslo"
+
+#: rc.cpp
+#, kde-format
+msgid "Password storage:"
+msgstr "Shranjevanje gesla:"
+
+#: rc.cpp
+#, kde-format
+msgid "Password:"
+msgstr "Geslo:"
+
+#: rc.cpp
+#, kde-format
+msgid "Portal or gateway address:"
+msgstr "Naslov portala ali prehoda:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Portali s starim skladom TLS potrebujejo ponovno pogajanje, ki ga OpenSSL 3 privzeto zavrne.\n"
+"Samodejno: ko portal to zahteva, se enkrat poskusi z obvodom, nato se ta nastavitev preklopi na »Vedno vklopljeno«, da se neuspel prvi poskus ne ponovi."
+
+#: rc.cpp
+#, kde-format
+msgid "Preferred gateway:"
+msgstr "Prednostni prehod:"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Priporočeno: pustite prazno, da se uporabijo strežniki DNS iz VPN s samodejno konfiguracijo split DNS.\n"
+"Split DNS omogoča razreševanje domen VPN prek DNS VPN, za druge domene pa se uporablja lokalni DNS.\n"
+"Prepis: vnesite strežnike DNS, ločene s podpičjem (npr. 8.8.8.8;8.8.4.4), da se namesto tega uporabi lasten DNS."
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for all users (system)"
+msgstr "Shrani za vse uporabnike (sistem)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Store for this user only (agent)"
+msgstr "Shrani samo za tega uporabnika (agent)"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Token / one-time code"
+msgstr "Žeton / enkratna koda"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Username"
+msgstr "Uporabniško ime"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Username and password (RSA token)"
+msgstr "Uporabniško ime in geslo (žeton RSA)"
+
+#: rc.cpp
+#, kde-format
+msgid "Username:"
+msgstr "Uporabniško ime:"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the password is kept. \"Ask every time\" stores nothing."
+msgstr "Kje se geslo hrani. »Vprašaj vsakič« ne shrani ničesar."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"S katerim prehodom se povezati. Seznam se zapolni po prvi uspešni povezavi.\n"
+"Če portal izbranega prehoda ne ponuja več, se uporabi prvi predlog."
+
+#: rc.cpp
+#, kde-format
+msgid "vpn.company.com"
+msgstr "vpn.company.com"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot export the connection: %1"
+msgstr "Povezave ni mogoče izvoziti: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "Cannot import the connection: %1"
+msgstr "Povezave ni mogoče uvoziti: %1"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The connection \"%1\" is not saved in NetworkManager"
+msgstr "Povezava \"%1\" ni shranjena v NetworkManagerju"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Datoteka ni povezava GlobalProtect VPN"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway is required"
+msgstr "prehod je obvezen"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "prehod se ne sme začeti z »-« ali vsebovati presledkov ali kontrolnih znakov"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "username must not start with '-' or contain control characters"
+msgstr "uporabniško ime se ne sme začeti z »-« ali vsebovati kontrolnih znakov"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "brskalnik mora biti ime, ime ukaza ali absolutna pot brez presledkov"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns mora biti naslovi IPv4 ali IPv6, ločeni z vejicami, podpičji ali presledki"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "hip-script must be an absolute path"
+msgstr "hip-script mora biti absolutna pot"
+
+#: rc.cpp
+#, kde-format
+msgid "SAML login:"
+msgstr "Prijava SAML:"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the service (default)"
+msgstr "V storitvi (privzeto)"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "In the login dialog"
+msgstr "V pogovornem oknu za prijavo"
+
+#: rc.cpp
+#, kde-format
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Kje teče prijava v brskalniku: v storitvi ali v pogovornem oknu za prijavo (v vaši seji)."
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Signing in…"
+msgstr "Prijavljanje…"
+
+#: gpclientauthwidget.cpp
+#, kde-format
+msgid "Certificate passphrase"
+msgstr "Geslo certifikata"
+
+#: rc.cpp
+#, kde-format
+msgid "Certificate passphrase:"
+msgstr "Geslo certifikata:"
+
+#: rc.cpp
+#, kde-format
+msgid "Client certificate:"
+msgstr "Odjemalčev certifikat:"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: no client certificate"
+msgstr "Prazno: brez odjemalčevega certifikata"
+
+#: rc.cpp
+#, kde-format
+msgid "Empty: the key is in the certificate file"
+msgstr "Prazno: ključ je v datoteki certifikata"
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Neobvezna absolutna pot do datoteke odjemalčevega certifikata (PEM ali PKCS#12), katere lastnik mora biti uporabnik namizja."
+
+#: rc.cpp
+#, kde-format
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), katere lastnik mora biti uporabnik namizja. Brez odjemalčevega certifikata se prezre."
+
+#: rc.cpp
+#, kde-format
+msgid "Passphrase storage:"
+msgstr "Shranjevanje gesla certifikata:"
+
+#: rc.cpp
+#, kde-format
+msgid "Private key:"
+msgstr "Zasebni ključ:"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "usercert must be an absolute path"
+msgstr "usercert mora biti absolutna pot"
+
+#: gpclientui.cpp
+#, kde-format
+msgid "userkey must be an absolute path"
+msgstr "userkey mora biti absolutna pot"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Izberi datoteko"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Izberite odjemalčevo potrdilo"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Izberite zasebni ključ"

@@ -200,7 +200,7 @@ class TestEditorCheck:
 
         assert lib.check_editor(tree, 700, 300) == ["no spin button for the connect timeout"]
 
-    @pytest.mark.parametrize("value", [0, 180, 239, 241, None])
+    @pytest.mark.parametrize("value", [0, 180, 360, 239, 241, None])
     def test_wrong_connect_timeout(self, value):
         tree = good_tree()
         tree["children"][6]["children"][0] = spin(value)
@@ -230,8 +230,16 @@ class TestEditorCheck:
         assert tree == before
 
 
+def good_result(case):
+    return {"shown": case["shown"], "saved": case["saved"], "silent_steps": 0, "changed_on_save": 0}
+
+
 def good_results():
-    return {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+    return {case["name"]: good_result(case) for case in lib.TIMEOUT_CASES}
+
+
+CASE_IDS = [case["name"] for case in lib.TIMEOUT_CASES]
+CASES = pytest.mark.parametrize("case", lib.TIMEOUT_CASES, ids=CASE_IDS)
 
 
 class TestTimeoutCases:
@@ -239,58 +247,90 @@ class TestTimeoutCases:
         assert lib.check_timeout_results(good_results()) == []
 
     def test_the_constants(self):
-        assert lib.TIMEOUT == 240
-        assert lib.SAML_TIMEOUT == 180
+        assert lib.VPN_TIMEOUT == 240
+        assert lib.SAML_TIMEOUT == 360
 
     def test_the_timeout_of_the_test_connection_is_neither_zero_nor_the_default(self):
-        assert lib.TIMEOUT not in (0, lib.SAML_TIMEOUT)
+        assert lib.VPN_TIMEOUT not in (0, lib.SAML_TIMEOUT)
 
-    def test_case_names_are_unique_and_steps_are_known(self):
+    def test_the_table_has_the_shape_the_probe_needs(self):
         names = [case["name"] for case in lib.TIMEOUT_CASES]
 
         assert len(names) == len(set(names))
         for case in lib.TIMEOUT_CASES:
-            assert all(kind in ("auth", "spin") for kind, _ in case["steps"])
+            assert isinstance(case["new"], bool)
+            assert isinstance(case["timeout"], int) and case["timeout"] >= 0
+            assert isinstance(case["shown"], int) and isinstance(case["saved"], int)
+            if case["new"]:
+                assert "vpn_data" not in case  # a new profile has no vpn.data
+            for step in case["steps"]:
+                assert lib.step_problems(step) == []
 
-    def test_a_new_profile_follows_the_authentication_mode_until_the_user_sets_a_value(self):
-        expected = {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+    def test_the_table_has_values_above_two_to_the_31(self):
+        timeouts = [case["timeout"] for case in lib.TIMEOUT_CASES]
 
-        assert expected["new profile"] == (180, 180)
-        assert expected["new profile, credentials"] == (0, 0)
-        assert expected["new profile, credentials, browser"] == (180, 180)
-        assert expected["new profile, own value, credentials"] == (300, 300)
+        assert any(2**31 < t < 2**32 - 1 for t in timeouts)
+        assert 2**32 - 1 in timeouts
 
-    def test_an_existing_profile_is_not_changed(self):
-        expected = {case["name"]: (case["shown"], case["saved"]) for case in lib.TIMEOUT_CASES}
+    @pytest.mark.parametrize("step", [
+        ("auth", 0), ("auth", 1), ("spin", 0), ("spin", 300), ("spin", 4294967295),
+        ("type", "500"), ("type", "+90"), ("type", "-5")])
+    def test_a_good_step_has_no_problems(self, step):
+        assert lib.step_problems(step) == []
 
-        assert expected["existing SAML profile without timeout"] == (0, 0)
-        assert expected["existing profile with timeout, browser"] == (240, 240)
+    @pytest.mark.parametrize("step", [
+        ("auth", 2), ("auth", -1), ("auth", True), ("auth", "1"),
+        ("auth", 1.0), ("spin", "5"), ("spin", True), ("spin", -1), ("spin", 1.5),
+        ("spin", 4294967296),
+        ("type", ""), ("type", "5x"), ("type", "+"), ("type", "1-"), ("type", " 5"), ("type", 5), ("type", "\u0665"),
+        ("click", 1), ("auth",), "auth", None])
+    def test_the_shape_test_would_reject_a_bad_step(self, step):
+        assert lib.step_problems(step) != []
 
-    @pytest.mark.parametrize("index", range(6))
+    @CASES
     @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
-    def test_a_wrong_shown_value_is_reported(self, index, wrong):
-        case = lib.TIMEOUT_CASES[index]
+    def test_a_wrong_shown_value_is_reported(self, case, wrong):
         results = good_results()
-        results[case["name"]] = (wrong, case["saved"])
+        results[case["name"]]["shown"] = wrong
 
         problems = lib.check_timeout_results(results)
 
         assert len(problems) == 1 and case["name"] in problems[0] and "shown" in problems[0]
 
-    @pytest.mark.parametrize("index", range(6))
+    @CASES
     @pytest.mark.parametrize("wrong", [-1, 1, 60, 181, None])
-    def test_a_wrong_saved_value_is_reported(self, index, wrong):
-        case = lib.TIMEOUT_CASES[index]
+    def test_a_wrong_saved_value_is_reported(self, case, wrong):
         results = good_results()
-        results[case["name"]] = (case["shown"], wrong)
+        results[case["name"]]["saved"] = wrong
 
         problems = lib.check_timeout_results(results)
 
         assert len(problems) == 1 and case["name"] in problems[0] and "saved" in problems[0]
 
-    @pytest.mark.parametrize("index", range(6))
-    def test_a_missing_case_is_reported(self, index):
-        case = lib.TIMEOUT_CASES[index]
+    @CASES
+    @pytest.mark.parametrize("count", [1, 2])
+    def test_a_step_without_changed_is_reported(self, case, count):
+        results = good_results()
+        results[case["name"]]["silent_steps"] = count
+
+        problems = lib.check_timeout_results(results)
+
+        assert len(problems) == 1 and case["name"] in problems[0]
+        assert "a user action did not emit changed" in problems[0]
+
+    @CASES
+    @pytest.mark.parametrize("count", [1, 3])
+    def test_changed_during_update_connection_is_reported(self, case, count):
+        results = good_results()
+        results[case["name"]]["changed_on_save"] = count
+
+        problems = lib.check_timeout_results(results)
+
+        assert len(problems) == 1 and case["name"] in problems[0]
+        assert "update_connection emitted changed" in problems[0]
+
+    @CASES
+    def test_a_missing_case_is_reported(self, case):
         results = good_results()
         del results[case["name"]]
 
@@ -307,6 +347,184 @@ class TestTimeoutCases:
         lib.check_timeout_results(results)
 
         assert results == before
+
+
+def good_mtu_results():
+    return {case["name"]: (case["shown"], case["saved"]) for case in lib.MTU_CASES}
+
+
+class TestMtuCases:
+    def test_the_expected_results_pass(self):
+        assert lib.check_mtu_results(good_mtu_results()) == []
+
+    def test_the_limits_are_the_ones_of_the_editors(self):
+        assert (lib.MTU_MIN, lib.MTU_MAX) == (576, 1500)
+
+    def test_case_names_are_unique(self):
+        names = [case["name"] for case in lib.MTU_CASES]
+
+        assert len(names) == len(set(names))
+
+    def test_a_value_below_the_minimum_is_saved_as_the_minimum_and_zero_removes_the_key(self):
+        expected = good_mtu_results()
+
+        assert expected["mtu: 400 is saved as 576"] == (400, "576")
+        assert expected["mtu: 0 removes the key"] == (0, None)
+        assert expected["mtu: 1400 is saved"] == (1400, "1400")
+
+    def test_a_stored_value_the_editor_cannot_show_is_kept_until_the_user_changes_the_field(self):
+        expected = good_mtu_results()
+
+        assert expected["mtu: stored 1600 is kept when untouched"] == (0, "1600")
+        assert expected["mtu: stored abc is kept when untouched"] == (0, "abc")
+        assert expected["mtu: stored 1600, 0 set: the key stays"] == (0, "1600")
+        assert expected["mtu: stored 1600 replaced by 1300"] == (1300, "1300")
+        assert expected["mtu: stored abc replaced by 400"] == (400, "576")
+        # a value that is shown, or only zeros, is not kept as text
+        assert expected["mtu: stored 00 is automatic"] == (0, None)
+        assert expected["mtu: 0 removes the key"] == (0, None)
+        # touched: the user set 1300 and then 0
+        assert expected["mtu: stored 1600, 1300 then 0: the key is removed"] == (0, None)
+
+    @pytest.mark.parametrize("index", range(len(lib.MTU_CASES)))
+    def test_a_wrong_shown_or_saved_value_is_reported(self, index):
+        case = lib.MTU_CASES[index]
+        for position, wrong in ((0, case["shown"] + 1), (1, "9999")):
+            results = good_mtu_results()
+            results[case["name"]] = tuple(wrong if i == position else v
+                                          for i, v in enumerate(results[case["name"]]))
+
+            problems = lib.check_mtu_results(results)
+
+            assert len(problems) == 1 and case["name"] in problems[0]
+
+    def test_a_case_that_did_not_run_is_reported(self):
+        results = good_mtu_results()
+        case = lib.MTU_CASES[0]
+        del results[case["name"]]
+
+        assert lib.check_mtu_results(results) == [f"MTU case {case['name']!r} did not run"]
+
+    def test_the_limits_are_the_ones_of_the_gtk_header(self):
+        with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-mtu.h"), encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert f"#define MTU_MIN {lib.MTU_MIN}\n#define MTU_MAX {lib.MTU_MAX}\n" in text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_use_the_header_and_name_the_spin_button(self, source):
+        with open(os.path.join(ROOT, "plugins", "gnome", source), encoding="utf-8") as handle:
+            text = handle.read()
+
+        assert '#include "nm-gpclient-mtu.h"' in text
+        assert f'"{lib.MTU_SPIN_NAME}"' in text
+
+    def test_plasma_uses_the_header_and_its_spin_box_has_the_same_maximum(self):
+        plasma = os.path.join(ROOT, "plugins", "plasma")
+        with open(os.path.join(plasma, "gpclientwidget.cpp"), encoding="utf-8") as handle:
+            cpp = handle.read()
+        with open(os.path.join(plasma, "gpclientwidget.ui"), encoding="utf-8") as handle:
+            ui = handle.read()
+        with open(os.path.join(plasma, "CMakeLists.txt"), encoding="utf-8") as handle:
+            cmake = handle.read()
+
+        assert '#include "nm-gpclient-mtu.h"' in cpp
+        assert "nm_gpclient_mtu_parse(" in cpp
+        assert "${CMAKE_CURRENT_SOURCE_DIR}/../gnome" in cmake
+        # no second copy of the rule in the editor
+        for own in ("parseMtu", "isMtuSpace", "isAutomaticMtuText", "mtuMin", "mtuMax"):
+            assert own not in cpp
+        box = ui[ui.index('name="mtuSpinBox"'):]
+        maximum = box[box.index('<property name="maximum">'):]
+        assert f"<number>{lib.MTU_MAX}</number>" in maximum[:maximum.index("</property>")]
+
+    def test_plasma_mtu_spin_box_is_the_promoted_widget_with_its_header(self):
+        plasma = os.path.join(ROOT, "plugins", "plasma")
+        with open(os.path.join(plasma, "gpclientwidget.ui"), encoding="utf-8") as handle:
+            ui = handle.read()
+
+        assert '<widget class="MtuSpinBox" name="mtuSpinBox">' in ui
+        assert "<class>MtuSpinBox</class>" in ui and "<extends>QSpinBox</extends>" in ui
+        assert "<header>mtuspinbox.h</header>" in ui
+        assert os.path.isfile(os.path.join(plasma, "mtuspinbox.h"))
+
+    def test_plasma_other_spin_boxes_are_not_promoted(self):
+        with open(os.path.join(ROOT, "plugins", "plasma", "gpclientwidget.ui"), encoding="utf-8") as handle:
+            ui = handle.read()
+
+        assert ui.count("<customwidget>") == 1
+        assert '<widget class="QDoubleSpinBox" name="timeoutSpinBox">' in ui
+
+    def test_the_gtk_editors_keep_an_invalid_stored_value_by_a_touched_flag(self):
+        for source in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
+            with open(os.path.join(ROOT, "plugins", "gnome", source), encoding="utf-8") as handle:
+                text = handle.read()
+
+            assert "mtu_touched" in text and "mtu_shown" not in text
+
+
+class TestEditorSourcesHandleBooleansAndGateway:
+    """Source-level checks: the GTK editors cannot be built in the unit tests"""
+
+    @staticmethod
+    def _read(*parts):
+        with open(os.path.join(ROOT, *parts), encoding="utf-8") as handle:
+            text = handle.read()
+        # The boolean rules moved to the header both GTK editors share
+        if parts[:2] == ("plugins", "gnome") and parts[-1] in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
+            with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-editor-common.h"), encoding="utf-8") as handle:
+                text += handle.read()
+        return text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_read_booleans_ignoring_case(self, source):
+        text = self._read("plugins", "gnome", source)
+
+        assert text.count('g_ascii_strcasecmp (value ? value : "", "true") == 0') >= 2
+        assert 'g_ascii_strcasecmp (value ? value : "", "false") == 0' in text
+        assert 'g_ascii_strcasecmp (value, "true") == 0' in text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_do_not_compare_booleans_case_sensitively(self, source):
+        text = self._read("plugins", "gnome", source)
+
+        assert 'g_strcmp0 (value, "true")' not in text
+        assert 'g_strcmp0(value, "true")' not in text
+        assert 'g_strcmp0 (value, "false")' not in text
+
+    @pytest.mark.parametrize("source", ["nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"])
+    def test_the_gtk_editors_trim_the_gateway(self, source):
+        text = self._read("plugins", "gnome", source)
+
+        assert "g_strstrip (g_strdup (gtk_" in text
+        assert "gateway_entry)))" in text
+        # the untrimmed text is neither checked nor saved
+        assert '"gateway", str)' not in text
+        assert "!str || !*str" not in text and "!str || !strlen (str)" not in text
+
+    def test_plasma_trims_the_gateway_in_save_and_validation(self):
+        cpp = self._read("plugins", "plasma", "gpclientwidget.cpp")
+
+        # saved trimmed; validity goes through the shared rule, which strips
+        assert cpp.count("gatewayLineEdit->text().trimmed()") == 1
+        assert "nm_gpclient_validate_form(m_ui->gatewayLineEdit->text()" in cpp
+        assert "gatewayLineEdit->text().isEmpty()" not in cpp
+        assert 'insert(QLatin1String("gateway"), m_ui->gatewayLineEdit->text())' not in cpp
+
+    def test_plasma_has_no_dead_setting_member_or_valid_signals(self):
+        cpp = self._read("plugins", "plasma", "gpclientwidget.cpp")
+        header = self._read("plugins", "plasma", "gpclientwidget.h")
+
+        assert "m_setting" not in cpp and "m_setting" not in header
+        # the gateway and the other checked fields (nm-gpclient-validate.h)
+        assert cpp.count("update_valid)") == 8
+        assert "gatewayLineEdit, &QLineEdit::textChanged, this, update_valid" in cpp
+
+    def test_plasma_password_flags_are_tested_as_a_bitmask(self):
+        cpp = self._read("plugins", "plasma", "gpclientauthwidget.cpp")
+
+        assert '.toUInt() & 4) == 0' in cpp
+        assert 'QLatin1String("4")' not in cpp
 
 
 class TestEditorTextsMatchTheSources:
@@ -330,9 +548,10 @@ class TestEditorTextsMatchTheSources:
             assert key in lib.vpn_data()
 
     @pytest.mark.parametrize("source, definition", [
-        ("gnome/nm-gpclient-editor.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
-        ("gnome/nm-gpclient-editor-gtk3.c", "#define SAML_TIMEOUT_DEFAULT {}\n"),
-        # The Plasma editor runs in no smoke test: this is its only check
+        # Both GTK editors take it from their common header
+        ("gnome/nm-gpclient-editor-common.h", "#define SAML_TIMEOUT_DEFAULT {}\n"),
+        # The Plasma editor is not in the GTK smoke test; its QtTest (plugins/plasma/tests)
+        # runs the widget, and this checks that the constant is the same
         ("plasma/gpclientwidget.cpp", "static const int samlTimeoutDefault = {};\n"),
     ])
     def test_the_saml_timeout_is_the_one_of_the_editor(self, source, definition):
@@ -469,6 +688,130 @@ class TestScreenshot:
     def test_only_png(self, out):
         with pytest.raises(ValueError):
             lib.screenshot_command("import", ":99", out)
+
+
+def good_edit_results():
+    return {case["name"]: {"error": case["error"] or None,
+                           "data": {**case["saved"], "hip": "false"}}
+            for case in lib.EDIT_CASES}
+
+
+class TestEditCases:
+    """Cleared fields remove their keys, the gateway is required (issue #61)"""
+
+    def by_name(self, name):
+        return next(case for case in lib.EDIT_CASES if case["name"] == "edit: " + name)
+
+    def test_the_expected_results_pass(self):
+        assert lib.check_edit_results(good_edit_results()) == []
+
+    def test_case_names_are_unique(self):
+        names = [case["name"] for case in lib.EDIT_CASES]
+
+        assert len(names) == len(set(names))
+
+    def test_every_step_names_a_row_and_a_known_kind(self):
+        for case in lib.EDIT_CASES:
+            for kind, key, text in case["steps"]:
+                assert kind in ("type", "choose") and key in lib.EDIT_LABELS and isinstance(text, str)
+
+    def test_clearing_a_field_removes_only_its_key(self):
+        saved = self.by_name("clearing DNS removes dns")["saved"]
+
+        assert "dns" not in saved
+        assert saved["browser"] == "firefox" and saved["gateway"] == lib.GATEWAY
+
+    def test_custom_browser_with_an_empty_entry_removes_the_browser(self):
+        case = self.by_name("Custom browser with an empty entry removes browser")
+
+        assert case["steps"] == [("choose", "browser", "Custom...")]
+        assert "browser" not in case["saved"] and "dns" in case["saved"]
+
+    def test_an_empty_gateway_is_an_error_and_the_data_stays(self):
+        case = self.by_name("an empty gateway is refused and nothing is saved")
+
+        assert case["error"] and case["saved"] == case["vpn_data"]
+
+    def test_the_negative_counterparts_keep_or_save_the_value(self):
+        assert self.by_name("untouched fields keep their values")["saved"] == lib.EDIT_STORED
+        assert self.by_name("a changed gateway is saved")["error"] is False
+        assert self.by_name("a changed DNS is saved")["saved"]["dns"] == "9.9.9.9"
+
+    @pytest.mark.parametrize("index", range(len(lib.EDIT_CASES)))
+    def test_a_wrong_value_is_reported(self, index):
+        case = lib.EDIT_CASES[index]
+        results = good_edit_results()
+        results[case["name"]]["data"]["dns"] = "wrong" if "dns" not in case["saved"] else None
+        results[case["name"]]["data"]["gateway"] = "wrong"
+
+        problems = lib.check_edit_results(results)
+
+        assert len(problems) == 2 and all(case["name"] in p for p in problems)
+
+    def test_the_old_gtk3_behaviour_is_reported(self):
+        """a cleared DNS or browser that stays in vpn.data (the bug)"""
+        for name, key in (("clearing DNS removes dns", "dns"),
+                          ("Custom browser with an empty entry removes browser", "browser")):
+            case = self.by_name(name)
+            results = good_edit_results()
+            results[case["name"]]["data"][key] = case["vpn_data"][key]
+
+            problems = lib.check_edit_results(results)
+
+            assert len(problems) == 1 and key in problems[0]
+
+    def test_a_save_without_a_gateway_is_reported(self):
+        """the old GTK4 behaviour: no error, the gateway key removed"""
+        case = self.by_name("an empty gateway is refused and nothing is saved")
+        results = good_edit_results()
+        results[case["name"]] = {"error": None, "data": {"hip": "false"}}
+
+        problems = lib.check_edit_results(results)
+
+        assert any("did not fail" in p for p in problems) and any("gateway" in p for p in problems)
+
+    def test_an_error_on_a_good_gateway_is_reported(self):
+        case = self.by_name("a changed gateway is saved")
+        results = good_edit_results()
+        results[case["name"]]["error"] = "gateway is required"
+
+        assert len(lib.check_edit_results(results)) == 1
+
+    def test_a_case_that_did_not_run_is_reported(self):
+        results = good_edit_results()
+        case = lib.EDIT_CASES[0]
+        del results[case["name"]]
+
+        assert lib.check_edit_results(results) == [f"edit case {case['name']!r} did not run"]
+
+    def test_the_editors_have_the_labels_and_the_error_text(self):
+        for name in ("nm-gpclient-editor.c", "nm-gpclient-editor-gtk3.c"):
+            with open(os.path.join(ROOT, "plugins", "gnome", name), encoding="utf-8") as handle:
+                text = handle.read()
+            for label in lib.EDIT_LABELS.values():
+                assert f'gtk_label_new (_("{label}"))' in text
+            assert "nm_gpclient_validate_form" in text
+            assert "NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS" in text
+        # the messages of the errors are in the shared header
+        with open(os.path.join(ROOT, "plugins", "gnome", "nm-gpclient-validate.h"), encoding="utf-8") as handle:
+            header = handle.read()
+        assert f'"{lib.MISSING_GATEWAY_ERROR}"' in header
+        assert f'"{lib.BAD_DNS_ERROR}' in header
+
+    def test_a_bad_dns_is_an_error_and_the_data_stays(self):
+        case = self.by_name("a DNS name is refused and nothing is saved")
+
+        assert case["error"] == lib.BAD_DNS_ERROR and case["saved"] == case["vpn_data"]
+
+    def test_the_wrong_error_is_reported(self):
+        """a refusal for another reason does not count for the DNS case"""
+        case = self.by_name("a DNS name is refused and nothing is saved")
+        results = good_edit_results()
+        results[case["name"]]["error"] = lib.MISSING_GATEWAY_ERROR
+
+        problems = lib.check_edit_results(results)
+
+        assert len(problems) == 1 and "did not fail with" in problems[0]
 
 
 class TestProbes:
@@ -681,9 +1024,14 @@ class TestProbeNodes:
             pass
 
     def test_a_spin_button_becomes_a_spin_node(self):
-        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value_as_int": lambda self: 240, "get_text": lambda self: "240"})()
+        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value": lambda self: 240.0, "get_text": lambda self: "240"})()
 
         assert gui_smoke_gtk.to_node(spin_button, self.Gtk, 3) == {"kind": "spin", "value": 240, "children": []}
+
+    def test_a_spin_button_above_two_to_the_31_becomes_a_spin_node(self):
+        spin_button = type("S", (self.Gtk.SpinButton,), {"get_value": lambda self: 4294967295.0})()
+
+        assert gui_smoke_gtk.to_node(spin_button, self.Gtk, 3)["value"] == 4294967295
 
     def test_an_entry_stays_an_entry(self):
         entry_widget = type("E", (self.Gtk.Entry,), {"get_text": lambda self: "x"})()
@@ -738,4 +1086,4 @@ class TestTooltips:
             source = handle.read()
         main = source[source.index("def main("):]
 
-        assert main.index("without_tooltips(widget") < main.index("window = Gtk.Window()")
+        assert main.index("without_tooltips(widget") < main.index("show_in_window(widget")

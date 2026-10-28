@@ -1,0 +1,366 @@
+# Greek translation of NetworkManager-gpclient.
+# Machine translation, needs review by a native speaker.
+# This file is distributed under the same license as the NetworkManager-gpclient package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: NetworkManager-gpclient\n"
+"Report-Msgid-Bugs-To: https://github.com/WMP/GlobalProtect-SAML-"
+"NetworkManager/issues\n"
+"POT-Creation-Date: 2026-10-26 09:44+0000\n"
+"PO-Revision-Date: 2026-10-26 10:00+0000\n"
+"Last-Translator: Machine translation\n"
+"Language-Team: Greek\n"
+"Language: el\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "%s:"
+msgstr "%s:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Address is a gateway (skip the portal)"
+msgstr "Η διεύθυνση είναι πύλη (παράλειψη του portal)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Address of the GlobalProtect portal (e.g. vpn.company.com).\n"
+"If your organisation gave you a gateway address instead, also tick \"Address is a gateway\" below."
+msgstr ""
+"Διεύθυνση του portal GlobalProtect (π.χ. vpn.company.com).\n"
+"Αν ο οργανισμός σας σάς έδωσε αντί γι' αυτό διεύθυνση πύλης, επιλέξτε επίσης «Η διεύθυνση είναι πύλη» παρακάτω."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Always on"
+msgstr "Πάντα ενεργό"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authenticate VPN: %s"
+msgstr "Πιστοποίηση VPN: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Authentication failed. Enter the credentials for “%s” again."
+msgstr "Η πιστοποίηση απέτυχε. Εισαγάγετε ξανά τα διαπιστευτήρια για το «%s»."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Authentication:"
+msgstr "Πιστοποίηση:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Automatic (enable when the portal needs it)"
+msgstr "Αυτόματο (ενεργοποίηση όταν το απαιτεί το portal)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser (SAML, passkey, 2FA)"
+msgstr "Περιηγητής (SAML, passkey, 2FA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser used for SAML/2FA authentication. \"edge\" is the best tested option; \"default\" uses your desktop's default browser.\n"
+"Select 'Custom...' to give the full path to your own executable."
+msgstr ""
+"Περιηγητής που χρησιμοποιείται για πιστοποίηση SAML/2FA. Το «edge» είναι η πιο δοκιμασμένη επιλογή· το «default» χρησιμοποιεί τον προεπιλεγμένο περιηγητή του επιτραπέζιου περιβάλλοντός σας.\n"
+"Επιλέξτε «Προσαρμοσμένο...» για να δώσετε την πλήρη διαδρομή του δικού σας εκτελέσιμου."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Browser:"
+msgstr "Περιηγητής:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Browser: the portal opens a browser window for single sign-on (default).\n"
+"Username and password: the portal asks on the terminal - the credentials and any token are requested in a dialog instead."
+msgstr ""
+"Περιηγητής: το portal ανοίγει παράθυρο περιηγητή για ενιαία σύνδεση (προεπιλογή).\n"
+"Όνομα χρήστη και κωδικός πρόσβασης: το portal ρωτά στο τερματικό – αντί γι' αυτό τα διαπιστευτήρια και τυχόν διακριτικό ζητούνται σε διάλογο."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Connect timeout:"
+msgstr "Χρονικό όριο σύνδεσης:"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "Credentials are required to connect to “%s”."
+msgstr "Απαιτούνται διαπιστευτήρια για σύνδεση με το «%s»."
+
+#: plugins/gnome/nm-gpclient-editor-common.h plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Custom..."
+msgstr "Προσαρμοσμένο..."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "DNS Servers:"
+msgstr "Διακομιστές DNS:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: built-in HIP report"
+msgstr "Κενό: ενσωματωμένη αναφορά HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable HIP (Host Integrity Protection) to send host information to the VPN gateway.\n"
+"This is required by some organizations for security compliance."
+msgstr ""
+"Ενεργοποιήστε το HIP (Host Integrity Protection) για να στέλνονται πληροφορίες του υπολογιστή στην πύλη VPN.\n"
+"Απαιτείται από ορισμένους οργανισμούς για συμμόρφωση με την ασφάλεια."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Enable Host Integrity Protection (HIP)"
+msgstr "Ενεργοποίηση Host Integrity Protection (HIP)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Enable when the address above is a gateway rather than a portal.\n"
+"Without this the portal workflow is tried first, which can make you authenticate twice."
+msgstr ""
+"Ενεργοποιήστε το όταν η παραπάνω διεύθυνση είναι πύλη και όχι portal.\n"
+"Χωρίς αυτό δοκιμάζεται πρώτα η ροή του portal, κάτι που μπορεί να σας αναγκάσει να πιστοποιηθείτε δύο φορές."
+
+#: plugins/gnome/nm-gpclient-editor-common.h
+msgid "First proposed by portal (automatic)"
+msgstr "Πρώτη πρόταση του portal (αυτόματο)"
+
+#: plugins/gnome/nm-gpclient-editor-plugin.c
+#: plugins/gnome/nm-gpclient-plugin-simple.c
+msgid "GlobalProtect VPN Client"
+msgstr "Πελάτης VPN GlobalProtect"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP script:"
+msgstr "Σενάριο HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "HIP:"
+msgstr "HIP:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).\n"
+"0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s."
+msgstr ""
+"Πόσο περιμένει το NetworkManager να συνδεθεί το VPN, συμπεριλαμβανομένης της σύνδεσης στον περιηγητή (vpn.timeout).\n"
+"Το 0 χρησιμοποιεί την προεπιλογή του NetworkManager, συνήθως 60 s – συχνά πολύ μικρό για σύνδεση SAML με MFA. Μια νέα σύνδεση με πιστοποίηση μέσω περιηγητή ξεκινά με 360 s. Όσο μια σύνδεση δεν έχει δικό της χρονικό όριο (0) και δεν έχετε αλλάξει αυτό το πεδίο, η επιλογή πιστοποίησης μέσω περιηγητή ορίζει 360 s."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Legacy TLS renegotiation:"
+msgstr "Παλαιού τύπου επαναδιαπραγμάτευση TLS:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "MTU:"
+msgstr "MTU:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Maximum size of a packet in the tunnel.\n"
+"0 = Automatic. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with \"Message too long\".\n"
+"It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used."
+msgstr ""
+"Μέγιστο μέγεθος πακέτου στη σήραγγα.\n"
+"0 = Αυτόματο. Η μείωσή του (για παράδειγμα σε 1300-1400) μπορεί να βοηθήσει όταν η σήραγγα επιστρέφει από ESP σε HTTPS με «Message too long».\n"
+"Επηρεάζει μόνο όταν η πύλη δεν στέλνει δική της MTU. Οι τιμές από 1 έως 575 αποθηκεύονται ως 576, την ελάχιστη τιμή που χρησιμοποιείται."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Never"
+msgstr "Ποτέ"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to a custom HIP executable, passed to gpclient as --hip=<path>.\n"
+"The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.\n"
+"Ignored when HIP is off."
+msgstr ""
+"Προαιρετική απόλυτη διαδρομή προς ένα προσαρμοσμένο εκτελέσιμο HIP, που περνά στο gpclient ως --hip=<path>.\n"
+"Η υπηρεσία το εκτελεί ως root: πρέπει να είναι αρχείο που ανήκει στον root και δεν είναι εγγράψιμο από την ομάδα ή τους άλλους, σε καταλόγους που ανήκουν στον root και δεν είναι εγγράψιμοι από την ομάδα ή τους άλλους. Διαφορετικά η σύνδεση αποτυγχάνει.\n"
+"Αγνοείται όταν το HIP είναι ανενεργό."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Use the icon in the field to choose where the password is kept: for this user only, for all users, or not at all (asked every time)."
+msgstr "Προαιρετικό. Χρησιμοποιήστε το εικονίδιο στο πεδίο για να επιλέξετε πού φυλάσσεται ο κωδικός πρόσβασης: μόνο για αυτόν τον χρήστη, για όλους τους χρήστες ή καθόλου (ερώτηση κάθε φορά)."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Optional. Used by portals that ask for credentials on the terminal, so you are not asked for the username every time."
+msgstr "Προαιρετικό. Χρησιμοποιείται από portals που ζητούν διαπιστευτήρια στο τερματικό, ώστε να μη σας ρωτούν για το όνομα χρήστη κάθε φορά."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Password"
+msgstr "Κωδικός πρόσβασης"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Password:"
+msgstr "Κωδικός πρόσβασης:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Portal or gateway address:"
+msgstr "Διεύθυνση portal ή πύλης:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.\n"
+"Automatic: retry once with the workaround when the portal asks for it, and switch this setting to \"Always on\" afterwards, so the failed first attempt does not repeat."
+msgstr ""
+"Τα portals με παλιά στοίβα TLS χρειάζονται επαναδιαπραγμάτευση, την οποία το OpenSSL 3 απορρίπτει από προεπιλογή.\n"
+"Αυτόματο: νέα προσπάθεια μία φορά με την προσωρινή λύση όταν το ζητήσει το portal και, στη συνέχεια, αλλαγή αυτής της ρύθμισης σε «Πάντα ενεργό», ώστε να μην επαναληφθεί η αποτυχημένη πρώτη προσπάθεια."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Preferred gateway:"
+msgstr "Προτιμώμενη πύλη:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.\n"
+"Split DNS allows resolving VPN-specific domains through VPN DNS while using local DNS for other domains.\n"
+"Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use custom DNS instead."
+msgstr ""
+"Συνιστάται: αφήστε το κενό για να χρησιμοποιηθούν οι διακομιστές DNS του VPN με αυτόματη διαμόρφωση split DNS.\n"
+"Το split DNS επιτρέπει την επίλυση τομέων του VPN μέσω του DNS του VPN, ενώ για τους υπόλοιπους τομείς χρησιμοποιείται το τοπικό DNS.\n"
+"Παράκαμψη: εισαγάγετε διακομιστές DNS χωρισμένους με ερωτηματικό (π.χ. 8.8.8.8;8.8.4.4) για να χρησιμοποιηθούν αντί γι' αυτό προσαρμοσμένοι διακομιστές DNS."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Token / one-time code"
+msgstr "Διακριτικό / κωδικός μίας χρήσης"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+#, python-format
+msgid "User: %s"
+msgstr "Χρήστης: %s"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Username"
+msgstr "Όνομα χρήστη"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username and password (RSA token)"
+msgstr "Όνομα χρήστη και κωδικός πρόσβασης (διακριτικό RSA)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Username:"
+msgstr "Όνομα χρήστη:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Which gateway to connect to. The list is filled in after the first successful connection.\n"
+"If the chosen gateway is not offered by the portal any more, the first proposal is used instead."
+msgstr ""
+"Σε ποια πύλη θα γίνει σύνδεση. Η λίστα συμπληρώνεται μετά την πρώτη επιτυχημένη σύνδεση.\n"
+"Αν η επιλεγμένη πύλη δεν προσφέρεται πλέον από το portal, χρησιμοποιείται αντί γι' αυτήν η πρώτη πρόταση."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_Cancel"
+msgstr "_Ακύρωση"
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "_OK"
+msgstr "_OK"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "browser must be a name, a command name or an absolute path without spaces"
+msgstr "browser πρέπει να είναι όνομα, όνομα εντολής ή απόλυτη διαδρομή χωρίς κενά"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "bytes (0 = Automatic)"
+msgstr "byte (0 = Αυτόματο)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "dns must be IPv4 or IPv6 addresses separated by commas, semicolons or spaces"
+msgstr "dns πρέπει να είναι διευθύνσεις IPv4 ή IPv6 χωρισμένες με κόμματα, ερωτηματικά ή κενά"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway is required"
+msgstr "το gateway είναι υποχρεωτικό"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "gateway must not start with '-' or contain spaces or control characters"
+msgstr "το gateway δεν πρέπει να αρχίζει με «-» ούτε να περιέχει κενά ή χαρακτήρες ελέγχου"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "hip-script must be an absolute path"
+msgstr "το hip-script πρέπει να είναι απόλυτη διαδρομή"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "seconds (0 = NetworkManager default)"
+msgstr "δευτερόλεπτα (0 = προεπιλογή του NetworkManager)"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "username must not start with '-' or contain control characters"
+msgstr "το username δεν πρέπει να αρχίζει με «-» ούτε να περιέχει χαρακτήρες ελέγχου"
+
+#: plugins/gnome/nm-gpclient-keyfile.h
+msgid "The file is not a GlobalProtect VPN connection"
+msgstr "Το αρχείο δεν είναι σύνδεση GlobalProtect VPN"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "SAML login:"
+msgstr "Σύνδεση SAML:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the service (default)"
+msgstr "Στην υπηρεσία (προεπιλογή)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "In the login dialog"
+msgstr "Στο παράθυρο σύνδεσης"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Where the browser login runs: in the service, or in the login dialog (in your session)."
+msgstr "Πού εκτελείται η σύνδεση μέσω προγράμματος περιήγησης: στην υπηρεσία ή στο παράθυρο σύνδεσης (στη συνεδρία σας)."
+
+#: auth-dialog/nm-gpclient-auth-dialog.py
+msgid "Certificate passphrase"
+msgstr "Φράση πρόσβασης πιστοποιητικού"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Certificate passphrase:"
+msgstr "Φράση πρόσβασης πιστοποιητικού:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Client certificate:"
+msgstr "Πιστοποιητικό πελάτη:"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: no client certificate"
+msgstr "Κενό: χωρίς πιστοποιητικό πελάτη"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Empty: the key is in the certificate file"
+msgstr "Κενό: το κλειδί βρίσκεται στο αρχείο του πιστοποιητικού"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the client certificate file (PEM or PKCS#12), "
+"owned by your desktop user."
+msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του πιστοποιητικού πελάτη (PEM ή PKCS#12), που ανήκει στον χρήστη της επιφάνειας εργασίας."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid ""
+"Optional absolute path to the private key file (PEM), owned by your "
+"desktop user. Ignored without a client certificate."
+msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του ιδιωτικού κλειδιού (PEM), που ανήκει στον χρήστη της επιφάνειας εργασίας. Αγνοείται χωρίς πιστοποιητικό πελάτη."
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Private key:"
+msgstr "Ιδιωτικό κλειδί:"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "usercert must be an absolute path"
+msgstr "το usercert πρέπει να είναι απόλυτη διαδρομή"
+
+#: plugins/gnome/nm-gpclient-validate.h
+msgid "userkey must be an absolute path"
+msgstr "το userkey πρέπει να είναι απόλυτη διαδρομή"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose a file"
+msgstr "Επιλογή αρχείου"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the client certificate"
+msgstr "Επιλογή πιστοποιητικού πελάτη"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the private key"
+msgstr "Επιλογή ιδιωτικού κλειδιού"

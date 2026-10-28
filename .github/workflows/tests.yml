@@ -21,6 +21,7 @@ jobs:
   unit:
     name: ${{ matrix.mode }} (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -33,15 +34,15 @@ jobs:
     steps:
       # No submodules: the unit tests do not import anything from external/.
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Install pytest
-        run: python -m pip install pytest pytest-cov
+      - name: Install pytest and hypothesis
+        run: python -m pip install pytest pytest-cov hypothesis
 
       # The tests fake these tools through PATH; the ones they do not fake
       # must exist on the runner.
@@ -52,6 +53,12 @@ jobs:
             command -v "$t" >/dev/null || { echo "::error::missing $t"; exit 1; }
           done
 
+      # tests/unit/test_editor_common_header.py compiles a C header against GLib
+      - name: Install the C compiler and GLib headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libglib2.0-dev
+
       - name: Run unit tests (non-root)
         if: matrix.mode == 'non-root'
         run: python -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
@@ -61,7 +68,7 @@ jobs:
       # fake tools first in the PATH they pass to the scripts.
       - name: Run unit tests (root)
         if: matrix.mode == 'root'
-        run: sudo "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
+        run: sudo CI="$CI" "$(command -v python)" -m pytest tests/unit -q -p no:cacheprovider --junitxml=junit.xml --cov
 
       # The counts of this job, shown when it is opened from the checks of a
       # pull request. Runs after a failure too, and never fails the job itself.
@@ -86,9 +93,47 @@ jobs:
       # per matrix entry.
       - name: Upload JUnit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-${{ matrix.mode }}-py${{ matrix.python }}
           path: junit.xml
           if-no-files-found: ignore
           retention-days: 14
+
+  lint:
+    name: lint (ruff, mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.x"
+
+      # Pinned: a new rule of a new release must not fail unrelated pull requests
+      - name: Install ruff and mypy
+        run: python -m pip install ruff==0.16.9 mypy==2.3.1
+
+      - name: Run ruff and mypy
+        run: make lint
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The list of scripts is SHELL_SCRIPTS in the Makefile: run the same
+      # command locally with `make shellcheck`.
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: make shellcheck

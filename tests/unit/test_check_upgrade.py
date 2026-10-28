@@ -31,7 +31,7 @@ spec.loader.exec_module(check_upgrade)
 OLD = "1.4.1-1~noble1"
 NEW = "1.5.0-1~noble1+pr31.7"
 # Ubuntu version of debian/control.ubuntu<version> -> codename
-CODENAMES = {"22.04": "jammy", "24.04": "noble", "24.10": "oracular", "26.04": "resolute"}
+CODENAMES = {"22.04": "jammy", "24.04": "noble", "26.04": "resolute"}
 
 
 def lines(*entries):
@@ -278,7 +278,7 @@ class TestPluginDirectory:
     def test_the_qt_directory_of_the_release_is_accepted(self, codename, qt, multiarch):
         assert check_upgrade.check_plugin(plugin_files(qt, multiarch), codename, EXISTS) == []
 
-    @pytest.mark.parametrize("codename, wrong", [("jammy", "qt6"), ("noble", "qt6"), ("oracular", "qt5"), ("resolute", "qt5")])
+    @pytest.mark.parametrize("codename, wrong", [("jammy", "qt6"), ("noble", "qt6"), ("resolute", "qt5")])
     def test_the_other_qt_is_reported(self, codename, wrong):
         problems = check_upgrade.check_plugin(plugin_files(wrong), codename, EXISTS)
 
@@ -450,7 +450,7 @@ class TestNeonScenario:
 
         assert any("network-manager-gpclient-plasma-6 is at version" in p for p in problems)
 
-    @pytest.mark.parametrize("codename", ["jammy", "oracular", "resolute"])
+    @pytest.mark.parametrize("codename", ["jammy", "resolute"])
     def test_another_release_is_refused(self, codename):
         with pytest.raises(ValueError, match="neon scenario is for noble"):
             self.fresh(NEON_AFTER, codename)

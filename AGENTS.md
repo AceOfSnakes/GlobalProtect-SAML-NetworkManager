@@ -9,8 +9,10 @@ grows past that limit. Keep it short and move details into `docs/`.
 ## What this project is
 
 A NetworkManager VPN plugin for GlobalProtect with SAML/SSO authentication,
-packaged as `.deb` files for Ubuntu 22.04, 24.04, 24.10 and 26.04 on `amd64`
-and `arm64`, and published as a signed apt repository on GitHub Pages.
+packaged as `.deb` files for Ubuntu 22.04, 24.04 and 26.04 and as RPM
+files for Fedora 43-45, EL 10 and openSUSE Leap 16.0/Tumbleweed (`rpm/targets`),
+on `amd64` and `arm64`, and published as signed apt and RPM repositories on
+GitHub Pages.
 
 | Path | Contents |
 |---|---|
@@ -19,13 +21,15 @@ and `arm64`, and published as a signed apt repository on GitHub Pages.
 | `auth-dialog/` | GTK dialog for credentials and one-time passwords |
 | `plugins/gnome/`, `plugins/plasma/` | Connection editor plugins (GTK3/GTK4, Plasma 5/6) |
 | `debian/` | Packaging; `debian/control.ubuntu<version>` is copied to `debian/control` per build |
-| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (matrix Ubuntu × arch), `publish-apt.yml` |
-| `.github/scripts/build-apt-repo.sh` | Builds the apt repository from release `.deb` files |
+| `rpm/` | RPM packaging: `targets`, the spec, `build.sh` (build in a container), `install-test.sh` |
+| `.github/workflows/` | `tests.yml` (unit tests), `build-release.yml` (Ubuntu × arch, RPM target × arch; attests the packages and `SHA256SUMS`, uploads `SHA256SUMS`), `publish-apt.yml` (apt + RPM repositories; verifies the attested `SHA256SUMS` of every release and every package against it first, `.github/scripts/verify-release-assets.sh`), `codeql.yml`, `zizmor.yml`, `scorecard.yml` |
+| `.github/scripts/build-apt-repo.sh`, `build-rpm-repo.sh` | Build the apt and RPM repositories from release assets |
 | `external/GlobalProtect-openconnect` | Git submodule (upstream `gpclient`/`gpauth`) |
 | `upstream/` | Contract with upstream: `contract.json`, `features.json`, `interfaces.json`, `verification.json` |
 | `scripts/upstream_contract.py` | `check`, `update`, `features`, `interfaces`, `gate` for `upstream/` |
 | `tests/unit/` | Unit tests (pytest), run anywhere |
 | `tests/upstream/` | Tests of the pinned submodule (need `external/`) |
+| `tests/e2e/` | End-to-end tests on a real desktop in Docker (`run.sh`, checks, animations of the README) |
 | `tests/test_*.py` | GUI tests (dogtail, needs an X11 session): see `CLAUDE_INSTRUCTIONS.md` |
 
 ## Ground rules
@@ -47,6 +51,17 @@ and `arm64`, and published as a signed apt repository on GitHub Pages.
 - `scripts/browser-wrapper.sh` identifies the real user by **UID only**. Never
   pass a user name taken from the environment into a command, and never start
   the browser as root.
+- Every connection setting a user can set with `nmcli` (a `vpn.data` key in the
+  README settings table) is also in the GNOME editors (GTK3 and GTK4) and in the
+  Plasma editor (`plugins/plasma/`). Add a new setting to all of them in the
+  same PR. Exceptions: keys the service writes itself (`gateway-list`,
+  `gateway-list-count`), `otp-flags` and `gpauth-result-flags` (the editors
+  only write the default for a new connection), and `dns-domains`, for which the editors use
+  NetworkManager's own search domains field (IPv4 tab).
+- Every text a user sees is translatable: `_()`/`N_()` in the GNOME editors and the
+  auth dialog (catalog `po/`), `i18n()` and the `.ui` file in the Plasma editor
+  (catalog `plugins/plasma/po/`). After a change of such text run `make pot` and
+  translate the new entries (`docs/TRANSLATIONS.md`).
 - Code, comments, commit messages and docs are in English.
 - Keep changes minimal and match the style of the surrounding code.
 
@@ -63,7 +78,9 @@ CI builds every Ubuntu version for `amd64` (`ubuntu-latest`) and `arm64`
 request, except for changes to docs only (`**.md`, `docs/**`). A release can also
 have variants (`Dockerfile.ubuntu<version>-<variant>` with
 `debian/control.ubuntu<version>-<variant>`): `24.04-neon` builds
-`network-manager-gpclient-plasma-6` for KDE neon, `amd64` only. To build a branch
+`network-manager-gpclient-plasma-6` for KDE neon, `amd64` only. Job `build-rpm`
+builds every target of `rpm/targets` × {amd64, arm64} with `rpm/build.sh` and
+installs the result in a fresh container (`docs/RPM_REPO.md`). To build a branch
 that has no PR, run the workflow by hand:
 
 ```bash
@@ -75,6 +92,7 @@ that has no PR, run the workflow by hand:
 
 ```bash
 make test-unit                        # or: python3 -m pytest tests/unit -q
+make shellcheck                       # shellcheck on every shell script; add new scripts to SHELL_SCRIPTS
 ```
 
 Some tests exercise root-only code paths and some non-root paths; each run
@@ -89,6 +107,12 @@ tar --exclude=./.git --exclude=./external --exclude=./.claude -cf - . | tar -xf 
 (cd "$T" && runuser -u nobody -- env HOME="$T" python3 -m pytest tests/unit -q -p no:cacheprovider)
 rm -rf "$T"
 ```
+
+End-to-end tests (`tests/e2e/run.sh <gnome|kde|routing|auth-cancel|saml-dialog|all> [--webp]`)
+need Docker and are run by hand or with the pull request label `e2e`
+(`.github/workflows/e2e.yml`), not on every push. Run them when you change the
+service, the editors, the wrapper or the vpnc hook; `tests/e2e/checks.py` is
+covered by `tests/unit/test_e2e_checks.py`.
 
 Rules for tests:
 
@@ -116,9 +140,14 @@ Rules for tests:
   current head: the unit tests (root and non-root) and the build of all Ubuntu
   versions × {amd64, arm64}. A docs-only PR skips the build; if the PR changes
   anything else, the build must have run.
-- Before merging, merge `main` into the branch if `main` moved since the checks
-  ran, and wait for the checks on that head: `pull_request` checks run against
-  the merge ref as it was when they ran.
+- Before merging a green PR, when `main` moved since its checks ran:
+  - merge `main` into the branch again and wait for the checks on that head if
+    git reports a conflict, or if `main` changed a file that the PR also
+    changes (other than `*.md` and `docs/`);
+  - otherwise run the unit tests on a local merge with `main`, and merge the
+    PR as it is when they pass.
+  Every package build takes long. A build that breaks only in combination
+  shows up on the next pull request; fix `main` at once when it does.
 - Do not make the build jobs required checks in branch protection: docs-only PRs
   (`**.md`, `docs/**`) skip the build, so a required build check would never
   report.

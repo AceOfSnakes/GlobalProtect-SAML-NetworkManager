@@ -10,7 +10,6 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
-import os
 import sys
 
 import pytest
@@ -18,7 +17,11 @@ import pytest
 # Stand-in for gpclient: fails like a portal that needs legacy renegotiation,
 # unless --fix-openssl is passed before the subcommand.
 FAKE_GPCLIENT = r'''
-import sys
+import json, sys
+
+def rec(level, message):
+    sys.stdout.write(json.dumps({"timestamp": "t", "level": level,
+        "target": "gpclient::cli", "message": message}) + "\r\n")
 
 args = sys.argv[1:]
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
@@ -27,22 +30,15 @@ sys.stdout.write("argv: %s\r\n" % " ".join(args))
 if "--fix-openssl" in args:
     # The flag has to come before the subcommand
     assert args.index("--fix-openssl") < args.index("connect"), "flag misplaced"
-    sys.stdout.write(
-        "[INFO  gpclient::connect] Connecting to the only available gateway: "
-        "gw-a (a.example.com)\r\n"
-    )
+    rec("INFO", "Connecting to the only available gateway: gw-a (a.example.com)")
     sys.stdout.flush()
     sys.exit(0)
 
-sys.stdout.write(
-    "[WARN  gpapi::portal::prelogin] Network error: error:0A000152:SSL routines:"
-    "final_renegotiate:unsafe legacy renegotiation disabled\r\n"
-)
-sys.stdout.write(
-    "Error: error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
-    "renegotiation disabled\r\n"
-)
-sys.stdout.write("Re-run it with the `--fix-openssl` option to work around this issue, e.g.:\r\n")
+rec("WARN", "Network error: error:0A000152:SSL routines:"
+    "final_renegotiate:unsafe legacy renegotiation disabled")
+rec("ERROR", "error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
+    "renegotiation disabled")
+rec("ERROR", "Re-run it with the `--fix-openssl` option to work around this issue, e.g.:")
 sys.stdout.flush()
 sys.exit(1)
 '''
@@ -60,27 +56,38 @@ sys.exit(1)
 # Stand-in for a portal the flag does not help with: every launch is recorded
 # in a file (path filled in by the test) and fails with the legacy error
 FAKE_GPCLIENT_ALWAYS_FAILING = r'''
-import sys
+import json, sys
+
+def rec(level, message):
+    sys.stdout.write(json.dumps({"timestamp": "t", "level": level,
+        "target": "gpclient::cli", "message": message}) + "\r\n")
 
 with open("__LAUNCH_LOG__", "a") as log:
     log.write("launch\n")
 
 sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
-sys.stdout.write(
-    "Error: error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
-    "renegotiation disabled\r\n"
-)
-sys.stdout.write("Re-run it with the `--fix-openssl` option to work around this issue, e.g.:\r\n")
+rec("ERROR", "error:0A000152:SSL routines:final_renegotiate:unsafe legacy "
+    "renegotiation disabled")
+rec("ERROR", "Re-run it with the `--fix-openssl` option to work around this issue, e.g.:")
 sys.stdout.flush()
 sys.exit(1)
 '''
 
-# Stand-in that prints one given line (filled in by the test) and fails - the
-# way gpclient 3.x reports a TLS problem
+# Stand-in that prints one given line (filled in by the test), as a log record
+# or, when __RECORD__ is False, as a plain line, and fails - the way gpclient
+# 3.x reports a TLS problem
 FAKE_GPCLIENT_ONE_ERROR_LINE = r'''
-import sys
-sys.stdout.write("[INFO  gpclient::cli] gpclient started: fake\r\n")
-sys.stdout.write(__LINE__ + "\r\n")
+import json, sys
+
+def rec(level, message):
+    sys.stdout.write(json.dumps({"timestamp": "t", "level": level,
+        "target": "gpclient::cli", "message": message}) + "\r\n")
+
+rec("INFO", "gpclient started: fake")
+if __RECORD__:
+    rec("ERROR", __LINE__)
+else:
+    sys.stdout.write(__LINE__ + "\r\n")
 sys.stdout.flush()
 sys.exit(1)
 '''
@@ -125,6 +132,28 @@ def _plugin(service_module, monkeypatch, fake, mode="auto"):
 
 
 class TestOpensslRetry:
+    @pytest.mark.parametrize("disconnect", [True, False])
+    def test_a_disconnect_during_the_retry_reports_no_failure(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, disconnect
+    ):
+        fake = _write_fake(tmp_path, "gpclient.py", FAKE_GPCLIENT_ALWAYS_FAILING.replace(
+            "__LAUNCH_LOG__", str(tmp_path / "launches")))
+        plugin = _plugin(service_module, monkeypatch, fake)
+        calls = []
+
+        async def stop_gpauth():
+            calls.append(1)
+            if disconnect and len(calls) == 2:  # the retry's _start_gpclient
+                plugin._generation += 1
+
+        monkeypatch.setattr(plugin, "_stop_remembered_gpauth", stop_gpauth)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        failures = [s for s in dbus_signals if s[0] == "Failure"]
+        assert (failures == []) is disconnect
+        assert (tmp_path / "launches").read_text().count("launch") == (1 if disconnect else 2)
+
     def test_retries_once_with_the_flag(self, service_module, monkeypatch, tmp_path):
         fake = _write_fake(tmp_path, "gpclient.py", FAKE_GPCLIENT)
         plugin = _plugin(service_module, monkeypatch, fake)
@@ -185,9 +214,14 @@ class TestOpensslRetry:
         assert plugin._openssl_retried is False
         assert plugin._openssl_error_seen is False
         assert any("--fix-openssl" in line for line in plugin._recent_lines)
-        # The stand-in asserts the flag comes before the subcommand and exits 0,
-        # so a clean run (no Failure) also proves the flag position
-        assert dbus_signals == []
+        # The stand-in asserts the flag comes before the subcommand and prints
+        # the "Connecting" line only after that, so the line proves the flag
+        # position. It then exits 0 unasked: the monitor reports that (#52).
+        assert any("Connecting to the only available" in l for l in plugin._recent_lines)
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
 
 
     def test_retry_is_not_repeated_when_flag_does_not_help(
@@ -235,7 +269,9 @@ class TestV3TlsErrors:
         fake = _write_fake(
             tmp_path,
             "gpclient-v3.py",
-            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(V3_LEGACY_TLS_LINE)),
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace(
+                "__LINE__", repr(V3_LEGACY_TLS_LINE)
+            ).replace("__RECORD__", "True"),
         )
         plugin = _plugin(service_module, monkeypatch, fake)
 
@@ -244,6 +280,33 @@ class TestV3TlsErrors:
         assert plugin._openssl_error_seen is True
         assert plugin._openssl_retried is True
         assert plugin.fix_openssl is True
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            V3_LEGACY_TLS_LINE,
+            "unsafe legacy renegotiation disabled",
+            "Re-run it with the `--fix-openssl` option to work around this issue",
+        ],
+    )
+    def test_the_error_as_a_plain_line_does_not_trigger_retry(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, line
+    ):
+        # Only a log record counts, so text the portal controls cannot start
+        # a retry
+        fake = _write_fake(
+            tmp_path,
+            "gpclient-text.py",
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)).replace(
+                "__RECORD__", "False"
+            ),
+        )
+        plugin = _plugin(service_module, monkeypatch, fake)
+
+        asyncio.run(_connect_and_wait(plugin))
+
+        assert plugin._openssl_error_seen is False
+        assert plugin._openssl_retried is False
 
     @pytest.mark.parametrize(
         "line",
@@ -261,7 +324,9 @@ class TestV3TlsErrors:
         fake = _write_fake(
             tmp_path,
             "gpclient-v3-other.py",
-            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)),
+            FAKE_GPCLIENT_ONE_ERROR_LINE.replace("__LINE__", repr(line)).replace(
+                "__RECORD__", "True"
+            ),
         )
         plugin = _plugin(service_module, monkeypatch, fake)
 
@@ -289,11 +354,11 @@ class TestPersistingTheWorkaround:
 
         written = []
 
-        async def record(key, value):
-            written.append((key, value))
+        async def record(data, drop_secrets=()):
+            written.extend(data.items())
             return True
 
-        plugin._write_vpn_data = record
+        plugin._update_profile = record
         return plugin, written
 
     def test_stored_after_a_successful_retry(self, service_module):
@@ -318,20 +383,18 @@ class TestPersistingTheWorkaround:
 
         assert written == []
 
-    def test_nothing_written_without_a_uuid(self, service_module):
+    def test_nothing_written_without_a_uuid(self, service_module, monkeypatch):
         plugin = service_module.GpclientVPNPlugin()
         plugin._openssl_retried = True
         plugin.fix_openssl = True
 
-        async def fail(*_args, **_kwargs):
-            raise AssertionError("nmcli must not be called")
+        def fail(*_args, **_kwargs):
+            raise AssertionError("the profile must not be written")
 
-        original = asyncio.create_subprocess_exec
-        asyncio.create_subprocess_exec = fail
-        try:
-            asyncio.run(plugin._persist_fix_openssl())
-        finally:
-            asyncio.create_subprocess_exec = original
+        monkeypatch.setattr(
+            service_module.NmSettingsInterface, "new_proxy", fail, raising=False
+        )
+        asyncio.run(plugin._persist_fix_openssl())
 
 
 class TestFailureStateTransition:

@@ -18,6 +18,42 @@ gnome-plugins:
 	# Copy built plugins to root for debian packaging
 	cp $(GNOME_DIR)/*.so . 2>/dev/null || true
 
+# Translations (docs/TRANSLATIONS.md): po/LINGUAS lists the languages. Every
+# language has po/<lang>.po (domain NetworkManager-gpclient, GNOME editors and
+# auth dialog) and plugins/plasma/po/<lang>/plasmanetworkmanagement_gpclientui.po
+# (Plasma editor).
+LINGUAS := $(shell sed -e 's/\#.*//' po/LINGUAS 2>/dev/null)
+GNOME_DOMAIN = NetworkManager-gpclient
+PLASMA_DOMAIN = plasmanetworkmanagement_gpclientui
+LOCALE_BUILD = build/locale
+LOCALEDIR ?= /usr/share/locale
+
+# Compile the .po files to $(LOCALE_BUILD)/<lang>/LC_MESSAGES/<domain>.mo; a
+# wrong placeholder or syntax error fails the build
+.PHONY: mo
+mo:
+	@set -e; for lang in $(LINGUAS); do \
+		mkdir -p $(LOCALE_BUILD)/$$lang/LC_MESSAGES; \
+		msgfmt --check-format -c -o $(LOCALE_BUILD)/$$lang/LC_MESSAGES/$(GNOME_DOMAIN).mo po/$$lang.po; \
+		msgfmt --check-format -c -o $(LOCALE_BUILD)/$$lang/LC_MESSAGES/$(PLASMA_DOMAIN).mo plugins/plasma/po/$$lang/$(PLASMA_DOMAIN).po; \
+	done
+
+# Install the .mo files of one domain below $(DESTDIR)$(LOCALEDIR):
+#   make install-mo MO_DOMAIN=NetworkManager-gpclient DESTDIR=<root>
+# The packages split the two domains (core and Plasma package), so the domain is a parameter.
+.PHONY: install-mo
+install-mo: mo
+	@test -n "$(MO_DOMAIN)" || { echo "install-mo: pass MO_DOMAIN=$(GNOME_DOMAIN) or MO_DOMAIN=$(PLASMA_DOMAIN)" >&2; exit 1; }
+	@set -e; for lang in $(LINGUAS); do \
+		install -D -m 644 $(LOCALE_BUILD)/$$lang/LC_MESSAGES/$(MO_DOMAIN).mo \
+			$(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/$(MO_DOMAIN).mo; \
+	done
+
+# Refresh the .pot templates from the sources and merge them into the .po files
+.PHONY: pot
+pot:
+	python3 scripts/update_pot.py
+
 # Build gpclient and gpauth from GlobalProtect-openconnect
 .PHONY: setup-rust
 setup-rust:
@@ -46,16 +82,18 @@ init-submodules:
 	fi
 
 gpclient: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --release --bin gpclient --no-default-features || $(CARGO) build --release --bin gpclient --no-default-features)
+	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpclient || $(CARGO) build --locked --release --bin gpclient)
 	cp $(GPOC_DIR)/target/release/gpclient .
 
 gpauth: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --release --bin gpauth --no-default-features || $(CARGO) build --release --bin gpauth --no-default-features)
+	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpauth || $(CARGO) build --locked --release --bin gpauth)
 	cp $(GPOC_DIR)/target/release/gpauth .
 
 install: all
 	# Install GNOME plugins
 	$(MAKE) -C $(GNOME_DIR) install
+	# Install the translations of the GNOME plugins and the auth dialog
+	$(MAKE) install-mo MO_DOMAIN=$(GNOME_DOMAIN)
 	# Install Python service
 	install -D -m 755 service/nm-gpclient-service.py /usr/lib/NetworkManager/nm-gpclient-service
 	# Install scripts
@@ -68,10 +106,17 @@ install: all
 	install -D -m 755 gpauth /usr/bin/gpauth
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
+	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
+	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
+	# Install D-Bus policy, D-Bus activation file and systemd unit
+	install -D -m 644 config/nm-gpclient.conf /usr/share/dbus-1/system.d/nm-gpclient.conf
+	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
+	install -D -m 644 config/nm-gpclient.service /lib/systemd/system/nm-gpclient.service
 
 clean:
 	$(MAKE) -C $(GNOME_DIR) clean
 	rm -f *.so gpclient gpauth
+	rm -rf $(LOCALE_BUILD)
 
 .PHONY: all install clean
 
@@ -96,12 +141,12 @@ CHECK_NM_VPN_DIR = @case "$(NM_VPN_DIR)" in *//*) echo "NM_VPN_DIR=$(NM_VPN_DIR)
 NM_LIB_DIR = /usr/lib/NetworkManager
 NM_LIBEXEC_DIR = /usr/libexec/gpclient
 DBUS_SERVICES_DIR = /usr/share/dbus-1/system-services
-DBUS_CONF_DIR = /etc/dbus-1/system.d
+DBUS_CONF_DIR = /usr/share/dbus-1/system.d
 SYSTEMD_DIR = /lib/systemd/system
 VPNC_DIR = /etc/vpnc/connect.d
 
 # Build and install for development/testing (requires sudo)
-install-dev: gnome-plugins
+install-dev: gnome-plugins mo
 	$(CHECK_NM_VPN_DIR)
 	@echo "=== Installing GlobalProtect plugin for development ==="
 	@echo "This requires sudo privileges..."
@@ -138,6 +183,9 @@ install-dev: gnome-plugins
 	# Install auth dialog (interactive credentials/RSA token prompts)
 	sudo install -m 755 auth-dialog/nm-gpclient-auth-dialog.py /usr/libexec/nm-gpclient-auth-dialog
 
+	# Install the translations of the GNOME plugins and the auth dialog
+	sudo $(MAKE) install-mo MO_DOMAIN=$(GNOME_DOMAIN)
+
 	# Install D-Bus configuration
 	sudo install -m 644 config/org.freedesktop.NetworkManager.gpclient.service $(DBUS_SERVICES_DIR)/
 	sudo install -m 644 config/nm-gpclient.conf $(DBUS_CONF_DIR)/
@@ -145,8 +193,10 @@ install-dev: gnome-plugins
 	# Install systemd service
 	sudo install -m 644 config/nm-gpclient.service $(SYSTEMD_DIR)/
 
-	# Install vpnc routing hook
+	# Install the vpnc hooks: routing, and the tunnel notification
 	sudo install -m 755 config/90-gpclient-routing $(VPNC_DIR)/
+	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
+	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 
 	@echo "=== Installation complete ==="
 	@echo "Run 'make restart-nm' to restart NetworkManager"
@@ -163,10 +213,12 @@ uninstall-dev:
 	sudo rm -f /usr/lib/libnm-gpclient-properties
 	sudo rm -rf $(NM_LIBEXEC_DIR)
 	sudo rm -f /usr/libexec/nm-gpclient-auth-dialog
+	sudo rm -f $(LOCALEDIR)/*/LC_MESSAGES/$(GNOME_DOMAIN).mo
 	sudo rm -f $(DBUS_SERVICES_DIR)/org.freedesktop.NetworkManager.gpclient.service
 	sudo rm -f $(DBUS_CONF_DIR)/nm-gpclient.conf
 	sudo rm -f $(SYSTEMD_DIR)/nm-gpclient.service
 	sudo rm -f $(VPNC_DIR)/90-gpclient-routing
+	sudo rm -f /etc/vpnc/post-connect.d/90-gpclient-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 	@echo "=== Uninstall complete ==="
 
 # Restart NetworkManager to reload plugins
@@ -205,6 +257,61 @@ test-unit:
 .PHONY: test-coverage
 test-coverage:
 	python3 -m pytest tests/unit -q --cov
+
+# Shell scripts of the repository: every file with a sh/bash shebang outside external/
+# (tests/unit/test_shellcheck.py checks the list).
+SHELL_SCRIPTS := \
+	.github/scripts/build-apt-repo.sh \
+	.github/scripts/build-rpm-repo.sh \
+	.github/scripts/gui-smoke.sh \
+	.github/scripts/neon-repo.sh \
+	.github/scripts/upgrade-test.sh \
+	.github/scripts/verify-release-assets.sh \
+	build-all.sh \
+	config/90-gpclient-routing \
+	config/gpclient-nm-notify \
+	debian/network-manager-gpclient.postinst \
+	debian/network-manager-gpclient.postrm \
+	plugins/plasma/Messages.sh \
+	plugins/plasma/build.sh \
+	rpm/build.sh \
+	rpm/container-build.sh \
+	rpm/install-test.sh \
+	scripts/browser-wrapper.sh \
+	scripts/edge-wrapper.sh \
+	scripts/hide-desktop-entry.sh \
+	scripts/vpnc-script-debug \
+	scripts/install-pr-build.sh \
+	tests/e2e/files/loginctl \
+	tests/e2e/files/make-certs.sh \
+	tests/e2e/install-edge.sh \
+	tests/e2e/install-plugin.sh \
+	tests/e2e/lib.sh \
+	tests/e2e/run.sh \
+	tests/e2e/scenario-auth-cancel.sh \
+	tests/e2e/scenario-gnome.sh \
+	tests/e2e/scenario-kde.sh \
+	tests/e2e/scenario-routing.sh \
+	tests/e2e/scenario-saml-dialog.sh \
+	tests/e2e/session/desktop.sh \
+	tests/e2e/session/start.sh
+
+# Lint the shell scripts with shellcheck (the dialect comes from the shebang);
+# fails on any finding at warning level
+.PHONY: shellcheck
+shellcheck:
+	shellcheck --severity=warning $(SHELL_SCRIPTS)
+
+# Static analysis of the Python code: ruff and mypy, both configured in
+# pyproject.toml (the lint job of tests.yml pins their versions)
+.PHONY: lint
+lint:
+	ruff check .
+	mypy
+
+# Everything that runs without a desktop or network
+.PHONY: check
+check: lint shellcheck test-unit
 
 # Run the upstream contract tests (see docs/UPSTREAM.md)
 .PHONY: test-upstream

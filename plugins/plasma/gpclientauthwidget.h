@@ -14,6 +14,7 @@
 #include <settingwidget.h>
 
 class QLineEdit;
+class QProcess;
 
 class GpclientAuthWidget final : public SettingWidget
 {
@@ -22,9 +23,26 @@ public:
                                 const QStringList &hints,
                                 QWidget *parent = nullptr);
 
+    ~GpclientAuthWidget() override;
+
     QVariantMap setting() const override;
 
 private:
+    /* saml-auth=dialog: plasma-nm shows this widget, not the GNOME auth dialog.
+     * Run gpauth as the user (like auth-dialog/nm-gpclient-auth-dialog.py) and
+     * close the password dialog with the result; nothing is asked. */
+    void startSamlLogin(const QString &hint);
+    void runGpauth(bool fixOpenssl);
+    void finishSamlLogin(const QString &result);
+
+    QProcess *m_gpauth = nullptr;
+    QString m_samlServer;
+    QString m_samlBrowser;
+    QString m_samlBrowserTarget;
+    QString m_samlFixOpenssl;
+    bool m_samlGateway = false;
+    bool m_samlRetried = false;
+    QString m_samlResult;
     QStringList m_secretKeys;
     QHash<QString, QLineEdit *> m_fields;
 };

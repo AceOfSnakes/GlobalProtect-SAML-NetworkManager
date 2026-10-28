@@ -5,6 +5,14 @@ export DH_VERBOSE = 1
 # Defines DEB_HOST_MULTIARCH (x86_64-linux-gnu, aarch64-linux-gnu, ...) of the target
 include /usr/share/dpkg/architecture.mk
 
+# The dpkg build flags (CPPFLAGS, CFLAGS, CXXFLAGS, LDFLAGS) with all hardening
+# options (PIE, full RELRO, BIND_NOW, stack protector, fortify, ...). The
+# override targets below run plain recipes, not dh_auto_*, so dh does not pass
+# the flags to them: they go to the GNOME make and to cmake explicitly (not
+# exported: the Rust build below must not see them).
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/buildflags.mk
+
 # The Qt of the Plasma plugin is the one debian/control (a copy of
 # debian/control.ubuntu<version>) lists in Build-Depends: qtbase5-dev for Qt5,
 # qt6-base-dev for Qt6. Empty when it lists both or none; the build stops then.
@@ -47,7 +55,7 @@ ifneq ($(HAS_CORE),)
 	$(MAKE) init-submodules
 
 	# Build GNOME plugins only (Rust binaries are built separately below)
-	$(MAKE) gnome-plugins
+	$(MAKE) gnome-plugins CPPFLAGS='$(CPPFLAGS)' CFLAGS='$(CFLAGS)' LDFLAGS='$(LDFLAGS)'
 endif
 
 	# Build the Plasma plugin against the Qt that debian/control builds with
@@ -56,14 +64,30 @@ endif
 	@test -n "$(PLASMA_PACKAGE)" || { \
 		echo "debian/control must have exactly one of network-manager-gpclient-plasma and network-manager-gpclient-plasma-6"; exit 1; }
 	mkdir -p plugins/plasma/build
-	cd plugins/plasma/build && cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
+	cd plugins/plasma/build && CFLAGS='$(CFLAGS) $(CPPFLAGS)' CXXFLAGS='$(CXXFLAGS) $(CPPFLAGS)' LDFLAGS='$(LDFLAGS)' cmake .. -DQT_MAJOR_VERSION=$(PLASMA_QT_MAJOR) && $(MAKE)
+
+	# Compile the translations (po/LINGUAS): both catalogs, for every variant
+	$(MAKE) mo
 
 ifneq ($(HAS_CORE),)
-	# Build Rust binaries (gpclient, gpauth, and gpservice)
+	# Build Rust binaries (gpclient and gpauth)
 	# Cargo will reuse compiled dependencies from target cache volume
-	# Only local crates (gpauth, gpclient, gpservice, gpapi, common, openconnect) will be recompiled
-	@echo "Building gpclient, gpauth, and gpservice (reusing cached dependencies)..."
-	cd external/GlobalProtect-openconnect && cargo build --release --bin gpclient --bin gpauth --bin gpservice
+	# Only local crates (gpauth, gpclient, gpapi, common, openconnect) will be recompiled
+	@echo "Building gpclient and gpauth (reusing cached dependencies)..."
+	cd external/GlobalProtect-openconnect && cargo build --locked --release --bin gpclient --bin gpauth
+endif
+
+# Run the QtTest of the Plasma settings widget (plugins/plasma/tests) in the
+# build made above; there is no other test in this build. QT_QPA_PLATFORM is set
+# by ctest (offscreen), so no display is needed. Skipped for nocheck and for
+# cross builds (the test binary is built for the host architecture).
+override_dh_auto_test:
+ifneq ($(filter nocheck,$(DEB_BUILD_OPTIONS)),)
+	@echo "nocheck: not running the Plasma widget test"
+else ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	@echo "cross build ($(DEB_BUILD_GNU_TYPE) to $(DEB_HOST_GNU_TYPE)): not running the Plasma widget test"
+else
+	cd plugins/plasma/build && ctest --output-on-failure --no-tests=error
 endif
 
 override_dh_auto_install:
@@ -91,17 +115,24 @@ ifneq ($(HAS_CORE),)
 	# Install auth dialog (interactive credentials/RSA token prompts, GTK)
 	install -D -m 755 auth-dialog/nm-gpclient-auth-dialog.py \
 		$(CURDIR)/debian/network-manager-gpclient-gnome/usr/libexec/nm-gpclient-auth-dialog
+
+	# Install the translations of the GNOME plugins and the auth dialog
+	# (/usr/share/locale/<lang>/LC_MESSAGES/NetworkManager-gpclient.mo)
+	$(MAKE) install-mo MO_DOMAIN=NetworkManager-gpclient DESTDIR=$(CURDIR)/debian/network-manager-gpclient
 endif
 
 	# Install Plasma plugin (into network-manager-gpclient-plasma, or into
 	# network-manager-gpclient-plasma-6 of the KDE neon variant)
 	# Plugin install path depends on the Qt major version we built against:
 	#   Qt5 (Ubuntu 22.04/24.04): /usr/lib/<multiarch>/qt5/plugins/...
-	#   Qt6 (Ubuntu 24.10/26.04, KDE neon on 24.04): /usr/lib/<multiarch>/qt6/plugins/...
+	#   Qt6 (Ubuntu 26.04, KDE neon on 24.04): /usr/lib/<multiarch>/qt6/plugins/...
 	install -D -m 644 plugins/plasma/build/plasmanetworkmanagement_gpclientui.so \
 		$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.so
 	install -D -m 644 plugins/plasma/plasmanetworkmanagement_gpclientui.json \
 		$(CURDIR)/debian/$(PLASMA_PACKAGE)/usr/lib/$(DEB_HOST_MULTIARCH)/qt$(PLASMA_QT_MAJOR)/plugins/plasma/network/vpn/plasmanetworkmanagement_gpclientui.json
+	# Install the translations of the Plasma plugin
+	# (/usr/share/locale/<lang>/LC_MESSAGES/plasmanetworkmanagement_gpclientui.mo)
+	$(MAKE) install-mo MO_DOMAIN=plasmanetworkmanagement_gpclientui DESTDIR=$(CURDIR)/debian/$(PLASMA_PACKAGE)
 	# KF5 used a .desktop service file (/usr/share/kservices5); KF6 dropped that
 	# mechanism and reads only the embedded JSON metadata, so we skip the file there.
 	@if [ "$(PLASMA_QT_MAJOR)" = 5 ]; then \
@@ -122,7 +153,7 @@ ifneq ($(HAS_CORE),)
 
 	# Install systemd service file
 	install -D -m 644 config/nm-gpclient.service \
-		$(CURDIR)/debian/network-manager-gpclient/lib/systemd/system/nm-gpclient.service
+		$(CURDIR)/debian/network-manager-gpclient/usr/lib/systemd/system/nm-gpclient.service
 
 	# Install D-Bus service file for automatic activation
 	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service \
@@ -130,30 +161,42 @@ ifneq ($(HAS_CORE),)
 
 	# Install D-Bus policy file
 	install -D -m 644 config/nm-gpclient.conf \
-		$(CURDIR)/debian/network-manager-gpclient/etc/dbus-1/system.d/nm-gpclient.conf
+		$(CURDIR)/debian/network-manager-gpclient/usr/share/dbus-1/system.d/nm-gpclient.conf
 
 	# Create compatibility symlink for old path
 	mkdir -p $(CURDIR)/debian/network-manager-gpclient/usr/libexec/NetworkManager
 	ln -sf /usr/lib/NetworkManager/nm-gpclient-service \
 		$(CURDIR)/debian/network-manager-gpclient/usr/libexec/NetworkManager/gpclient-nm-service
 
-	# Install Rust binaries (gpclient, gpauth, and gpservice)
+	# Install Rust binaries (gpclient and gpauth)
 	install -D -m 755 external/GlobalProtect-openconnect/target/release/gpclient \
 		$(CURDIR)/debian/network-manager-gpclient/usr/bin/gpclient
 	install -D -m 755 external/GlobalProtect-openconnect/target/release/gpauth \
 		$(CURDIR)/debian/network-manager-gpclient/usr/bin/gpauth
-	install -D -m 755 external/GlobalProtect-openconnect/target/release/gpservice \
-		$(CURDIR)/debian/network-manager-gpclient/usr/bin/gpservice
 
 	# Install .desktop file for URL handler registration (globalprotectcallback://)
 	install -D -m 644 external/GlobalProtect-openconnect/packaging/files/usr/share/applications/gpgui.desktop \
 		$(CURDIR)/debian/network-manager-gpclient/usr/share/applications/gpgui.desktop
+	# Keep the MIME handler, hide the "GP Connect" menu entry (gpgui is not shipped)
+	scripts/hide-desktop-entry.sh $(CURDIR)/debian/network-manager-gpclient/usr/share/applications/gpgui.desktop
 
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing \
 		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/connect.d/90-gpclient-routing
+	# Install vpnc hook that tells the service the tunnel is up (post-connect and
+	# reconnect: vpnc-script has configured the tunnel then)
+	install -D -m 755 config/gpclient-nm-notify \
+		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/post-connect.d/90-gpclient-notify
+	install -D -m 755 config/gpclient-nm-notify \
+		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/reconnect.d/90-gpclient-notify
 endif
 
+
+# NetworkManager starts the service (or D-Bus activates it): not at boot, and
+# no restart on upgrade (the preinst from debhelper and the postinst stop the old
+# process; NetworkManager starts the new one)
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --no-restart-after-upgrade
 
 override_dh_auto_clean:
 	$(MAKE) clean || true

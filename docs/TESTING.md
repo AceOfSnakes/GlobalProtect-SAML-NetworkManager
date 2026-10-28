@@ -57,7 +57,7 @@ last release" of `.github/workflows/build-release.yml` starts a fresh
 `ubuntu:<version>` container, installs the newest release from the public apt
 repository (scenarios `gnome` and `plasma`; `plasma` also checks that the editor
 plugin is in the Qt directory of the release: `qt5` on 22.04 and 24.04, `qt6` on
-24.10 and 26.04; the scenario `neon` does the same for
+26.04; the scenario `neon` does the same for
 `network-manager-gpclient-plasma-6` on KDE neon, see below), then runs
 `apt upgrade` to the new `.deb` files (in the `neon` scenario only the installed
 `network-manager-gpclient*` packages are upgraded, not the base system of the neon
@@ -65,11 +65,13 @@ repository) and checks that nothing is kept back,
 removed or half-configured (`.github/scripts/upgrade-test.sh`, judged by
 `.github/scripts/check_upgrade.py`). Before the upgrade it checks that the build
 is newer than the release (`dpkg --compare-versions`). When the release has no
-such package for that Ubuntu version or architecture (no suite for 24.10, no
+such package for that Ubuntu version or architecture (no suite for a new Ubuntu version, no
 arm64 builds), there is nothing to upgrade from: the script says so, installs the
 package from the new `.deb` files instead and checks the result the same way
 (`check_upgrade.py --fresh`). The step does not run for tags, so a network
-failure cannot block a release. To run it by hand
+failure cannot block a release. After the checks the script also imports `sdbus` with
+the system `python3`, removes and purges the installed packages (no conffile may
+remain) and installs them again. To run it by hand
 against built packages (it needs network access and changes only the container):
 
 ```bash
@@ -92,11 +94,22 @@ connection editor starts:
   shows the gateway, the preferred gateway and the two gateways of the list, the
   username, the authentication mode, the "Address is a gateway" check button
   and the connect timeout (a spin button showing the `vpn.timeout` of the test
-  connection). It then runs the save scenarios of `TIMEOUT_CASES` in
-  `gui_smoke_lib.py`: a new profile starts with 180 s for browser login and 0
-  for username and password (until the user sets a value), an existing profile
-  keeps its value, and `update_connection()` writes the shown value to
-  `vpn.timeout`.
+  connection). It then runs the 15 save scenarios of `TIMEOUT_CASES` in
+  `gui_smoke_lib.py`. Each one shows the editor in its own window and applies
+  steps: choose an authentication mode, set the spin button value, or type text
+  into it without committing it. A new profile starts with 360 s for browser
+  login and 0 for username and password (until the user sets a value). An
+  existing profile keeps its value, and a stored 0 that the user has not changed
+  changes to 360 s when the
+  user chooses browser login. Two scenarios store a value above 2^31 (3000000000
+  and 4294967295, the largest `guint32`) and expect it to survive a save. Three
+  scenarios type a sign or a number out of range without committing it: `+90`
+  saves 90, `-5` saves 0 and `99999999999999999999` saves 4294967295 (GTK parses
+  the text with `g_strtod` and clamps it to the range). The
+  checks are: the number shown, the
+  `vpn.timeout` that `update_connection()` writes (also for typed text), a
+  "changed" signal after every user action (GNOME Settings enables Apply only
+  on it), and no "changed" signal during `update_connection()`.
   It runs for GTK3 and, where the package ships the GTK4 editor (not on 22.04),
   for GTK4 in a second process.
 - **KDE neon** (`neon`): installs `network-manager-gpclient-plasma-6` in an
@@ -113,12 +126,47 @@ connection editor starts:
   the test. PyQt5 cannot read the metadata of a loaded plugin, so the JSON file
   next to the plugin is checked then. There is **no screenshot**: showing the
   Plasma editor needs a small C++ harness against plasma-nm, a possible follow-up.
+  The widget itself runs in a QtTest (`plugins/plasma/tests/gpclientwidgettest.cpp`)
+  (and its SAML login in `gpclientauthwidgettest.cpp`, with a fake gpauth)
+  that `ctest` runs in the package build (`override_dh_auto_test` in
+  `debian/rules`), not in this smoke test.
 
 The screenshots (`gnome-gtk3-<codename>-<arch>.png`, `gnome-gtk4-...png`) are in
 the artifact `gui-smoke-ubuntu-<ubuntu>-<arch>` of the workflow run (step "Upload
 GUI screenshots", also after a failed run). The pure logic of the probes is in
 `.github/scripts/gui_smoke_lib.py`, tested by `tests/unit/test_gui_smoke.py`; the
 GTK and Qt parts themselves run only in CI.
+
+## End-to-end tests
+
+`tests/e2e/` runs the plugin on a real desktop in Docker: GNOME 46 (Ubuntu
+24.04) or KDE Plasma 6.6 (Ubuntu 26.04), real NetworkManager and
+systemd-resolved, the editor plugins, the VPN service and Microsoft Edge started
+by the browser wrapper. Only `gpclient`/`gpauth` (they run the real
+`vpnc-script`) and the sign-in site are fakes. The scenarios click through the
+real UI (add the VPN, connect, sign in), and a check step in the container
+fails the run when something is wrong: VPN not active, wrong tunnel address,
+Edge not started as the desktop user or not closed, wrong routes or DNS (full
+tunnel against "only for resources on its network"), errors in the service
+log, or leftovers after the disconnect. A negative scenario closes the sign-in
+window and expects a clean failure.
+
+```bash
+tests/e2e/run.sh all            # gnome, kde, routing, auth-cancel, saml-dialog (about 25 min with the builds)
+tests/e2e/run.sh gnome --webp   # also makes docs/images/demo-gnome.webp
+```
+
+Docker with privileged containers and an amd64 host are needed. The results are
+in `tests/e2e/out/<scenario>/` (`results.json`, logs, screenshots, `raw.mp4`).
+The workflow `e2e.yml` runs the same by hand (Actions tab) or when a pull
+request gets the label `e2e`. See `tests/e2e/README.md`.
+
+## Static analysis
+
+`make lint` runs `ruff check` and `mypy` (configured in `pyproject.toml`; the
+`lint` job of `tests.yml` runs it with pinned versions of both tools). `make check`
+runs `make lint`, `make shellcheck` and `make test-unit`. To run `make lint` before
+each commit: `pre-commit install` (`.pre-commit-config.yaml`).
 
 ## Upstream tests
 

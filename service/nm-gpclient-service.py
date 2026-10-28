@@ -10,25 +10,32 @@ Rewritten using python-sdbus for proper D-Bus interface implementation.
 
 import asyncio
 import codecs
+import dataclasses
 import fcntl
+import functools
+import hmac
 import ipaddress
+import json
 import logging
 import os
 import pty
 import re
+import secrets
 import shutil
 import signal
-import socket
+import stat
+import string
 import struct
 import subprocess
 import sys
+import tempfile
 import termios
 import unicodedata
 from collections import deque
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from sdbus import (
+    DbusFailedError,
     DbusInterfaceCommonAsync,
     dbus_method_async,
     dbus_property_async,
@@ -49,6 +56,16 @@ logger.setLevel(logging.INFO)
 NM_DBUS_SERVICE_GPCLIENT = "org.freedesktop.NetworkManager.gpclient"
 NM_DBUS_INTERFACE_VPN = "org.freedesktop.NetworkManager.VPN.Plugin"
 NM_DBUS_PATH_GPCLIENT = "/org/freedesktop/NetworkManager/VPN/Plugin"
+# Our own interface on the same object: the vpnc hook tells the service that
+# the tunnel is up (see "The tunnel notification" below)
+NM_DBUS_INTERFACE_TUNNEL = "org.freedesktop.NetworkManager.gpclient.Tunnel"
+
+# NetworkManager's own API, used to write the connection profile
+NM_DBUS_SERVICE = "org.freedesktop.NetworkManager"
+NM_DBUS_INTERFACE_SETTINGS = "org.freedesktop.NetworkManager.Settings"
+NM_DBUS_PATH_SETTINGS = "/org/freedesktop/NetworkManager/Settings"
+NM_DBUS_INTERFACE_CONNECTION = "org.freedesktop.NetworkManager.Settings.Connection"
+PROFILE_UPDATE_TIMEOUT = 10  # seconds for all D-Bus calls of one profile write
 
 # VPN Plugin states
 NM_VPN_SERVICE_STATE_UNKNOWN = 0
@@ -64,61 +81,89 @@ NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED = 0
 NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED = 1
 NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG = 2
 
-# --- Tunnel interface detection ---------------------------------------------
-#
-# The tunnel our gpclient brings up is either gpd0 (created exclusively by
-# gpclient) or a kernel-assigned tunN device - openconnect falls back to the
-# latter, and N is simply the first free number. A fixed candidate list used
-# to be enough, but it caps how many *foreign* tunN VPNs may be up at once:
-# with two other tun-based VPNs already holding tun0 and tun1, our own tunnel
-# lands on tun2, which no fixed list predicted, so detection polled forever
-# until NetworkManager's vpn.timeout killed the connection (issue #13).
-#
-# So the candidates are discovered at runtime instead. The safety work is done
-# by the pre-existing-interface snapshot (issue #7) and by matching the tunnel
-# against the file descriptors our own gpclient process holds - not by the
-# length of a hardcoded list.
 NET_SYSFS_PATH = "/sys/class/net"
 PROC_PATH = "/proc"
 
-# gpdN / tunN, and nothing else: "tunl0" (the always-present IPIP tunnel
-# device) must not be mistaken for a VPN tunnel.
-TUNNEL_INTERFACE_RE = re.compile(r"^(?P<kind>gpd|tun)(?P<index>\d+)$")
-
-# gpd first (only gpclient creates those), then tunN by number
-TUNNEL_INTERFACE_KIND_ORDER = ("gpd", "tun")
-
 GPCLIENT_BINARY = "/usr/bin/gpclient"
 
-# --- VPN DNS handed back from vpnc-script -----------------------------------
+# --- The tunnel notification (issue #53) --------------------------------------
 #
-# The DNS servers and search domains the gateway pushes are applied by
-# vpnc-script directly to systemd-resolved, and NetworkManager never learns
-# about them: it sees an assumed tunnel device with an empty DNS configuration.
-# The next time NetworkManager recomputes DNS for an unrelated reason (an IPv6
-# router advertisement on the physical interface is enough) it pushes that
-# empty configuration to systemd-resolved, wiping the VPN resolver while the
-# tunnel keeps running (issue #15).
+# vpnc-script, which gpclient (openconnect) runs as root, configures the tunnel:
+# address, routes and DNS. The service does not look for the tunnel. Our hook
+# /etc/vpnc/post-connect.d/90-gpclient-notify (also in reconnect.d) runs this
+# program as `nm-gpclient-service --vpnc-notify`, which calls Notify() of the
+# Tunnel interface with the reason and the vpnc environment. The service reports
+# the tunnel to NetworkManager from that environment: the address, the VPN
+# server, the MTU and the DNS the gateway pushed (the split-DNS domains as
+# routing-only "~domain"), so NetworkManager owns the resolver state and
+# reapplies it on every recalculation (issue #15).
 #
-# Our /etc/vpnc/connect.d hook therefore records INTERNAL_IP4_DNS,
-# CISCO_DEF_DOMAIN and CISCO_SPLIT_DNS in this file (the path is handed to
-# gpclient in the environment), and tunnel detection reports them to
-# NetworkManager in Ip4Config - so NetworkManager owns the resolver state and
-# reapplies the same servers on every recalculation.
-DNS_STATE_DIR = "/run/nm-gpclient"
-DNS_STATE_FILE = f"{DNS_STATE_DIR}/dns-state"
-DNS_STATE_ENV = "GPCLIENT_NM_DNS_STATE"
-
-# The hook runs before vpnc-script assigns the tunnel address, so the file is
-# normally there by the time the interface has an IP. Should it lag (or be
-# missing because the hook is not installed) detection waits at most this many
-# 500 ms rounds and then reports the tunnel without learned DNS.
-DNS_STATE_WAIT_ROUNDS = 4
+# The service hands the hook two variables in gpclient's environment: the path of
+# this program and a token, new for every start of gpclient. The token is not a
+# secret: gpauth and the browser run as the desktop user and inherit it. The
+# D-Bus policy (only root may call the service) is the barrier; the token only
+# ties a call to the current gpclient session, not to a stale or foreign root
+# process. Notify() takes no call without the current token.
+NOTIFY_PROGRAM_ENV = "GPCLIENT_NM_NOTIFY"
+NOTIFY_TOKEN_ENV = "GPCLIENT_NM_TOKEN"  # noqa: S105  # a variable name, not a token
+# The file NetworkManager started: the hook runs it again with --vpnc-notify
+SERVICE_PROGRAM = os.path.realpath(__file__)
+# vpnc-script reasons the service handles: the first one after vpnc-script
+# configured the tunnel (post-connect), and a later one for the same tunnel
+VPNC_REASON_CONNECT = "connect"
+VPNC_REASON_RECONNECT = "reconnect"
+VPNC_NOTIFY_REASONS = (VPNC_REASON_CONNECT, VPNC_REASON_RECONNECT)
+# The vpnc variables --vpnc-notify sends, and nothing else of its environment
+VPNC_NOTIFY_ENV = (
+    "TUNDEV",
+    "VPNGATEWAY",
+    "INTERNAL_IP4_ADDRESS",
+    "INTERNAL_IP4_NETMASK",
+    "INTERNAL_IP4_NETMASKLEN",
+    "INTERNAL_IP4_MTU",
+    "INTERNAL_IP4_DNS",
+    "INTERNAL_IP6_ADDRESS",
+    "INTERNAL_IP6_NETMASK",
+    "INTERNAL_IP6_DNS",
+    "CISCO_DEF_DOMAIN",
+    "CISCO_SPLIT_DNS",
+)
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
-OTP_SECRET_KEY = "otp"
+OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
+# Secret name of the passphrase of the client certificate key (vpn.secrets)
+CERT_PASS_SECRET_KEY = "cert-pass"  # noqa: S105  # a D-Bus secret name, not a password
+# Passphrase prompts answered per connection attempt before the login fails
+CERT_PASS_MAX_TRIES = 3
+# The passphrase prompt of gpclient (contract item passphrase-prompt); the type
+# is "PEM" or "PKCS#12". Only this label is the key passphrase: the VPN
+# password must never be typed there, and the key passphrase never at a login
+# prompt.
+CERT_PASS_PROMPT_RE = re.compile(r"Enter the (?:PEM|PKCS#12) passphrase", re.IGNORECASE)
 # Tries per connection to mark the code as not-saved in the profile
 OTP_FLAG_MAX_ATTEMPTS = 2
+
+# --- SAML in the auth dialog (saml-auth=dialog, issue #125) ------------------
+#
+# The dialog runs gpauth as the desktop user and hands the result back as the
+# secret below: the JSON line that gpauth prints (SamlAuthResult of
+# crates/gpapi/src/auth.rs). gpclient reads it as its first stdin line
+# (connect --cookie-on-stdin). The value comes from a process outside the
+# service, so parse_auth_result checks every part of it.
+SAML_RESULT_KEY = "gpauth-result"
+# Secret names the service itself asks for
+KNOWN_SECRET_KEYS = (
+    "username", "password", OTP_SECRET_KEY, CERT_PASS_SECRET_KEY, SAML_RESULT_KEY
+)
+# The reply of the dialog for a portal that is not a SAML portal
+SAML_RESULT_STANDARD = "standard"
+SAML_HINT_PREFIX = "x-gp-saml:"
+SAML_RESULT_MAX_BYTES = 16 * 1024
+SAML_RESULT_FIELDS = frozenset(
+    {"username", "preloginCookie", "portalUserauthcookie", "token", "hostId"}
+)
+# gpclient starts gpauth itself when the gateway needs its own SAML login
+SAML_GATEWAY_LAUNCH_RE = re.compile(r"^SAML auth launch: gateway=true\b")
 
 # --- Legacy TLS renegotiation ------------------------------------------------
 #
@@ -142,6 +187,10 @@ OPENSSL_LEGACY_ERROR_RE = re.compile(
     r"|requires unsafe legacy TLS renegotiation"
     r"|--fix-openssl"
 )
+
+# gpclient's error when --gateway names a gateway the portal does not list
+# (apps/gpclient/src/connect/mod.rs): we restart once without the option
+GATEWAY_NOT_FOUND_RE = re.compile(r"Cannot find gateway specified")
 
 # --- Internal network ---------------------------------------------------------
 #
@@ -174,6 +223,19 @@ INTERNAL_NETWORK_RE = re.compile(
 # timeout, so it needs more than 5 s before we may SIGKILL it (a cut logout
 # leaves a stale lock on the gateway)
 GPCLIENT_TERMINATE_TIMEOUT = 10
+# Exit when no session exists for this many seconds (not with --persist)
+IDLE_EXIT_TIMEOUT = 180
+
+# NetworkManager starts the program= of the .name file itself (g_spawn_async in
+# nm-vpn-connection.c), not through D-Bus activation, so the service would run
+# in NetworkManager's cgroup with its sandbox (no CAP_SYS_ADMIN, read-only
+# /home: the SAML browser crashes). Started that way, it hands over to its
+# own unit. Only NetworkManager sets NM_VPN_LOG_SYSLOG.
+SYSTEMD_RUNTIME_DIR = "/run/systemd/system"  # exists when systemd is PID 1
+SERVICE_UNIT = "nm-gpclient.service"
+UNIT_START_TIMEOUT = 4  # NetworkManager waits 5 s for the bus name
+# How long our own gpauth processes get to exit after SIGTERM before SIGKILL
+GPAUTH_TERMINATE_TIMEOUT = 2
 
 # How long we wait for the user to answer an interactive secrets request
 # (NewSecrets from NetworkManager) before giving up.
@@ -183,38 +245,6 @@ SECRETS_REQUEST_TIMEOUT = 300
 # gpclient (inquire) renders prompts incrementally; the debounce avoids
 # reacting to half-rendered lines.
 PROMPT_DEBOUNCE_SECONDS = 0.5
-
-# --- Session environment ----------------------------------------------------
-#
-# NetworkManager starts this service with a bare environment, so gpauth - and
-# through it the SAML browser - has no way to reach the display server unless
-# we import these from the running session. Passing only DISPLAY=:0 (what we
-# used to do) is wrong on Wayland: the browser silently failed to open a window
-# for every browser except the wrapped Edge, which reconstructs the session
-# environment itself (issue #7).
-SESSION_ENV_KEYS = (
-    "DISPLAY",
-    "WAYLAND_DISPLAY",
-    "XAUTHORITY",
-    "XDG_RUNTIME_DIR",
-    "DBUS_SESSION_BUS_ADDRESS",
-    "XDG_SESSION_TYPE",
-    "XDG_CURRENT_DESKTOP",
-)
-
-# Processes whose environment describes the graphical session, most specific
-# first ("systemd" is the per-user manager and carries only a subset).
-SESSION_LEADER_PROCESSES = (
-    "gnome-shell",
-    "plasmashell",
-    "gnome-session-binary",
-    "kwin_wayland",
-    "xfce4-session",
-    "cinnamon-session",
-    "mate-session",
-    "sway",
-    "systemd",
-)
 
 # --- Browser resolution -----------------------------------------------------
 #
@@ -247,6 +277,56 @@ GPCLIENT_BROWSER_MODES = ("auto", "manual", "remote")
 WRAPPED_BROWSER_PATH_RE = re.compile(
     r"^/usr/bin/(?:microsoft-edge\S*|google-chrome\S*|chromium\S*|firefox\S*)$"
 )
+
+# A user's own wrapper: an absolute path without whitespace or control chars
+CUSTOM_BROWSER_PATH_RE = re.compile(r"^/[^\s\x00-\x1f\x7f]*$")
+
+# A browser command on PATH (brave-browser, opera): one plain word, no slash
+# and no leading dash, so it can never become a gpclient option
+BARE_BROWSER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+# Profile values that must not reach the gpclient command line
+UNSAFE_GATEWAY_RE = re.compile(r"[\s\x00-\x1f\x7f]")
+UNSAFE_USERNAME_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def is_unsafe_username(username: str) -> bool:
+    """A username must not look like a gpclient option or hold control chars"""
+    return username.startswith("-") or bool(UNSAFE_USERNAME_RE.search(username))
+
+
+def parse_auth_result(text: str) -> str:
+    """The one-line JSON of a successful gpauth result, or ValueError.
+
+    Accepts only {"success": {username, preloginCookie, portalUserauthcookie,
+    token, hostId}}: a cancelled or failed login, an unknown key, a control
+    character or a short cookie is rejected. The result is serialized again
+    (ASCII, no whitespace), so no newline can reach gpclient's stdin.
+    """
+    if len(text.encode("utf-8", "replace")) > SAML_RESULT_MAX_BYTES:
+        raise ValueError("the result is too long")
+    try:
+        result = json.loads(text)
+    except (ValueError, RecursionError):
+        raise ValueError("the result is not JSON") from None
+    if not isinstance(result, dict) or list(result) != ["success"]:
+        raise ValueError("the login did not succeed")
+    data = result["success"]
+    if not isinstance(data, dict) or not set(data) <= SAML_RESULT_FIELDS:
+        raise ValueError("unexpected fields in the result")
+    for value in data.values():
+        if value is not None and (
+            not isinstance(value, str) or UNSAFE_USERNAME_RE.search(value)
+        ):
+            raise ValueError("a field of the result is not plain text")
+    username = data.get("username")
+    if not username or is_unsafe_username(username):
+        raise ValueError("the result has no valid username")
+    if not any(
+        len(data.get(key) or "") > 5 for key in ("preloginCookie", "portalUserauthcookie")
+    ):
+        raise ValueError("the result has no cookie")
+    return json.dumps(result, separators=(",", ":"))
 
 # Fallback when the wrapper is missing (service upgraded, wrapper not yet
 # installed): let gpclient launch the browser directly
@@ -297,8 +377,36 @@ SELECT_REDRAW_TIMEOUT = 1.5
 SELECT_POLL_INTERVAL = 0.05
 
 # Separator for the cached gateway list in vpn.data. Commas cannot be used:
-# `nmcli connection modify ... +vpn.data` splits key=value pairs on them.
+# `nmcli connection modify ... +vpn.data`, which users run on the profile,
+# splits key=value pairs on them.
 GATEWAY_LIST_SEPARATOR = ";"
+
+def parse_log_record(line: str) -> Optional[Dict[str, str]]:
+    """The log record of one line of `gpclient --log-format json`, else None.
+
+    Upstream writes every `log` record as one JSON object with the strings
+    timestamp, level, target and message (crates/gpapi/src/log_format.rs); the
+    C messages of openconnect come the same way. println! output and the
+    prompts are not records and stay plain text, so None means "a text line"
+    (upstream's error report and its hints, e.g. "--fix-openssl", are records).
+    JSON escapes let ANSI sequences and control characters through the PTY
+    reader, so they are removed here as strip_ansi does for a text line. A
+    newline or carriage return in the message is escaped, so a record never
+    spans several lines in our log or in a matcher.
+    """
+    if not line.startswith("{"):
+        return None
+    try:
+        record = json.loads(line)
+    except (ValueError, RecursionError):  # deep nesting: a line the portal controls
+        return None
+    if not isinstance(record, dict):
+        return None
+    if not all(isinstance(record.get(k), str) for k in ("level", "target", "message")):
+        return None
+    message = strip_ansi(record["message"]).replace("\n", "\\n").replace("\r", "\\r")
+    return {"level": record["level"], "target": record["target"], "message": message}
+
 
 # gpclient logs the gateway it picked when it did not have to ask
 GATEWAY_CHOSEN_RE = re.compile(
@@ -329,6 +437,34 @@ def parse_gateway_count(line: str) -> Optional[int]:
 def parse_stored_gateway_count(value: str) -> Optional[int]:
     """vpn.data gateway-list-count as a number; None if absent or garbled"""
     return _gateway_count_value(value.strip())
+
+
+# MTU of the tunnel (vpn.data mtu). gpclient --mtu reaches openconnect as the
+# requested MTU. openconnect uses it ONLY when the gateway sends no MTU of its
+# own (it then logs "No MTU received. Calculated N ..."); a gateway MTU wins.
+# openconnect raises values below 576 to 576, and so does this code.
+MTU_MIN = 576
+MTU_MAX = 1500
+MTU_SPACE = " \t\n\r\f\v"  # the only whitespace that is stripped
+
+
+def parse_mtu(text: str) -> Optional[int]:
+    """vpn.data mtu as a number: 0 = automatic (empty text or only zeros),
+    MTU_MIN..MTU_MAX otherwise (smaller values are raised to MTU_MIN), None
+    when the text is invalid (sign, dot, inner space, non-ASCII digits, more
+    than MTU_MAX). The same rule is in the editors (nm_gpclient_mtu_parse in
+    plugins/gnome/nm-gpclient-mtu.h, -1 there is None here)."""
+    value = text.strip(MTU_SPACE)
+    if not value:
+        return 0
+    if not (value.isascii() and value.isdigit()):
+        return None
+    digits = value.lstrip("0")
+    if not digits:
+        return 0
+    if len(digits) > 4 or int(digits) > MTU_MAX:
+        return None
+    return max(int(digits), MTU_MIN)
 
 
 # --- Interactive prompt detection -------------------------------------------
@@ -544,6 +680,30 @@ def detect_prompt(tail: str, last_answer: str = "") -> Optional[str]:
     return label or None
 
 
+def detect_screen_prompt(
+    lines: Sequence[str], cursor_row: int, last_answer: str = ""
+) -> Optional[Tuple[int, str]]:
+    """Detect a pending inquire text prompt on the screen rows.
+
+    inquire parks the cursor on the prompt row, so the prompt is the row at the
+    cursor. Rows below it (an error message, the help line) are never looked at.
+    When the cursor row is empty - the prompt line was terminated with a newline
+    and the cursor moved on - the nearest non-empty row above it is the
+    candidate. Rows are looked at one by one: a label above the cursor row is
+    not joined to it.
+
+    Returns (row index, label) or None. The label is classified by
+    detect_prompt().
+    """
+    if not 0 <= cursor_row < len(lines):
+        return None
+    for index in range(cursor_row, -1, -1):
+        if lines[index].strip():
+            label = detect_prompt(lines[index], last_answer)
+            return None if label is None else (index, label)
+    return None
+
+
 def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
     """Split a label into words and each word into sub-words.
 
@@ -558,6 +718,165 @@ def split_label(text: str) -> List[Tuple[str, List[Tuple[str, int, int]]]]:
         ]
         words.append((run.group(), subs))
     return words
+
+
+HIDDEN = "<hidden>"
+
+
+def validate_cert_path(name: str, path: str) -> str:
+    """The client certificate or key file `path` of vpn.data key `name`.
+
+    Raises ValueError when it is not an absolute path or holds a control
+    character. The file itself is read by gpclient (and gpauth, as the desktop
+    user), which report a missing or unreadable file.
+    """
+    if not os.path.isabs(path) or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise ValueError(f"{name} must be an absolute path")
+    return path
+
+
+CERT_FILE_MAX_BYTES = 1024 * 1024
+# Parent of the private copies of the certificate files; each connection
+# attempt gets a directory of its own below it
+CERT_COPY_ROOT = "/run/nm-gpclient"
+
+
+def _cert_copy_root() -> str:
+    """CERT_COPY_ROOT, created (root, 0711) if missing; ValueError when it is
+    not a plain directory of root that others cannot write to"""
+    try:
+        os.mkdir(CERT_COPY_ROOT, 0o711)
+    except FileExistsError:
+        pass
+    except OSError as e:
+        raise ValueError(f"cannot create {CERT_COPY_ROOT}: {e.strerror or e}") from e
+    info = os.lstat(CERT_COPY_ROOT)  # lstat: a symbolic link is refused
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise ValueError(f"{CERT_COPY_ROOT} is not a directory of this service")
+    return CERT_COPY_ROOT
+
+
+def copy_cert_file(name: str, path: str, uid: int, directory: str) -> str:
+    """Copy the certificate or key file `path` into `directory`; return the copy.
+
+    gpclient runs as root and reads the file again and again, so it gets a
+    private copy and never the path of the user (no swap for a link to a root-only
+    key, /dev/zero or a FIFO after the check). Guaranteed: the user's file is
+    opened once (O_NONBLOCK, so a FIFO does not block; links are followed) and
+    all checks are made on that open file: a regular file of the desktop user
+    `uid`, at most 1 MiB. The copy is in a root-owned directory the user cannot
+    write, owned by `uid` (gpauth runs as that user), mode 0400, with the
+    extension of the original: upstream reads .p12 and .pfx as PKCS#12, any other
+    as PEM. Not guaranteed: the content is the user's, gpclient checks it.
+    """
+    if uid == 0:
+        raise ValueError(f"{name}: no desktop user was found, no file is read")
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC)
+    except OSError as e:
+        raise ValueError(f"{name}: cannot read the file: {e.strerror or e}") from e
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"{name}: {path} is not a regular file")
+        if info.st_uid != uid:
+            raise ValueError(
+                f"{name}: {path} is not owned by the desktop user (uid {uid})"
+            )
+        data = b""
+        while len(data) <= CERT_FILE_MAX_BYTES:
+            chunk = os.read(fd, CERT_FILE_MAX_BYTES + 1 - len(data))
+            if not chunk:
+                break
+            data += chunk
+        if len(data) > CERT_FILE_MAX_BYTES:
+            raise ValueError(
+                f"{name}: {path} is larger than {CERT_FILE_MAX_BYTES} bytes"
+            )
+    except OSError as e:
+        raise ValueError(f"{name}: cannot read the file: {e.strerror or e}") from e
+    finally:
+        os.close(fd)
+    ext = os.path.splitext(path)[1]
+    copy = os.path.join(directory, name + (ext if re.fullmatch(r"\.\w{1,8}", ext) else ""))
+    out = os.open(
+        copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o400
+    )
+    with os.fdopen(out, "wb") as f:
+        os.fchown(f.fileno(), uid, -1)
+        f.write(data)
+    return copy
+
+
+def password_not_required(data: Dict[str, Any]) -> bool:
+    """True when the NM_SETTING_SECRET_FLAG_NOT_REQUIRED bit (4) is set in
+    password-flags (a bitmask); a junk value counts as 0"""
+    try:
+        return bool(int(data.get("password-flags", 0)) & 4)
+    except (TypeError, ValueError):
+        return False
+
+
+def redact_settings(obj: Any) -> Any:
+    """Copy of NM settings that is safe to log: every value under a "secrets"
+    key (at any depth, also inside sdbus (signature, value) tuples) becomes
+    "<hidden>". The keys stay, so the log still shows what was sent."""
+    if isinstance(obj, dict):
+        return {
+            key: HIDDEN if key == "secrets" else redact_settings(value)
+            for key, value in obj.items()
+        }
+    if isinstance(obj, tuple):
+        return tuple(redact_settings(item) for item in obj)
+    if isinstance(obj, list):
+        return [redact_settings(item) for item in obj]
+    return obj
+
+
+@functools.lru_cache(maxsize=64)
+def _secrets_pattern(secrets: frozenset) -> Optional["re.Pattern[str]"]:
+    """One compiled pattern for a set of secrets, or None when there is none"""
+    parts = []
+    # Longest first: a secret that contains another one is masked whole. Only
+    # whole occurrences count, so a short answer ("1", "y") does not garble
+    # every word that happens to contain it.
+    # A guard applies only on a side where the secret has a word character: a
+    # secret that starts or ends with a symbol ("#Hunter2", "abc!") is also
+    # masked when a word character touches it ("x#Hunter2", "abc!def").
+    for secret in sorted(secrets, key=lambda x: (-len(x), x)):
+        if secret:
+            before = r"(?<!\w)" if re.match(r"\w", secret[0]) else ""
+            after = r"(?!\w)" if re.match(r"\w", secret[-1]) else ""
+            parts.append(f"{before}{re.escape(secret)}{after}")
+    return re.compile("|".join(parts)) if parts else None
+
+
+def mask_secrets(line: str, secrets: Iterable[str]) -> str:
+    """Replace every occurrence of a secret value in a line of output"""
+    pattern = _secrets_pattern(frozenset(secrets))
+    return pattern.sub(lambda _: HIDDEN, line) if pattern else line
+
+
+def mask_secret_prompts(line: str, labels: Iterable[str]) -> str:
+    """Hide whatever follows the label of a prompt that was answered with a secret
+
+    inquire redraws a text prompt after every keystroke, so the output holds
+    partial echoes ("? Code: h", "? Code: hu", ...) that mask_secrets cannot
+    know. A colon right after the label is kept; a line that ends there stays.
+    """
+    # Longest first: a label that contains another one wins
+    for label in sorted(labels, key=len, reverse=True):
+        if not label:
+            continue
+        start = line.find(label)
+        if start < 0:
+            continue
+        end = start + len(label)
+        if line.startswith(":", end):
+            end += 1
+        if line[end:].strip():
+            line = f"{line[:end]} {HIDDEN}"
+    return line
 
 
 def classify_prompt(label: str) -> str:
@@ -597,7 +916,7 @@ def is_one_time_secret(text: str) -> bool:
     for word, subs in split_label(text):
         pieces = [word] + [sub[0] for sub in subs]
         befores = [previous, previous] + [sub[0] for sub in subs[:-1]]
-        for piece, before in zip(pieces, befores):
+        for piece, before in zip(pieces, befores, strict=True):
             if not ONE_TIME_SECRET_RE.fullmatch(piece):
                 continue
             # "Zip code", "ZIP-Code", "PostCode": a bare "code" after a word
@@ -712,8 +1031,9 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
 
     Returns (argument for gpclient --browser, GP_BROWSER for the wrapper).
     Friendly names and the browser binaries our editors used to offer go
-    through the wrapper; anything else (a user's own wrapper script) is passed
-    through untouched.
+    through the wrapper. A user's own wrapper script is passed through when it
+    is an absolute path or a bare command name; any other value falls back to
+    "default", so a profile value can never become an extra gpclient option.
     """
     value = (value or "").strip()
 
@@ -733,8 +1053,14 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
         target = "default"
     elif WRAPPED_BROWSER_PATH_RE.match(value):
         target = value
-    else:
+    elif CUSTOM_BROWSER_PATH_RE.match(value) or BARE_BROWSER_NAME_RE.fullmatch(value):
         return value, None
+    else:
+        logger.warning(
+            f"browser={value!r} is not a known name, a command name or an absolute path - "
+            "using the desktop's default browser"
+        )
+        target = "default"
 
     if os.path.exists(BROWSER_WRAPPER):
         return BROWSER_WRAPPER, target
@@ -752,116 +1078,110 @@ def resolve_browser(value: str) -> Tuple[str, Optional[str]]:
     return target, None
 
 
-def tunnel_candidate_order(iface: str) -> Tuple[int, int]:
-    """Sort key putting gpd0 first and tunN in numeric (not lexical) order."""
-    match = TUNNEL_INTERFACE_RE.match(iface)
-    if not match:
-        return len(TUNNEL_INTERFACE_KIND_ORDER), 0
-    kind = match.group("kind")
-    return TUNNEL_INTERFACE_KIND_ORDER.index(kind), int(match.group("index"))
+def tunnel_interface_name(uuid: str) -> Optional[str]:
+    """The tunnel name we ask gpclient for: gp- and the first 8 hex digits of
+    the connection UUID (11 characters, the kernel allows 15). None when the
+    UUID has no 8 hex digits; detection then falls back to the heuristics."""
+    digits = (uuid or "").replace("-", "")[:8]
+    if len(digits) != 8 or any(c not in string.hexdigits for c in digits):
+        return None
+    return f"gp-{digits.lower()}"
 
 
-def list_tunnel_candidates() -> List[str]:
-    """Tunnel interfaces present right now, in the order detection tries them.
+def parse_proc_stat(text: str) -> Optional[Tuple[str, str, int, int]]:
+    """(comm, state, ppid, starttime) from the text of /proc/PID/stat, or None.
 
-    Replaces the old fixed ["gpd0", "tun0", "tun1"] list, which could not see
-    a tunnel that landed on tun2 or higher because other VPNs held the lower
-    numbers (issue #13).
+    Field 2 (comm) is in parentheses and may itself contain spaces and
+    parentheses, so everything after the LAST ')' is split into fields:
+    state is field 3, ppid field 4, starttime field 22.
     """
+    close = text.rfind(")")
+    open_ = text.find("(")
+    if open_ < 0 or close < open_:
+        return None
+    fields = text[close + 1 :].split()
+    if len(fields) < 20:
+        return None
     try:
-        names = os.listdir(NET_SYSFS_PATH)
-    except OSError as e:
-        logger.warning(f"Cannot list {NET_SYSFS_PATH}: {e}")
-        return []
-
-    candidates = [name for name in names if TUNNEL_INTERFACE_RE.match(name)]
-    return sorted(candidates, key=tunnel_candidate_order)
+        return text[open_ + 1 : close], fields[0], int(fields[1]), int(fields[19])
+    except ValueError:
+        return None
 
 
-def tunnel_ifaces_held_by(pids: List[int]) -> set:
-    r"""Tunnel interfaces whose file descriptor is held by one of `pids`.
+def read_proc_stat(pid: int) -> Optional[Tuple[str, str, int, int]]:
+    """parse_proc_stat() of one process; None when it is gone or unreadable"""
+    try:
+        with open(f"{PROC_PATH}/{pid}/stat", "r") as handle:
+            return parse_proc_stat(handle.read())
+    except OSError:
+        return None
 
-    The kernel names the interface behind a tun file descriptor in
-    /proc/PID/fdinfo/N ("iff:\ttun2"), which identifies our own tunnel
-    directly instead of inferring it from what appeared since Connect()
-    started. Returns an empty set when the information is unavailable
-    (process already gone, /proc unreadable); the caller then falls back to
-    the pre-existing-interface snapshot.
+
+def gpauth_descendants(root_pid: int) -> List[Tuple[int, int]]:
+    """(pid, starttime) of every gpauth below `root_pid` in the process tree.
+
+    These are the gpauth processes that belong to our own gpclient. The
+    starttime tells a later signal sender whether the PID is still the same
+    process. Blocking /proc I/O: call it off the event loop.
     """
-    ifaces = set()
-    for pid in pids:
-        fdinfo_dir = f"{PROC_PATH}/{pid}/fdinfo"
-        try:
-            fds = os.listdir(fdinfo_dir)
-        except OSError:
-            continue
-        for fd in fds:
-            try:
-                with open(f"{fdinfo_dir}/{fd}", "r") as handle:
-                    content = handle.read()
-            except OSError:
-                continue
-            for line in content.splitlines():
-                if line.startswith("iff:"):
-                    name = line.split(":", 1)[1].strip()
-                    if name:
-                        ifaces.add(name)
-    return ifaces
-
-
-def process_tree(root_pid: int) -> List[int]:
-    """A PID plus every descendant, so a tunnel opened by a forked helper of
-    gpclient is still recognised as ours."""
     try:
         pids = [int(entry) for entry in os.listdir(PROC_PATH) if entry.isdigit()]
     except OSError:
-        return [root_pid]
+        return []
 
     children: Dict[int, List[int]] = {}
+    info: Dict[int, Tuple[str, int]] = {}
     for pid in pids:
-        try:
-            with open(f"{PROC_PATH}/{pid}/stat", "r") as handle:
-                stat = handle.read()
-        except OSError:
+        stat_fields = read_proc_stat(pid)
+        if stat_fields is None:
             continue
-        # Field 2 is the command name in parentheses and may itself contain
-        # spaces and parentheses, so the parent PID is read after the last ')'
-        close = stat.rfind(")")
-        if close < 0:
-            continue
-        fields = stat[close + 1 :].split()
-        if len(fields) < 2:
-            continue
-        try:
-            children.setdefault(int(fields[1]), []).append(pid)
-        except ValueError:
-            continue
+        comm, _state, ppid, starttime = stat_fields
+        children.setdefault(ppid, []).append(pid)
+        info[pid] = (comm, starttime)
 
-    tree: List[int] = []
-    seen = set()
+    found: List[Tuple[int, int]] = []
+    seen = {root_pid}
     queue = [root_pid]
     while queue:
-        pid = queue.pop()
-        if pid in seen:
-            continue
-        seen.add(pid)
-        tree.append(pid)
-        queue.extend(children.get(pid, []))
-    return tree
+        for child in children.get(queue.pop(), []):
+            if child in seen:
+                continue
+            seen.add(child)
+            queue.append(child)
+            comm, starttime = info[child]
+            if comm == "gpauth":
+                found.append((child, starttime))
+    return found
 
 
-def parse_dns_state(text: str) -> Dict[str, str]:
-    """Parse the KEY=value lines the vpnc hook writes to DNS_STATE_FILE."""
-    state: Dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            state[key] = value.strip()
-    return state
+def is_same_process(pid: int, starttime: int) -> bool:
+    """True while `pid` is a live process that started at `starttime`.
+
+    A zombie counts as gone. A PID that was reused has another starttime.
+    """
+    stat_fields = read_proc_stat(pid)
+    return (
+        stat_fields is not None
+        and stat_fields[1] not in ("Z", "X")
+        and stat_fields[3] == starttime
+    )
+
+
+def send_signal(pid: int, sig: int) -> None:
+    """The only place that signals a process we did not start ourselves"""
+    os.kill(pid, sig)
+
+
+def signal_if_same(pid: int, starttime: int, sig: int) -> bool:
+    """Send `sig` only when `pid` still is the process that started at
+    `starttime`. Returns True when a signal was sent."""
+    if not is_same_process(pid, starttime):
+        return False
+    try:
+        send_signal(pid, sig)
+    except OSError:
+        return False
+    return True
 
 
 def _dedupe(items: List[str]) -> List[str]:
@@ -874,30 +1194,255 @@ def _dedupe(items: List[str]) -> List[str]:
     return result
 
 
+def _drop_shadowed(domains: List[str]) -> List[str]:
+    """`domains` without duplicates; a routing-only "~x" is dropped when the
+    plain search domain x is there (a search domain routes as well)."""
+    plain = {d.lower() for d in domains if not d.startswith("~")}
+    return _dedupe(
+        [d for d in domains if not (d.startswith("~") and d[1:].lower() in plain)]
+    )
+
+
+def _merge_domains(search: List[str], split: List[str]) -> List[str]:
+    """Search domains plus split-DNS domains as NetworkManager's `domains`:
+    the split ones get the "~" prefix (routing only, no search)."""
+    return _drop_shadowed(search + ["~" + d for d in split if d])
+
+
 def learned_dns_from_state(
     state: Dict[str, str], iface: str
 ) -> Optional[Tuple[List[str], List[str], List[str]]]:
-    """DNS the gateway pushed for `iface`: (ipv4 servers, search domains,
-    ipv6 servers), or None when the state does not describe this tunnel.
+    """DNS the gateway pushed for `iface`: (ipv4 servers, domains, ipv6
+    servers), or None when the vpnc environment `state` is for another tunnel.
 
     CISCO_DEF_DOMAIN is space-separated (vpnc-script convention, and our hook
     appends the profile's dns-domains to it); CISCO_SPLIT_DNS is the
     comma-separated split-DNS list openconnect builds from the gateway's
-    response.
+    response. The domains are NetworkManager's: the split-DNS ones carry "~".
     """
     tundev = state.get("TUNDEV", "")
     if tundev and tundev != iface:
         return None
     servers = [s for s in state.get("INTERNAL_IP4_DNS", "").split() if s]
     servers6 = [s for s in state.get("INTERNAL_IP6_DNS", "").split() if s]
-    domains = state.get("CISCO_DEF_DOMAIN", "").split()
-    domains += re.split(r"[,\s]+", state.get("CISCO_SPLIT_DNS", ""))
-    return _dedupe(servers), _dedupe(domains), _dedupe(servers6)
+    domains = _merge_domains(
+        state.get("CISCO_DEF_DOMAIN", "").split(),
+        re.split(r"[,\s]+", state.get("CISCO_SPLIT_DNS", "")),
+    )
+    return _dedupe(servers), domains, _dedupe(servers6)
+
+
+def tunnel_ipv6_from_state(
+    state: Dict[str, str], iface: str
+) -> Optional[Tuple[ipaddress.IPv6Address, int]]:
+    """The tunnel's IPv6 address and prefix of the vpnc environment `state`, or
+    None when it is for another tunnel or holds no valid IPv6 address.
+
+    openconnect sets INTERNAL_IP6_ADDRESS to the bare address and
+    INTERNAL_IP6_NETMASK to "address/prefix"; either may be missing.
+    """
+    tundev = state.get("TUNDEV", "")
+    if tundev and tundev != iface:
+        return None
+    address, _, prefix = state.get("INTERNAL_IP6_NETMASK", "").partition("/")
+    address = state.get("INTERNAL_IP6_ADDRESS", "") or address
+    try:
+        found = ipaddress.IPv6Interface(f"{address}/{prefix or 128}")
+    except ValueError:
+        return None
+    return found.ip, found.network.prefixlen
+
+
+def vpn_gateway_from_state(
+    state: Dict[str, str], iface: str
+) -> Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]]:
+    """The VPN server's IPv4 or IPv6 address of the vpnc environment `state`,
+    or None when it is for another tunnel or VPNGATEWAY is no address."""
+    tundev = state.get("TUNDEV", "")
+    if tundev and tundev != iface:
+        return None
+    return parse_ip_address(state.get("VPNGATEWAY", ""))
+
+
+def tunnel_ipv4_from_env(
+    env: Dict[str, str],
+) -> Optional[Tuple[ipaddress.IPv4Address, int]]:
+    """The tunnel's IPv4 address and prefix length from the vpnc environment,
+    or None when INTERNAL_IP4_ADDRESS is no IPv4 address.
+
+    The prefix is always 32: vpnc-script adds the address as
+    "$INTERNAL_IP4_ADDRESS/32 peer $INTERNAL_IP4_ADDRESS", whatever
+    INTERNAL_IP4_NETMASK says. A wider prefix would make NetworkManager add a
+    second address and a prefix route.
+    """
+    address = parse_ip_address(env.get("INTERNAL_IP4_ADDRESS", ""))
+    if not isinstance(address, ipaddress.IPv4Address):
+        return None
+    return address, 32
+
+
+def tunnel_mtu_from_env(env: Dict[str, str]) -> Optional[int]:
+    """The tunnel's MTU from the vpnc environment (INTERNAL_IP4_MTU), or None
+    when there is none or it is no number between 68 and 65535."""
+    text = env.get("INTERNAL_IP4_MTU", "")
+    if text.isascii() and text.isdigit() and 68 <= int(text) <= 65535:
+        return int(text)
+    return None
+
+
+def vpnc_notify_env(environ: Dict[str, str]) -> Tuple[str, str, Dict[str, str]]:
+    """What --vpnc-notify sends: (reason, token, the allow-listed vpnc
+    variables that are set). Other variables of `environ` never leave."""
+    env = {key: environ[key] for key in VPNC_NOTIFY_ENV if key in environ}
+    return environ.get("reason", ""), environ.get(NOTIFY_TOKEN_ENV, ""), env
 
 
 def parse_dns_servers(text: str) -> List[str]:
     """The profile's `dns` entries: separated by commas, semicolons or blanks"""
     return [entry for entry in re.split(r"[;,\s]+", text) if entry]
+
+
+# gpclient (3.1.0+) logs the tunnel settings it negotiated, one INFO record
+# each, in every foreground mode (gptunnel log_configuration). They are what the
+# gateway pushed, not proof that the system was configured, so they are only
+# a cross-check and a fallback for the DNS the vpnc hook reports. They are read
+# from the message of a JSON record (--log-format json, what the service asks
+# for), never from a text line.
+TUNNEL_MESSAGE_RE = re.compile(
+    r"VPN (?P<key>interface|IPv4|DNS|search domains|split DNS|MTU): (?P<value>.*?)\s*$"
+)
+# values() ends a cut list with " (N of M shown; truncated)"
+TUNNEL_LIST_TRUNCATED_RE = re.compile(r"\s\([0-9]+ of [0-9]+ shown; truncated\)$")
+TUNNEL_DOMAIN_RE = re.compile(
+    r"(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+    r"(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*"
+)
+TUNNEL_LOGGED_INTERFACE_RE = re.compile(r"[A-Za-z0-9_.:@-]{1,15}")
+
+
+@dataclasses.dataclass(frozen=True)
+class TunnelSettings:
+    """The tunnel settings gpclient logged. None: not seen, "none"/"unavailable"
+    where the value does not exist, or not usable (malformed, escaped,
+    truncated). A list that gpclient reported as empty is ()."""
+
+    interface: Optional[str] = None
+    ipv4: Optional[str] = None  # the address only
+    prefix: Optional[int] = None
+    dns: Optional[Tuple[str, ...]] = None  # IPv4 and IPv6 servers
+    search_domains: Optional[Tuple[str, ...]] = None
+    split_dns: Optional[Tuple[str, ...]] = None
+    mtu: Optional[int] = None
+
+
+def _tunnel_list(value: str, valid: Any) -> Optional[Tuple[str, ...]]:
+    """The items of a list value of gpclient's values(); None when the list is
+    not complete or an item cannot be trusted.
+
+    Items are told apart by ", ", so each one is validated: an item that
+    holds ", " fails there, and so does one that upstream escaped
+    (escape_debug adds a backslash, which no address or domain holds): the
+    escaping is not reversed.
+    """
+    if TUNNEL_LIST_TRUNCATED_RE.search(value):
+        return None
+    if value == "none":
+        return ()
+    items = value.split(", ")
+    if not all(item and valid(item) for item in items):
+        return None
+    return tuple(_dedupe(items))
+
+
+def _dns_key(server: str) -> Any:
+    """A DNS server as it compares: the same address in any spelling is equal"""
+    return parse_ip_address(server) or server
+
+
+def parse_tunnel_settings_line(line: str, settings: TunnelSettings) -> TunnelSettings:
+    """`settings` updated with one gpclient output line; the same object when
+    the line is no tunnel settings line.
+
+    "VPN interface" is the first line of a block, so it starts a new record
+    (gpclient logs the block again when the settings change).
+    """
+    record = parse_log_record(line.strip())
+    if not record or record["level"] != "INFO":
+        return settings
+    match = TUNNEL_MESSAGE_RE.match(record["message"])
+    if not match:
+        return settings
+    key, value = match.group("key"), match.group("value")
+    if key == "interface":
+        usable = TUNNEL_LOGGED_INTERFACE_RE.fullmatch(value) and value != "none"
+        return TunnelSettings(interface=value if usable else None)
+    if key == "IPv4":
+        address, _, rest = value.partition("/")
+        if "(" in address:  # "10.0.0.2 (mask 255.0.255.0)": no prefix
+            address, rest = address.split(" (", 1)[0], ""
+        parsed = parse_ip_address(address)
+        if not isinstance(parsed, ipaddress.IPv4Address) or str(parsed) != address:
+            return dataclasses.replace(settings, ipv4=None, prefix=None)
+        prefix = int(rest) if rest.isascii() and rest.isdigit() else None
+        if prefix is not None and prefix > 32:
+            prefix = None
+        return dataclasses.replace(settings, ipv4=address, prefix=prefix)
+    if key == "MTU":
+        mtu = int(value) if value.isascii() and value.isdigit() else None
+        if mtu is not None and not 0 < mtu <= 65535:
+            mtu = None
+        return dataclasses.replace(settings, mtu=mtu)
+    if key == "DNS":
+        items = _tunnel_list(
+            value, lambda item: parse_ip_address(item) is not None and "%" not in item
+        )
+        return dataclasses.replace(settings, dns=items)
+    items = _tunnel_list(value, TUNNEL_DOMAIN_RE.fullmatch)
+    if key == "search domains":
+        return dataclasses.replace(settings, search_domains=items)
+    return dataclasses.replace(settings, split_dns=items)
+
+
+def validate_hip_script(path: str, trusted_uids: Sequence[int] = (0,)) -> str:
+    """The resolved path of the custom HIP executable `path`, safe to run.
+
+    Raises ValueError with the reason when it is not safe.
+    """
+    # The service runs gpclient, and so the script, as root. Without these
+    # checks "can edit the NetworkManager profile" would become "can run code
+    # as root": the script and every directory above it must be changeable by
+    # a trusted user only. A sticky directory (like /tmp) does not count as
+    # safe: the script must not be in a group or world-writable directory.
+    if not os.path.isabs(path):
+        raise ValueError("the path is not absolute")
+    resolved = os.path.realpath(path)
+    try:
+        info = os.stat(resolved)
+    except OSError as e:
+        raise ValueError(f"cannot read the file: {e.strerror or e}") from e
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"{resolved} is not a regular file")
+    if info.st_uid not in trusted_uids:
+        raise ValueError(f"{resolved} has an untrusted owner (uid {info.st_uid})")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValueError(f"{resolved} is writable by group or others")
+    if not info.st_mode & stat.S_IXUSR:
+        raise ValueError(f"{resolved} is not executable by its owner")
+
+    directory = os.path.dirname(resolved)
+    while True:
+        dir_info = os.stat(directory)
+        if dir_info.st_uid not in trusted_uids:
+            raise ValueError(
+                f"directory {directory} has an untrusted owner (uid {dir_info.st_uid})"
+            )
+        if dir_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise ValueError(f"directory {directory} is writable by group or others")
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return resolved
 
 
 def parse_ip_address(
@@ -977,8 +1522,19 @@ class ScreenBuffer:
         self._col = 0
         self._tokenizer = EscapeTokenizer()  # for feed(); apply() takes tokens
         self.version = 0
+        self.dropped = 0  # rows trimmed from the top: row_id() stays stable
         self._lines_cache: Tuple[str, ...] = ()
         self._lines_version = -1
+
+    @property
+    def cursor_row(self) -> int:
+        """Index (in lines()) of the row the cursor is on"""
+        return self._row
+
+    def row_id(self, index: int) -> int:
+        """A number for the row at `index` that stays the same when the buffer
+        is trimmed at the top"""
+        return self.dropped + index
 
     def lines(self) -> Tuple[str, ...]:
         """The screen rows (a tuple, cached until the next feed)"""
@@ -1071,6 +1627,7 @@ class ScreenBuffer:
         excess = len(self._rows) - self.MAX_ROWS
         if excess > 0:
             del self._rows[:excess]
+            self.dropped += excess
             self._row = max(0, self._row - excess)
 
     def _csi(self, params: str, intermediates: str, final: str) -> None:
@@ -1078,7 +1635,7 @@ class ScreenBuffer:
             return
         if params[:1] in ("<", "=", ">", "?"):  # private (cursor visibility, ...)
             return
-        numbers = []
+        numbers: List[Optional[int]] = []
         for part in params.split(";"):
             if not part:
                 numbers.append(None)
@@ -1121,62 +1678,178 @@ class ScreenBuffer:
                 self._rows = [[] for _ in self._rows]
 
 
-class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_VPN):
+class BadArgumentsError(DbusFailedError):
+    """The connection settings are invalid (NM maps it to a BadArguments error)"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.VPN.Error.BadArguments"
+
+
+class LaunchFailedError(DbusFailedError):
+    """gpclient could not be started"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.VPN.Error.LaunchFailed"
+
+
+class NmSettingsInterface(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_SETTINGS
+):
+    """Client side of NetworkManager's Settings object (only what we call)"""
+
+    @dbus_method_async("s", "o")
+    async def GetConnectionByUuid(self, uuid: str) -> str:
+        raise NotImplementedError
+
+
+NmSettings = Dict[str, Dict[str, Tuple[str, Any]]]
+
+
+class NmConnectionInterface(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_CONNECTION
+):
+    """Client side of one connection profile (only what we call)"""
+
+    @dbus_method_async("", "a{sa{sv}}")
+    async def GetSettings(self) -> NmSettings:
+        raise NotImplementedError
+
+    @dbus_method_async("s", "a{sa{sv}}")
+    async def GetSecrets(self, setting_name: str) -> NmSettings:
+        raise NotImplementedError
+
+    @dbus_method_async("a{sa{sv}}ua{sv}", "a{sv}")
+    async def Update2(
+        self, settings: NmSettings, flags: int, args: Dict[str, Tuple[str, Any]]
+    ) -> Dict[str, Tuple[str, Any]]:
+        raise NotImplementedError
+
+    @dbus_property_async("t")
+    def VersionId(self) -> int:  # NetworkManager 1.44 and later
+        raise NotImplementedError
+
+
+class VersionIdMismatchError(DbusFailedError):
+    """Update2 refused: the profile changed since it was read (NM 1.44+)"""
+
+    dbus_error_name = "org.freedesktop.NetworkManager.Settings.VersionIdMismatch"
+
+
+class NotifyRejectedError(DbusFailedError):
+    """A tunnel notification the service does not accept"""
+
+    dbus_error_name = f"{NM_DBUS_INTERFACE_TUNNEL}.Error.Rejected"
+
+
+class GpclientTunnelInterface(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFACE_TUNNEL
+):
+    """The interface of the vpnc hook, next to NetworkManager's VPN.Plugin one
+    on the same object. The plugin class implements _handle_notify()."""
+
+    @dbus_method_async("ssa{ss}")
+    async def Notify(self, reason: str, token: str, env: Dict[str, str]) -> None:
+        """The vpnc hook reports that vpnc-script configured the tunnel.
+
+        Args:
+            reason: vpnc-script reason, "connect" or "reconnect"
+            token: the token the service gave gpclient in its environment
+            env: the vpnc environment (the variables of VPNC_NOTIFY_ENV)
+        """
+        self._handle_notify(reason, token, env)  # type: ignore[attr-defined]
+
+
+class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
+    GpclientTunnelInterface, interface_name=NM_DBUS_INTERFACE_VPN
+):
     """NetworkManager VPN Plugin for gpclient using python-sdbus"""
 
     def __init__(self):
         super().__init__()
         self.gpclient_process = None
-        self.tunnel_check_task = None
+        # (pid, starttime) of the gpauth processes of our own gpclient that
+        # may still run; see _remember_gpauth()
+        self._gpauth_leftovers: List[Tuple[int, int]] = []
+        # Writes the profile after the tunnel came up (see _handle_notify)
+        self.profile_task = None
         self.stdout_monitor_task = None
+        # The token of the running gpclient for Notify(); empty without one
+        self._notify_token = ""
         self.dns_servers = []
         self.dns_domains = []
         self.gateway = None
         self.browser = None
         self.browser_target = None  # GP_BROWSER passed to the wrapper
         self.hip_enabled = True  # HIP enabled by default
+        self.hip_script = None  # validated path of a custom HIP executable
         self._state = NM_VPN_SERVICE_STATE_INIT
+
+        # Connect() and Disconnect() must not interleave (issue #52): the lock
+        # is held while a session is set up or torn down, never during the
+        # authentication. The generation grows for every new session and for
+        # every Disconnect(), so a Connect() can see that a Disconnect() came
+        # in while it was waiting, and a late task can see that it is stale.
+        self._lifecycle_lock = asyncio.Lock()
+        self._generation = 0
+        # The generation of the session being set up or running: its tasks
+        # keep it even when they are created after a Disconnect() came in
+        self._session_gen = 0
+
+        # Exit when no session exists for IDLE_EXIT_TIMEOUT seconds; off until
+        # enable_idle_exit() is called (not with --persist)
+        self._on_idle: Optional[Callable[[], None]] = None
+        self._idle_handle: Optional[asyncio.TimerHandle] = None
 
         # Legacy TLS renegotiation workaround (issue #2)
         self.fix_openssl_mode = "auto"  # auto | true | false
         self.fix_openssl = False  # pass --fix-openssl to gpclient
         self._openssl_error_seen = False
         self._openssl_retried = False
+        self._gateway_not_found_seen = False
+        self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False  # profile told not to save the passcode
+        self._saml_flags_written = False  # profile has gpauth-result-flags=2
         self._otp_flag_attempts = 0  # tries so far to do that (bounded)
+
+        # saml-auth=dialog: the auth dialog runs gpauth, gpclient gets the
+        # result on stdin (issue #125). The result lives in memory only.
+        self._saml_dialog = False
+        self._auth_result = ""  # the JSON line for gpclient's stdin
+        self._auth_task = None  # asks the dialog, then starts gpclient
 
         # Portal / gateway selection (issue #7)
         self.as_gateway = False
+        self.mtu: Optional[int] = None  # pass --mtu to gpclient when set
         self.preferred_gateway = ""
         self._connection_uuid = ""
+        self._permission_user = ""  # sole user of connection.permissions
         self._gateway_list: List[str] = []  # discovered during this attempt
         self._stored_gateway_list = ""  # what the profile already has cached
         self._stored_gateway_count: Optional[int] = None  # gateway-list-count
+        # Declared here for the type checker; reset for each attempt in
+        # _reset_output_state
+        self._gateway_count: Optional[int] = None
+        self._lap_entries: List[str] = []
+        self._tunnel_settings = TunnelSettings()  # logged by gpclient (issue #37)
 
         # Routing configuration
         self.never_default = False
         self.ignore_auto_routes = False
-        self.custom_routes = []
+        self.ipv6_method = "auto"  # the profile's ipv6.method
 
-        # Tunnel-candidate interfaces (with their IPs) that already existed
-        # when Connect() started - these must never be picked up by tunnel
-        # detection (stale gpd0 from a crashed session, another VPN's tun0;
-        # issue #7)
-        self._preexisting_ifaces = {}
-
-        # Rounds tunnel detection has waited for the vpnc hook's DNS state
-        # file (issue #15)
-        self._dns_state_rounds = 0
+        # The tunnel's IPv6 address, from the last notification
+        self._tunnel_ip6: Optional[Tuple[ipaddress.IPv6Address, int]] = None
 
         # Interactive authentication state (issue #6: RSA token / standard
         # login portals where gpclient prompts on its terminal)
         self.vpn_username = ""
         self.vpn_password = ""
+        self._password_on_stdin = False  # --passwd-on-stdin: answered at spawn
+        self.cert_pass = ""
+        self.usercert = ""
+        self.userkey = ""
         self._interactive = False
         self._pty_master = None
         self._pty_transport = None
-        # Recent complete output lines, used for logging, text prompts that
-        # inquire has already terminated with a newline, and _last_output_line
+        # Recent complete output lines, used for logging only
         self._recent_lines: deque = deque(maxlen=96)
         self._reset_output_state()
         self._auth_banner = None  # last "message (Portal: server)" banner
@@ -1184,6 +1857,10 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._answering = False  # a prompt is currently being answered
         self._secret_future = None  # pending SecretsRequired -> NewSecrets
         self._last_answer = ""  # last answer written to the PTY
+        # Secret answers written to the PTY in this attempt: masked in the
+        # logged output (inquire echoes a typed answer). Never logged.
+        self._written_secrets: set = set()
+        self._secret_prompt_labels: set = set()
         # Per-phase prompt state (a "phase" is one Portal/Gateway auth round,
         # delimited by the auth banner). gpclient asks username then password;
         # any prompt after the password is a follow-up challenge (MFA).
@@ -1191,6 +1868,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._cert_pass_tried: set = set()
+        self._cert_dir = ""  # private copies of usercert and userkey
         self._login_failed = False
 
         logger.info("GpclientVPNPlugin initialized with python-sdbus")
@@ -1205,8 +1884,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         Returns:
             String with setting name that needs secrets, or empty string if none needed
         """
+        # Restarted, not cancelled: NetworkManager may never call Connect()
+        # (the user cancels the password dialog)
+        self._arm_idle_timer()
         logger.debug("=== NeedSecrets() called ===")
-        logger.debug(f"Settings data: {settings}")
+        logger.debug(f"Settings data: {redact_settings(settings)}")
 
         # SAML (default): authentication happens in the browser via gpauth,
         # no secrets needed upfront.
@@ -1221,8 +1903,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.info("NeedSecrets(): SAML mode, no secrets needed")
             return ""
 
-        # password-flags: 4 = NOT_REQUIRED
-        if data.get("password-flags", "0") == "4":
+        if password_not_required(data):
             logger.info("NeedSecrets(): password not required")
             return ""
 
@@ -1256,6 +1937,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         Args:
             connection: Dictionary with VPN connection settings
         """
+        self._cancel_idle_timer()
         logger.info("=== Connect() called ===")
         await self._do_connect(connection, interactive=False)
 
@@ -1265,40 +1947,62 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         interactive: bool,
     ) -> None:
         """Shared implementation for Connect() and ConnectInteractive()"""
-        logger.debug(f"Full connection data: {connection}")
+        async with self._lifecycle_lock:
+            # Bumped before the teardown, so a task that fails while it is
+            # stopped does not report a failure of the old session
+            self._generation += 1
+            if (
+                self.gpclient_process is not None
+                or self.profile_task
+                or self.stdout_monitor_task
+                or self._auth_task
+            ):
+                logger.info("Connect() while a session is active: stopping it first")
+                await self._teardown()
+            await self._setup_session(connection, interactive, self._generation)
+
+    async def _setup_session(
+        self,
+        connection: Dict[str, Dict[str, Tuple[str, Any]]],
+        interactive: bool,
+        gen: int,
+    ) -> None:
+        """Set up a session, with _lifecycle_lock held (see _do_connect)"""
+        self._session_gen = gen
+        logger.debug(f"Full connection data: {redact_settings(connection)}")
         self._interactive = interactive
         self._auth_banner = None
         self._answering = False
         self._secret_future = None
         self._last_answer = ""
+        self._written_secrets = set()
+        self._secret_prompt_labels = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._cert_pass_tried = set()
         self._login_failed = False
         self._reset_output_state()
         self._gateway_list = []
         self._openssl_error_seen = False
         self._openssl_retried = False
+        self._gateway_not_found_seen = False
+        self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
+        self._auth_result = ""
 
         try:
             # Extract VPN data
             if "vpn" not in connection:
-                raise Exception("No VPN data in connection")
+                raise BadArgumentsError("No VPN data in connection")
 
-            vpn_section = connection["vpn"]
-
-            # Parse data from vpn section
-            vpn_data = {}
-            for key, value in vpn_section.items():
-                if isinstance(value, tuple) and len(value) == 2:
-                    vpn_data[key] = value[1]
-                else:
-                    vpn_data[key] = value
-
-            logger.debug(f"Parsed VPN data: {vpn_data}")
+            data_dict, secrets_dict = self._parse_vpn_section(connection)
+            logger.debug(
+                "Parsed VPN data: "
+                f"{redact_settings({'data': data_dict, 'secrets': secrets_dict})}"
+            )
 
             # Parse IPv4 routing configuration
             ipv4_section = connection.get("ipv4", {})
@@ -1314,57 +2018,59 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             logger.info(f"never-default: {self.never_default}")
             self.ignore_auto_routes = ipv4_config.get("ignore-auto-routes", False)
             logger.info(f"ignore-auto-routes: {self.ignore_auto_routes}")
+            ipv6_method = connection.get("ipv6", {}).get("method", "auto")
+            if isinstance(ipv6_method, tuple) and len(ipv6_method) == 2:
+                ipv6_method = ipv6_method[1]
+            self.ipv6_method = ipv6_method
 
-            self.custom_routes = []
-            # Prefer route-data if present
-            route_data = ipv4_config.get("route-data")
-            if route_data:
-                for route in route_data:
-                    dest_raw = route.get("dest", "")
-                    prefix_raw = route.get("prefix", 0)
-                    dest = dest_raw[1] if isinstance(dest_raw, tuple) else dest_raw
-                    prefix = (
-                        prefix_raw[1] if isinstance(prefix_raw, tuple) else prefix_raw
-                    )
-                    if dest:
-                        self.custom_routes.append((dest, int(prefix)))
-            else:
-                # Fallback: parse "routes" (aau): [dest_u32, prefix, next_hop_u32, metric]
-                routes = ipv4_config.get("routes", [])
-                for r in routes:
-                    if not (isinstance(r, (list, tuple)) and len(r) >= 2):
-                        continue
-                    dest_u32 = int(r[0])
-                    prefix = int(r[1])
-                    try:
-                        prefix = int(prefix)
-                    except Exception:
-                        prefix = 32
-
-                    # IMPORTANT: NM uses host order uint32 here on little-endian machines
-                    dest_ip = socket.inet_ntoa(struct.pack("<I", dest_u32))
-
-                    self.custom_routes.append((dest_ip, prefix))
-                    logger.info(f"Custom route: {dest_ip}/{prefix}")
-
-            # Get the actual data dictionary
-            data_dict = vpn_data.get("data", {})
             logger.debug(f"Data dict: {data_dict}")
 
             # Stored credentials for standard (non-SAML) login portals.
             # Username lives in vpn.data, password in vpn.secrets.
-            secrets_dict = vpn_data.get("secrets", {}) or {}
             self.vpn_username = data_dict.get("username", "")
+            if is_unsafe_username(self.vpn_username):
+                self.vpn_username = ""
+                raise BadArgumentsError("Invalid username specified")
             self.vpn_password = secrets_dict.get("password", "")
+            if self.vpn_password:
+                # Masked in the output even if no prompt is ever answered with it
+                self._written_secrets.add(self.vpn_password)
             # When a username is stored we pass it as gpclient --user, so
             # gpclient does not prompt for it - treat username as already
             # answered in every auth phase.
             self._username_prefilled = bool(self.vpn_username)
+            # A stored password of a standard login goes to gpclient's stdin
+            # at spawn; gpclient then never prompts for it. It asks for the
+            # username first unless --user is given, so that needs one too
+            self._password_on_stdin = bool(
+                self.vpn_password
+                and self.vpn_username
+                and data_dict.get("auth-mode", "saml") == "credentials"
+            )
             self._reset_phase_state()
             if self.vpn_username:
                 logger.info(f"Stored username: {self.vpn_username}")
             if self.vpn_password:
                 logger.info("Stored password: <present>")
+            self.cert_pass = secrets_dict.get(CERT_PASS_SECRET_KEY, "")
+            if self.cert_pass:
+                self._written_secrets.add(self.cert_pass)
+                logger.info("Stored certificate passphrase: <present>")
+
+            # Client certificate and key (issue #134). The passphrase is never
+            # put on the command line (visible in /proc): gpclient asks for it.
+            self.usercert = data_dict.get("usercert", "").strip()
+            self.userkey = data_dict.get("userkey", "").strip()
+            try:
+                if self.usercert:
+                    validate_cert_path("usercert", self.usercert)
+                if self.userkey:
+                    validate_cert_path("userkey", self.userkey)
+            except ValueError as e:
+                raise BadArgumentsError(str(e)) from e
+            if self.userkey and not self.usercert:
+                logger.warning("userkey is ignored because usercert is not set")
+                self.userkey = ""
 
             # Connection UUID, needed to cache the gateway list in the profile
             connection_section = connection.get("connection", {})
@@ -1372,12 +2078,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._connection_uuid = (
                 uuid_raw[1] if isinstance(uuid_raw, tuple) else uuid_raw
             ) or ""
+            # A connection limited to one user tells us the desktop user (#51)
+            self._permission_user = self._parse_permission_user(
+                connection_section.get("permissions", [])
+            )
 
             # Get the server address (required). This is the portal address, or
             # a gateway address when as-gateway is set.
-            self.gateway = data_dict.get("gateway", "")
+            self.gateway = data_dict.get("gateway", "").strip()
             if not self.gateway:
-                raise Exception("No gateway specified")
+                raise BadArgumentsError("No gateway specified")
+            # The server goes to gpclient as an argument, never as an option
+            if self.gateway.startswith("-") or UNSAFE_GATEWAY_RE.search(self.gateway):
+                raise BadArgumentsError("Invalid gateway specified")
             logger.info(f"Server: {self.gateway}")
 
             # Legacy TLS renegotiation workaround (issue #2): auto retries once
@@ -1392,6 +2105,18 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 self.fix_openssl_mode = "auto"
             self.fix_openssl = self.fix_openssl_mode == "true"
             logger.info(f"fix-openssl: {self.fix_openssl_mode}")
+
+            # Tunnel MTU: empty or 0 means automatic. An invalid value is
+            # ignored so a typo cannot break the connection. openconnect uses
+            # the value only when the gateway sends no MTU.
+            mtu_text = data_dict.get("mtu", "")
+            mtu = parse_mtu(mtu_text)
+            if mtu is None:
+                logger.warning(
+                    f"Invalid mtu value {mtu_text!r} (use 576-1500), ignoring it"
+                )
+            self.mtu = mtu or None
+            logger.info(f"MTU: {self.mtu if self.mtu else 'automatic'}")
 
             # Portal / gateway handling (issue #7)
             self.as_gateway = data_dict.get("as-gateway", "false").lower() == "true"
@@ -1414,7 +2139,23 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
             logger.info(f"Browser: {self.browser} (target: {self.browser_target})")
 
+            # Who runs the SAML login: gpclient (service, the default) or the
+            # auth dialog in the user's session (issue #125)
+            saml_auth = data_dict.get("saml-auth", "service")
+            if saml_auth not in ("service", "dialog"):
+                logger.warning(
+                    f"Unknown saml-auth value {saml_auth!r}, falling back to 'service'"
+                )
+                saml_auth = "service"
+            self._saml_dialog = saml_auth == "dialog" and (
+                data_dict.get("auth-mode", "saml") != "credentials"
+            )
+            logger.info(f"saml-auth: {saml_auth}")
+            self._saml_flags_written = data_dict.get(f"{SAML_RESULT_KEY}-flags") == "2"
+
             # Get DNS servers (optional)
+            self.dns_servers = []
+            self.dns_domains = []
             dns_str = data_dict.get("dns", "")
             if dns_str:
                 self.dns_servers = parse_dns_servers(dns_str)
@@ -1433,30 +2174,47 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.hip_enabled = hip_str.lower() == "true"
             logger.info(f"HIP enabled: {self.hip_enabled}")
 
+            # Custom HIP executable (optional, issue #65)
+            self.hip_script = None
+            hip_script_str = data_dict.get("hip-script", "").strip()
+            if hip_script_str and not self.hip_enabled:
+                logger.info("hip-script is ignored because hip=false")
+            elif hip_script_str:
+                try:
+                    self.hip_script = validate_hip_script(hip_script_str)
+                except ValueError as e:
+                    logger.error(f"Rejected hip-script {hip_script_str!r}: {e}")
+                    raise BadArgumentsError(
+                        f"Invalid hip-script {hip_script_str!r}: {e}"
+                    ) from e
+                logger.info(f"HIP script: {self.hip_script}")
+
             # Emit state change: preparing
-            self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTING)
+            self._set_state(NM_VPN_SERVICE_STATE_STARTING)
 
-            # Clean up a stale gpd0 left by a crashed previous session and
-            # snapshot the tunnel-candidate interfaces that exist BEFORE
-            # gpclient starts, so tunnel detection cannot pick up a stale
-            # or foreign interface (issue #7)
+            # Clean up a stale tunnel interface left by a crashed previous
+            # session: gpclient cannot create the tunnel over it (issue #7)
             await self._cleanup_stale_gpd0()
-            self._preexisting_ifaces = await self._snapshot_tunnel_interfaces()
+            if self._superseded(gen):
+                return
 
-            # A DNS state file from a previous session must not be mistaken
-            # for this connection's (issue #15)
-            self._clear_dns_state()
-            self._dns_state_rounds = 0
+            if self._saml_dialog:
+                # Not awaited: the user may take a while, and Connect() has
+                # to return (Disconnect() stops the task)
+                self._auth_task = self._create_task(
+                    self._authenticate_then_start(gen), "SAML auth dialog"
+                )
+                return
 
             # Start gpclient process
             success = await self._start_gpclient()
 
+            if self._superseded(gen):
+                return
             if not success:
-                raise Exception("Failed to start gpclient process")
+                raise LaunchFailedError("Failed to start gpclient process")
 
-            # Start monitoring for tunnel interface
-            self.tunnel_check_task = asyncio.create_task(self._check_tunnel_loop())
-
+            # The tunnel is reported by the vpnc hook: Notify()
             logger.info("Connect() completed successfully")
 
         except Exception as e:
@@ -1464,98 +2222,242 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
             raise
 
+    async def _authenticate_then_start(self, gen: int) -> None:
+        """Get the SAML result from the auth dialog, then start gpclient"""
+        try:
+            await self._request_auth_result()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # Whatever the dialog sent never goes to the log
+            self._fail_login(f"The SAML login in the auth dialog failed: {e}")
+            return
+        if self._superseded(gen):
+            return
+        if not await self._start_gpclient() and not self._superseded(gen):
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
+                "Failed to start gpclient process",
+            )
+
+    async def _request_auth_result(self) -> None:
+        """Ask the auth dialog to run gpauth; keep its checked answer"""
+        if not self._interactive:
+            raise Exception(
+                "saml-auth=dialog needs an interactive connection (a secret "
+                "agent); activate the connection from the desktop, or set "
+                "saml-auth=service"
+            )
+        saml = {
+            "server": self.gateway,
+            "gateway": self.as_gateway,
+            "fix_openssl": self.fix_openssl_mode,
+            "browser": self.browser,
+            "browser_target": self.browser_target,
+        }
+        # Not saved, never answered from the profile (a stale result is
+        # useless); the dialog sends a new one every time
+        if not self._saml_flags_written:
+            await self._update_profile(
+                {f"{SAML_RESULT_KEY}-flags": "2"}, drop_secrets=[SAML_RESULT_KEY]
+            )
+        answer = await self._request_secret_interactive(
+            SAML_RESULT_KEY,
+            f"Sign in to {self.gateway}",
+            "",
+            extra_hints=[SAML_HINT_PREFIX + json.dumps(saml, separators=(",", ":"))],
+        )
+        if answer.strip() == SAML_RESULT_STANDARD:
+            logger.info("The server uses a standard login: no SAML result needed")
+            self._saml_dialog = False
+            return
+        try:
+            self._auth_result = parse_auth_result(answer)
+        except ValueError as e:
+            raise Exception(f"the dialog sent an unusable result ({e})") from None
+        logger.info(f"auth result: {len(self._auth_result)} bytes")
+
+    def _superseded(self, gen: int) -> bool:
+        """True when a Disconnect() came in since the session `gen` started.
+
+        Disconnect() reports STOPPED itself, so the caller just stops.
+        """
+        if gen == self._generation:
+            return False
+        logger.info("Disconnect arrived during Connect; abandoning the setup")
+        return True
+
+    def _create_task(self, coro, name: str) -> "asyncio.Task":
+        """Start a task of the current session and watch it for a crash"""
+        task = asyncio.create_task(coro)
+        gen = self._session_gen
+        task.add_done_callback(lambda t: self._task_done(t, gen, name))
+        return task
+
+    def _task_done(self, task: "asyncio.Task", gen: int, name: str) -> None:
+        """Log a crashed session task and fail the connection (issue #52).
+
+        A cancelled task is normal. A task of an older session never reports.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        logger.error(f"Task {name} crashed: {exc}", exc_info=exc)
+        if gen == self._generation and self._state in (
+            NM_VPN_SERVICE_STATE_STARTING,
+            NM_VPN_SERVICE_STATE_STARTED,
+        ):
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
+                f"internal error in {name}: {exc}",
+            )
+
+    def _cancel_idle_timer(self) -> None:
+        if self._idle_handle:
+            self._idle_handle.cancel()
+            self._idle_handle = None
+
+    def _arm_idle_timer(self) -> None:
+        self._cancel_idle_timer()
+        if self._on_idle:
+            self._idle_handle = asyncio.get_running_loop().call_later(
+                IDLE_EXIT_TIMEOUT, self._idle_expired
+            )
+
+    def _idle_expired(self) -> None:
+        self._idle_handle = None
+        if self._state in (
+            NM_VPN_SERVICE_STATE_INIT,
+            NM_VPN_SERVICE_STATE_STOPPED,
+        ) and self.gpclient_process is None:
+            logger.info(f"No session for {IDLE_EXIT_TIMEOUT} s, exiting")
+            if self._on_idle:  # always set: only enable_idle_exit() arms the timer
+                self._on_idle()
+        else:
+            # Busy: look again later, so the service still exits once it is idle
+            self._arm_idle_timer()
+
+    def enable_idle_exit(self, callback: Callable[[], None]) -> None:
+        """Call `callback` when the plugin has had no session for a while"""
+        self._on_idle = callback
+        self._arm_idle_timer()
+
     @dbus_method_async()
     async def Disconnect(self) -> None:
         """Disconnect from VPN"""
         logger.info("Disconnect() called")
+        # Before the first await: a Connect() that is setting up sees it
+        self._generation += 1
+        async with self._lifecycle_lock:
+            await self._teardown()
 
-        # Stop tunnel monitoring
-        if self.tunnel_check_task:
-            self.tunnel_check_task.cancel()
-            try:
-                await self.tunnel_check_task
-            except asyncio.CancelledError:
-                pass
-            self.tunnel_check_task = None
+        # Emit state change
+        self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
 
-        # Stop pending prompt handling
-        if self._prompt_task:
-            self._prompt_task.cancel()
-            self._prompt_task = None
+        logger.info("Disconnected from VPN")
+
+    async def _teardown(self) -> None:
+        """Stop the session and reset its state (with _lifecycle_lock held)"""
+        # Cancel every session task first, then wait for them: a task that
+        # still ran while another one is awaited could report a Failure or
+        # start a prompt task for a session that is going away (issue #52)
+        tasks = [
+            (self.profile_task, "Profile update"),
+            (self._prompt_task, "Prompt"),
+            (self.stdout_monitor_task, "gpclient output monitor"),
+            (self._auth_task, "SAML auth dialog"),
+        ]
+        for task, _ in tasks:
+            if task:
+                task.cancel()
 
         # Cancel any pending interactive secrets request
         if self._secret_future and not self._secret_future.done():
             self._secret_future.cancel()
         self._secret_future = None
 
-        # Stop stdout monitoring
-        if self.stdout_monitor_task:
-            self.stdout_monitor_task.cancel()
+        for task, name in tasks:
+            if not task:
+                continue
             try:
-                await self.stdout_monitor_task
+                await task
             except asyncio.CancelledError:
                 pass
-            self.stdout_monitor_task = None
+            except Exception:
+                logger.exception(f"{name} task had failed")
+        self.profile_task = None
+        self._prompt_task = None
+        self.stdout_monitor_task = None
+        self._auth_task = None
 
         # Stop gpclient first, close the PTY after. gpclient is the session
         # leader of the PTY: closing the master sends it SIGHUP, which gpclient
         # does not handle (only SIGINT and SIGTERM), so it would die at once and
         # skip the gateway logout. It does not block on the PTY while it waits:
         # it writes a few log lines at most, and the PTY buffer holds them.
+        #
+        # There is no `gpclient disconnect` after it: that command signals the
+        # PID in the shared lock file, which is our gpclient (already stopped
+        # here) or, if someone else holds the lock, a gpclient or gpservice
+        # that is not ours (issue #52). The gpauth of our gpclient is noted
+        # first (it is a child of gpclient) and stopped after it.
+        await self._remember_gpauth()
         await self._stop_gpclient()
 
         # Close the PTY
         self._close_pty()
 
-        # Also run gpclient disconnect command
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "/usr/bin/gpclient", "disconnect"
-            )
-            await asyncio.wait_for(proc.wait(), timeout=10)
-        except Exception as e:
-            logger.error(f"Error running 'gpclient disconnect': {e}")
+        await self._stop_remembered_gpauth()
 
         # Clean up
-        self._clear_dns_state()
-        self._dns_state_rounds = 0
+        self._notify_token = ""
         self.gpclient_process = None
         self.dns_servers = []
         self.dns_domains = []
         self.hip_enabled = True
+        self.hip_script = None
         self.never_default = False
-        self.custom_routes = []
         self.browser_target = None
         self.fix_openssl_mode = "auto"
         self.fix_openssl = False
         self._openssl_error_seen = False
         self._openssl_retried = False
+        self._gateway_not_found_seen = False
+        self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
         self._otp_flag_attempts = 0
+        self._saml_dialog = False
+        self._auth_result = ""
         self.as_gateway = False
+        self.mtu = None
         self.preferred_gateway = ""
         self._connection_uuid = ""
+        self._permission_user = ""
         self._gateway_list = []
         self._stored_gateway_list = ""
         self._stored_gateway_count = None
         self._reset_output_state()
         self.vpn_username = ""
         self.vpn_password = ""
+        self._password_on_stdin = False
+        self.cert_pass = ""
+        self.usercert = ""
+        self.userkey = ""
+        self._remove_cert_copies()
         self._interactive = False
         self._auth_banner = None
         self._answering = False
         self._last_answer = ""
+        self._written_secrets = set()
+        self._secret_prompt_labels = set()
         self._phase_key = None
         self._username_prefilled = False
         self._answered_username = False
         self._answered_password = False
+        self._cert_pass_tried = set()
         self._login_failed = False
-        self._preexisting_ifaces = {}
-
-        # Emit state change
-        self.StateChanged.emit(NM_VPN_SERVICE_STATE_STOPPED)
-
-        logger.info("Disconnected from VPN")
 
     @dbus_method_async("a{sv}")
     async def SetConfig(self, config: Dict[str, Tuple[str, Any]]) -> None:
@@ -1565,12 +2467,12 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     @dbus_method_async("a{sv}")
     async def SetIp4Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Set IPv4 configuration (optional, for compatibility)"""
-        logger.info(f"SetIp4Config() called")
+        logger.info("SetIp4Config() called")
 
     @dbus_method_async("a{sv}")
     async def SetIp6Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Set IPv6 configuration (optional, for compatibility)"""
-        logger.info(f"SetIp6Config() called")
+        logger.info("SetIp6Config() called")
 
     @dbus_method_async("s")
     async def SetFailure(self, reason: str) -> None:
@@ -1588,6 +2490,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         When gpclient hits an interactive challenge (RSA token, OTP, standard
         login) we emit SecretsRequired and receive the answer via NewSecrets.
         """
+        self._cancel_idle_timer()
         logger.info("=== ConnectInteractive() called ===")
         await self._do_connect(connection, interactive=True)
 
@@ -1602,7 +2505,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
         # Refresh stored credentials in case the user (re)entered them
         if data.get("username"):
-            self.vpn_username = data["username"]
+            if is_unsafe_username(data["username"]):
+                # Same rule as in _do_connect; never log the value
+                logger.warning("NewSecrets(): ignoring an invalid username")
+            else:
+                self.vpn_username = data["username"]
 
         if self._secret_future and not self._secret_future.done():
             self._secret_future.set_result(secrets)
@@ -1612,39 +2519,31 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
     # Signals
     @dbus_signal_async("u")
     def StateChanged(self, state: int) -> None:
-        """Signal: VPN state changed"""
-        logger.info(f"StateChanged signal: {state}")
-        self._state = state
+        """Signal: VPN state changed (emit it through _set_state)"""
 
     @dbus_signal_async("sas")
     def SecretsRequired(self, message: str, secrets: List[str]) -> None:
         """Signal: Secrets required"""
-        logger.info(f"SecretsRequired signal: {message}, {secrets}")
 
     @dbus_signal_async("a{sv}")
     def Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Signal: Configuration ready"""
-        logger.info(f"Config signal: {config}")
 
     @dbus_signal_async("a{sv}")
     def Ip4Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Signal: IPv4 configuration ready"""
-        logger.info(f"Ip4Config signal: {config}")
 
     @dbus_signal_async("a{sv}")
     def Ip6Config(self, config: Dict[str, Tuple[str, Any]]) -> None:
         """Signal: IPv6 configuration ready"""
-        logger.info(f"Ip6Config signal: {config}")
 
     @dbus_signal_async("s")
     def LoginBanner(self, banner: str) -> None:
         """Signal: Login banner"""
-        logger.info(f"LoginBanner signal: {banner}")
 
     @dbus_signal_async("u")
     def Failure(self, reason: int) -> None:
         """Signal: VPN connection failed"""
-        logger.error(f"Failure signal: {reason}")
 
     # Properties
     @dbus_property_async("u")
@@ -1652,8 +2551,159 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """Property: Current VPN state"""
         return self._state
 
+    @staticmethod
+    def _parse_permission_user(permissions: Any) -> str:
+        """Return the user name when `connection.permissions` names exactly one
+
+        NetworkManager stores entries as "user:<name>:" (the trailing colon is
+        optional here). Values arrive as an `as` array, possibly wrapped in an
+        sdbus (signature, value) tuple. Returns "" for none or several users.
+        """
+        if isinstance(permissions, tuple) and len(permissions) == 2:
+            permissions = permissions[1]
+        if not isinstance(permissions, (list, tuple)):
+            return ""
+        users = set()
+        for entry in permissions:
+            if not isinstance(entry, str):
+                continue
+            parts = entry.split(":")
+            if len(parts) >= 2 and parts[0] == "user" and parts[1]:
+                users.add(parts[1])
+        return users.pop() if len(users) == 1 else ""
+
+    @staticmethod
+    def _loginctl(*args: str) -> str:
+        """Output of `loginctl <args>` ("" when it fails)"""
+        result = subprocess.run(
+            ["loginctl", *args],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return result.stdout if result.returncode == 0 else ""
+
+    @staticmethod
+    def _session_props(output: str) -> Dict[str, str]:
+        """Parse the Key=Value lines of `loginctl show-session`"""
+        props = {}
+        for line in output.splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                props[key.strip()] = value.strip()
+        return props
+
+    @staticmethod
+    def _user_entry(pw_lookup: Any, key: Any) -> Optional[Tuple[int, str, str]]:
+        """(uid, name, home) from pwd.getpwuid/getpwnam, None for root or unknown"""
+        try:
+            pw = pw_lookup(key)
+        except KeyError:
+            return None
+        if pw.pw_uid == 0:
+            return None
+        return pw.pw_uid, pw.pw_name, pw.pw_dir
+
+    @staticmethod
+    def _seat0_active_user() -> Optional[int]:
+        """UID of the active local graphical user session on seat0, or None"""
+        loginctl = GpclientVPNPlugin._loginctl
+        try:
+            session_id = loginctl(
+                "show-seat", "seat0", "-p", "ActiveSession", "--value"
+            ).strip()
+            if not session_id:
+                return None
+            props = GpclientVPNPlugin._session_props(
+                loginctl(
+                    "show-session",
+                    session_id,
+                    "-p",
+                    "User",
+                    "-p",
+                    "Class",
+                    "-p",
+                    "Remote",
+                    "-p",
+                    "State",
+                )
+            )
+            if (
+                props.get("Class") != "user"
+                or props.get("Remote") != "no"
+                or props.get("State") != "active"
+            ):
+                return None
+            uid = int(props.get("User", ""))
+            return uid if uid != 0 else None
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            logger.debug(f"loginctl failed: {e}")
+            return None
+
+    @staticmethod
+    def _single_active_session_user() -> Optional[int]:
+        """UID of the one non-root user with an active session, or None
+
+        For xrdp, remote desktops and VMs, where seat0 has no session. Remote
+        sessions count. With no such user or with several, None: we do not
+        guess between users. Only sessions with a display (x11, wayland, mir)
+        count: a user on SSH or on a text console has no desktop for the
+        browser, and must not make the choice ambiguous.
+        """
+        loginctl = GpclientVPNPlugin._loginctl
+        uids = set()
+        try:
+            session_ids = [
+                line.split()[0]
+                for line in loginctl("list-sessions", "--no-legend").splitlines()
+                if line.split()
+            ]
+            if not session_ids:
+                return None
+            # One call for all sessions: the output has one block per session,
+            # separated by a blank line
+            props_args = ("-p", "User", "-p", "Class", "-p", "State", "-p", "Type")
+            output = loginctl("show-session", *session_ids, *props_args)
+            if not output.strip():
+                # A session that closed in between fails the whole call: ask
+                # for each one, and skip the ones that are gone
+                output = "\n\n".join(
+                    loginctl("show-session", session_id, *props_args)
+                    for session_id in session_ids
+                )
+            for block in re.split(r"\n\s*\n", output):
+                props = GpclientVPNPlugin._session_props(block)
+                if props.get("Class") != "user" or props.get("State") != "active":
+                    continue
+                if props.get("Type") not in ("x11", "wayland", "mir"):
+                    continue
+                try:
+                    uid = int(props.get("User", ""))
+                except ValueError:
+                    continue
+                if uid != 0:
+                    uids.add(uid)
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug(f"loginctl failed: {e}")
+            return None
+        return uids.pop() if len(uids) == 1 else None
+
     def _get_real_user(self) -> Tuple[int, str, str]:
-        """Get real user info when running as root"""
+        """Find the desktop user whose session gets the authentication browser
+
+        Order:
+        1. SUDO_UID/SUDO_USER (manual runs).
+        2. The single user in the connection's `connection.permissions`.
+        3. The active local session on seat0, from logind.
+        4. The only non-root user with an active session of any kind (also a
+           remote one: xrdp, remote desktop, VM), when seat0 has none.
+        5. The current user, with a warning.
+
+        We never pick "some other logged-in user" (issue #51): with fast user
+        switching, a lingering user or a gdm greeter user, the browser would
+        open in the wrong session. Step 4 is used only when exactly one user
+        has an active session, so there is nothing to confuse.
+        """
         import pwd
 
         # First try SUDO_UID/SUDO_USER
@@ -1666,38 +2716,44 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             try:
                 pw = pwd.getpwuid(uid)
                 home = pw.pw_dir
-            except:
+            except KeyError:
                 home = f"/home/{username}"
             return uid, username, home
 
-        # Try to find logged-in user from loginctl
-        try:
-            result = subprocess.run(
-                ["loginctl", "list-users", "--no-legend"],
-                capture_output=True,
-                text=True,
-                timeout=2,
+        # The connection is limited to one user: that is the desktop user
+        if self._permission_user:
+            entry = self._user_entry(pwd.getpwnam, self._permission_user)
+            if entry:
+                logger.debug(f"Using the user of the connection: {entry[1]}")
+                return entry
+            logger.debug(
+                f"Connection user {self._permission_user} does not exist or is root"
             )
-            if result.returncode == 0 and result.stdout.strip():
-                # Parse first non-root user
-                for line in result.stdout.strip().split("\n"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        uid_str = parts[0]
-                        username = parts[1]
-                        if username != "root":
-                            uid = int(uid_str)
-                            try:
-                                pw = pwd.getpwuid(uid)
-                                home = pw.pw_dir
-                                logger.debug(
-                                    f"Found user via loginctl: {username} (UID: {uid})"
-                                )
-                                return uid, username, home
-                            except:
-                                pass
-        except Exception as e:
-            logger.debug(f"loginctl failed: {e}")
+
+        # The active local session on seat0
+        seat_uid = self._seat0_active_user()
+        if seat_uid is not None:
+            entry = self._user_entry(pwd.getpwuid, seat_uid)
+            if entry:
+                logger.debug(f"Found active seat0 user: {entry[1]} (UID: {seat_uid})")
+                return entry
+            logger.debug(f"Seat0 user with UID {seat_uid} does not exist")
+
+        # No seat0 session (xrdp, remote desktop, VM): one active user is clear
+        session_uid = self._single_active_session_user()
+        if session_uid is not None:
+            entry = self._user_entry(pwd.getpwuid, session_uid)
+            if entry:
+                logger.info(
+                    f"Using the active non-seat0 session of {entry[1]} (UID: {session_uid})"
+                )
+                return entry
+            logger.debug(f"Session user with UID {session_uid} does not exist")
+
+        logger.warning(
+            "no active local session on seat0 and not exactly one other user "
+            "with an active session - the authentication browser cannot be opened"
+        )
 
         # Fallback to current user
         uid = os.getuid()
@@ -1705,155 +2761,64 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         home = os.environ.get("HOME", f"/home/{username}")
         return uid, username, home
 
-    @staticmethod
-    def _read_proc_environ(pid: str) -> Dict[str, str]:
-        """Parse /proc/<pid>/environ into a dict (empty when unreadable)"""
-        try:
-            # PROC_PATH, not a literal /proc: tests point it at a fake tree
-            with open(f"{PROC_PATH}/{pid}/environ", "rb") as handle:
-                raw = handle.read()
-        except OSError:
-            return {}
-
-        environ = {}
-        for entry in raw.split(b"\0"):
-            if not entry or b"=" not in entry:
-                continue
-            key, _, value = entry.partition(b"=")
-            environ[key.decode("utf-8", errors="replace")] = value.decode(
-                "utf-8", errors="replace"
-            )
-        return environ
-
-    def _scan_session_env(
-        self, real_uid: int, already_found: Dict[str, str]
-    ) -> Dict[str, str]:
-        """Find session variables in any process the user owns.
-
-        Fallback for desktops whose session leader is not in
-        SESSION_LEADER_PROCESSES: the first process that exposes a display wins,
-        and the remaining missing keys are taken from it as well.
-        """
-        found: Dict[str, str] = {}
-
-        try:
-            pids = [entry for entry in os.listdir(PROC_PATH) if entry.isdigit()]
-        except OSError as e:
-            logger.debug(f"Cannot list {PROC_PATH}: {e}")
-            return found
-
-        for pid in pids:
-            try:
-                if os.stat(f"{PROC_PATH}/{pid}").st_uid != real_uid:
-                    continue
-            except OSError:
-                continue
-
-            proc_environ = self._read_proc_environ(pid)
-            if not (proc_environ.get("DISPLAY") or proc_environ.get("WAYLAND_DISPLAY")):
-                continue
-
-            for key in SESSION_ENV_KEYS:
-                if key not in already_found and proc_environ.get(key):
-                    found[key] = proc_environ[key]
-
-            try:
-                with open(f"{PROC_PATH}/{pid}/comm") as handle:
-                    name = handle.read().strip()
-            except OSError:
-                name = "?"
-            logger.info(
-                f"Session display taken from a running process: {name} ({pid})"
-            )
-            break
-
-        return found
-
-    def _get_session_env(self, real_uid: int, real_home: str) -> Dict[str, str]:
-        """Collect the user's graphical session environment.
-
-        NetworkManager starts us without any session context, so the values are
-        read from the processes that own the session (SESSION_LEADER_PROCESSES,
-        most specific first). Only SESSION_ENV_KEYS are taken and the first
-        process that provides a key wins.
-        """
-        session_env: Dict[str, str] = {}
-
-        for process in SESSION_LEADER_PROCESSES:
-            if len(session_env) == len(SESSION_ENV_KEYS):
-                break
-            try:
-                result = subprocess.run(
-                    ["pgrep", "-u", str(real_uid), "-x", process],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-            except Exception as e:
-                logger.debug(f"pgrep for {process} failed: {e}")
-                continue
-            if result.returncode != 0:
-                continue
-
-            for pid in result.stdout.split():
-                proc_environ = self._read_proc_environ(pid)
-                for key in SESSION_ENV_KEYS:
-                    if key not in session_env and proc_environ.get(key):
-                        session_env[key] = proc_environ[key]
-                        logger.debug(f"Session {key} taken from {process} ({pid})")
-
-        # No display from the known session leaders - the user may run a desktop
-        # we don't have on the list, so look at everything they have running
-        # (issue #2: only XDG_* keys were found, and the browser had no display)
-        if "DISPLAY" not in session_env and "WAYLAND_DISPLAY" not in session_env:
-            session_env.update(self._scan_session_env(real_uid, session_env))
-
-        # Fallbacks that don't need a session process
-        runtime_dir = session_env.get("XDG_RUNTIME_DIR") or f"/run/user/{real_uid}"
-        if os.path.isdir(runtime_dir):
-            session_env["XDG_RUNTIME_DIR"] = runtime_dir
-            bus_path = f"{runtime_dir}/bus"
-            if "DBUS_SESSION_BUS_ADDRESS" not in session_env and os.path.exists(
-                bus_path
-            ):
-                session_env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus_path}"
-
-        if "XAUTHORITY" not in session_env:
-            xauthority = f"{real_home}/.Xauthority"
-            if os.path.exists(xauthority):
-                session_env["XAUTHORITY"] = xauthority
-
-        return session_env
-
     async def _start_gpclient(self) -> bool:
         """Start gpclient process"""
+        gen = self._generation
         try:
-            # Get real user first (needed for pkill filter)
-            real_uid, real_user, real_home = self._get_real_user()
+            # Get real user first
+            # (blocking loginctl calls: off the event loop)
+            real_uid, real_user, _ = await asyncio.to_thread(
+                self._get_real_user
+            )
             logger.info(f"Will run gpclient as user: {real_user}")
 
-            # Kill any hanging gpauth processes first (filtered by user for security)
-            try:
-                subprocess.run(
-                    ["pkill", "-9", "-u", str(real_uid), "gpauth"], timeout=2
-                )
-                logger.debug(
-                    f"Killed any hanging gpauth processes for user {real_user}"
-                )
-            except Exception as e:
-                logger.debug(f"No gpauth processes to kill: {e}")
+            # Before anything is spawned: root must not read a file of the user
+            # (or a link) itself, it gets private copies (copy_cert_file)
+            self._remove_cert_copies()
+            usercert, userkey = self.usercert, self.userkey
+            if usercert:
+                try:
+                    self._cert_dir = tempfile.mkdtemp(dir=_cert_copy_root())
+                    os.chmod(self._cert_dir, 0o711)  # noqa: S103  # the desktop user must enter it (gpauth)
+                    usercert = copy_cert_file(
+                        "usercert", self.usercert, real_uid, self._cert_dir
+                    )
+                    if userkey:
+                        userkey = copy_cert_file(
+                            "userkey", self.userkey, real_uid, self._cert_dir
+                        )
+                except (ValueError, OSError) as e:
+                    logger.error(f"Rejected {e}")
+                    self._remove_cert_copies()
+                    return False
+
+            # gpauth left over from an earlier run of OUR gpclient. Never
+            # `pkill gpauth`: it would also kill the gpauth of a gpclient the
+            # user started from a terminal or of the GUI (issue #52).
+            await self._stop_remembered_gpauth()
+
+            # A Disconnect() came in while we waited: do not spawn (issue #52)
+            if gen != self._generation:
+                return False
 
             # Build command.
             #
-            # NOTE: --gateway is deliberately NOT passed. It used to be set to
-            # the server address, which makes gpclient look that address up in
-            # the portal's gateway list and abort with "Cannot find gateway
-            # specified" for every real portal (issue #7). Instead we answer
-            # gpclient's gateway prompt ourselves, which also lets us fall back
-            # to the first proposal when the configured gateway is gone.
+            # --gateway is NOT set to the server address: gpclient looks the
+            # value up (exact name or address) in the portal's gateway list and
+            # aborts with "Cannot find gateway specified" for every real portal
+            # (issue #7). It is passed only for preferred-gateway, and only
+            # when the portal offered that name or address before (it is in the
+            # cached gateway-list); otherwise we answer gpclient's gateway
+            # prompt ourselves, which also learns the list and falls back to
+            # the first proposal when the configured gateway is gone. If
+            # gpclient does not find the cached gateway after all, it is
+            # restarted once without the option (_retry_without_gateway).
             cmd = [GPCLIENT_BINARY]
 
-            # Global flag, must come before the subcommand (issue #2)
+            # Global flags, must come before the subcommand (issue #2). JSON
+            # records give the log lines a level and a message of their own, so
+            # nothing depends on the wording of the text prefix.
+            cmd += ["--log-format", "json"]
             if self.fix_openssl:
                 cmd.append("--fix-openssl")
 
@@ -1861,45 +2826,78 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             # Add --hip flag if enabled
             if self.hip_enabled:
-                cmd.append("--hip")
+                # One argv item: gpclient's --hip takes an optional value, and
+                # a separate path could be read as the positional server
+                cmd.append(f"--hip={self.hip_script}" if self.hip_script else "--hip")
+
+            # Client certificate (single tokens: a path must not be read as an
+            # option). Never --key-password: argv is world-readable.
+            if usercert:
+                cmd.append(f"--certificate={usercert}")
+                if userkey:
+                    cmd.append(f"--sslkey={userkey}")
 
             # The server is a gateway, not a portal: skip the portal workflow
             # so the user is not authenticated twice
             if self.as_gateway:
                 cmd.append("--as-gateway")
+            elif self._preferred_gateway_is_cached():
+                cmd.append(f"--gateway={self.preferred_gateway}")
+
+            # The stored password goes to gpclient's stdin (written below)
+            if self._password_on_stdin:
+                cmd.append("--passwd-on-stdin")
+
+            # Tunnel MTU, set when the automatic value is too big for the
+            # network (ESP falls back to HTTPS with "Message too long")
+            if self.mtu:
+                cmd.extend(["--mtu", str(self.mtu)])
+
+            # Name the tunnel after the connection, so the notification can be
+            # checked against it
+            tun_name = tunnel_interface_name(self._connection_uuid)
+            if tun_name:
+                cmd.append(f"--interface={tun_name}")
 
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:
-                cmd.extend(["--user", self.vpn_username])
+                cmd.append(f"--user={self.vpn_username}")
 
-            cmd.extend(["--browser", self.browser, self.gateway])
+            # Single-token options and "--" keep profile values from being
+            # parsed as options of their own (--browser takes an optional value)
+            if self._auth_result:
+                # The login result comes on stdin: no browser for gpclient
+                cmd.append("--cookie-on-stdin")
+            else:
+                cmd.append(f"--browser={self.browser}")
+            cmd.extend(["--", self.gateway])
 
             logger.info(f"Spawning: {' '.join(cmd)}")
 
             # Set up environment
             env = os.environ.copy()
+            if self._auth_result:
+                # An inherited value (e.g. started with sudo) must not let
+                # gpclient start gpauth as root or as another user
+                for name in ("SUDO_UID", "SUDO_USER", "GP_BROWSER"):
+                    env.pop(name, None)
 
-            # Set SUDO_UID for gpclient to detect real user
-            if real_uid > 0:
+            # Set SUDO_UID for gpclient to detect real user (not with the
+            # result on stdin: gpclient starts no gpauth then)
+            if real_uid > 0 and not self._auth_result:
                 env["SUDO_UID"] = str(real_uid)
                 env["SUDO_USER"] = real_user
 
-                # Import the user's graphical session environment so gpauth can
-                # actually open the SAML browser (issue #7)
-                session_env = self._get_session_env(real_uid, real_home)
-                env.update(session_env)
+                # No session environment here: gpclient starts gpauth as this
+                # user (SUDO_UID) and builds DISPLAY, XDG_RUNTIME_DIR, the
+                # D-Bus address and the rest itself (gpapi desktop_session_env)
                 logger.info(
-                    f"Environment: SUDO_UID={real_uid}, session keys: "
-                    f"{sorted(session_env)}"
+                    f"Environment: SUDO_UID={real_uid}; the session environment "
+                    "comes from gpclient/gpauth"
                 )
-                if "DISPLAY" not in session_env and "WAYLAND_DISPLAY" not in session_env:
-                    logger.warning(
-                        "No DISPLAY/WAYLAND_DISPLAY found in the user's session - "
-                        "the authentication browser may fail to open a window"
-                    )
 
             # Tell the wrapper which browser to launch
-            if self.browser_target:
+            if self.browser_target and not self._auth_result:
                 env["GP_BROWSER"] = self.browser_target
 
             env["GPCLIENT_NM_IGNORE_AUTO_ROUTES"] = (
@@ -1907,9 +2905,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             )
             env["GPCLIENT_NM_NEVER_DEFAULT"] = "1" if self.never_default else "0"
 
-            # Where the vpnc hook records the DNS the gateway pushes, so it
-            # can be reported to NetworkManager (issue #15)
-            env[DNS_STATE_ENV] = DNS_STATE_FILE
+            # What the vpnc hook needs to tell us that the tunnel is up: this
+            # program, and a token for this session (new for every start, also
+            # the one after --fix-openssl). Not a secret (gpauth and the
+            # browser inherit it): the D-Bus policy limits callers to root.
+            env[NOTIFY_PROGRAM_ENV] = SERVICE_PROGRAM
+            self._notify_token = secrets.token_hex(16)
+            env[NOTIFY_TOKEN_ENV] = self._notify_token
 
             # Export custom DNS domains for vpnc hook
             if self.dns_domains:
@@ -1925,7 +2927,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             # output and answer via NM's secrets flow.
             env["TERM"] = "xterm-256color"
 
+            # A new process asks for the passphrase from the start
+            self._cert_pass_tried = set()
+
             master_fd, slave_fd = pty.openpty()
+            if self._auth_result:
+                # No echo (the line would go to the log) and no line mode (it
+                # holds 4095 bytes at most); inquire restores its own mode
+                attrs = termios.tcgetattr(slave_fd)
+                attrs[3] &= ~(termios.ECHO | termios.ICANON)
+                termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
 
             def _child_setup():
                 # New session + make the PTY slave (fd 0) the controlling
@@ -1959,9 +2970,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
             logger.info(f"Started gpclient with PID {self.gpclient_process.pid}")
 
+            if self._password_on_stdin:
+                # In the PTY's input queue before gpclient reads it; the echo
+                # is masked in the log (the password is in _written_secrets)
+                self._written_secrets.add(self.vpn_password)
+                self._write_keys(self.vpn_password.encode() + b"\n", "password")
+
+            if self._auth_result:
+                # shortcut: a blocking write, fine for the usual few hundred
+                # bytes; a line over 4095 bytes waits for gpclient to read it
+                self._written_secrets.add(self._auth_result)
+                self._write_keys(self._auth_result.encode() + b"\n", "auth result")
+
             # Start monitoring PTY output
-            self.stdout_monitor_task = asyncio.create_task(
-                self._monitor_gpclient_output()
+            self.stdout_monitor_task = self._create_task(
+                self._monitor_gpclient_output(), "gpclient output monitor"
             )
 
             return True
@@ -2018,27 +3041,43 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     self._last_answer = ""
 
                 for raw_line in lines:
-                    # Raw, not stripped: _recent_lines only feeds logging and
-                    # the text prompt checks (a Select is read from _screen)
+                    # Raw, not stripped: _recent_lines only feeds logging (the
+                    # prompts are read from _screen)
                     self._recent_lines.append(raw_line)
-                    self._line_counter += 1
 
                     line = raw_line.strip()
                     # inquire redraws lines on every keystroke; skip repeats
                     if line == last_logged_line:
                         continue
                     last_logged_line = line
-                    logger.info(f"gpclient output: {line}")
+                    # A log record: its message is the text the matchers read.
+                    # Anything else (println!, prompts) is a plain text line.
+                    # What upstream logs or reports is matched on the message
+                    # of a record only (`msg`, empty for a text line), so a
+                    # prompt line or text the portal controls cannot fake a
+                    # match. The auth banner (println!) and the prompts stay
+                    # text.
+                    record = parse_log_record(line)
+                    if record:
+                        text = record["message"]
+                        shown = f"[{record['level']}] {record['target']}: {text}"
+                    else:
+                        text = shown = line
+                    msg = text if record else ""
+                    shown = mask_secret_prompts(shown, self._secret_prompt_labels)
+                    logger.info(
+                        f"gpclient output: {mask_secrets(shown, self._written_secrets)}"
+                    )
 
-                    found = parse_gateway_count(line)
+                    found = parse_gateway_count(msg)
                     if found is not None:
                         self._gateway_count = found
 
-                    chosen = GATEWAY_CHOSEN_RE.search(line)
+                    chosen = GATEWAY_CHOSEN_RE.search(msg)
                     if chosen:
                         self._record_gateways([chosen.group("gateway")])
                         if (
-                            "the only available" in line
+                            "the only available" in msg
                             and self._gateway_count == 1
                         ):
                             # The portal config holds just this one gateway:
@@ -2050,7 +3089,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                                 self._lap_entries, [chosen.group("gateway")]
                             )
 
-                    if "--as-gateway" in line:
+                    self._tunnel_settings = parse_tunnel_settings_line(
+                        line, self._tunnel_settings
+                    )
+
+                    if "--as-gateway" in msg:
                         logger.warning(
                             "gpclient reports the server may be a gateway rather "
                             "than a portal - enable 'Address is a gateway' "
@@ -2058,11 +3101,25 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                             "settings to authenticate only once"
                         )
 
-                    if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(line):
+                    if GATEWAY_NOT_FOUND_RE.search(msg):
+                        self._gateway_not_found_seen = True
+
+                    if self._auth_result and SAML_GATEWAY_LAUNCH_RE.search(msg):
+                        # The dialog's result went to the portal; this gateway
+                        # wants a login of its own, which needs the browser in
+                        # the user's session
+                        self._fail_login(
+                            "the gateway needs a second SAML login, which "
+                            "saml-auth=dialog cannot do: enable 'Address is a "
+                            "gateway' for a gateway address, or set "
+                            "saml-auth=service"
+                        )
+
+                    if not self.fix_openssl and OPENSSL_LEGACY_ERROR_RE.search(msg):
                         # The portal needs legacy TLS renegotiation (issue #2)
                         self._openssl_error_seen = True
 
-                    if INTERNAL_NETWORK_RE.search(line):
+                    if INTERNAL_NETWORK_RE.search(msg):
                         self._fail_internal_network()
 
                     banner = parse_auth_banner(line)
@@ -2082,8 +3139,8 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                     # Check for connection success indicators
                     if any(
-                        msg in line
-                        for msg in [
+                        m in msg
+                        for m in [
                             "ESP tunnel connected",
                             "Connected to",
                             "Tunnel is up",
@@ -2096,7 +3153,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
 
                 self._schedule_prompt_check()
 
-            # Process ended
+            # Process ended. Note its gpauth children now: once gpclient is
+            # reaped they belong to init and cannot be told from other gpauth
+            await self._remember_gpauth()
             returncode = await self.gpclient_process.wait()
             logger.info(f"gpclient process exited with status {returncode}")
 
@@ -2104,7 +3163,19 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 if await self._retry_with_openssl_fix():
                     # A new monitor task took over the retried process
                     return
+                if await self._retry_without_gateway():
+                    return
+                if self._session_gen != self._generation:
+                    # A Disconnect() came in during the retry: nothing to report
+                    return
                 logger.error(f"gpclient failed with exit code {returncode}")
+                self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
+            elif returncode == 0 and not self._login_failed:
+                # Disconnect() cancels this task before it stops gpclient, so
+                # an exit seen here was not asked for. Upstream returns Ok(())
+                # on some failures; without a Failure NetworkManager waits for
+                # vpn.timeout.
+                logger.error("gpclient exited (status 0) without being asked to")
                 self._emit_failure(NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED)
 
         except asyncio.CancelledError:
@@ -2124,14 +3195,16 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # incrementally redrawn Select frame (issue #25)
         self._screen = ScreenBuffer()
         self._tunnel_up = False  # STARTED emitted: stop watching for a Select
-        self._line_counter = 0  # monotonic count of complete lines seen
-        self._answered_at_line = -1  # line count when we last answered a prompt
+        # (screen row id, label) of the text prompt we answered last
+        self._answered_prompt: Optional[Tuple[int, str]] = None
         self._answered_select = None  # message of the Select we answered
         # "Found N gateways in portal config" of this attempt, and the entries
         # of the whole list when this attempt saw all of it (read page by
         # page, or a list that is not paged); empty otherwise
-        self._gateway_count: Optional[int] = None
-        self._lap_entries: List[str] = []
+        self._gateway_count = None
+        self._lap_entries = []
+        # The tunnel settings gpclient logged in this attempt (issue #37)
+        self._tunnel_settings = TunnelSettings()
 
     def _decode_output(self, chunk: bytes) -> str:
         """Decode a PTY read; a character split across reads stays whole.
@@ -2190,6 +3263,52 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._openssl_retried = True
         self.fix_openssl = True
 
+        if await self._restart_gpclient():
+            return True
+
+        logger.error("Failed to restart gpclient with --fix-openssl")
+        return False
+
+    def _preferred_gateway_is_cached(self) -> bool:
+        """May --gateway carry preferred-gateway? Only if the portal offered it.
+
+        gpclient takes the exact name or address of a gateway of the portal's
+        list; the cached entries look like "name (address)".
+        """
+        preferred = self.preferred_gateway
+        if not preferred or self._gateway_flag_dropped:
+            return False
+        for entry in self._stored_gateway_list.split(GATEWAY_LIST_SEPARATOR):
+            name, _, host = entry.partition("(")
+            if preferred in (name.strip(), host.strip(") ")):
+                return True
+        return False
+
+    async def _retry_without_gateway(self) -> bool:
+        """Restart gpclient once without --gateway when it cannot find it.
+
+        The cached gateway list is stale: the portal does not offer the
+        preferred gateway any more. Without the option gpclient shows its
+        gateway prompt and the usual fallback applies.
+        """
+        if not self._gateway_not_found_seen or self._gateway_flag_dropped:
+            return False
+        if not self._preferred_gateway_is_cached():
+            return False
+
+        logger.warning(
+            f"The stored gateway {self.preferred_gateway!r} is no longer offered "
+            "by the portal - retrying without --gateway"
+        )
+        self._gateway_flag_dropped = True
+        if await self._restart_gpclient():
+            return True
+
+        logger.error("Failed to restart gpclient without --gateway")
+        return False
+
+    async def _restart_gpclient(self) -> bool:
+        """Start gpclient again after a failed attempt (fresh state)"""
         # Drop the finished process and its PTY before starting over
         if self._prompt_task and not self._prompt_task.done():
             self._prompt_task.cancel()
@@ -2205,16 +3324,66 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         self._phase_key = None
         self._reset_phase_state()
 
-        # Same groundwork as before the first attempt: whatever the failed run
-        # left behind must not be mistaken for the new tunnel (issue #7)
+        # Same groundwork as before the first attempt
         await self._cleanup_stale_gpd0()
-        self._preexisting_ifaces = await self._snapshot_tunnel_interfaces()
 
-        if await self._start_gpclient():
-            return True
+        return await self._start_gpclient()
 
-        logger.error("Failed to restart gpclient with --fix-openssl")
-        return False
+    async def _remember_gpauth(self) -> None:
+        """Note the gpauth processes below our gpclient, for later cleanup.
+
+        Only descendants of the gpclient this service started are noted, each
+        with its start time. Never raises.
+        """
+        process = self.gpclient_process
+        pid = getattr(process, "pid", None)
+        if not isinstance(pid, int) or getattr(process, "returncode", None) is not None:
+            return
+        try:
+            found = await asyncio.to_thread(gpauth_descendants, pid)
+        except Exception as e:
+            logger.debug(f"Could not look for the gpauth of gpclient: {e}")
+            return
+        for entry in found:
+            if entry not in self._gpauth_leftovers:
+                self._gpauth_leftovers.append(entry)
+
+    async def _stop_remembered_gpauth(self) -> None:
+        """SIGTERM, then SIGKILL, the gpauth processes noted by
+        _remember_gpauth() that still run.
+
+        A process is signalled only while its PID still has the start time we
+        noted, so a reused PID is never hit. Nothing else is signalled. Never
+        raises.
+        """
+        leftovers, self._gpauth_leftovers = self._gpauth_leftovers, []
+        if not leftovers:
+            return
+        try:
+            async def signal_all(sig: int) -> List[Tuple[int, int]]:
+                sent = []
+                for pid, starttime in leftovers:
+                    if await asyncio.to_thread(signal_if_same, pid, starttime, sig):
+                        sent.append((pid, starttime))
+                return sent
+
+            if not await signal_all(signal.SIGTERM):
+                return
+            logger.info("Stopped gpauth of our gpclient (SIGTERM)")
+            deadline = asyncio.get_running_loop().time() + GPAUTH_TERMINATE_TIMEOUT
+            while asyncio.get_running_loop().time() < deadline:
+                alive = [
+                    entry
+                    for entry in leftovers
+                    if await asyncio.to_thread(is_same_process, *entry)
+                ]
+                if not alive:
+                    return
+                await asyncio.sleep(0.1)
+            if await signal_all(signal.SIGKILL):
+                logger.warning("gpauth of our gpclient did not exit, killed it")
+        except Exception as e:
+            logger.error(f"Error stopping gpauth: {e}")
 
     async def _stop_gpclient(self) -> None:
         """Stop gpclient with SIGTERM, so it logs out of the gateways.
@@ -2265,6 +3434,12 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 pass
             self._pty_master = None
 
+    def _remove_cert_copies(self) -> None:
+        """Delete the private copies of the certificate files (and their directory)"""
+        if self._cert_dir:
+            shutil.rmtree(self._cert_dir, ignore_errors=True)
+            self._cert_dir = ""
+
     def _emit_failure(self, reason: int) -> None:
         """Report a failed activation to NetworkManager.
 
@@ -2272,8 +3447,23 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         a failure, and without it the activation sits there until its own
         connect timeout expires, which reads as a hang (issue #2).
         """
+        logger.error(f"Reporting failure to NetworkManager: reason {reason}")
+        self._auth_result = ""
+        self._remove_cert_copies()
         self.Failure.emit(reason)
-        self.StateChanged.emit(NM_VPN_SERVICE_STATE_STOPPED)
+        self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
+
+    def _set_state(self, state: int) -> None:
+        """Record the VPN state, log it and tell NetworkManager.
+
+        python-sdbus does not run the body of a signal method on emit(), so the
+        State property must be set here.
+        """
+        self._state = state
+        logger.info(f"StateChanged: {state}")
+        self.StateChanged.emit(state)
+        if state == NM_VPN_SERVICE_STATE_STOPPED and self._on_idle:
+            self._arm_idle_timer()
 
     def _schedule_prompt_check(self) -> None:
         """(Re)schedule the debounced check for a pending interactive prompt.
@@ -2309,47 +3499,57 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     return
                 await self._handle_select_prompt(select_frame)
 
-            self._prompt_task = asyncio.create_task(
-                _debounced_select(self._screen.version)
+            self._prompt_task = self._create_task(
+                _debounced_select(self._screen.version), "prompt handler"
             )
             return
 
-        label = detect_prompt(self._output_scanner.tail, self._last_answer)
-        from_tail = label is not None
-
-        if label is None:
-            # inquire terminates the line it renders a prompt on (every backend
-            # ends with new_line()), so with a real gpclient the pending prompt
-            # is the last COMPLETE line and the tail is empty. Only act on a
-            # line that appeared after our last answer, otherwise the redraw of
-            # an answered prompt would be answered again.
-            if self._line_counter > self._answered_at_line:
-                label = detect_prompt(self._last_output_line(), self._last_answer)
-
-        if label is None:
+        found = self._screen_prompt()
+        if found is None:
             self._prompt_task = None
             return
+        label = found[1]
 
-        async def _debounced(tail_snapshot: str, line_snapshot: int):
+        async def _debounced(version: int):
             await asyncio.sleep(PROMPT_DEBOUNCE_SECONDS)
-            # Only act if the output has not moved on since we saw the prompt
-            if self._output_scanner.tail != tail_snapshot:
+            # Only act if the screen has not changed since we saw the prompt
+            if self._screen.version != version:
                 return
-            if not from_tail and self._line_counter != line_snapshot:
-                return
+            self._answered_prompt = found
             await self._handle_prompt(label)
 
-        self._prompt_task = asyncio.create_task(
-            _debounced(self._output_scanner.tail, self._line_counter)
+        self._prompt_task = self._create_task(
+            _debounced(self._screen.version), "prompt handler"
         )
 
-    def _last_output_line(self) -> str:
-        """Last non-empty line gpclient printed (stripped), or an empty string"""
-        for raw_line in reversed(self._recent_lines):
-            stripped = raw_line.strip()
-            if stripped:
-                return stripped
-        return ""
+    def _screen_prompt(self) -> Optional[Tuple[int, str]]:
+        """The text prompt gpclient waits at, as (row id, label), or None.
+
+        Read from the screen model: inquire redraws incrementally, so the line
+        stream holds stale rows and only some of the new ones (issue #27). The
+        line stream is used for logging only. Once the tunnel is up the screen
+        is no longer fed, and no prompt is expected.
+
+        A prompt that was already answered is skipped for as long as its row
+        and label have not changed. They change when inquire finalises the
+        answer or draws another prompt there; a prompt that comes back later is
+        a new one.
+        """
+        if self._tunnel_up:
+            return None
+        found = detect_screen_prompt(
+            self._screen.lines(), self._screen.cursor_row, self._last_answer
+        )
+        prompt = None if found is None else (self._screen.row_id(found[0]), found[1])
+        if prompt is None or prompt != self._answered_prompt:
+            self._answered_prompt = None  # the answered row has moved on
+        if prompt is None or prompt == self._answered_prompt:
+            return None
+        # The final line of an answered list ("? Which gateway ... gw-a") is
+        # not a prompt either
+        if self._answered_select and prompt[1].startswith(self._answered_select):
+            return None
+        return prompt
 
     def _reset_phase_state(self) -> None:
         """Reset per-phase prompt tracking at the start of an auth round.
@@ -2359,10 +3559,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         prompt for it.
         """
         self._answered_username = self._username_prefilled
-        self._answered_password = False
+        self._answered_password = self._password_on_stdin
 
     def _classify_prompt_kind(self, label: str, banner_msg: str) -> str:
-        """Decide how to answer a prompt: 'otp', 'username' or 'password'.
+        """Decide how to answer a prompt: 'cert-pass', 'otp', 'username' or
+        'password'.
 
         Combines label keywords with the prompt ORDER, which is a
         language-independent protocol invariant: gpclient asks username then
@@ -2373,6 +3574,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         # Text in brackets is a hint and may be a negation ("Password (not
         # your PIN)"), so it is never looked at
         main = LABEL_HINT_RE.sub(" ", label)
+
+        # The passphrase of the client certificate key. Checked first, and by
+        # the exact upstream text: it is neither a login password nor an OTP.
+        if CERT_PASS_PROMPT_RE.fullmatch(main.strip()):
+            return CERT_PASS_SECRET_KEY
 
         # One-time challenge, by keyword in the label OR by position (anything
         # after we've already sent the password this phase).
@@ -2406,8 +3612,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         banner_msg = self._auth_banner["message"] if self._auth_banner else ""
         kind = self._classify_prompt_kind(label, banner_msg)
 
-        # Anything already printed must not be taken for a new prompt again
-        self._answered_at_line = self._line_counter
         self._answering = True
         try:
             if kind == "username":
@@ -2419,6 +3623,22 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                         "username", label, banner_msg
                     )
                 self._answered_username = True
+            elif kind == CERT_PASS_SECRET_KEY:
+                # gpclient asks again after a wrong PEM passphrase, and an
+                # agent may hand back the stored (wrong) value silently: stop
+                # at a passphrase that was already typed, and after a few tries
+                if len(self._cert_pass_tried) >= CERT_PASS_MAX_TRIES:
+                    raise Exception("wrong certificate passphrase")
+                if self.cert_pass and self.cert_pass not in self._cert_pass_tried:
+                    logger.info("Answering passphrase prompt from stored passphrase")
+                    answer = self.cert_pass
+                else:
+                    answer = await self._request_secret_interactive(
+                        CERT_PASS_SECRET_KEY, label, banner_msg
+                    )
+                    if answer in self._cert_pass_tried:
+                        raise Exception("wrong certificate passphrase")
+                self._cert_pass_tried.add(answer)
             elif kind == "otp":
                 logger.info(
                     "Prompt looks like a one-time secret (token/OTP/challenge), "
@@ -2446,13 +3666,21 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         finally:
             self._answering = False
 
-        self._write_answer(answer)
+        # Only the username stored in the profile may show up in the log. A
+        # prompt that was classified as "username" (also by position, for a
+        # label we do not know) can still ask for a secret; a password that
+        # equals the stored username is still a password.
+        secret = not (
+            kind == "username" and self.vpn_username and answer == self.vpn_username
+        )
+        self._write_answer(answer, secret=secret, label=label)
 
     @staticmethod
     def _gateway_entry(option: str) -> str:
         """A gateway as it is cached in the profile ("" if nothing is left)"""
-        # ';' separates cached entries and nmcli splits +vpn.data values on
-        # commas, so neither may survive inside an entry
+        # ';' separates cached entries and nmcli (run by users on the profile)
+        # splits +vpn.data values on commas, so neither may survive inside an
+        # entry
         entry = option.replace(",", " ").replace(GATEWAY_LIST_SEPARATOR, " ")
         return " ".join(entry.split())
 
@@ -2497,7 +3725,6 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         """
         options = frame["options"]
         self._answered_select = frame["message"]
-        self._answered_at_line = self._line_counter
         self._answering = True
         try:
             self._record_gateways(options)
@@ -2539,9 +3766,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 else:
                     logger.info(f"Preferred gateway {preferred!r} matches {target!r}")
                 wanted = target
-                matches = lambda option: option == target  # noqa: E731
+                matches: Callable[..., bool] = lambda option: option == target  # noqa: E731
                 homing = True
-                step_limit = max(SELECT_MAX_STEPS, self._gateway_count + 1)
+                step_limit = max(SELECT_MAX_STEPS, (self._gateway_count or 0) + 1)
             elif not preferred:
                 wanted = options[0]
                 matches = lambda option: option == wanted  # noqa: E731
@@ -2613,7 +3840,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     homing = True
                     hit = substring_hit
                     # An exact match seen on the way back still wins
-                    matches = lambda option: (  # noqa: E731
+                    matches = lambda option, hit=hit: (  # noqa: E731
                         option == hit
                         or gateway_matches(preferred, option, substring=False)
                     )
@@ -2627,7 +3854,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     # The walk began on the first proposal, unless gpclient did
                     # not redraw after Home: then go on to it by its name
                     homing = True
-                    matches = lambda option: option == first_proposal  # noqa: E731
+                    matches = lambda option, first_proposal=first_proposal: (  # noqa: E731
+                        option == first_proposal
+                    )
                     step_limit = steps + SELECT_MAX_STEPS
 
                 if matches(current):
@@ -2773,7 +4002,7 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 if frame is None
                 else (tuple(frame["options"]), frame["cursor"], frame["more"])
             )
-            if seen is not None and seen == last_seen:
+            if frame is not None and seen == last_seen:
                 if frame["options"][frame["cursor"]] != previous_option:
                     return frame
             last_seen = seen
@@ -2787,45 +4016,99 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             previous, KEY_DOWN, "move down the gateway list"
         )
 
-    async def _nmcli_modify(self, *arguments: str) -> bool:
-        """Run `nmcli connection modify <uuid> ...` (best effort).
+    async def _update_profile_once(
+        self, data: Dict[str, str], drop_secrets: Sequence[str]
+    ) -> None:
+        """One read-modify-write of the profile over NetworkManager's D-Bus API.
 
-        `+vpn.data` sets a single key and leaves the rest of the dictionary
-        alone, and NetworkManager writes the profile back wherever it lives
-        (including netplan on Ubuntu). Nothing in the connect path depends on
-        this succeeding, so failures are logged and swallowed.
+        Update2 with flags 0 keeps the profile where it is stored (disk,
+        netplan). Settings without any secret make NetworkManager keep the
+        stored secrets, so secrets are sent only to drop some, and then all the
+        others are sent back with them.
+        """
+        settings_proxy = NmSettingsInterface.new_proxy(
+            NM_DBUS_SERVICE, NM_DBUS_PATH_SETTINGS
+        )
+        path = await settings_proxy.GetConnectionByUuid(self._connection_uuid)
+        connection = NmConnectionInterface.new_proxy(NM_DBUS_SERVICE, path)
+
+        secrets: Optional[Dict[str, str]] = None
+        if drop_secrets:
+            # Root has no secret agent: with no system secret stored, NM fails
+            # the call ("No agents were available"). Then nothing is stored to
+            # drop, and the data (e.g. the not-saved flag, which keeps a code
+            # off the disk) is still written.
+            try:
+                vpn_secrets = (await connection.GetSecrets("vpn")).get("vpn", {})
+            except Exception as e:  # an unmapped NM error is no DbusFailedError
+                logger.debug(f"No stored vpn secrets to drop: {e}")
+                vpn_secrets = {}
+            stored = dict(vpn_secrets["secrets"][1]) if "secrets" in vpn_secrets else {}
+            # A key already blanked by an earlier drop is not stored any more
+            dropped = [key for key in drop_secrets if stored.get(key)]
+            if dropped:
+                for key in dropped:
+                    del stored[key]
+                # NetworkManager reads an empty secrets dict as "no secrets"
+                # and keeps the stored ones: send the dropped keys empty then
+                # (allowed since NM 1.24)
+                secrets = stored or {key: "" for key in dropped}
+
+        # After GetSecrets (which bumps the version) and before GetSettings: a
+        # change after the read fails the check
+        try:
+            version = await connection.VersionId.get_async()
+        except Exception:
+            version = None  # NetworkManager before 1.44 has no VersionId
+
+        read = await connection.GetSettings()
+        settings = {name: dict(props) for name, props in read.items()}
+        vpn = settings["vpn"]
+        old_data = vpn["data"][1] if "data" in vpn else {}
+        vpn["data"] = ("a{ss}", {**old_data, **data})
+        if secrets is not None:
+            vpn["secrets"] = ("a{ss}", secrets)
+
+        args = {} if version is None else {"version-id": ("t", version)}
+        await connection.Update2(settings, 0, args)
+
+    async def _update_profile(
+        self, data: Dict[str, str], drop_secrets: Sequence[str] = ()
+    ) -> bool:
+        """Set vpn.data keys and drop vpn.secrets keys in the connection profile.
+
+        Best effort: nothing in the connect path depends on this succeeding, so
+        failures are logged and swallowed. Every other key and setting is
+        written back as it was read.
         """
         if not self._connection_uuid:
-            logger.debug(f"No connection UUID, skipping nmcli {arguments}")
+            logger.debug(f"No connection UUID, skipping profile update {sorted(data)}")
             return False
 
+        logger.debug(f"Updating the connection profile: {sorted(data)}")
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "nmcli",
-                "connection",
-                "modify",
-                self._connection_uuid,
-                *arguments,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            for attempt in (1, 2):
+                try:
+                    await asyncio.wait_for(
+                        self._update_profile_once(data, drop_secrets),
+                        timeout=PROFILE_UPDATE_TIMEOUT,
+                    )
+                    return True
+                except VersionIdMismatchError:
+                    # The profile changed between the read and the write: read
+                    # it again, once
+                    if attempt == 2:
+                        raise
         except Exception as e:
-            logger.warning(f"nmcli modify {arguments} failed: {e}")
-            return False
-
-        if proc.returncode != 0:
             logger.warning(
-                f"nmcli modify {arguments} failed with {proc.returncode}: "
-                f"{stderr.decode('utf-8', errors='replace').strip()}"
+                f"Updating the connection profile {sorted(data)} failed: "
+                f"{type(e).__name__}: {e}"
             )
-            return False
-
-        return True
+        return False
 
     async def _write_vpn_data(self, key: str, value: str) -> bool:
         """Store one vpn.data key in the connection profile (best effort)"""
-        return await self._nmcli_modify("+vpn.data", f"{key}={value}")
+        return await self._update_profile({key: value})
 
     async def _forget_one_time_secret(self) -> None:
         """Keep one-time codes out of the connection profile.
@@ -2846,14 +4129,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             "Marking the one-time code as not-saved in the profile and dropping "
             "any stored value"
         )
-        flagged = await self._write_vpn_data(f"{OTP_SECRET_KEY}-flags", "2")
-        # Without the flag dropping the value would not hold: skip it and try
-        # both again at a later prompt
-        dropped = flagged and await self._nmcli_modify("-vpn.secrets", OTP_SECRET_KEY)
-        # Only after both succeeded: on a failure the code may still be in the
+        # One write, so the flag and the dropped value change together. Only
+        # after it succeeded: on a failure the code may still be in the
         # profile, so the next one-time prompt has to try again - a few times,
-        # not at every prompt (each nmcli call may wait 10 s)
-        self._otp_flags_written = flagged and dropped
+        # not at every prompt (each write may wait 10 s)
+        self._otp_flags_written = await self._update_profile(
+            {f"{OTP_SECRET_KEY}-flags": "2"}, drop_secrets=[OTP_SECRET_KEY]
+        )
         if not self._otp_flags_written and (
             self._otp_flag_attempts >= OTP_FLAG_MAX_ATTEMPTS
         ):
@@ -2891,25 +4173,27 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             ]
 
         value = GATEWAY_LIST_SEPARATOR.join(entries)
-        changed = False
+        data = {}
         if value != self._stored_gateway_list:
             logger.info(f"Caching gateway list in the connection profile: {value}")
-            if not await self._write_vpn_data("gateway-list", value):
-                return
-            self._stored_gateway_list = value
-            changed = True
+            data["gateway-list"] = value
         # The count marks the list as complete, so it follows the list
         if count is not None and count != self._stored_gateway_count:
-            if await self._write_vpn_data("gateway-list-count", str(count)):
-                self._stored_gateway_count = count
-            else:
-                logger.warning(
-                    "Could not store the gateway count - the next connection "
-                    "reads the gateway list again"
-                )
-            changed = True
-        if not changed:
+            data["gateway-list-count"] = str(count)
+        if not data:
             logger.debug("Gateway list unchanged, leaving the profile alone")
+            return
+        # One write: either both are stored or neither is recorded as stored
+        if not await self._update_profile(data):
+            logger.warning(
+                "Could not store the gateway list and count - the next connection "
+                "reads the gateway list again"
+            )
+            return
+        if "gateway-list" in data:
+            self._stored_gateway_list = value
+        if "gateway-list-count" in data:
+            self._stored_gateway_count = count
 
     async def _persist_fix_openssl(self) -> None:
         """Remember that this portal needs the legacy TLS workaround.
@@ -2931,7 +4215,11 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             self.fix_openssl_mode = "true"
 
     async def _request_secret_interactive(
-        self, secret_key: str, label: str, banner_msg: str
+        self,
+        secret_key: str,
+        label: str,
+        banner_msg: str,
+        extra_hints: Sequence[str] = (),
     ) -> str:
         """Ask the user for a secret via SecretsRequired/NewSecrets.
 
@@ -2957,12 +4245,13 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         else:
             message = f"{label}{server_part}"
 
-        logger.info(f"Requesting secret {secret_key!r} from user: {message}")
+        logger.info(f"Requesting a secret from the user: {message}")
 
         loop = asyncio.get_running_loop()
         self._secret_future = loop.create_future()
 
-        hints = [f"x-vpn-message:{message}", secret_key]
+        hints = [f"x-vpn-message:{message}", *extra_hints, secret_key]
+        logger.info(f"SecretsRequired: {message}")
         self.SecretsRequired.emit((message, hints))
 
         try:
@@ -2972,22 +4261,36 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         except asyncio.TimeoutError:
             raise Exception(
                 f"Timed out waiting for the user to provide {secret_key!r}"
-            )
+            ) from None
         finally:
             self._secret_future = None
 
         value = secrets.get(secret_key, "")
         if not value and len(secrets) == 1:
-            # Some agents return the secret under a different key
-            value = next(iter(secrets.values()))
+            # Some agents return the secret under a different key - but never
+            # one that is another known secret: the VPN password must not be
+            # typed at the passphrase prompt, nor the passphrase at a login
+            key, lone = next(iter(secrets.items()))
+            if key not in KNOWN_SECRET_KEYS:
+                value = lone
         if not value:
             raise Exception(f"User did not provide {secret_key!r}")
 
         return value
 
-    def _write_answer(self, answer: str) -> None:
-        """Type an answer into gpclient's PTY"""
+    def _write_answer(
+        self, answer: str, secret: bool = False, label: str = ""
+    ) -> None:
+        """Type an answer into gpclient's PTY (never logs the answer)
+
+        `label` is the prompt that is answered: the echo of a secret after that
+        label is hidden in the log, also while it is still being typed.
+        """
         self._last_answer = answer
+        if secret and answer:
+            self._written_secrets.add(answer)
+            if label.strip():
+                self._secret_prompt_labels.add(label.strip())
         # inquire (crossterm raw mode) treats \r as Enter
         self._write_keys(answer.encode("utf-8") + KEY_ENTER, "answer")
 
@@ -3036,114 +4339,68 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             "it without a VPN tunnel, so there is nothing to connect",
         )
 
-    async def _get_iface_ipv4(self, iface: str) -> Tuple[Any, int]:
-        """Get the first IPv4 address of an interface.
-
-        Returns:
-            (ip_address, prefix) tuple; ip_address is None when the
-            interface has no IPv4 address or the lookup failed.
-        """
-        try:
-            result = await asyncio.create_subprocess_exec(
-                "ip",
-                "-4",
-                "addr",
-                "show",
-                iface,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await result.communicate()
-        except Exception as e:
-            logger.warning(f"Failed to get tunnel IP for {iface}: {e}")
-            return None, 32
-
-        ip_addr = None
-        prefix = 32
-        for line in stdout.decode("utf-8", errors="replace").split("\n"):
-            if "inet " in line:
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    addr_with_prefix = parts[1]
-                    if "/" in addr_with_prefix:
-                        try:
-                            ip_addr, prefix_str = addr_with_prefix.split("/", 1)
-                            prefix = int(prefix_str)
-                        except ValueError:
-                            ip_addr = addr_with_prefix
-                            prefix = 32
-                    else:
-                        ip_addr = addr_with_prefix
-                break
-        return ip_addr, prefix
-
-    async def _snapshot_tunnel_interfaces(self) -> Dict[str, Any]:
-        """Record tunnel-candidate interfaces existing before gpclient starts.
-
-        An interface recorded here (with an unchanged IP) is never accepted
-        by _check_tunnel_loop: it is either a stale gpd0 from a crashed
-        session or another VPN client's tunnel (issue #7). Any number of
-        foreign tunnels may be up - the snapshot grows with them (issue #13).
-        """
-        snapshot = {}
-        for iface in list_tunnel_candidates():
-            ip_addr, _ = await self._get_iface_ipv4(iface)
-            snapshot[iface] = ip_addr
-            logger.info(
-                f"Interface {iface} (IP: {ip_addr}) already exists before "
-                "gpclient start - it will be ignored by tunnel detection "
-                "unless its address changes"
-            )
-        return snapshot
-
-    def _tunnel_ifaces_owned_by_gpclient(self) -> set:
-        """Tunnel interfaces held open by our own gpclient process tree.
-
-        Empty when the answer is unknown (gpclient already exited, /proc
-        unreadable) - the caller then relies on the snapshot alone.
-        """
-        process = self.gpclient_process
-        if process is None or process.returncode is not None:
-            return set()
-        try:
-            return tunnel_ifaces_held_by(process_tree(process.pid))
-        except Exception as e:
-            logger.debug(f"Could not determine gpclient's tunnel interfaces: {e}")
-            return set()
-
-    def _clear_dns_state(self) -> None:
-        """Remove the vpnc hook's DNS state file, if any."""
-        try:
-            os.unlink(DNS_STATE_FILE)
-            logger.debug(f"Removed DNS state file {DNS_STATE_FILE}")
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Could not remove DNS state file {DNS_STATE_FILE}: {e}")
-
-    def _read_learned_dns(
-        self, iface: str
+    def _cross_check_logged_dns(
+        self,
+        iface: str,
+        learned: Optional[Tuple[List[str], List[str], List[str]]],
     ) -> Optional[Tuple[List[str], List[str], List[str]]]:
-        """DNS the gateway pushed for `iface`, as recorded by the vpnc hook.
+        """Compare the vpnc hook's DNS with the settings gpclient logged (#37).
 
-        None when the file is not there (yet) or describes another tunnel.
+        The hook stays the source: its values are never replaced. What the
+        hook lacks (no servers, or no search domains) is taken from the log
+        when gpclient logged a complete list for this very interface. When
+        both exist and differ, one warning shows both. The interface and the
+        address used for routing are never taken from the log.
         """
-        try:
-            with open(DNS_STATE_FILE, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-        except FileNotFoundError:
-            return None
-        except OSError as e:
-            logger.warning(f"Could not read DNS state file {DNS_STATE_FILE}: {e}")
-            return None
+        settings = self._tunnel_settings
+        if settings.interface != iface:
+            return learned
+        servers, domains, servers6 = learned or ([], [], [])
 
-        state = parse_dns_state(text)
-        learned = learned_dns_from_state(state, iface)
-        if learned is None:
-            logger.debug(
-                f"DNS state file is for {state.get('TUNDEV')!r}, not {iface} - ignoring"
+        logged_servers: Optional[List[str]] = None
+        if settings.dns is not None:
+            logged_servers = list(settings.dns)
+        logged_domains: Optional[List[str]] = None
+        if settings.search_domains is not None and settings.split_dns is not None:
+            logged_domains = _merge_domains(
+                list(settings.search_domains), list(settings.split_dns)
             )
-        return learned
+
+        hook_servers = servers + servers6
+        mismatches = []
+        if logged_servers:
+            if not hook_servers:
+                servers = [s for s in logged_servers if ":" not in s]
+                servers6 = [s for s in logged_servers if ":" in s]
+                logger.info(
+                    f"No DNS servers from the vpnc hook - using the ones "
+                    f"gpclient logged for {iface}: {logged_servers}"
+                )
+            elif {_dns_key(s) for s in hook_servers} != {
+                _dns_key(s) for s in logged_servers
+            }:
+                mismatches.append(
+                    f"DNS servers: hook {hook_servers}, gpclient {logged_servers}"
+                )
+        if logged_domains:
+            if not domains:
+                domains = logged_domains
+                logger.info(
+                    f"No search domains from the vpnc hook - using the ones "
+                    f"gpclient logged for {iface}: {logged_domains}"
+                )
+            elif {d.lower() for d in domains} != {d.lower() for d in logged_domains}:
+                mismatches.append(
+                    f"search domains: hook {domains}, gpclient {logged_domains}"
+                )
+        if mismatches:
+            logger.warning(
+                f"The vpnc hook and gpclient's log disagree for {iface} "
+                f"(keeping the hook's values): " + "; ".join(mismatches)
+            )
+        if learned is None and not (servers or domains or servers6):
+            return None
+        return servers, domains, servers6
 
     @staticmethod
     def _dns_to_nm(
@@ -3158,10 +4415,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
             if address is None:
                 logger.warning(f"Failed to convert DNS {dns!r}: not an IP address")
             elif address.version == 6:
-                # Ip4Config has no room for it
-                logger.info(
-                    f"DNS server {dns} is IPv6 - not reported to NetworkManager"
-                )
+                # Ip4Config has no room for it; Ip6Config carries it when
+                # the tunnel has an IPv6 address
+                logger.info(f"DNS server {dns} is IPv6 - not in Ip4Config")
             else:
                 dns_list.append(ipv4_to_nm_uint32(address))
                 logger.info(f"Added DNS server: {dns}")
@@ -3194,7 +4450,9 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                     f"DNS servers overridden by the profile: {self.dns_servers} "
                     f"(gateway pushed {learned_servers})"
                 )
-            if all(address.version == 6 for address in addresses):
+            if self._tunnel_ip6 is None and all(
+                address.version == 6 for address in addresses
+            ):
                 logger.warning(
                     f"The DNS servers in the profile are IPv6 only "
                     f"({self.dns_servers}): IPv6 DNS servers are not applied "
@@ -3220,12 +4478,12 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
         if dns_list:
             config["dns"] = ("au", dns_list)
 
-        domains = _dedupe(learned_domains + list(self.dns_domains))
+        domains = _drop_shadowed(learned_domains + list(self.dns_domains))
         if domains:
             config["domains"] = ("as", domains)
             logger.info(f"Added DNS search domains: {domains}")
 
-        if learned_servers6:
+        if learned_servers6 and self._tunnel_ip6 is None:
             # No Ip6Config is emitted for the tunnel, so these stay with
             # vpnc-script alone
             logger.info(
@@ -3233,261 +4491,345 @@ class GpclientVPNPlugin(DbusInterfaceCommonAsync, interface_name=NM_DBUS_INTERFA
                 "not reported to NetworkManager (no IPv6 config)"
             )
 
-    async def _cleanup_stale_gpd0(self) -> None:
-        """Remove a leftover gpd0 interface from a previous session.
+    def _build_ip6_config(
+        self,
+        iface: str,
+        domains: List[str],
+        learned: Optional[Tuple[List[str], List[str], List[str]]],
+    ) -> Optional[Dict[str, Tuple[str, Any]]]:
+        """The a{sv} dict of the Ip6Config signal, or None when the tunnel has
+        no IPv6 address (then the tunnel is IPv4 only, as before).
 
-        gpd0 is created exclusively by gpclient and gpclient enforces a
-        single session via its lock file, so a gpd0 with no running gpclient
-        process is always stale. A stale gpd0 blackholes routing (the portal
-        becomes unreachable) and used to be picked up by tunnel detection as
-        a live connection (issue #7). tunN devices may belong to other VPN
-        clients and are never touched.
+        DNS servers follow the rule of _build_dns_config: the profile's `dns`
+        wins when any of its entries is a valid address of either family.
         """
-        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
+        if self._tunnel_ip6 is None:
+            return None
+        address, prefix = self._tunnel_ip6
+        profile = [parse_ip_address(dns) for dns in self.dns_servers]
+        if any(profile):
+            candidates = profile
+        else:
+            candidates = [parse_ip_address(s) for s in (learned or ([], [], []))[2]]
+        servers = [a for a in candidates if a is not None and a.version == 6]
+        config: Dict[str, Tuple[str, Any]] = {
+            "tundev": ("s", iface),
+            "address": ("ay", address.packed),
+            "prefix": ("u", prefix),
+        }
+        if servers:
+            config["dns"] = ("aay", [a.packed for a in servers])
+        if domains:
+            config["domains"] = ("as", domains)
+        if self.never_default:
+            # The README's split-tunnel setting is ipv4.never-default: without
+            # this, NM routes all IPv6 traffic through the tunnel
+            config["never-default"] = ("b", True)
+        return config
+
+    async def _cleanup_stale_gpd0(self) -> None:
+        """Remove a leftover tunnel interface from a previous session.
+
+        With a connection UUID the tunnel has its own name (gp-xxxxxxxx) and
+        only that interface is removed, when no gpclient runs. Without one it
+        is gpd0, which is created by gpclient, and by gpservice for the GUI
+        client. A gpd0 while neither runs is stale. A stale gpd0 blackholes
+        routing (the portal becomes unreachable) and gpclient cannot create
+        the tunnel over it (issue #7). When one of them
+        runs, gpd0 may belong to a session of the user that is not ours (CLI
+        or GUI), so it is kept (issue #52). tunN devices may belong to other
+        VPN clients and are never touched. No `gpclient disconnect` runs
+        here: it would signal that other session.
+        """
+        name = tunnel_interface_name(self._connection_uuid)
+        if name:
+            await self._cleanup_stale_iface(name, ("gpclient",))
+        else:
+            await self._cleanup_stale_iface("gpd0", ("gpclient", "gpservice"))
+
+    async def _cleanup_stale_iface(self, iface: str, processes: Tuple[str, ...]) -> None:
+        """`ip link del iface` unless one of `processes` runs (pgrep -x)."""
+        if not os.path.exists(f"{NET_SYSFS_PATH}/{iface}"):  # noqa: ASYNC240
             return
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pgrep",
-                "-x",
-                "gpclient",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            if await proc.wait() == 0:
-                logger.warning(
-                    "gpd0 exists and a gpclient process is running - "
-                    "not cleaning up"
-                )
-                return
-        except Exception as e:
-            logger.warning(f"Could not check for a running gpclient: {e}")
-            return
-
-        logger.warning(
-            "Found stale gpd0 interface with no gpclient process - cleaning up"
-        )
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "/usr/bin/gpclient", "disconnect"
-            )
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                logger.warning("'gpclient disconnect' timed out, killing it")
-                proc.kill()
-                await proc.wait()
-        except Exception as e:
-            logger.debug(f"'gpclient disconnect' during cleanup failed: {e}")
-
-        if os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
+        for name in processes:
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "ip", "link", "del", "gpd0"
+                    "pgrep",
+                    "-x",
+                    name,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                if await proc.wait() == 0:
+                    logger.warning(
+                        f"{iface} exists and a {name} process is running - "
+                        "not cleaning up"
+                    )
+                    return
+            except Exception as e:
+                logger.warning(f"Could not check for a running {name}: {e}")
+                return
+
+        logger.warning(
+            f"Found stale {iface} interface with no "
+            f"{' or '.join(processes)} process - cleaning up"
+        )
+
+        if os.path.exists(f"{NET_SYSFS_PATH}/{iface}"):  # noqa: ASYNC240
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "ip", "link", "del", iface
                 )
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=5)
                 except asyncio.TimeoutError:
-                    logger.warning("'ip link del gpd0' timed out, killing it")
+                    logger.warning(f"'ip link del {iface}' timed out, killing it")
                     proc.kill()
                     await proc.wait()
             except Exception as e:
-                logger.error(f"Failed to delete stale gpd0: {e}")
+                logger.error(f"Failed to delete stale {iface}: {e}")
 
-        if not os.path.exists(f"{NET_SYSFS_PATH}/gpd0"):
-            logger.info("Stale gpd0 interface removed")
+        if not os.path.exists(f"{NET_SYSFS_PATH}/{iface}"):  # noqa: ASYNC240
+            logger.info(f"Stale {iface} interface removed")
 
-    async def _check_tunnel_loop(self) -> None:
-        """Periodically check for tunnel interface"""
-        try:
-            while True:
-                # Which interfaces gpclient itself holds open. Looked up at
-                # most once per round, and only once a new candidate actually
-                # turned up, so the /proc walk stays off the idle path.
-                owned_ifaces = None
+    def _build_generic_config(
+        self,
+        iface: str,
+        gateway: Optional[Tuple[str, Any]],
+        tunnel_mtu: Optional[int] = None,
+        has_ip4: bool = True,
+    ) -> Dict[str, Tuple[str, Any]]:
+        """The a{sv} dict of the Config signal (new-style plugin).
 
-                for iface in list_tunnel_candidates():
-                    # Check if interface has an IP address (not just exists)
-                    ip_addr, prefix = await self._get_iface_ipv4(iface)
+        gateway is the external gateway as the variant NetworkManager reads
+        from "gateway": ("u", uint32) for IPv4, ("ay", 16 bytes) for IPv6
+        (_vardict_to_addr in nm-vpn-connection.c, 1.36 and 1.46), or None.
+        The MTU is the tunnel's own (vpnc-script set it), else the profile's."""
+        generic: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
+        if gateway is not None:
+            generic["gateway"] = gateway
+        generic["has-ip4"] = ("b", has_ip4)
+        generic["has-ip6"] = ("b", self._tunnel_ip6 is not None)
+        mtu = tunnel_mtu or self.mtu
+        if mtu:
+            generic["mtu"] = ("u", mtu)
+        return generic
 
-                    # Only consider interface valid if it has an IP
-                    if not ip_addr:
-                        logger.debug(
-                            f"Interface {iface} exists but has no IP, skipping"
-                        )
-                        continue
+    def _check_notify(self, reason: str, token: str, env: Dict[str, str]) -> str:
+        """The tunnel interface of an accepted notification; raises
+        NotifyRejectedError (nothing changes) for any other call."""
 
-                    # Never accept an interface that already existed with the
-                    # same IP before gpclient started - it is a stale gpd0 or
-                    # another VPN's tunnel (issue #7)
-                    if (
-                        iface in self._preexisting_ifaces
-                        and self._preexisting_ifaces[iface] == ip_addr
-                    ):
-                        logger.debug(
-                            f"Interface {iface} pre-existed with unchanged "
-                            f"IP {ip_addr}, skipping"
-                        )
-                        continue
+        def reject(message: str) -> NotifyRejectedError:
+            logger.warning(f"Notify({reason!r}) rejected: {message}")
+            return NotifyRejectedError(message)
 
-                    # A tunnel that appeared after Connect() is normally ours,
-                    # but another VPN may well have been started at the same
-                    # moment. When gpclient's own file descriptors tell us
-                    # which interface is ours, trust that over the timing
-                    # (issue #13).
-                    if owned_ifaces is None:
-                        owned_ifaces = self._tunnel_ifaces_owned_by_gpclient()
-                    if owned_ifaces and iface not in owned_ifaces:
-                        logger.debug(
-                            f"Interface {iface} is new but not held by "
-                            f"gpclient (it holds {sorted(owned_ifaces)}), "
-                            "skipping"
-                        )
-                        continue
+        process = self.gpclient_process
+        # The generation differs from the session's while a Disconnect() or a
+        # new Connect() is tearing the session down, before the token is gone
+        if (
+            not self._notify_token
+            or process is None
+            or process.returncode is not None
+            or self._session_gen != self._generation
+        ):
+            raise reject("no active session")
+        if not token or not hmac.compare_digest(
+            token.encode(), self._notify_token.encode()
+        ):
+            raise reject("wrong token")
+        if reason not in VPNC_NOTIFY_REASONS:
+            raise reject("unknown reason")
+        # STARTED after the first connect, STOPPED after a failure
+        if (
+            reason == VPNC_REASON_CONNECT
+            and self._state != NM_VPN_SERVICE_STATE_STARTING
+        ):
+            raise reject("the session is not starting: the tunnel is up or it failed")
+        # _tunnel_up stays True after a failure until the teardown
+        if reason == VPNC_REASON_RECONNECT and (
+            not self._tunnel_up or self._state != NM_VPN_SERVICE_STATE_STARTED
+        ):
+            raise reject("there is no tunnel to reconnect")
 
-                    # The gateway's DNS, as recorded by the vpnc hook. The hook
-                    # runs before the address is assigned, so the file is
-                    # normally already there; give it a moment otherwise
-                    # rather than reporting the tunnel without DNS (issue #15)
-                    learned_dns = self._read_learned_dns(iface)
-                    if (
-                        learned_dns is None
-                        and self._dns_state_rounds < DNS_STATE_WAIT_ROUNDS
-                    ):
-                        self._dns_state_rounds += 1
-                        logger.debug(
-                            f"Tunnel {iface} is up but the DNS state file is "
-                            f"not there yet, waiting "
-                            f"({self._dns_state_rounds}/{DNS_STATE_WAIT_ROUNDS})"
-                        )
-                        break
-                    if learned_dns is None:
-                        logger.warning(
-                            "No DNS state from the vpnc hook - NetworkManager "
-                            "will not know the VPN DNS servers (is "
-                            "/etc/vpnc/connect.d/90-gpclient-routing installed?)"
-                        )
+        iface = env.get("TUNDEV", "")
+        expected = tunnel_interface_name(self._connection_uuid)
+        if expected:
+            valid = iface == expected
+        else:
+            valid = TUNNEL_LOGGED_INTERFACE_RE.fullmatch(iface) is not None
+        if not valid:
+            raise reject(f"unexpected tunnel interface {iface!r}")
+        return iface
 
-                    logger.info(
-                        f"VPN connected - tunnel interface {iface} detected with IP {ip_addr}!"
-                    )
-                    logger.debug(f"Tunnel IP: {ip_addr}/{prefix}")
+    def _handle_notify(self, reason: str, token: str, env: Dict[str, str]) -> None:
+        """Report the tunnel vpnc-script configured to NetworkManager.
 
-                    # Get gateway - for point-to-point VPN without explicit gateway,
-                    # use the tunnel IP address itself (NetworkManager requirement)
-                    gateway = None
-                    try:
-                        result = await asyncio.create_subprocess_exec(
-                            "ip",
-                            "route",
-                            "show",
-                            "dev",
-                            iface,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        stdout_route, _ = await result.communicate()
+        Everything from the checks to the signals runs without an await, so a
+        Disconnect() or Connect() cannot come in between: it bumps the
+        generation first, and _check_notify() sees that. "connect" also
+        starts the session (STARTED) and, in a task that _teardown() cancels,
+        writes what we learned to the profile; "reconnect" reports the
+        configuration again.
+        """
+        iface = self._check_notify(reason, token, env)
+        logger.info(f"VPN connected - vpnc-script reports tunnel {iface} ({reason})")
 
-                        # Look for gateway (via X.X.X.X)
-                        for line in stdout_route.decode().split("\n"):
-                            if line.strip() and "via" in line:
-                                parts = line.strip().split()
-                                via_idx = parts.index("via")
-                                if via_idx + 1 < len(parts):
-                                    gateway = parts[via_idx + 1]
-                                    break
+        address = tunnel_ipv4_from_env(env)
+        # The Config "gateway" is the VPN server's address, which NetworkManager
+        # routes via the physical device. Ip4Config "gateway" only matters to
+        # old-style plugins (a new-style one is read for "internal-gateway"
+        # only, nm-vpn-connection.c 1.36/1.46), so it stays, harmless.
+        # Without a server address, point-to-point: the tunnel address itself,
+        # which NetworkManager requires
+        server = vpn_gateway_from_state(env, iface)
+        gateway = server if isinstance(server, ipaddress.IPv4Address) else None
+        if gateway is None and address is not None:
+            gateway = address[0]
+            logger.debug(f"Using tunnel IP as gateway (point-to-point): {gateway}")
+        self._tunnel_ip6 = tunnel_ipv6_from_state(env, iface)
+        if address is None and self._tunnel_ip6 is None:
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
+                "vpnc-script reports no usable tunnel address (IPv4 or IPv6)",
+            )
+            return
+        # NetworkManager 1.46 and newer ignore has-ip6 unless ipv6.method is
+        # "auto", so an IPv6-only tunnel would come up with no IP configuration.
+        # On 1.36 (Ubuntu 22.04) this refuses a tunnel NM would have brought up
+        # with another method: accepted, the profile does not ask for automatic
+        # IPv6.
+        if address is None and self.ipv6_method != "auto":
+            self._fail(
+                NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
+                "The tunnel has only an IPv6 address, but the profile's "
+                f"ipv6.method is {self.ipv6_method!r}",
+            )
+            return
 
-                        logger.debug(f"Gateway from routes: {gateway}")
-                    except Exception as e:
-                        logger.debug(f"Failed to get gateway from routes: {e}")
+        config: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
+        if address is None:
+            logger.warning(
+                f"Not adding address {env.get('INTERNAL_IP4_ADDRESS', '')!r}: "
+                "it is no IPv4 address"
+            )
+        else:
+            config["address"] = ("u", ipv4_to_nm_uint32(address[0]))
+            config["prefix"] = ("u", address[1])
+            logger.info(f"Added address: {address[0]}/{address[1]}")
+        # NetworkManager reads "gateway" as "u" (IPv4) or "ay" (IPv6) and needs
+        # one of them. An IPv6 server goes as "ay"; Ip4Config never gets it
+        gateway_config: Optional[Tuple[str, Any]] = None
+        if isinstance(server, ipaddress.IPv6Address):
+            gateway_config = ("ay", server.packed)
+        elif self._tunnel_ip6 is not None and gateway is None:
+            # IPv6-only tunnel without a server address: point-to-point
+            gateway_config = ("ay", self._tunnel_ip6[0].packed)
+        if gateway is not None:
+            gateway_int = ipv4_to_nm_uint32(gateway)
+            config["gateway"] = ("u", gateway_int)
+            gateway_config = gateway_config or ("u", gateway_int)
+            # never-default is NetworkManager's to apply; the gateway is
+            # required with it too
+            note = " (but never-default is set)" if self.never_default else ""
+            logger.info(f"Added gateway{note}: {gateway}")
 
-                    # For point-to-point VPN (no explicit gateway), use tunnel IP as gateway
-                    # This is required by NetworkManager
-                    if not gateway and ip_addr:
-                        gateway = ip_addr
-                        logger.debug(
-                            f"Using tunnel IP as gateway (point-to-point): {gateway}"
-                        )
+        # The gateway's DNS is in the same environment; the profile's override
+        # and domains are merged in (issue #15)
+        learned_dns = self._cross_check_logged_dns(
+            iface, learned_dns_from_state(env, iface)
+        )
+        self._build_dns_config(config, learned_dns)
 
-                    # Build IP4 config
-                    config: Dict[str, Tuple[str, Any]] = {
-                        "tundev": ("s", iface),
-                    }
+        # The generic Config signal first: a new-style plugin sends it before
+        # Ip4Config
+        generic_config = self._build_generic_config(
+            iface,
+            gateway_config,
+            tunnel_mtu_from_env(env),
+            has_ip4=address is not None,
+        )
+        logger.info(f"Config: {generic_config}")
+        self.Config.emit(generic_config)
+        # has-ip4 is set only with an IPv4 address (NM does not wait for
+        # Ip4Config without it), and has-ip6 only with an IPv6 one
+        if address is not None:
+            logger.info(f"Ip4Config: {config}")
+            self.Ip4Config.emit(config)
+        config6 = self._build_ip6_config(
+            iface, config.get("domains", ("as", []))[1], learned_dns
+        )
+        if config6 is not None:
+            logger.info(f"Ip6Config: {config6}")
+            self.Ip6Config.emit(config6)
 
-                    # Add IP address if found
-                    if ip_addr:
-                        # Convert IP to the uint32 NetworkManager expects
-                        try:
-                            ip_int = ipv4_to_nm_uint32(ip_addr)
-                        except ValueError as e:
-                            logger.warning(f"Not adding address {ip_addr}: {e}")
-                        else:
-                            config["address"] = ("u", ip_int)
-                            config["prefix"] = ("u", prefix)
-                            logger.info(f"Added address: {ip_addr}/{prefix}")
+        if reason == VPNC_REASON_CONNECT:
+            self._set_state(NM_VPN_SERVICE_STATE_STARTED)
+            self._tunnel_up = True
+            self._auth_result = ""
+            self.profile_task = self._create_task(
+                self._persist_profile(), "profile update"
+            )
 
-                    # Add gateway (required by NetworkManager, even with never-default)
-                    # NetworkManager uses never-default to control routing, not plugin
-                    if gateway:
-                        try:
-                            gateway_int = ipv4_to_nm_uint32(gateway)
-                        except ValueError as e:
-                            logger.warning(f"Not adding gateway {gateway}: {e}")
-                        else:
-                            config["gateway"] = ("u", gateway_int)
-                            if self.never_default:
-                                logger.info(
-                                    f"Added gateway (but never-default is set): "
-                                    f"{gateway}"
-                                )
-                            else:
-                                logger.info(f"Added gateway: {gateway}")
+    async def _persist_profile(self) -> None:
+        """The login succeeded, so what we learned along the way is worth
+        keeping in the profile: the gateway list for the editor's drop-down,
+        and whether this portal needs the legacy TLS workaround"""
+        await self._persist_gateway_list()
+        await self._persist_fix_openssl()
 
-                    # Add custom routes if specified
-                    if self.custom_routes:
-                        routes = []
-                        for dest, dest_prefix in self.custom_routes:
-                            try:
-                                dest_int = ipv4_to_nm_uint32(dest)
-                                # Route format: (dest_ip, prefix, next_hop, metric)
-                                # For VPN, next_hop is usually 0 (direct route)
-                                routes.append((dest_int, dest_prefix, 0, 0))
-                                logger.info(f"Added custom route: {dest}/{dest_prefix}")
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to add route {dest}/{dest_prefix}: {e}"
-                                )
 
-                        if routes:
-                            config["routes"] = ("a(uuuu)", routes)
+async def vpnc_notify(environ: Dict[str, str]) -> int:
+    """--vpnc-notify: send the vpnc environment of `environ` to the running
+    service. Returns the exit status: 0 when the service accepted it."""
+    reason, token, env = vpnc_notify_env(environ)
+    try:
+        set_default_bus(sd_bus_open_system())
+        service = GpclientTunnelInterface.new_proxy(
+            NM_DBUS_SERVICE_GPCLIENT, NM_DBUS_PATH_GPCLIENT
+        )
+        await service.Notify(reason, token, env)
+    except Exception as e:
+        print(f"nm-gpclient-service --vpnc-notify: {e}", file=sys.stderr)
+        return 1
+    return 0
 
-                    # DNS servers and search domains: the profile's override
-                    # and/or what the gateway pushed (issue #15)
-                    self._build_dns_config(config, learned_dns)
 
-                    # Emit Ip4Config signal
-                    self.Ip4Config.emit(config)
+async def hand_over_to_unit() -> bool:
+    """Start the systemd unit when NetworkManager spawned this process.
 
-                    # Emit state change: activated
-                    self.StateChanged.emit(NM_VPN_SERVICE_STATE_STARTED)
-                    self._tunnel_up = True
-
-                    # The login succeeded, so what we learned along the way is
-                    # worth keeping in the profile: the gateway list for the
-                    # editor's drop-down, and whether this portal needs the
-                    # legacy TLS workaround
-                    await self._persist_gateway_list()
-                    await self._persist_fix_openssl()
-
-                    # Stop checking
-                    return
-
-                # Wait 500ms before next check
-                await asyncio.sleep(0.5)
-
-        except asyncio.CancelledError:
-            logger.debug("Tunnel monitoring cancelled")
-            raise
+    True when the unit runs the service now (this process exits). False when
+    this process should be the service: not started by NetworkManager, no
+    systemd, or the unit failed to start (then it works as before).
+    """
+    if "NM_VPN_LOG_SYSLOG" not in os.environ:
+        return False
+    if not os.path.isdir(SYSTEMD_RUNTIME_DIR):  # noqa: ASYNC240  # once, at startup
+        return False
+    proc = None
+    try:
+        # Type=dbus: returns once the unit owns the bus name
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl",
+            "start",
+            SERVICE_UNIT,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), UNIT_START_TIMEOUT)
+    except Exception as e:
+        if proc is not None and proc.returncode is None:
+            proc.kill()  # the start job goes on; systemctl only waits for it
+        logger.warning(f"Could not start {SERVICE_UNIT}, running here: {e!r}")
+        return False
+    if proc.returncode != 0:
+        logger.warning(
+            f"Could not start {SERVICE_UNIT} (status {proc.returncode}), running "
+            f"here: {stderr.decode('utf-8', errors='replace').strip()}"
+        )
+        return False
+    logger.info(f"Started by NetworkManager: {SERVICE_UNIT} runs the service")
+    return True
 
 
 async def main_async():
@@ -3499,13 +4841,34 @@ async def main_async():
     parser.add_argument(
         "--persist",
         action="store_true",
-        help="Don't quit when VPN connection terminates",
+        help=(
+            "Do not exit when there is no VPN session for "
+            f"{IDLE_EXIT_TIMEOUT} seconds"
+        ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--vpnc-notify",
+        action="store_true",
+        help="Tell the running service that vpnc-script configured the tunnel "
+        "(run by the vpnc hook, not by hand)",
+    )
     args = parser.parse_args()
+
+    if args.vpnc_notify:
+        return await vpnc_notify(dict(os.environ))
+
+    if await hand_over_to_unit():
+        return 0
 
     # Enable debug mode: from --debug flag or GPCLIENT_DEBUG env var (default: disabled for security)
     debug_mode = args.debug or os.environ.get("GPCLIENT_DEBUG", "0") == "1"
+
+    # NetworkManager passes a syslog level number: 7 is LOG_DEBUG
+    try:
+        debug_mode = debug_mode or int(os.environ.get("NM_VPN_LOG_LEVEL", "")) >= 7
+    except ValueError:
+        pass
 
     if debug_mode:
         logger.setLevel(logging.DEBUG)
@@ -3517,10 +4880,11 @@ async def main_async():
         try:
             import datetime
 
-            script_path = os.path.abspath(__file__)
-            with open(script_path, "rb") as f:
-                script_hash = hashlib.md5(f.read()).hexdigest()
-            mtime = os.path.getmtime(script_path)
+            # noqa below: debug-only, once at startup, before the loop runs
+            script_path = os.path.abspath(__file__)  # noqa: ASYNC240
+            with open(script_path, "rb") as f:  # noqa: ASYNC230
+                script_hash = hashlib.md5(f.read(), usedforsecurity=False).hexdigest()
+            mtime = os.path.getmtime(script_path)  # noqa: ASYNC240
             mtime_str = datetime.datetime.fromtimestamp(mtime).strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
@@ -3538,8 +4902,8 @@ async def main_async():
     logger.debug("Set system bus as default")
 
     # Request service name FIRST. If another instance already owns the name
-    # (typical: systemd/D-Bus auto-activated us when NetworkManager first
-    # touched the VPN) we exit with a clear message instead of dumping a
+    # (typical: the unit runs while this was started by hand) we exit with a
+    # clear message instead of dumping a
     # raw sd-bus traceback that users tend to read as "VPN broken".
     try:
         await request_default_bus_name_async(NM_DBUS_SERVICE_GPCLIENT)
@@ -3547,11 +4911,13 @@ async def main_async():
         if type(e).__name__ == "SdBusRequestNameExistsError":
             print(
                 f"ERROR: D-Bus name {NM_DBUS_SERVICE_GPCLIENT} is already owned\n"
-                "by another nm-gpclient-service instance (likely auto-started\n"
-                "by systemd/D-Bus). To run this binary manually for debugging,\n"
-                "stop the auto-started instance first:\n"
+                "by another nm-gpclient-service instance. To run this binary\n"
+                "manually for debugging, stop that instance first:\n"
                 "    sudo systemctl stop nm-gpclient\n"
-                "and to watch its live logs without stopping it, use:\n"
+                "If it still runs (an older version started by NetworkManager\n"
+                "outside the unit), find its PID and stop it:\n"
+                f"    busctl status {NM_DBUS_SERVICE_GPCLIENT}\n"
+                "To watch the live logs without stopping it, use:\n"
                 "    sudo journalctl -u nm-gpclient -f",
                 file=sys.stderr,
             )
@@ -3572,6 +4938,9 @@ async def main_async():
         logger.info(f"Received signal {signum}, exiting...")
         shutdown_event.set()
 
+    if not args.persist:
+        plugin.enable_idle_exit(shutdown_event.set)
+
     for sig in (signal.SIGTERM, signal.SIGINT):
         asyncio.get_event_loop().add_signal_handler(
             sig, lambda s=sig: signal_handler(s)
@@ -3588,6 +4957,7 @@ async def main_async():
     finally:
         # Cleanup: stop gpclient before the PTY goes away (see Disconnect)
         await plugin._stop_gpclient()
+        plugin._remove_cert_copies()  # SIGTERM (stop, upgrade) while connected
 
     logger.info("gpclient VPN service stopped")
     return 0

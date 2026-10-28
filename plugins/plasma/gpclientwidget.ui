@@ -102,13 +102,47 @@ Username and password: the portal asks on the terminal - the credentials and any
     </widget>
    </item>
    <item row="5" column="0">
+    <widget class="QLabel" name="passwordLabel">
+     <property name="text">
+      <string>Password:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="5" column="1">
+    <widget class="QLineEdit" name="passwordLineEdit">
+     <property name="toolTip">
+      <string>Optional. Used by the "Username and password" authentication.</string>
+     </property>
+     <property name="echoMode">
+      <enum>QLineEdit::Password</enum>
+     </property>
+     <property name="placeholderText">
+      <string>Optional</string>
+     </property>
+    </widget>
+   </item>
+   <item row="6" column="0">
+    <widget class="QLabel" name="passwordFlagsLabel">
+     <property name="text">
+      <string>Password storage:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="6" column="1">
+    <widget class="QComboBox" name="passwordFlagsComboBox">
+     <property name="toolTip">
+      <string>Where the password is kept. "Ask every time" stores nothing.</string>
+     </property>
+    </widget>
+   </item>
+   <item row="7" column="0">
     <widget class="QLabel" name="browserLabel">
      <property name="text">
       <string>Browser:</string>
      </property>
     </widget>
    </item>
-   <item row="5" column="1">
+   <item row="7" column="1">
     <widget class="QComboBox" name="browserComboBox">
      <property name="editable">
       <bool>true</bool>
@@ -120,18 +154,18 @@ Select 'Custom...' to give the full path to your own executable.</string>
      <!-- Browser items are added programmatically in the constructor -->
     </widget>
    </item>
-   <item row="6" column="0">
+   <item row="8" column="0">
     <widget class="QLabel" name="timeoutLabel">
      <property name="text">
       <string>Connect timeout:</string>
      </property>
     </widget>
    </item>
-   <item row="6" column="1">
-    <widget class="QSpinBox" name="timeoutSpinBox">
+   <item row="8" column="1">
+    <widget class="QDoubleSpinBox" name="timeoutSpinBox">
      <property name="toolTip">
       <string>How long NetworkManager waits for the VPN to connect, including the login in the browser (vpn.timeout).
-0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. New connections with browser authentication start with 180 s.</string>
+0 uses the NetworkManager default, usually 60 s - often too short for a SAML login with MFA. A new connection with browser authentication starts with 360 s. While a connection has no timeout of its own (0) and you have not changed this field, choosing browser authentication sets 360 s.</string>
      </property>
      <property name="specialValueText">
       <string>NetworkManager default (usually 60 s)</string>
@@ -139,25 +173,59 @@ Select 'Custom...' to give the full path to your own executable.</string>
      <property name="suffix">
       <string> s</string>
      </property>
+     <property name="decimals">
+      <number>0</number>
+     </property>
+     <property name="minimum">
+      <double>0</double>
+     </property>
+     <property name="maximum">
+      <double>4294967295</double>
+     </property>
+     <property name="singleStep">
+      <double>10</double>
+     </property>
+    </widget>
+   </item>
+   <item row="9" column="0">
+    <widget class="QLabel" name="mtuLabel">
+     <property name="text">
+      <string>MTU:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="9" column="1">
+    <widget class="MtuSpinBox" name="mtuSpinBox">
+     <property name="toolTip">
+      <string>Maximum size of a packet in the tunnel.
+Automatic (0): openconnect picks the value. Lowering it (for example to 1300-1400) may help when the tunnel falls back from ESP to HTTPS with "Message too long".
+It has an effect only when the gateway sends no MTU of its own. Values from 1 to 575 are saved as 576, the lowest value that is used.</string>
+     </property>
+     <property name="specialValueText">
+      <string>Automatic</string>
+     </property>
+     <property name="suffix">
+      <string> bytes</string>
+     </property>
      <property name="minimum">
       <number>0</number>
      </property>
      <property name="maximum">
-      <number>2147483647</number>
+      <number>1500</number>
      </property>
      <property name="singleStep">
-      <number>10</number>
+      <number>1</number>
      </property>
     </widget>
    </item>
-   <item row="7" column="0">
+   <item row="10" column="0">
     <widget class="QLabel" name="dnsLabel">
      <property name="text">
       <string>DNS Servers:</string>
      </property>
     </widget>
    </item>
-   <item row="7" column="1">
+   <item row="10" column="1">
     <widget class="QLineEdit" name="dnsLineEdit">
      <property name="toolTip">
       <string>Recommended: Leave empty to use DNS servers from VPN with automatic split DNS configuration.
@@ -169,21 +237,40 @@ Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use c
      </property>
     </widget>
    </item>
-   <item row="8" column="0">
+   <item row="11" column="0">
     <widget class="QLabel" name="hipLabel">
      <property name="text">
       <string>HIP:</string>
      </property>
     </widget>
    </item>
-   <item row="9" column="0">
+   <item row="12" column="0">
+    <widget class="QLabel" name="hipScriptLabel">
+     <property name="text">
+      <string>HIP script:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="12" column="1">
+    <widget class="QLineEdit" name="hipScriptLineEdit">
+     <property name="toolTip">
+      <string>Optional absolute path to a custom HIP executable, passed to gpclient as --hip=&lt;path&gt;.
+The service runs it as root: it must be a root-owned file that is not writable by group or others, in root-owned directories that are not writable by group or others. Otherwise the connection fails.
+Ignored when HIP is off.</string>
+     </property>
+     <property name="placeholderText">
+      <string>Empty: built-in HIP report</string>
+     </property>
+    </widget>
+   </item>
+   <item row="13" column="0">
     <widget class="QLabel" name="fixOpensslLabel">
      <property name="text">
       <string>Legacy TLS renegotiation:</string>
      </property>
     </widget>
    </item>
-   <item row="9" column="1">
+   <item row="13" column="1">
     <widget class="QComboBox" name="fixOpensslComboBox">
      <property name="toolTip">
       <string>Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.
@@ -192,7 +279,22 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      <!-- Items are added programmatically (auto / true / false) -->
     </widget>
    </item>
-   <item row="8" column="1">
+   <item row="14" column="0">
+    <widget class="QLabel" name="samlAuthLabel">
+     <property name="text">
+      <string>SAML login:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="14" column="1">
+    <widget class="QComboBox" name="samlAuthComboBox">
+     <property name="toolTip">
+      <string>Where the browser login runs: in the service, or in the login dialog (in your session).</string>
+     </property>
+     <!-- Items are added programmatically (service / dialog) -->
+    </widget>
+   </item>
+   <item row="11" column="1">
     <widget class="QCheckBox" name="hipCheckBox">
      <property name="text">
       <string>Enable Host Integrity Protection (HIP)</string>
@@ -205,8 +307,80 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
+   <item row="15" column="0">
+    <widget class="QLabel" name="userCertLabel">
+     <property name="text">
+      <string>Client certificate:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="15" column="1">
+    <widget class="QLineEdit" name="userCertLineEdit">
+     <property name="toolTip">
+      <string>Optional absolute path to the client certificate file (PEM or PKCS#12), owned by your desktop user.</string>
+     </property>
+     <property name="placeholderText">
+      <string>Empty: no client certificate</string>
+     </property>
+    </widget>
+   </item>
+   <item row="16" column="0">
+    <widget class="QLabel" name="userKeyLabel">
+     <property name="text">
+      <string>Private key:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="16" column="1">
+    <widget class="QLineEdit" name="userKeyLineEdit">
+     <property name="toolTip">
+      <string>Optional absolute path to the private key file (PEM), owned by your desktop user. Ignored without a client certificate.</string>
+     </property>
+     <property name="placeholderText">
+      <string>Empty: the key is in the certificate file</string>
+     </property>
+    </widget>
+   </item>
+   <item row="17" column="0">
+    <widget class="QLabel" name="certPassLabel">
+     <property name="text">
+      <string>Certificate passphrase:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="17" column="1">
+    <widget class="QLineEdit" name="certPassLineEdit">
+     <property name="echoMode">
+      <enum>QLineEdit::Password</enum>
+     </property>
+     <property name="placeholderText">
+      <string>Optional</string>
+     </property>
+    </widget>
+   </item>
+   <item row="18" column="0">
+    <widget class="QLabel" name="certPassFlagsLabel">
+     <property name="text">
+      <string>Passphrase storage:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="18" column="1">
+    <widget class="QComboBox" name="certPassFlagsComboBox">
+     <property name="toolTip">
+      <string>Where the password is kept. "Ask every time" stores nothing.</string>
+     </property>
+    </widget>
+   </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>MtuSpinBox</class>
+   <extends>QSpinBox</extends>
+   <header>mtuspinbox.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

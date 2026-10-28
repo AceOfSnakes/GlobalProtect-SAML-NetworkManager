@@ -1,0 +1,28 @@
+#!/bin/bash
+# Shim for the README demo container (installed as /usr/local/bin/loginctl).
+# The container has no systemd-logind, but nm-gpclient-service.py asks logind
+# for the desktop user (_seat0_active_user, _single_active_session_user).
+# Answer as logind would for one active local X11 session (id 1) of the user
+# with uid 1000 on seat0. Everything else is a silent no-op.
+
+entry=$(getent passwd 1000) || exit 0
+IFS=: read -r name _ uid _ <<< "$entry"
+
+case "$1" in
+    list-users) echo "$uid $name" ;;
+    list-sessions) echo "1 $uid $name seat0 tty2" ;;
+    show-seat) [ "$2" = seat0 ] && echo 1 ;;
+    show-session)
+        # One block per session id, separated by a blank line
+        first=1 skip=0
+        for arg in "${@:2}"; do
+            if [ "$skip" = 1 ]; then skip=0; continue; fi
+            case "$arg" in -p) skip=1; continue ;; -*) continue ;; esac
+            [ "$first" = 1 ] || echo
+            first=0
+            [ "$arg" = 1 ] || continue
+            printf 'User=%s\nClass=user\nRemote=no\nState=active\nType=x11\n' "$uid"
+        done
+        ;;
+esac
+exit 0

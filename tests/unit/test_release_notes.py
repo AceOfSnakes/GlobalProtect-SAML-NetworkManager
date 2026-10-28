@@ -119,6 +119,8 @@ def test_links_are_the_urls_of_the_assets(tmp_path):
 @pytest.mark.parametrize("name", [
     "network-manager-gpclient-plasma_1.4.1-1.noble1_amd64.deb",
     "network-manager-gpclient_1.4.1-1~noble1_arm64.deb",
+    "network-manager-gpclient-plasma_2.0.0.noble1_amd64.deb",
+    "network-manager-gpclient_2.0.0~noble1_arm64.deb",
 ])
 def test_both_spellings_of_the_asset_name_are_parsed(name):
     codename, arch, short = release_notes.parse(name)
@@ -513,7 +515,10 @@ def test_wrong_combination_of_options_is_refused(args):
 def matrix_versions():
     with open(os.path.join(workflow_steps.WORKFLOWS, "build-release.yml"), encoding="utf-8") as handle:
         text = handle.read()
-    found = {tuple(json.loads(m)) for m in re.findall(r"fromJSON\('(\[[^']*\])'\)", text)}
+    # the line of the Ubuntu matrix: the RPM build has its own (tests/unit/test_build_rpm_workflow.py)
+    ubuntu_lines = [line for line in text.splitlines() if line.startswith("        ubuntu: ")]
+    assert len(ubuntu_lines) == 1, "expected one Ubuntu matrix line"
+    found = {tuple(json.loads(m)) for m in re.findall(r"fromJSON\('(\[[^']*\])'\)", ubuntu_lines[0])}
     assert len(found) == 1, "the matrix is listed in more than one way: %s" % (found,)
     return set(found.pop())
 
@@ -525,16 +530,26 @@ def apt_suites():
     return set(match.group(1).split())
 
 
+# Releases that are not built any more: their packages stay in older GitHub releases and in the
+# apt suites, so the notes of those releases still need the name
+RETIRED = {"24.10"}
+
+
 def map_problems(ubuntu, versions, suites):
     problems = ["no codename for Ubuntu %s" % v for v in sorted(versions - set(ubuntu.values()))]
     problems += ["no entry for the suite %s" % c for c in sorted(suites - set(ubuntu))]
     problems += ["%s is in neither the matrix nor the suites" % c for c in sorted(set(ubuntu) - suites)]
-    problems += ["%s (%s) is not in the build matrix" % (c, v) for c, v in sorted(ubuntu.items()) if v not in versions]
+    problems += ["%s (%s) is not in the build matrix" % (c, v) for c, v in sorted(ubuntu.items()) if v not in versions | RETIRED]
     return problems
 
 
 def test_ubuntu_map_matches_the_build_matrix_and_the_apt_suites():
     assert map_problems(release_notes.UBUNTU, matrix_versions(), apt_suites()) == []
+
+
+def test_a_retired_release_is_in_the_map_but_not_in_the_matrix():
+    assert "24.10" in release_notes.UBUNTU.values()
+    assert not RETIRED & matrix_versions()
 
 
 def test_map_check_reports_a_missing_entry():
@@ -571,7 +586,7 @@ def test_release_job_does_not_know_about_the_notes():
 def test_release_notes_job_runs_after_release_for_tags_only_with_write_access():
     job = job_text("release-notes")
     assert "\n    needs: release\n" in job
-    assert "\n    if: startsWith(github.ref, 'refs/tags/')\n" in job
+    assert "\n    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'\n" in job
     assert "\n    runs-on: ubuntu-latest\n" in job
     assert "\n    permissions:\n      contents: write\n" in job
 
@@ -592,7 +607,7 @@ def test_release_notes_job_checks_out_only_the_scripts_without_credentials():
     job = job_text("release-notes")
     start = job.index("- name: Checkout code")
     step = job[start:job.index("\n      - name:", start + 1)]
-    assert "uses: actions/checkout@v4" in step
+    assert "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1" in step
     assert "persist-credentials: false" in step
     assert "sparse-checkout: .github/scripts\n" in step
     assert "sparse-checkout-cone-mode" not in step.replace("sparse-checkout-cone-mode: true", "")
@@ -675,3 +690,127 @@ def test_notes_step_does_not_edit_when_the_script_fails(tmp_path, assets, body):
     assert result.returncode != 0
     assert "release edit" not in log
     assert not edited.exists()
+
+
+# --- RPM packages: a second table, Ubuntu output unchanged ---------------------
+
+RPM_TARGETS = {"fc43": "Fedora 43", "fc44": "Fedora 44", "fc45": "Fedora 45", "el10": "EL 10",
+               "lp160": "openSUSE Leap 16.0", "tw": "openSUSE Tumbleweed"}
+
+
+def rpm_asset_name(package, dist, arch, version="1.4.2"):
+    return "%s-%s-1.%s.%s.rpm" % (package, version, dist, arch)
+
+
+def rpm_matrix(dists=tuple(RPM_TARGETS)):
+    return [asset(rpm_asset_name(p, d, a)) for d in dists for a in ("x86_64", "aarch64") for p in PACKAGES]
+
+
+def test_rpm_asset_names_are_parsed():
+    assert release_notes.parse_rpm(rpm_asset_name(PACKAGES[1], "lp160", "aarch64")) == ("lp160", "aarch64", "gnome")
+    assert release_notes.parse_rpm(rpm_asset_name(PACKAGES[0], "fc44", "x86_64")) == ("fc44", "x86_64", "gpclient")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "network-manager-gpclient-1.4.2-1.fc44.src.rpm",
+        "network-manager-gpclient-1.4.2-1.fc44.i686.rpm",
+        "network-manager-gpclient-1.4.2-1.fc44.noarch.rpm",
+        "network-manager-gpclient-debuginfo-1.4.2-1.fc44.x86_64.rpm",
+        "network-manager-gpclient-debugsource-1.4.2-1.fc44.x86_64.rpm",
+        "network-manager-gpclient-plasma-6-1.4.2-1.fc44.x86_64.rpm",
+        "network-manager-gpclient-1.4.2-1.xx44.x86_64.rpm",
+        "network-manager-gpclient-1.4.2-1.fc44.pr24.57.x86_64.rpm",
+        "other-package-1.4.2-1.fc44.x86_64.rpm",
+        "network-manager-gpclient-1.4.2-1.x86_64.rpm",
+    ],
+)
+def test_an_rpm_name_that_does_not_match_is_not_parsed(name):
+    with pytest.raises(release_notes.NotesError):
+        release_notes.parse_rpm(name)
+
+
+def test_rpm_downloads_have_their_own_table_with_a_row_per_target(tmp_path):
+    out = run(tmp_path, full_matrix() + rpm_matrix()).stdout
+    rows = table_rows(out)
+    assert "| RPM target | x86_64 | aarch64 |" in rows
+    labels = [row.split(" | ")[0].lstrip("| ") for row in rows if row.startswith("| ") and "RPM target" not in row]
+    rpm_labels = [label for label in labels if not label.startswith("Ubuntu")]
+    assert rpm_labels == ["Fedora 43", "Fedora 44", "Fedora 45", "EL 10", "openSUSE Leap 16.0", "openSUSE Tumbleweed"]
+    row = next(r for r in rows if r.startswith("| Fedora 44 |"))
+    assert row.count("[gpclient](") == 2 and row.count("[gnome](") == 2 and row.count("[plasma](") == 2
+    assert "docs/RPM_REPO.md" in out
+
+
+def test_the_ubuntu_table_is_the_same_with_and_without_rpms(tmp_path):
+    only_debs = run(tmp_path, full_matrix()).stdout
+    with_rpms = run(tmp_path, full_matrix() + rpm_matrix()).stdout
+    deb_part = only_debs[len(START):only_debs.index(END)]
+    assert deb_part in with_rpms
+    assert "RPM target" not in only_debs
+    assert "docs/RPM_REPO.md" not in only_debs
+
+
+def test_rpms_only_have_no_apt_table(tmp_path):
+    out = run(tmp_path, rpm_matrix()).stdout
+    assert "| RPM target |" in out
+    assert "| Ubuntu |" not in out and "APT_REPO" not in out
+
+
+def test_source_and_unfinished_rpms_are_not_listed(tmp_path):
+    source = asset("network-manager-gpclient-1.4.2-1.fc44.src.rpm")
+    unfinished = asset(rpm_asset_name(PACKAGES[0], "fc99", "x86_64"), state="starter")
+    out = run(tmp_path, full_matrix() + rpm_matrix(["fc44"]) + [source, unfinished]).stdout
+    assert source["name"] not in out and unfinished["name"] not in out
+    assert "Fedora 99" not in out
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "network-manager-gpclient-debuginfo-1.4.2-1.fc44.x86_64.rpm",
+        "network-manager-gpclient-1.4.2-1.fc44.i686.rpm",
+        "network-manager-gpclient-1.4.2-1.xx44.x86_64.rpm",
+    ],
+)
+def test_a_binary_rpm_with_an_unexpected_name_is_an_error(tmp_path, name):
+    refused(run(tmp_path, full_matrix() + rpm_matrix(["fc44"]) + [asset(name)]), ".rpm")
+
+
+def test_two_rpms_for_the_same_package_target_and_architecture_are_an_error(tmp_path):
+    again = asset(rpm_asset_name(PACKAGES[0], "fc44", "x86_64", version="1.4.3"))
+    refused(run(tmp_path, rpm_matrix(["fc44"]) + [again]), "two assets")
+
+
+def test_the_url_of_an_rpm_must_be_its_download_link(tmp_path):
+    bad = asset(rpm_asset_name(PACKAGES[0], "fc44", "x86_64"), url="https://evil.example/x.rpm")
+    refused(run(tmp_path, full_matrix() + [bad]), "url")
+
+
+def test_no_deb_and_no_rpm_is_an_error(tmp_path):
+    refused(run(tmp_path, [asset("network-manager-gpclient-1.4.2-1.fc44.src.rpm")]), "no .deb or binary .rpm")
+
+
+def test_the_rpm_install_hint_picks_one_target_and_the_core_package_only(tmp_path):
+    out = run(tmp_path, rpm_matrix()).stdout
+    assert "./network-manager-gpclient-[0-9]*.<dist>.<arch>.rpm" in out
+    assert "./network-manager-gpclient-gnome-[0-9]*.<dist>.<arch>.rpm" in out
+    assert "zypper install --allow-unsigned-rpm" in out
+    assert "not signed" in out
+
+
+def test_the_rpm_install_hint_glob_matches_only_the_core_package_of_a_target():
+    import fnmatch
+    names = [rpm_asset_name(p, d, a) for p in PACKAGES for d in ("fc44", "el10") for a in ("x86_64", "aarch64")]
+    core = fnmatch.filter(names, "network-manager-gpclient-[0-9]*.fc44.x86_64.rpm")
+    assert core == [rpm_asset_name(PACKAGES[0], "fc44", "x86_64")]
+    gnome = fnmatch.filter(names, "network-manager-gpclient-gnome-[0-9]*.fc44.x86_64.rpm")
+    assert gnome == [rpm_asset_name(PACKAGES[1], "fc44", "x86_64")]
+    # the old pattern took the desktop packages and other targets with it
+    assert len(fnmatch.filter(names, "network-manager-gpclient-*.rpm")) == len(names)
+
+
+def test_the_deb_only_notes_have_no_rpm_hint(tmp_path):
+    out = run(tmp_path, full_matrix()).stdout
+    assert "zypper" not in out and "<dist>" not in out

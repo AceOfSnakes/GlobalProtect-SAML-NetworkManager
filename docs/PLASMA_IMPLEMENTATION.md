@@ -18,14 +18,15 @@ All components have been implemented and are ready for testing:
 2. **Configuration Widget** (`gpclientwidget.h/cpp`)
    - Implements `SettingWidget` interface
    - Handles loading/saving VPN configuration
-   - Provides validation (gateway required)
+   - Provides validation (the rules of `plugins/gnome/nm-gpclient-validate.h`, shared with the GNOME editors: gateway required, username, browser, dns, hip-script, usercert, userkey)
 
 3. **User Interface** (`gpclientwidget.ui`)
    - Qt Designer XML format
-   - QFormLayout with 3 fields:
+   - QFormLayout with labeled fields, among them:
      - Gateway (QLineEdit)
      - Browser (QLineEdit)
-     - Connect timeout (QSpinBox, NetworkManager's `vpn.timeout`)
+     - Connect timeout (QDoubleSpinBox for the full `guint32` range, NetworkManager's `vpn.timeout`)
+     - MTU (QSpinBox, `mtu` in `vpn.data`, 0 = automatic; used only when the gateway sends no MTU)
      - DNS Servers (QLineEdit)
    - Tooltips and placeholders for user guidance
 
@@ -165,7 +166,7 @@ Service: /usr/share/kservices5/
 **Key Functions:**
 - `loadConfig()` - Loads VPN settings into UI
 - `setting()` - Converts UI to QVariantMap
-- `isValid()` - Validates configuration (gateway required)
+- `isValid()` - Validates configuration (the rules of `plugins/gnome/nm-gpclient-validate.h`, shared with the GNOME editors: gateway required, username, browser, dns, hip-script, usercert, userkey)
 
 **Signals:**
 - `settingChanged()` - Emitted on any field change
@@ -285,7 +286,6 @@ Possible improvements:
 2. **Connection Wizard**: Step-by-step setup assistant
 3. **Import/Export**: Load .ovpn or similar config files
 4. **Browser Selection**: File picker dialog instead of text entry
-5. **DNS Validation**: Check DNS server format validity
 
 ## References
 

@@ -1,10 +1,10 @@
 """
 Tests for branches of the nm-gpclient service that no other unit test reaches
 (issue #55): gpclient start-up and output monitor, the OpenSSL retry, stopping
-gpclient, closing the PTY, the debounced prompt checks, `nmcli` writes to the
-profile, the interactive secret request and a few small helpers.
+gpclient, closing the PTY, the debounced prompt checks, profile writes over D-Bus,
+the interactive secret request and a few small helpers.
 
-External tools are faked: `nmcli` through PATH, gpclient with a stand-in
+External tools are faked: NetworkManager with a fake proxy, gpclient with a stand-in
 script, and the PTY, the processes and the clock with small fakes. Nothing here
 depends on the uid of the test process.
 
@@ -12,10 +12,11 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
 import asyncio
+import copy
+import gc
 import json
 import logging
 import os
-import stat
 import sys
 
 import pytest
@@ -96,21 +97,7 @@ class TestGatewayMatchesEdges:
         assert not service_module.gateway_matches("gw-b", option, substring=True)
 
 
-# --- _last_output_line and _reset_phase_state --------------------------------
-
-
-class TestLastOutputLine:
-    def test_returns_the_last_non_empty_line_stripped(self, service_module):
-        plugin = _plugin(service_module)
-        plugin._recent_lines.extend(["first", "  second  ", "   ", ""])
-        assert plugin._last_output_line() == "second"
-
-    @pytest.mark.parametrize("lines", [[], [""], ["  ", "\t"]])
-    def test_empty_when_nothing_was_printed(self, service_module, lines):
-        plugin = _plugin(service_module)
-        plugin._recent_lines.clear()
-        plugin._recent_lines.extend(lines)
-        assert plugin._last_output_line() == ""
+# --- _reset_phase_state ------------------------------------------------------
 
 
 class TestResetPhaseState:
@@ -386,7 +373,7 @@ sys.exit(0)
 @pytest.fixture
 def start_env(service_module, monkeypatch, tmp_path):
     """Run _start_gpclient against a stand-in script; returns a runner that
-    gives what the script saw. pkill and the user lookup are faked."""
+    gives what the script saw. The user lookup is faked, and so is subprocess.run."""
     out = tmp_path / "seen.json"
     script = tmp_path / "gpclient.py"
     script.write_text(FAKE_GPCLIENT_ENV.replace("__OUT__", str(out)))
@@ -398,17 +385,14 @@ def start_env(service_module, monkeypatch, tmp_path):
                  "GPCLIENT_CUSTOM_DNS_DOMAINS"):
         monkeypatch.delenv(name, raising=False)
 
-    pkill_calls = []
+    subprocess_calls = []
 
     def fake_run(cmd, **kwargs):
-        pkill_calls.append(cmd)
-        if fake_run.error:
-            raise fake_run.error
+        subprocess_calls.append(cmd)
 
-    fake_run.error = None
     monkeypatch.setattr(service_module.subprocess, "run", fake_run)
 
-    def run(uid=1000, session_env=None, **settings):
+    def run(uid=1000, **settings):
         plugin = _plugin(service_module)
         plugin.gateway = "portal.example.com"
         plugin.browser = "/bin/true"
@@ -418,12 +402,6 @@ def start_env(service_module, monkeypatch, tmp_path):
             plugin, "_get_real_user", lambda: (uid, "alice", str(tmp_path))
         )
 
-        def session(_uid, _home):
-            assert uid > 0, "no session lookup for root"
-            return dict(session_env or {})
-
-        monkeypatch.setattr(plugin, "_get_session_env", session)
-
         async def go():
             assert await plugin._start_gpclient()
             await asyncio.wait_for(plugin.stdout_monitor_task, 10)
@@ -431,42 +409,21 @@ def start_env(service_module, monkeypatch, tmp_path):
         asyncio.run(go())
         return json.loads(out.read_text())
 
-    run.pkill_calls = pkill_calls
-    run.pkill_failure = fake_run
+    run.subprocess_calls = subprocess_calls
     return run
 
 
 class TestStartGpclient:
-    def test_pkill_is_limited_to_the_real_user(self, start_env):
-        start_env(uid=1234)
-        assert start_env.pkill_calls == [["pkill", "-9", "-u", "1234", "gpauth"]]
-
-    def test_failing_pkill_does_not_stop_the_start(self, start_env):
-        start_env.pkill_failure.error = FileNotFoundError("pkill")
-        seen = start_env()
-        assert seen["argv"][0] == "connect"
-
-    @pytest.mark.parametrize(
-        "session_env, warns",
-        [
-            ({}, True),
-            ({"XDG_RUNTIME_DIR": "/run/user/1000"}, True),
-            ({"DISPLAY": ":0"}, False),
-            ({"WAYLAND_DISPLAY": "wayland-0"}, False),
-        ],
-    )
-    def test_warns_when_the_session_has_no_display(
-        self, service_module, start_env, caplog, session_env, warns
-    ):
-        with caplog.at_level(logging.INFO, logger=service_module.logger.name):
-            seen = start_env(uid=1000, session_env=session_env)
-        text = _log_text(caplog, service_module, logging.WARNING)
-        assert ("No DISPLAY/WAYLAND_DISPLAY found" in text) is warns
-        assert seen["env"]["SUDO_UID"] == "1000"
-        assert seen["env"]["SUDO_USER"] == "alice"
+    def test_no_pkill_of_gpauth(self, start_env, gpauth_signals):
+        # pkill -9 -u <uid> gpauth also killed the gpauth of a CLI or GUI
+        # session of the same user (issue #52)
+        seen = start_env(uid=1234)
+        assert seen["argv"][:3] == ["--log-format", "json", "connect"]
+        assert not [c for c in start_env.subprocess_calls if "pkill" in c]
+        assert gpauth_signals == []
 
     def test_root_session_gets_no_user_environment(self, start_env):
-        seen = start_env(uid=0)  # the stub asserts no session lookup happens
+        seen = start_env(uid=0)
         assert seen["env"]["SUDO_UID"] is None
         assert seen["env"]["SUDO_USER"] is None
 
@@ -517,15 +474,25 @@ class TestStartGpclient:
 
 async def _monitor(plugin, chunks, process):
     """Run the monitor on a pipe that carries `chunks` and then ends"""
+    # An object an earlier test leaked (a PTY transport, a file) closes its fd
+    # when it is collected; collect now, before this test takes fd numbers,
+    # so that it cannot close one of ours later (EBADF)
+    gc.collect()
     read_fd, write_fd = os.pipe()
     for chunk in chunks:
         os.write(write_fd, chunk)
     os.close(write_fd)
     plugin._pty_master = read_fd
     plugin.gpclient_process = process
-    await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
-    if plugin._prompt_task:
-        plugin._prompt_task.cancel()
+    try:
+        await asyncio.wait_for(plugin._monitor_gpclient_output(), 10)
+    finally:
+        if plugin._prompt_task:
+            plugin._prompt_task.cancel()
+        # Close the read end now, while this loop runs. Left to the garbage
+        # collector, the transport closes its fd number later, when a later
+        # test may already have got the same number from os.pipe() (EBADF).
+        plugin._close_pty()
 
 
 class TestMonitorGpclientOutput:
@@ -564,12 +531,65 @@ class TestMonitorGpclientOutput:
             service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED,
         ) in dbus_signals
 
-    def test_end_of_output_with_exit_zero_reports_nothing(
+    def test_unrequested_exit_zero_reports_connect_failed(
+        self, service_module, dbus_signals, caplog
+    ):
+        plugin = _plugin(service_module)
+        with caplog.at_level("ERROR", logger=service_module.logger.name):
+            asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
+        assert list(plugin._recent_lines) == ["hello"]
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+        assert plugin.State() == service_module.NM_VPN_SERVICE_STATE_STOPPED
+        assert "gpclient exited (status 0) without being asked to" in caplog.text
+
+    def test_exit_zero_after_the_tunnel_is_up_reports_connect_failed(
         self, service_module, dbus_signals
     ):
         plugin = _plugin(service_module)
+        plugin._set_state(service_module.NM_VPN_SERVICE_STATE_STARTED)
+        plugin._tunnel_up = True
+        dbus_signals.clear()
         asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
-        assert list(plugin._recent_lines) == ["hello"]
+        assert dbus_signals == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED),
+            ("StateChanged", service_module.NM_VPN_SERVICE_STATE_STOPPED),
+        ]
+
+    def test_exit_zero_after_a_reported_failure_is_not_reported_again(
+        self, service_module, dbus_signals
+    ):
+        plugin = _plugin(service_module)
+        plugin._login_failed = True
+        asyncio.run(_monitor(plugin, [b"hello\r\n"], FakeProcess(returncode=0)))
+        assert dbus_signals == []
+
+    def test_exit_requested_by_disconnect_is_not_reported(
+        self, service_module, dbus_signals
+    ):
+        # Disconnect cancels the monitor before it stops gpclient, so the
+        # monitor never gets to see the exit
+        plugin = _plugin(service_module)
+
+        async def go():
+            read_fd, write_fd = os.pipe()
+            plugin._pty_master = read_fd
+            plugin.gpclient_process = FakeProcess(returncode=0)
+            task = asyncio.create_task(plugin._monitor_gpclient_output())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            os.close(write_fd)
+            if plugin._pty_master is not None:
+                try:
+                    os.close(plugin._pty_master)
+                except OSError:
+                    pass
+
+        asyncio.run(go())
         assert dbus_signals == []
 
     def test_non_zero_exit_reports_connect_failed(self, service_module, dbus_signals):
@@ -579,6 +599,60 @@ class TestMonitorGpclientOutput:
             "Failure",
             service_module.NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED,
         ) in dbus_signals
+
+    def test_gpauth_of_gpclient_is_noted_before_the_exit_is_handled(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        # Once gpclient is reaped its children belong to init: look first
+        plugin = _plugin(service_module)
+        events = []
+        process = FakeProcess(returncode=3)
+        real_wait = process.wait
+
+        async def wait():
+            events.append("wait")
+            return await real_wait()
+
+        async def remember():
+            events.append("remember")
+
+        process.wait = wait
+        monkeypatch.setattr(plugin, "_remember_gpauth", remember)
+
+        asyncio.run(_monitor(plugin, [b"hello\r\n"], process))
+
+        assert events == ["remember", "wait"]
+
+    def test_monitor_that_is_cancelled_notes_no_gpauth(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        # Disconnect cancels the monitor and notes the gpauth itself
+        plugin = _plugin(service_module)
+        noted = []
+
+        async def remember():
+            noted.append(True)
+
+        monkeypatch.setattr(plugin, "_remember_gpauth", remember)
+
+        async def go():
+            read_fd, write_fd = os.pipe()
+            plugin._pty_master = read_fd
+            plugin.gpclient_process = FakeProcess(returncode=None)
+            task = asyncio.create_task(plugin._monitor_gpclient_output())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            os.close(write_fd)
+            if plugin._pty_master is not None:
+                try:
+                    os.close(plugin._pty_master)
+                except OSError:
+                    pass
+
+        asyncio.run(go())
+        assert noted == []
 
     def test_non_zero_exit_after_a_reported_failure_is_not_reported_again(
         self, service_module, dbus_signals
@@ -608,7 +682,11 @@ class TestMonitorGpclientOutput:
     @pytest.mark.parametrize(
         "line, warns",
         [
-            ("Error: try again with --as-gateway", True),
+            # a log record: only its message counts
+            ('{"level":"WARN","target":"t","message":"try --as-gateway"}', True),
+            ('{"level":"WARN","target":"t","message":"Connecting to the gateway"}', False),
+            # the same words in a plain line (a prompt, text of the portal)
+            ("Error: try again with --as-gateway", False),
             ("Connecting to the gateway", False),
         ],
     )
@@ -652,7 +730,6 @@ class TestRetryWithOpensslFix:
             return start_result
 
         plugin._cleanup_stale_gpd0 = noop
-        plugin._snapshot_tunnel_interfaces = noop
         plugin._start_gpclient = start
         return plugin, starts
 
@@ -771,25 +848,24 @@ class TestDebouncedPromptChecks:
 
         assert handled == ([] if more_output else [("prompt", "Password")])
 
-    @pytest.mark.parametrize("more_lines", [False, True])
-    def test_prompt_from_the_last_line_waits_for_no_new_lines(
-        self, service_module, quick_debounce, more_lines
+    @pytest.mark.parametrize("more_output", [False, True])
+    def test_prompt_on_a_terminated_row_waits_for_the_screen_to_settle(
+        self, service_module, quick_debounce, more_output
     ):
         handled = []
         plugin = self._watched(service_module, handled)
 
         async def go():
-            # inquire ends the prompt line: the tail is empty
-            plugin._recent_lines.append("? Password:")
-            plugin._line_counter = 1
+            # inquire ends the prompt line: the cursor is on the next row
+            plugin._consume_output("? Password:\r\n")
             plugin._schedule_prompt_check()
-            if more_lines:
-                plugin._line_counter = 2
+            if more_output:
+                plugin._consume_output("more\r\n")
             await _settle()
 
         asyncio.run(go())
 
-        assert handled == ([] if more_lines else [("prompt", "Password")])
+        assert handled == ([] if more_output else [("prompt", "Password")])
 
 
 class TestPendingPromptCheck:
@@ -820,142 +896,455 @@ class TestPendingPromptCheck:
             assert plugin._prompt_task is None
 
 
-# --- _nmcli_modify and the writes built on it ----------------------------------
+# --- _update_profile and the writes built on it --------------------------------
 
-FAKE_NMCLI = """#!/bin/sh
-printf '%s\\n' "$*" >> "{log}"
-if [ -n "$NMCLI_FAIL" ]; then
-    echo "$NMCLI_FAIL" >&2
-    exit 4
-fi
-exit 0
-"""
+
+class FakeNM:
+    """NetworkManager's Settings and Settings.Connection objects.
+
+    Like NetworkManager, it keeps the secrets apart from the settings, and
+    Update2 without any secret keeps the stored ones.
+    """
+
+    VERSION = 7
+
+    def __init__(self):
+        self.calls = []
+        self.version_readable = True
+        self.version = self.VERSION
+        self.errors = {}  # method name -> exception to raise
+        self.mismatches = 0  # Update2 calls that fail with VersionIdMismatch
+        self.hang = False
+        self.settings = {
+            "connection": {"id": ("s", "My VPN"), "uuid": ("s", "uuid-1234")},
+            "vpn": {
+                "service-type": ("s", "org.freedesktop.NetworkManager.gpclient"),
+                "data": ("a{ss}", {"gateway": "vpn.example.com", "k": "old"}),
+            },
+            "ipv4": {"method": ("s", "auto")},
+        }
+        self.secrets = {"password": "s3cret", "otp": "123456"}
+
+    def _call(self, name, *args):
+        self.calls.append((name, *args))
+        if name in self.errors:
+            raise self.errors[name]
+
+    def install(self, monkeypatch, service_module):
+        nm = self
+
+        class Settings:
+            @classmethod
+            def new_proxy(cls, service, path):
+                nm.calls.append(("settings_proxy", service, path))
+                return cls()
+
+            async def GetConnectionByUuid(self, uuid):  # noqa: N802
+                nm._call("GetConnectionByUuid", uuid)
+                if nm.hang:
+                    await asyncio.sleep(60)
+                return "/org/freedesktop/NetworkManager/Settings/3"
+
+        class VersionProperty:
+            async def get_async(self):
+                nm._call("VersionId")
+                if not nm.version_readable:
+                    raise RuntimeError("no such property")
+                return nm.version
+
+        class Connection:
+            VersionId = VersionProperty()
+
+            @classmethod
+            def new_proxy(cls, service, path):
+                nm.calls.append(("connection_proxy", service, path))
+                return cls()
+
+            async def GetSettings(self):  # noqa: N802
+                nm._call("GetSettings")
+                return copy.deepcopy(nm.settings)
+
+            async def GetSecrets(self, name):  # noqa: N802
+                nm._call("GetSecrets", name)
+                # Root has no agent: without a system secret NM asks the
+                # agents and fails; a successful request updates the profile
+                # and bumps its version
+                if not nm.secrets:
+                    raise RuntimeError("No agents were available for this request.")
+                nm.version += 1
+                return {"vpn": {"secrets": ("a{ss}", dict(nm.secrets))}}
+
+            async def Update2(self, settings, flags, args):  # noqa: N802
+                nm._call("Update2", copy.deepcopy(settings), flags, dict(args))
+                if nm.mismatches:
+                    nm.mismatches -= 1
+                    raise service_module.VersionIdMismatchError("version-id mismatches")
+                if "version-id" in args and args["version-id"] != ("t", nm.version):
+                    raise service_module.VersionIdMismatchError("version-id mismatches")
+                nm.version += 1
+                secrets = settings.get("vpn", {}).get("secrets")
+                # NM: an empty secrets dict is "no secrets", the stored ones stay
+                if secrets is not None and secrets[1]:
+                    nm.secrets = dict(secrets[1])
+                stored = copy.deepcopy(settings)
+                stored["vpn"].pop("secrets", None)
+                nm.settings = stored
+                return {}
+
+        monkeypatch.setattr(service_module, "NmSettingsInterface", Settings)
+        monkeypatch.setattr(service_module, "NmConnectionInterface", Connection)
+
+    def named(self, name):
+        return [call for call in self.calls if call[0] == name]
 
 
 @pytest.fixture
-def fake_nmcli(monkeypatch, tmp_path):
-    """A fake `nmcli` first (and only) on PATH; returns the file of its calls"""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "nmcli.log"
-    script = bin_dir / "nmcli"
-    script.write_text(FAKE_NMCLI.format(log=log))
-    script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    monkeypatch.setenv("PATH", str(bin_dir))
-    monkeypatch.delenv("NMCLI_FAIL", raising=False)
+def nm(monkeypatch, service_module):
+    fake = FakeNM()
+    fake.install(monkeypatch, service_module)
 
-    def calls():
-        return log.read_text().splitlines() if log.exists() else []
+    def no_nmcli(*args, **kwargs):
+        raise AssertionError(f"a subprocess was started: {args}")
 
-    calls.fail = lambda message: monkeypatch.setenv("NMCLI_FAIL", message)
-    calls.bin_dir = bin_dir
-    return calls
+    # `nmcli` is not used any more: no subprocess for a profile write
+    monkeypatch.setattr(service_module.asyncio, "create_subprocess_exec", no_nmcli)
+    monkeypatch.setattr(service_module.subprocess, "run", no_nmcli)
+    return fake
 
 
-class TestNmcliModify:
-    def test_runs_nmcli_with_the_connection_uuid(self, service_module, fake_nmcli):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+def _connected_plugin(service_module):
+    plugin = _plugin(service_module)
+    plugin._connection_uuid = "uuid-1234"
+    return plugin
 
-        assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is True
 
-        assert fake_nmcli() == ["connection modify uuid-1234 +vpn.data k=v"]
+class TestUpdateProfile:
+    def test_one_key_changes_and_everything_else_is_sent_back_as_read(
+        self, service_module, nm
+    ):
+        before = copy.deepcopy(nm.settings)
+        plugin = _connected_plugin(service_module)
 
-    def test_no_uuid_runs_nothing(self, service_module, fake_nmcli):
+        assert asyncio.run(plugin._update_profile({"k": "new", "added": "1"})) is True
+
+        (_, sent, flags, _args) = nm.named("Update2")[0]
+        expected = copy.deepcopy(before)
+        expected["vpn"]["data"] = (
+            "a{ss}",
+            {"gateway": "vpn.example.com", "k": "new", "added": "1"},
+        )
+        assert sent == expected
+        assert flags == 0
+        assert nm.named("GetConnectionByUuid") == [("GetConnectionByUuid", "uuid-1234")]
+
+    def test_no_secrets_are_sent_so_the_stored_ones_stay(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}))
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert all("secrets" not in props for props in sent.values())
+        assert nm.secrets == {"password": "s3cret", "otp": "123456"}
+        assert nm.named("GetSecrets") == []
+
+    def test_version_id_is_passed_when_readable(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}))
+
+        assert nm.named("Update2")[0][3] == {"version-id": ("t", FakeNM.VERSION)}
+
+    def test_no_version_id_is_passed_when_it_cannot_be_read(self, service_module, nm):
+        nm.version_readable = False
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is True
+
+        assert nm.named("Update2")[0][3] == {}
+
+    def test_version_is_read_before_the_settings(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "new"}))
+
+        names = [call[0] for call in nm.calls]
+        assert names.index("VersionId") < names.index("GetSettings")
+
+    def test_a_version_mismatch_is_read_again_once(self, service_module, nm):
+        nm.mismatches = 1
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is True
+
+        assert len(nm.named("Update2")) == 2
+        assert len(nm.named("GetSettings")) == 2
+        assert nm.settings["vpn"]["data"][1]["k"] == "new"
+
+    def test_a_second_mismatch_gives_up(self, service_module, nm, caplog):
+        nm.mismatches = 5
+        plugin = _connected_plugin(service_module)
+
+        with caplog.at_level(logging.INFO, logger=service_module.logger.name):
+            assert asyncio.run(plugin._update_profile({"k": "new"})) is False
+
+        assert len(nm.named("Update2")) == 2  # no third call
+        assert "VersionIdMismatch" in _log_text(caplog, service_module, logging.WARNING)
+        assert nm.settings["vpn"]["data"][1]["k"] == "old"
+
+    def test_another_error_is_not_retried(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("org.freedesktop.DBus.Error.AccessDenied")
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is False
+
+        assert len(nm.named("Update2")) == 1
+
+    def test_no_uuid_makes_no_call(self, service_module, nm):
         plugin = _plugin(service_module)
         plugin._connection_uuid = ""
 
-        assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is False
+        assert asyncio.run(plugin._update_profile({"k": "new"})) is False
 
-        assert fake_nmcli() == []
+        assert nm.calls == []
 
-    def test_failing_nmcli_is_logged_and_reported_false(
-        self, service_module, fake_nmcli, caplog
+    @pytest.mark.parametrize(
+        "method", ["GetConnectionByUuid", "GetSettings", "Update2"]
+    )
+    def test_a_dbus_error_is_logged_and_reported_false(
+        self, service_module, nm, caplog, method
     ):
-        fake_nmcli.fail("Error: unknown connection")
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+        nm.errors[method] = RuntimeError(f"{method} refused")
+        plugin = _connected_plugin(service_module)
 
         with caplog.at_level(logging.INFO, logger=service_module.logger.name):
-            assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is False
+            assert asyncio.run(plugin._update_profile({"k": "new"})) is False
 
-        text = _log_text(caplog, service_module, logging.WARNING)
-        assert "failed with 4: Error: unknown connection" in text
+        assert f"{method} refused" in _log_text(caplog, service_module, logging.WARNING)
+        assert nm.settings["vpn"]["data"][1]["k"] == "old"
 
-    def test_missing_nmcli_is_swallowed(self, service_module, fake_nmcli, caplog):
-        (fake_nmcli.bin_dir / "nmcli").unlink()
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_a_timeout_is_logged_and_reported_false(
+        self, service_module, nm, caplog, monkeypatch
+    ):
+        nm.hang = True
+        monkeypatch.setattr(service_module, "PROFILE_UPDATE_TIMEOUT", 0.05)
+        plugin = _connected_plugin(service_module)
 
         with caplog.at_level(logging.INFO, logger=service_module.logger.name):
-            assert asyncio.run(plugin._nmcli_modify("+vpn.data", "k=v")) is False
+            assert asyncio.run(plugin._update_profile({"k": "new"})) is False
 
-        assert "nmcli modify" in _log_text(caplog, service_module, logging.WARNING)
+        assert "TimeoutError" in _log_text(caplog, service_module, logging.WARNING)
+        assert nm.named("Update2") == []
 
-    def test_write_vpn_data_builds_one_key_assignment(self, service_module, fake_nmcli):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_a_cancel_propagates_and_is_no_failure(self, service_module, nm, caplog):
+        nm.hang = True
+        plugin = _connected_plugin(service_module)
+
+        async def cancel_the_write():
+            task = asyncio.ensure_future(plugin._update_profile({"k": "new"}))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await task
+
+        with caplog.at_level(logging.WARNING, logger=service_module.logger.name):
+            with pytest.raises(asyncio.CancelledError):
+                asyncio.run(cancel_the_write())
+
+        assert _log_text(caplog, service_module, logging.WARNING) == ""
+
+
+class TestUpdateProfileDropsSecrets:
+    def test_the_secret_is_removed_and_the_others_are_sent_back(
+        self, service_module, nm
+    ):
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        assert nm.named("GetSecrets") == [("GetSecrets", "vpn")]
+        (_, sent, flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["secrets"] == ("a{ss}", {"password": "s3cret"})
+        assert sent["vpn"]["data"][1]["otp-flags"] == "2"
+        assert flags == 0
+        assert nm.secrets == {"password": "s3cret"}
+
+    def test_without_a_drop_the_secrets_are_never_read(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"otp-flags": "2"}))
+
+        assert nm.named("GetSecrets") == []
+
+    def test_failing_secret_read_still_writes_the_data(self, service_module, nm):
+        # no system secret stored: root has no agent and NM fails GetSecrets
+        nm.secrets = {}
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["data"][1]["otp-flags"] == "2"
+        assert all("secrets" not in props for props in sent.values())
+
+    def test_a_secret_read_that_bumps_the_version_is_no_mismatch(
+        self, service_module, nm
+    ):
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        assert len(nm.named("Update2")) == 1
+        assert nm.named("Update2")[0][3] == {"version-id": ("t", FakeNM.VERSION + 1)}
+
+    def test_no_stored_code_means_no_secrets_are_sent(self, service_module, nm):
+        nm.secrets = {"password": "s3cret"}
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert all("secrets" not in props for props in sent.values())
+        assert nm.secrets == {"password": "s3cret"}
+
+    def test_a_code_stored_alone_is_dropped(self, service_module, nm):
+        nm.secrets = {"otp": "123456"}
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["secrets"] == ("a{ss}", {"otp": ""})
+        assert nm.secrets == {"otp": ""}
+
+    def test_a_blanked_code_is_not_sent_again(self, service_module, nm):
+        nm.secrets = {"otp": ""}  # what the drop of a code stored alone left
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(
+            plugin._update_profile({"otp-flags": "2"}, drop_secrets=["otp"])
+        )
+
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert all("secrets" not in props for props in sent.values())
+
+    def test_a_write_without_a_drop_keeps_a_stored_code(self, service_module, nm):
+        # what the fake models: NetworkManager keeps stored secrets then
+        nm.secrets = {"otp": "123456"}
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._update_profile({"k": "v"}))
+
+        assert nm.secrets == {"otp": "123456"}
+
+    def test_an_error_naming_the_mismatch_in_its_text_is_not_retried(
+        self, service_module, nm
+    ):
+        nm.errors["Update2"] = RuntimeError(
+            "org.freedesktop.NetworkManager.Settings.VersionIdMismatch in a message"
+        )
+        plugin = _connected_plugin(service_module)
+
+        assert not asyncio.run(plugin._update_profile({"k": "v"}))
+
+        assert len(nm.named("Update2")) == 1
+
+    def test_the_secrets_are_read_again_after_a_mismatch(self, service_module, nm):
+        nm.mismatches = 1
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._update_profile({}, drop_secrets=["otp"]))
+
+        assert len(nm.named("GetSecrets")) == 2
+        assert nm.secrets == {"password": "s3cret"}
+
+
+class TestWriteVpnData:
+    def test_one_key_is_one_update(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
 
         assert asyncio.run(plugin._write_vpn_data("fix-openssl", "true")) is True
 
-        assert fake_nmcli() == ["connection modify uuid-1234 +vpn.data fix-openssl=true"]
+        (_, sent, _flags, _args) = nm.named("Update2")[0]
+        assert sent["vpn"]["data"][1]["fix-openssl"] == "true"
+        assert len(nm.named("Update2")) == 1
+
+    def test_a_failed_write_is_false(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
+        plugin = _connected_plugin(service_module)
+
+        assert asyncio.run(plugin._write_vpn_data("fix-openssl", "true")) is False
 
 
-class TestPersistThroughNmcli:
+class TestPersistThroughUpdate2:
     def _plugin(self, service_module):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+        plugin = _connected_plugin(service_module)
         plugin._gateway_list = ["gw-a", "gw-b"]
         plugin._lap_entries = ["gw-a", "gw-b"]
         plugin._gateway_count = 2
         return plugin
 
-    def test_whole_list_and_count_are_written(self, service_module, fake_nmcli):
+    def test_whole_list_and_count_are_one_update(self, service_module, nm):
         plugin = self._plugin(service_module)
 
         asyncio.run(plugin._persist_gateway_list())
 
-        assert fake_nmcli() == [
-            "connection modify uuid-1234 +vpn.data gateway-list=gw-a;gw-b",
-            "connection modify uuid-1234 +vpn.data gateway-list-count=2",
-        ]
+        assert len(nm.named("Update2")) == 1
+        data = nm.settings["vpn"]["data"][1]
+        assert data["gateway-list"] == "gw-a;gw-b"
+        assert data["gateway-list-count"] == "2"
+        assert data["gateway"] == "vpn.example.com"
         assert plugin._stored_gateway_list == "gw-a;gw-b"
         assert plugin._stored_gateway_count == 2
 
-    def test_failed_write_keeps_the_stored_list(self, service_module, fake_nmcli):
-        fake_nmcli.fail("Error: denied")
+    def test_failed_update_stores_neither_list_nor_count(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
         plugin = self._plugin(service_module)
         plugin._stored_gateway_list = "gw-old"
 
         asyncio.run(plugin._persist_gateway_list())
 
-        assert fake_nmcli() == [
-            "connection modify uuid-1234 +vpn.data gateway-list=gw-a;gw-b"
-        ]
+        assert len(nm.named("Update2")) == 1
         assert plugin._stored_gateway_list == "gw-old"
         assert plugin._stored_gateway_count is None
+        assert "gateway-list" not in nm.settings["vpn"]["data"][1]
 
-    def test_unchanged_list_writes_nothing(self, service_module, fake_nmcli):
+    def test_only_the_changed_count_is_written(self, service_module, nm):
+        plugin = self._plugin(service_module)
+        plugin._stored_gateway_list = "gw-a;gw-b"
+
+        asyncio.run(plugin._persist_gateway_list())
+
+        data = nm.settings["vpn"]["data"][1]
+        assert data["gateway-list-count"] == "2"
+        assert "gateway-list" not in data
+
+    def test_unchanged_list_writes_nothing(self, service_module, nm):
         plugin = self._plugin(service_module)
         plugin._stored_gateway_list = "gw-a;gw-b"
         plugin._stored_gateway_count = 2
 
         asyncio.run(plugin._persist_gateway_list())
 
-        assert fake_nmcli() == []
+        assert nm.calls == []
 
-    def test_fix_openssl_is_stored_after_a_retry(self, service_module, fake_nmcli):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_fix_openssl_is_stored_after_a_retry(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
         plugin._openssl_retried = True
         plugin.fix_openssl = True
         plugin.fix_openssl_mode = "auto"
 
         asyncio.run(plugin._persist_fix_openssl())
 
-        assert fake_nmcli() == [
-            "connection modify uuid-1234 +vpn.data fix-openssl=true"
-        ]
+        assert nm.settings["vpn"]["data"][1]["fix-openssl"] == "true"
         assert plugin.fix_openssl_mode == "true"
 
     @pytest.mark.parametrize(
@@ -967,22 +1356,20 @@ class TestPersistThroughNmcli:
         ],
     )
     def test_fix_openssl_is_not_stored_otherwise(
-        self, service_module, fake_nmcli, retried, fix, mode
+        self, service_module, nm, retried, fix, mode
     ):
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+        plugin = _connected_plugin(service_module)
         plugin._openssl_retried = retried
         plugin.fix_openssl = fix
         plugin.fix_openssl_mode = mode
 
         asyncio.run(plugin._persist_fix_openssl())
 
-        assert fake_nmcli() == []
+        assert nm.calls == []
 
-    def test_failed_fix_openssl_write_keeps_the_mode(self, service_module, fake_nmcli):
-        fake_nmcli.fail("Error: denied")
-        plugin = _plugin(service_module)
-        plugin._connection_uuid = "uuid-1234"
+    def test_failed_fix_openssl_write_keeps_the_mode(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
+        plugin = _connected_plugin(service_module)
         plugin._openssl_retried = True
         plugin.fix_openssl = True
         plugin.fix_openssl_mode = "auto"
@@ -990,6 +1377,28 @@ class TestPersistThroughNmcli:
         asyncio.run(plugin._persist_fix_openssl())
 
         assert plugin.fix_openssl_mode == "auto"
+
+
+class TestForgetOneTimeSecretThroughUpdate2:
+    def test_flag_and_drop_are_one_update(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert len(nm.named("Update2")) == 1
+        assert nm.settings["vpn"]["data"][1]["otp-flags"] == "2"
+        assert nm.secrets == {"password": "s3cret"}
+        assert plugin._otp_flags_written is True
+
+    def test_failed_update_leaves_flag_and_secret_alone(self, service_module, nm):
+        nm.errors["Update2"] = RuntimeError("denied")
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._forget_one_time_secret())
+
+        assert "otp-flags" not in nm.settings["vpn"]["data"][1]
+        assert "otp" in nm.secrets
+        assert plugin._otp_flags_written is False
 
 
 # --- _request_secret_interactive and the prompts that use it --------------------
@@ -1196,32 +1605,3 @@ class TestHandlePromptAsksTheUser:
             "Failure",
             service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED,
         ) in dbus_signals
-
-
-# --- The conftest guard against the real pkill ------------------------------------
-
-
-class TestNoRealPkill:
-    @pytest.fixture
-    def marking_tools(self, monkeypatch, tmp_path):
-        """pkill and true on PATH that leave a mark when they really run"""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        for tool in ("pkill", "true"):
-            script = bin_dir / tool
-            script.write_text(f'#!/bin/sh\ntouch "{tmp_path}/{tool}-ran"\n')
-            script.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
-        return tmp_path
-
-    def test_pkill_is_not_run(self, service_module, marking_tools):
-        result = service_module.subprocess.run(
-            ["pkill", "-9", "-u", "1000", "gpauth"], timeout=2
-        )
-        assert result.returncode == 1
-        assert not (marking_tools / "pkill-ran").exists()
-
-    def test_other_commands_still_run(self, service_module, marking_tools):
-        result = service_module.subprocess.run(["true"], timeout=2)
-        assert result.returncode == 0
-        assert (marking_tools / "true-ran").exists()

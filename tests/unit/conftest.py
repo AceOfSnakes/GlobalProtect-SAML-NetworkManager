@@ -8,7 +8,6 @@ A minimal stub is injected before the service module is loaded.
 
 import importlib.util
 import os
-import subprocess
 
 import pytest
 from sdbus_stub import sdbus_stubbed
@@ -52,25 +51,11 @@ def dbus_signals(service_module):
 
 
 @pytest.fixture(autouse=True)
-def no_real_pkill(service_module, monkeypatch):
-    """_start_gpclient first runs `pkill -9 -u <real uid> gpauth`: the tests
-    that start a stand-in gpclient must not kill the gpauth of the user who
-    runs them. A test that wants to see the call patches subprocess.run itself.
-    """
-    real_run = service_module.subprocess.run
-
-    def run(cmd, *args, **kwargs):
-        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "pkill":
-            return subprocess.CompletedProcess(cmd, 1, "", "")
-        return real_run(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(service_module.subprocess, "run", run)
-
-
-@pytest.fixture(autouse=True)
-def dns_state_sandbox(service_module, monkeypatch, tmp_path):
-    """Keep the vpnc hook's DNS state file out of /run and make tunnel
-    detection not wait for it unless a test asks to (issue #15)."""
-    monkeypatch.setattr(service_module, "DNS_STATE_FILE", str(tmp_path / "dns-state"))
-    monkeypatch.setattr(service_module, "DNS_STATE_WAIT_ROUNDS", 0)
-    yield tmp_path / "dns-state"
+def gpauth_signals(service_module, monkeypatch):
+    """The service signals a process it did not start itself (the gpauth of
+    its own gpclient) only through send_signal(). Record the calls as
+    (pid, signal) and send nothing: a test must not signal a real process of
+    the user who runs it. A test that wants a real signal patches it again."""
+    sent = []
+    monkeypatch.setattr(service_module, "send_signal", lambda *a: sent.append(a))
+    return sent
