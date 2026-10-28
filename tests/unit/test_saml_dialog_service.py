@@ -473,6 +473,21 @@ class TestSetupSession:
             ({"gpauth-result-flags": "2"}, ["gpauth-result"])
         ]
 
+    def test_failure_then_disconnect_writes_once(self, session, dbus_signals):
+        # NM sends Disconnect after a plugin failure: the failure path owns
+        # the write, the Disconnect waits for it and writes nothing again
+        connect(session, {"saml-auth": "dialog"})
+
+        async def run():
+            session._emit_failure(1)
+            await session.Disconnect()
+
+        asyncio.run(run())
+
+        assert session.profile_writes == [
+            ({"gpauth-result-flags": "2"}, ["gpauth-result"])
+        ]
+
     def test_disconnect_without_pending_flags_writes_nothing(
         self, session, dbus_signals
     ):

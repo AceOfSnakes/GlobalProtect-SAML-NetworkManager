@@ -4152,8 +4152,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         the whole login ("Invalid username or password" in the #2 report).
         Nothing is written here: a profile change during the activation makes
         NetworkManager reject the secrets request (issue #120). The write
-        happens in _flush_pending_flags, after the tunnel is up or the
-        activation failed.
+        happens in _flush_pending_flags, after the tunnel is up, the
+        activation failed or a Disconnect ended it. A late write can still hit
+        the next activation of the same profile once (Connect again while the
+        old one is being torn down): its first secrets request fails.
 
         shortcut: the first request of an old profile may still get a stored
         value from an agent that pre-fills it (our auth dialog never pre-fills

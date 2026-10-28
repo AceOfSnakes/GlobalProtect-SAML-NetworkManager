@@ -72,7 +72,7 @@ class TestStoredOneTimeCode:
 class TestOneTimeFlagsAreWrittenLate:
     """Issue #120: NetworkManager rejects every secrets request of an
     activation whose profile changed, so the profile is written only after the
-    tunnel is up or the activation failed."""
+    tunnel is up, the activation failed or a Disconnect ended it."""
 
     def _plugin(self, service_module):
         plugin = service_module.GpclientVPNPlugin()
