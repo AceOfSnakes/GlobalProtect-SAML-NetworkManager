@@ -657,6 +657,33 @@ class TestIpv4FromEnv:
         assert "Failure" not in _names(dbus_signals)
         assert not plugin.gpclient_process.terminated
 
+    @pytest.mark.parametrize("method", ["manual", "disabled"])
+    def test_an_ipv4_only_reconnect_fails_without_ipv4_method_auto(
+        self, service_module, dbus_signals, method
+    ):
+        # the connect was dual-stack (IPv6 auto: only a warning)
+        plugin = active_plugin(service_module, ipv4_method=method, ipv6_method="auto")
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(), reason="reconnect")
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+        assert plugin.gpclient_process.terminated
+
+    def test_an_ipv4_only_reconnect_with_ipv4_method_auto_goes_on(
+        self, service_module, dbus_signals
+    ):
+        plugin = active_plugin(service_module, ipv4_method="auto", ipv6_method="auto")
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(), reason="reconnect")
+
+        assert "Failure" not in _names(dbus_signals)
+        assert not plugin.gpclient_process.terminated
+
     def test_an_ipv4_tunnel_has_ip4_in_config(self, service_module, dbus_signals):
         notify(active_plugin(service_module))
 
