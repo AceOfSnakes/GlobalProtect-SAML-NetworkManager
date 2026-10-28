@@ -488,6 +488,41 @@ class TestSetupSession:
             ({"gpauth-result-flags": "2"}, ["gpauth-result"])
         ]
 
+    @pytest.mark.parametrize("disconnect", [True, False])
+    def test_a_disconnect_during_the_write_after_connect_keeps_it(
+        self, session, dbus_signals, disconnect
+    ):
+        # Disconnect right after the tunnel came up cancels the profile task
+        # while it writes the flags: the write still completes, once
+        connect(session, {"saml-auth": "dialog"})
+        started, release = asyncio.Event(), asyncio.Event()
+        writes = session.profile_writes
+
+        async def slow_update(data, drop_secrets=()):
+            started.set()
+            await release.wait()
+            writes.append((data, list(drop_secrets)))
+            return True
+
+        session._update_profile = slow_update
+
+        async def run():
+            session.profile_task = asyncio.ensure_future(session._persist_profile())
+            await started.wait()
+            if disconnect:
+                done = asyncio.ensure_future(session.Disconnect())
+                await asyncio.sleep(0)
+                release.set()
+                await done
+            else:
+                release.set()
+                await session.profile_task
+
+        asyncio.run(run())
+
+        assert writes[0] == ({"gpauth-result-flags": "2"}, ["gpauth-result"])
+        assert len([w for w in writes if "gpauth-result-flags" in w[0]]) == 1
+
     def test_disconnect_without_pending_flags_writes_nothing(
         self, session, dbus_signals
     ):

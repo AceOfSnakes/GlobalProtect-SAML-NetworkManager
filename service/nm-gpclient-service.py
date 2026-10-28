@@ -4812,7 +4812,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """The login succeeded, so what we learned along the way is worth
         keeping in the profile: the gateway list for the editor's drop-down,
         and whether this portal needs the legacy TLS workaround"""
-        await self._flush_pending_flags()
+        # The flags in a task of their own, which _teardown waits for: a
+        # Disconnect right after the tunnel came up cancels this task, and
+        # the flags must not be lost with it (shield)
+        if self._pending_flags and not self._flags_task:
+            self._flags_task = asyncio.ensure_future(self._flush_pending_flags())
+        if self._flags_task:
+            await asyncio.shield(self._flags_task)
         await self._persist_gateway_list()
         await self._persist_fix_openssl()
 
