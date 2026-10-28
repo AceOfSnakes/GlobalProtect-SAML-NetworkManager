@@ -364,3 +364,7 @@ msgstr "Válassza ki a kliens tanúsítványt"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the private key"
 msgstr "Válassza ki a privát kulcsot"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the HIP script"
+msgstr "Válassza ki a HIP-szkriptet"

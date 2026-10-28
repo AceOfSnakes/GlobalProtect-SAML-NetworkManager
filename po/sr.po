@@ -364,3 +364,7 @@ msgstr "Изабери сертификат клијента"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the private key"
 msgstr "Изабери приватни кључ"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the HIP script"
+msgstr "Изабери HIP скрипту"

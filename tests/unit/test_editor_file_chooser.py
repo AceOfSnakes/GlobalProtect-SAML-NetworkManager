@@ -1,4 +1,4 @@
-"""Issue #141: the client certificate and private key fields of the editors have
+"""Issues #141, #144: the client certificate, private key and HIP script fields of the editors have
 a "choose a file" icon (typing the path keeps working).
 
 The editors need GTK and Qt to build, so these are text checks of the sources
@@ -12,7 +12,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 GTK = ["plugins/gnome/nm-gpclient-editor-gtk3.c", "plugins/gnome/nm-gpclient-editor.c"]
 PLASMA = "plugins/plasma/gpclientwidget.cpp"
-FIELDS = ("usercert", "userkey")
+FIELDS = ("usercert", "userkey", "hip_script")
+PLASMA_EDITS = {"usercert": "userCertLineEdit", "userkey": "userKeyLineEdit", "hip_script": "hipScriptLineEdit"}
 
 
 def read(rel):
@@ -26,13 +27,13 @@ def gtk_fields_with_icon(src):
 def plasma_fields_with_action(src):
     return {
         f
-        for f, edit in (("usercert", "userCertLineEdit"), ("userkey", "userKeyLineEdit"))
+        for f, edit in PLASMA_EDITS.items()
         if re.search(rf"addChooseFileAction\(m_ui->{edit},", src)
     }
 
 
 @pytest.mark.parametrize("rel", GTK)
-def test_gtk_editor_has_the_icon_on_both_fields(rel):
+def test_gtk_editor_has_the_icon_on_all_fields(rel):
     src = read(rel)
 
     assert gtk_fields_with_icon(src) == set(FIELDS)
@@ -102,7 +103,7 @@ def test_gtk4_wraps_the_calls_deprecated_since_4_10():
     assert src.index("gtk_file_chooser_native_new") < src.index("G_GNUC_END_IGNORE_DEPRECATIONS")
 
 
-def test_plasma_editor_has_the_action_on_both_fields():
+def test_plasma_editor_has_the_action_on_all_fields():
     src = read(PLASMA)
 
     assert plasma_fields_with_action(src) == set(FIELDS)
@@ -113,7 +114,7 @@ def test_plasma_editor_has_the_action_on_both_fields():
 
 @pytest.mark.parametrize("field", FIELDS)
 def test_plasma_a_field_without_the_action_is_found(field):
-    edit = {"usercert": "userCertLineEdit", "userkey": "userKeyLineEdit"}[field]
+    edit = PLASMA_EDITS[field]
     src = re.sub(rf"    addChooseFileAction\(m_ui->{edit},[^\n]*\n", "", read(PLASMA))
 
     assert plasma_fields_with_action(src) == set(FIELDS) - {field}

@@ -466,3 +466,8 @@ msgstr "Επιλογή πιστοποιητικού πελάτη"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Επιλογή ιδιωτικού κλειδιού"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Επιλογή σεναρίου HIP"

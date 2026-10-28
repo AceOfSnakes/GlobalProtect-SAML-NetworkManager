@@ -492,3 +492,8 @@ msgstr "Pasirinkite kliento sertifikatą"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Pasirinkite privatųjį raktą"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Pasirinkite HIP scenarijų"

@@ -470,3 +470,8 @@ msgstr ""
 #, kde-format
 msgid "Choose the private key"
 msgstr ""
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr ""

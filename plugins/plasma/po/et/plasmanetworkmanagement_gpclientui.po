@@ -466,3 +466,8 @@ msgstr "Vali kliendisertifikaat"
 #, kde-format
 msgid "Choose the private key"
 msgstr "Vali privaatvõti"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the HIP script"
+msgstr "Vali HIP-skript"

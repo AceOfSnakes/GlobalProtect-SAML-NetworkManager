@@ -364,3 +364,7 @@ msgstr "Elegir el certificado de cliente"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the private key"
 msgstr "Elegir la clave privada"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the HIP script"
+msgstr "Elegir el script HIP"
