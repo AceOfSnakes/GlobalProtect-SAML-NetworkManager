@@ -103,8 +103,8 @@ compact_split_inc_remove_default() {
 }
 
 # Add custom DNS domains if specified
-# (on connect only: disconnect must not change CISCO_DEF_DOMAIN)
-if [ -n "$custom_dns_domains" ] && [ "${reason:-}" != disconnect ]; then
+# (on disconnect too: vpnc-script's unbound restore removes these domains again)
+if [ -n "$custom_dns_domains" ]; then
   echo "vpnc hook: Adding custom DNS domains: $custom_dns_domains" >&2
 
   # Append custom domains to CISCO_DEF_DOMAIN (space-separated)

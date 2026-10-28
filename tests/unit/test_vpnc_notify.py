@@ -1204,23 +1204,19 @@ class TestRoutingHookSplitInc:
 
         assert got["CISCO_IPV6_SPLIT_INC"] == "3"
 
-    @pytest.mark.parametrize("reason", ["connect", "", "pre-init"])
-    def test_custom_dns_domains_are_appended_when_not_disconnecting(self, reason):
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_custom_dns_domains_are_appended_for_both_reasons(self, reason):
+        # the same CISCO_DEF_DOMAIN on disconnect: the unbound restore removes them
         got = self.run_hook({"reason": reason, "CISCO_DEF_DOMAIN": "corp.example",
                              "GPCLIENT_CUSTOM_DNS_DOMAINS": "extra.example"})
 
         assert got["CISCO_DEF_DOMAIN"] == "corp.example extra.example"
 
-    def test_custom_dns_domains_are_not_appended_on_disconnect(self):
-        got = self.run_hook({"reason": "disconnect", "CISCO_DEF_DOMAIN": "corp.example",
-                             "GPCLIENT_CUSTOM_DNS_DOMAINS": "extra.example"})
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_without_custom_dns_domains_the_domain_stays(self, reason):
+        got = self.run_hook({"reason": reason, "CISCO_DEF_DOMAIN": "corp.example"})
 
         assert got["CISCO_DEF_DOMAIN"] == "corp.example"
-
-    def test_custom_dns_domains_do_not_create_the_variable_on_disconnect(self):
-        got = self.run_hook({"reason": "disconnect", "GPCLIENT_CUSTOM_DNS_DOMAINS": "extra.example"})
-
-        assert "CISCO_DEF_DOMAIN" not in got
 
 
 class TestInterfaces:
