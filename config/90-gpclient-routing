@@ -118,9 +118,10 @@ if [ "$ignore_all" = "1" ]; then
   unset_indexed CISCO_SPLIT_INC CISCO_SPLIT_INC
   unset_indexed CISCO_SPLIT_EXC CISCO_SPLIT_EXC
 
-  # (optional) for IPv6 split:
-  # unset_indexed CISCO_IPV6_SPLIT_INC CISCO_IPV6_SPLIT_INC
-  # unset_indexed CISCO_IPV6_SPLIT_EXC CISCO_IPV6_SPLIT_EXC
+  # IPv6 too (#152): the counts stay "0" (not empty), so vpnc-script adds no
+  # IPv6 route, also no default route for INTERNAL_IP6_* (see #109 below)
+  unset_indexed CISCO_IPV6_SPLIT_INC CISCO_IPV6_SPLIT_INC
+  unset_indexed CISCO_IPV6_SPLIT_EXC CISCO_IPV6_SPLIT_EXC
 
 elif [ "$never_def" = "1" ]; then
   echo "vpnc hook: NM never-default=1 -> removing default route from split-inc" >&2

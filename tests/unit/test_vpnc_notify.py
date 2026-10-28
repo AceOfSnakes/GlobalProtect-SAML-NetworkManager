@@ -1135,6 +1135,38 @@ class TestRoutingHookSplitInc:
 
         assert "CISCO_IPV6_SPLIT_INC" not in got
 
+    V6_EXC = {
+        "CISCO_IPV6_SPLIT_EXC": "1",
+        "CISCO_IPV6_SPLIT_EXC_0_ADDR": "fd02::",
+        "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "64",
+    }
+
+    @pytest.mark.parametrize("never_default", ["0", "1"])
+    def test_ignore_auto_routes_clears_the_ipv6_lists(self, never_default):
+        # #152: ::/0 included, so vpnc-script would add an IPv6 default route
+        got = self.run_hook({**self.V6, **self.V6_EXC, "INTERNAL_IP6_ADDRESS": "fd00::5",
+                             "GPCLIENT_NM_IGNORE_AUTO_ROUTES": "1",
+                             "GPCLIENT_NM_NEVER_DEFAULT": never_default})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+        assert got["CISCO_IPV6_SPLIT_EXC"] == "0"
+        assert not [k for k in got if k.startswith(("CISCO_IPV6_SPLIT_INC_", "CISCO_IPV6_SPLIT_EXC_"))]
+
+    def test_ignore_auto_routes_without_an_ipv6_list_leaves_count_zero(self):
+        # an empty count makes vpnc-script add a default route for INTERNAL_IP6_ADDRESS
+        got = self.run_hook({"GPCLIENT_NM_IGNORE_AUTO_ROUTES": "1", "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+
+    @pytest.mark.parametrize("ignore_auto_routes", ["0", ""])
+    def test_ipv6_lists_stay_without_ignore_auto_routes(self, ignore_auto_routes):
+        got = self.run_hook({**self.V6, **self.V6_EXC,
+                             "GPCLIENT_NM_IGNORE_AUTO_ROUTES": ignore_auto_routes})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "3"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "0"
+        assert got["CISCO_IPV6_SPLIT_EXC_0_ADDR"] == "fd02::"
+
     def test_non_default_ipv6_entries_are_kept(self):
         env = {k: v for k, v in self.V6.items() if "_1_" not in k}
         env["CISCO_IPV6_SPLIT_INC"] = "2"
