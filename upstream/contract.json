@@ -246,13 +246,6 @@
       "used_by": "service/nm-gpclient-service.py: --gateway"
     },
     {
-      "id": "cli-passwd-on-stdin",
-      "kind": "anchor",
-      "path": "apps/gpclient/src/connect/args.rs",
-      "text": "pub(super) passwd_on_stdin: bool,",
-      "used_by": "service/nm-gpclient-service.py: --passwd-on-stdin"
-    },
-    {
       "id": "cli-cookie-on-stdin",
       "kind": "anchor",
       "path": "apps/gpclient/src/connect/args.rs",

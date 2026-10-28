@@ -277,9 +277,16 @@ nmcli -g vpn.data connection show "My VPN"
 `Cannot find gateway specified` when the value is unknown
 ([issue #7](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/7)).
 It is passed only for `preferred-gateway`, and only when the portal offered that
-exact name or address before (it is in `gateway-list`). When gpclient does not
-find it after all, the service starts gpclient once more without the option and
-answers the gateway prompt as before. With `--gateway` gpclient shows no
+gateway before (it is in `gateway-list`): the value is the whole entry the
+editors store (`name (address)`), the name or the address. gpclient always gets
+the address of that entry (its name only when the entry has no address), because
+gpclient takes the first gateway with that name or address and names are not
+unique. The option is used only without *Address is a gateway*:
+with `as-gateway` the service passes `--as-gateway` and ignores
+`preferred-gateway`. When gpclient does not find the gateway after all, the
+service starts gpclient once more without the option and answers the gateway
+prompt as before. Then the SAML login runs a second time, so a second browser
+window or tab may open. With `--gateway` gpclient shows no
 gateway prompt, so `gateway-list` is refreshed only on a connect without it (for
 example when the preferred gateway is not in the list, or none is set).
 

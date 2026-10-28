@@ -1,11 +1,12 @@
 """
-Tests for gpclient's --gateway and --passwd-on-stdin (issue #53, item 1.4).
+Tests for gpclient's --gateway (issue #53, item 1.4).
 
---gateway=<preferred-gateway> is passed only when the portal offered that name
-or address before (it is in the cached gateway-list); a stale cache makes
-gpclient fail with "Cannot find gateway specified", and the service restarts it
-once without the option. A stored password of a standard login goes to
-gpclient's stdin (--passwd-on-stdin) instead of the PTY prompt.
+--gateway=<address of the cached entry> is passed only when preferred-gateway is
+an entry, name or address the portal offered before (it is in the cached
+gateway-list; the editors store the whole entry "name (address)"); an entry
+without an address gives its name. A stale cache makes gpclient fail with
+"Cannot find gateway specified", and the service restarts it once without the
+option.
 
 The real command is captured: a stand-in for gpclient records argv and stdin.
 
@@ -19,14 +20,18 @@ import sys
 
 import pytest
 
-# Records argv (and the first stdin line with --passwd-on-stdin) per launch;
+# Records argv and the first stdin line (read only with stdin_wait) per launch;
 # fails with the upstream error when "not-found" is set: with a --gateway given
 # ("flag") or on every launch ("always")
 FAKE_GPCLIENT = r'''
 import json, sys
 args = sys.argv[1:]
-stdin_line = None
-if "--passwd-on-stdin" in args:
+import select
+stdin_line = ""
+if __PROMPT__:
+    sys.stdout.write(__PROMPT__)
+    sys.stdout.flush()
+if __STDIN_WAIT__ and select.select([sys.stdin], [], [], __STDIN_WAIT__)[0]:
     stdin_line = sys.stdin.readline()
 with open("__LOG__", "a") as out:
     out.write(json.dumps({"argv": args, "stdin": stdin_line}) + "\n")
@@ -49,7 +54,8 @@ sys.exit(0)
 STORED = "gw-a (a.example.com);gw-b (b.example.com)"
 
 
-def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False, **settings):
+def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False,
+              stdin_wait="0", prompt="", connection=None, **settings):
     """Run gpclient to its end (with restarts); return the recorded launches"""
     log = tmp_path / "launches.jsonl"
     script = tmp_path / "gpclient.py"
@@ -57,6 +63,8 @@ def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False
         FAKE_GPCLIENT.replace("__LOG__", str(log))
         .replace("__NOT_FOUND__", repr(not_found))
         .replace("__AS_TEXT__", repr(as_text))
+        .replace("__STDIN_WAIT__", stdin_wait)
+        .replace("__PROMPT__", repr(prompt))
     )
     launcher = tmp_path / "gpclient.sh"
     launcher.write_text(f'#!/bin/bash\nexec "{sys.executable}" "{script}" "$@"\n')
@@ -70,7 +78,14 @@ def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False
         setattr(plugin, name, value)
 
     async def run():
-        assert await plugin._start_gpclient()
+        if connection:
+            for name in ("_cleanup_stale_gpd0", "_stop_gpclient"):
+                monkeypatch.setattr(plugin, name, lambda: asyncio.sleep(0))
+            await plugin._do_connect(connection, interactive=True)
+            if plugin.profile_task:
+                plugin.profile_task.cancel()
+        else:
+            assert await plugin._start_gpclient()
         while True:
             task = plugin.stdout_monitor_task
             await asyncio.wait_for(asyncio.shield(task), 30)
@@ -87,7 +102,10 @@ def _gateway_args(launch):
 
 
 class TestGatewayFlag:
-    @pytest.mark.parametrize("preferred", ["gw-b", "b.example.com"])
+    @pytest.mark.parametrize(
+        "preferred",
+        ["gw-b", "b.example.com", "gw-b (b.example.com)"],  # name, address, whole entry
+    )
     def test_passed_when_the_portal_offered_it(
         self, service_module, monkeypatch, tmp_path, preferred
     ):
@@ -97,10 +115,48 @@ class TestGatewayFlag:
         )
 
         (launch,) = launches
-        assert _gateway_args(launch) == [f"--gateway={preferred}"]
+        # always the address of the entry (unique, gpclient matches it)
+        assert _gateway_args(launch) == ["--gateway=b.example.com"]
         argv = launch["argv"]
-        assert argv.index("connect") < argv.index(f"--gateway={preferred}")
-        assert argv.index(f"--gateway={preferred}") < argv.index("--")
+        assert argv.index("connect") < argv.index("--gateway=b.example.com")
+        assert argv.index("--gateway=b.example.com") < argv.index("--")
+
+    @pytest.mark.parametrize(
+        ("preferred", "stored", "expected"),
+        [
+            ("Branch (HQ) (hq.example.com)", "Branch (HQ) (hq.example.com)", "hq.example.com"),
+            ("hq.example.com", "Branch (HQ) (hq.example.com)", "hq.example.com"),
+            ("Branch (HQ)", "Branch (HQ) (hq.example.com)", "hq.example.com"),
+            ("US East (a.example.com)", "x (x.example.com);US East (a.example.com)", "a.example.com"),
+            # names are not unique: the picked entry decides, by its address
+            ("VPN (b.example.com)", "VPN (a.example.com);VPN (b.example.com)", "b.example.com"),
+            ("b.example.com", "VPN (a.example.com);VPN (b.example.com)", "b.example.com"),
+            # the cache writes "Office, Berlin" as "Office Berlin" (_gateway_entry):
+            # the name differs from upstream's, the address does not
+            ("Office Berlin (b.example.com)", "Office Berlin (b.example.com)", "b.example.com"),
+            ("Office Berlin", "Office Berlin (b.example.com)", "b.example.com"),
+            ("plain", "plain", "plain"),  # an entry without an address
+            ("gw-b (b.example.com) ", STORED, ""),  # not exact
+            ("(b.example.com)", STORED, ""),
+            ("gw-b (other.example.com)", STORED, ""),
+            # an entry without a name (upstream prints " (address)")
+            ("(b.example.com)", "(b.example.com)", "b.example.com"),
+            ("b.example.com", "(b.example.com)", "b.example.com"),
+            ("gw-b", "(b.example.com)", ""),
+        ],
+    )
+    def test_cached_gateway_arg(self, service_module, preferred, stored, expected):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin.preferred_gateway = preferred
+        plugin._stored_gateway_list = stored
+        assert plugin._cached_gateway_arg() == expected
+
+    def test_dropped_flag_gives_nothing(self, service_module):
+        plugin = service_module.GpclientVPNPlugin()
+        plugin.preferred_gateway = "gw-b"
+        plugin._stored_gateway_list = STORED
+        plugin._gateway_flag_dropped = True
+        assert plugin._cached_gateway_arg() == ""
 
     @pytest.mark.parametrize(
         "settings",
@@ -112,8 +168,12 @@ class TestGatewayFlag:
             # gpclient compares exactly, so the cache must too
             dict(preferred_gateway="GW-B", _stored_gateway_list=STORED),
             dict(preferred_gateway="gw", _stored_gateway_list=STORED),
-            dict(preferred_gateway="gw-b (b.example.com)", _stored_gateway_list=STORED),
+            dict(preferred_gateway="gw-b (c.example.com)", _stored_gateway_list=STORED),
             dict(preferred_gateway="gw-b", _stored_gateway_list=STORED, as_gateway=True),
+            dict(preferred_gateway="gw-b (b.example.com)", _stored_gateway_list=STORED,
+                 as_gateway=True),
+            dict(preferred_gateway="gw-b", _stored_gateway_list=STORED,
+                 _gateway_flag_dropped=True),
         ],
     )
     def test_left_out_otherwise(self, service_module, monkeypatch, tmp_path, settings):
@@ -133,7 +193,7 @@ class TestGatewayNotFoundRestart:
                 preferred_gateway="gw-b", _stored_gateway_list=STORED,
             )
 
-        assert [_gateway_args(x) for x in launches] == [["--gateway=gw-b"], []]
+        assert [_gateway_args(x) for x in launches] == [["--gateway=b.example.com"], []]
         assert "no longer offered" in caplog.text
 
     def test_the_error_as_a_plain_line_does_not_restart(
@@ -145,7 +205,7 @@ class TestGatewayNotFoundRestart:
             preferred_gateway="gw-b", _stored_gateway_list=STORED,
         )
 
-        assert [_gateway_args(x) for x in launches] == [["--gateway=gw-b"]]
+        assert [_gateway_args(x) for x in launches] == [["--gateway=b.example.com"]]
 
     def test_a_second_failure_is_not_retried(
         self, service_module, monkeypatch, tmp_path, dbus_signals
@@ -185,69 +245,38 @@ class TestGatewayNotFoundRestart:
         assert not service_module.GATEWAY_NOT_FOUND_RE.search(line)
 
 
-class TestPasswordOnStdin:
-    def test_password_goes_to_stdin_once(
-        self, service_module, monkeypatch, tmp_path, caplog
+class TestStoredPasswordAtThePrompt:
+    """No --passwd-on-stdin (it fed the password to the next prompt of a SAML
+    login): the stored password is typed only when gpclient asks for it.
+    These go through the real Connect path (_do_connect)."""
+
+    CONNECTION = {"vpn": {
+        "data": {"gateway": "portal.example.com", "auth-mode": "credentials",
+                 "username": "user"},
+        "secrets": {"password": "s3cr3t-pw"},
+    }}
+
+    def test_nothing_is_written_before_a_prompt(
+        self, service_module, monkeypatch, tmp_path
     ):
-        with caplog.at_level(logging.DEBUG):
-            plugin, launches = _launches(
-                service_module, monkeypatch, tmp_path,
-                vpn_password="s3cr3t-pw", _password_on_stdin=True,
-            )
-
-        (launch,) = launches
-        assert "--passwd-on-stdin" in launch["argv"]
-        assert launch["argv"].index("--passwd-on-stdin") > launch["argv"].index("connect")
-        assert launch["stdin"] == "s3cr3t-pw\n"
-        assert "s3cr3t-pw" not in caplog.text
-        # The prompt handler must not answer a password prompt again
-        assert plugin._classify_prompt_kind("Password:", "") != "password"
-        plugin._reset_phase_state()  # a new auth round
-        assert plugin._answered_password is True
-
-    @pytest.mark.parametrize(
-        "settings",
-        [
-            dict(vpn_password="", _password_on_stdin=False),
-            dict(vpn_password="s3cr3t-pw", _password_on_stdin=False),
-        ],
-    )
-    def test_not_used_otherwise(self, service_module, monkeypatch, tmp_path, settings):
-        _, launches = _launches(service_module, monkeypatch, tmp_path, **settings)
+        _, launches = _launches(
+            service_module, monkeypatch, tmp_path, stdin_wait="0.5",
+            connection=self.CONNECTION,
+        )
 
         (launch,) = launches
         assert "--passwd-on-stdin" not in launch["argv"]
-        assert launch["stdin"] is None
+        assert "--user=user" in launch["argv"]
+        assert launch["stdin"] == ""  # no input queued at spawn
 
-    @pytest.mark.parametrize(
-        ("data", "secrets", "expected"),
-        [
-            ({"auth-mode": "credentials", "username": "u"}, {"password": "pw"}, True),
-            # gpclient asks for the username first: it would eat the password
-            ({"auth-mode": "credentials"}, {"password": "pw"}, False),
-            ({"auth-mode": "credentials", "username": ""}, {"password": "pw"}, False),
-            ({"auth-mode": "credentials", "username": "u"}, {}, False),
-            ({"auth-mode": "credentials"}, {}, False),
-            ({"auth-mode": "credentials"}, {"password": ""}, False),
-            ({"auth-mode": "saml", "username": "u"}, {"password": "pw"}, False),
-            ({"username": "u"}, {"password": "pw"}, False),
-        ],
-    )
-    def test_decided_when_connecting(
-        self, service_module, monkeypatch, data, secrets, expected
+    def test_typed_at_the_password_prompt(
+        self, service_module, monkeypatch, tmp_path
     ):
-        plugin = service_module.GpclientVPNPlugin()
-        monkeypatch.setattr(plugin, "_cleanup_stale_gpd0", lambda: asyncio.sleep(0))
-        monkeypatch.setattr(plugin, "_stop_gpclient", lambda: asyncio.sleep(0))
-        monkeypatch.setattr(plugin, "_start_gpclient", lambda: asyncio.sleep(0, True))
-        conn = {"vpn": {"data": {"gateway": "vpn.example.com", **data}, "secrets": secrets}}
+        _, launches = _launches(
+            service_module, monkeypatch, tmp_path, stdin_wait="5",
+            prompt="? Password: ", connection=self.CONNECTION,
+        )
 
-        async def go():
-            await plugin._do_connect(conn, interactive=False)
-            task = plugin.profile_task
-            if task:
-                task.cancel()
-
-        asyncio.run(go())
-
-        assert plugin._password_on_stdin is expected
+        (launch,) = launches
+        assert "--passwd-on-stdin" not in launch["argv"]
+        assert launch["stdin"] == "s3cr3t-pw\n"
