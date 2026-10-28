@@ -53,6 +53,69 @@ entry_changed_cb (GtkEditable *editable, gpointer user_data)
     g_signal_emit_by_name (user_data, "changed");
 }
 
+/* Client certificate and key fields: the "document-open" icon opens a file
+ * chooser and the chosen local path goes into the entry (typing still works).
+ * The title is passed as an N_() string. GtkFileChooserNative is deprecated
+ * since GTK 4.10, but it is the one that exists on GTK 4.6 (Ubuntu 22.04). */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+static void
+choose_file_response_cb (GtkNativeDialog *dialog, gint response, gpointer user_data)
+{
+    GWeakRef *ref = user_data;
+    GtkWidget *entry = g_weak_ref_get (ref); /* NULL: the editor is gone */
+
+    if (entry && response == GTK_RESPONSE_ACCEPT) {
+        GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER (dialog));
+        char *path = file ? g_file_get_path (file) : NULL; /* NULL: not a local file */
+
+        if (path)
+            gtk_editable_set_text (GTK_EDITABLE (entry), path);
+        g_free (path);
+        g_clear_object (&file);
+    }
+    g_clear_object (&entry);
+    g_weak_ref_clear (ref);
+    g_free (ref);
+    g_object_unref (dialog);
+}
+
+static void
+choose_file_icon_press_cb (GtkEntry *entry, GtkEntryIconPosition pos, gpointer title)
+{
+    GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (entry));
+    GtkFileChooserNative *dialog = gtk_file_chooser_native_new (
+        _(title), GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL,
+        GTK_FILE_CHOOSER_ACTION_OPEN, NULL, NULL);
+    /* modal, as in Plasma: no second dialog, no dialog left without the editor */
+    gtk_native_dialog_set_modal (GTK_NATIVE_DIALOG (dialog), TRUE);
+    const char *current = gtk_editable_get_text (GTK_EDITABLE (entry));
+
+    if (g_path_is_absolute (current)) {
+        char *dir = g_path_get_dirname (current);
+        GFile *folder = g_file_new_for_path (dir);
+
+        gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER (dialog), folder, NULL);
+        g_object_unref (folder);
+        g_free (dir);
+    }
+    /* A weak reference: the dialog is always freed, even when the editor is
+     * closed first (a portal chooser may stay open) */
+    GWeakRef *ref = g_new0 (GWeakRef, 1);
+    g_weak_ref_init (ref, entry);
+    g_signal_connect (dialog, "response", G_CALLBACK (choose_file_response_cb), ref);
+    gtk_native_dialog_show (GTK_NATIVE_DIALOG (dialog));
+}
+G_GNUC_END_IGNORE_DEPRECATIONS
+
+static void
+add_choose_file_icon (GtkWidget *entry, const char *title)
+{
+    gtk_entry_set_icon_from_icon_name (GTK_ENTRY (entry), GTK_ENTRY_ICON_SECONDARY, "document-open");
+    gtk_entry_set_icon_tooltip_text (GTK_ENTRY (entry), GTK_ENTRY_ICON_SECONDARY, _("Choose a file"));
+    gtk_entry_set_icon_activatable (GTK_ENTRY (entry), GTK_ENTRY_ICON_SECONDARY, TRUE);
+    g_signal_connect (entry, "icon-press", G_CALLBACK (choose_file_icon_press_cb), (gpointer) title);
+}
+
 static void
 browser_combo_changed_cb (GtkComboBox *combo, gpointer user_data)
 {
@@ -526,6 +589,7 @@ build_ui (NMGpclientEditor *self)
         if (value && *value)
             gtk_editable_set_text (GTK_EDITABLE (self->usercert_entry), value);
     }
+    add_choose_file_icon (self->usercert_entry, N_("Choose the client certificate"));
     g_signal_connect (self->usercert_entry, "changed", G_CALLBACK (entry_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->usercert_entry, 1, row++, 1, 1);
 
@@ -543,6 +607,7 @@ build_ui (NMGpclientEditor *self)
         if (value && *value)
             gtk_editable_set_text (GTK_EDITABLE (self->userkey_entry), value);
     }
+    add_choose_file_icon (self->userkey_entry, N_("Choose the private key"));
     g_signal_connect (self->userkey_entry, "changed", G_CALLBACK (entry_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->userkey_entry, 1, row++, 1, 1);
 

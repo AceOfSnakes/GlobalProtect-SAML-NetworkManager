@@ -352,3 +352,15 @@ msgstr "a usercert-nek abszolút elérési útnak kell lennie"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "userkey must be an absolute path"
 msgstr "a userkey-nek abszolút elérési útnak kell lennie"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose a file"
+msgstr "Fájl kiválasztása"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the client certificate"
+msgstr "Válassza ki a kliens tanúsítványt"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the private key"
+msgstr "Válassza ki a privát kulcsot"

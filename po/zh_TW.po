@@ -352,3 +352,15 @@ msgstr "usercert 必須是絕對路徑"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "userkey must be an absolute path"
 msgstr "userkey 必須是絕對路徑"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose a file"
+msgstr "選擇檔案"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the client certificate"
+msgstr "選擇用戶端憑證"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the private key"
+msgstr "選擇私密金鑰"

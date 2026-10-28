@@ -160,7 +160,8 @@ A portal or gateway can also ask for a client certificate (a certificate per
 device, with SAML or with username and password,
 [#134](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/134)).
 Give gpclient the files with `vpn.data` keys; the editors have the same fields
-(**Client certificate**, **Private key**, **Certificate passphrase**):
+(**Client certificate**, **Private key**, **Certificate passphrase**). In the
+editors, type the path or click the file icon in the field to choose the file:
 
 ```bash
 # PKCS#12 file (.p12, .pfx) or PEM file with the certificate and the key

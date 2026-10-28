@@ -352,3 +352,15 @@ msgstr "το usercert πρέπει να είναι απόλυτη διαδρομ
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "userkey must be an absolute path"
 msgstr "το userkey πρέπει να είναι απόλυτη διαδρομή"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose a file"
+msgstr "Επιλογή αρχείου"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the client certificate"
+msgstr "Επιλογή πιστοποιητικού πελάτη"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the private key"
+msgstr "Επιλογή ιδιωτικού κλειδιού"

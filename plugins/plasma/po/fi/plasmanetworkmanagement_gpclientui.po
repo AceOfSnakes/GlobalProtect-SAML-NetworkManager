@@ -451,3 +451,18 @@ msgstr "usercert-arvon on oltava absoluuttinen polku"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey-arvon on oltava absoluuttinen polku"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Valitse tiedosto"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Valitse asiakassertifikaatti"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Valitse yksityinen avain"

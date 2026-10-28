@@ -352,3 +352,15 @@ msgstr "usercert ha de ser un camí absolut"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "userkey must be an absolute path"
 msgstr "userkey ha de ser un camí absolut"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose a file"
+msgstr "Trieu un fitxer"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the client certificate"
+msgstr "Trieu el certificat de client"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the private key"
+msgstr "Trieu la clau privada"

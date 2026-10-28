@@ -477,3 +477,18 @@ msgstr "usercert trebuie să fie o cale absolută"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey trebuie să fie o cale absolută"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Alegeți un fișier"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Alegeți certificatul de client"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Alegeți cheia privată"

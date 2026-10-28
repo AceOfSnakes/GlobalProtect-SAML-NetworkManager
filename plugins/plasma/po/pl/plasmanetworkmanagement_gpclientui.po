@@ -477,3 +477,18 @@ msgstr "usercert musi być ścieżką bezwzględną"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey musi być ścieżką bezwzględną"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Wybierz plik"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Wybierz certyfikat klienta"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Wybierz klucz prywatny"

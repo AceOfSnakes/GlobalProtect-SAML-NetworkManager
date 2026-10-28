@@ -451,3 +451,18 @@ msgstr "a usercert-nek abszolút elérési útnak kell lennie"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "a userkey-nek abszolút elérési útnak kell lennie"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Fájl kiválasztása"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Válassza ki a kliens tanúsítványt"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Válassza ki a privát kulcsot"

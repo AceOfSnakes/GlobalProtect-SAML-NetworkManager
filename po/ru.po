@@ -380,3 +380,15 @@ msgstr "usercert должен быть абсолютным путём"
 #: plugins/gnome/nm-gpclient-validate.h
 msgid "userkey must be an absolute path"
 msgstr "userkey должен быть абсолютным путём"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose a file"
+msgstr "Выберите файл"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the client certificate"
+msgstr "Выберите сертификат клиента"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Choose the private key"
+msgstr "Выберите закрытый ключ"
