@@ -392,6 +392,24 @@ class TestHooks:
 
         assert got == "unset"
 
+    @pytest.mark.parametrize("set_pid, expected", [
+        ("VPNPID=1234\n", "1234"),  # set, not exported (openconnect < 9.0)
+        ("", ""),  # not set: an empty value, which the service drops
+    ])
+    def test_the_notify_hook_passes_vpnpid(self, tmp_path, set_pid, expected):
+        notify_prog = tmp_path / "notify"
+        notify_prog.write_text(f'#!/bin/sh\necho "${{VPNPID-unset}}" > {tmp_path}/got\n')
+        notify_prog.chmod(0o755)
+        fake = tmp_path / "vpnc-script"
+        fake.write_text(f'#!/bin/sh\n{set_pid}. "{HOOK}"\n')
+        fake.chmod(0o755)
+        env = {"PATH": os.environ["PATH"], "GPCLIENT_NM_TOKEN": "t",
+               "GPCLIENT_NM_NOTIFY": str(notify_prog), "reason": "connect"}
+
+        subprocess.run([str(fake)], env=env, check=True, capture_output=True)
+
+        assert (tmp_path / "got").read_text().strip() == expected
+
     def test_the_hook_does_not_leak_it_into_vpnc_script(self, tmp_path):
         notify_prog = tmp_path / "notify"
         notify_prog.write_text("#!/bin/sh\nexit 0\n")

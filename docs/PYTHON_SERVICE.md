@@ -300,6 +300,10 @@ the service keeps both. After a SIGKILL it runs that script as root with
 (`VPNC_DISCONNECT_TIMEOUT`). It uses the path only if it is absolute and a
 regular, executable file owned by root that group and others cannot write. With
 `nm-routing` there is nothing to undo, so the script does not send the path.
+The hook also passes `VPNPID`, which names the state files of vpnc-script
+(default route, resolv.conf backup): openconnect before 9.0 does not export it.
+With `scripts/vpnc-script-debug`, `$0` is the real script, so this run is not
+traced.
 The service keeps only the environment of the `connect` notification: the
 routing hook edited the split lists and the DNS domains for it, and a
 `reconnect` carries the gateway's raw lists but changes no routes or DNS. The
