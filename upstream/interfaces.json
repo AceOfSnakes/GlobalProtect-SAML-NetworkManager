@@ -264,7 +264,6 @@
         "cli-hip",
         "cli-as-gateway",
         "cli-gateway",
-        "cli-passwd-on-stdin",
         "cli-cookie-on-stdin",
         "stdin-credential-rule",
         "cli-mtu",
@@ -289,8 +288,8 @@
         "tests/unit/test_hip_script.py::test_hip_script_is_one_argv_item",
         "tests/unit/test_gateway_flag.py::TestGatewayFlag::test_passed_when_the_portal_offered_it",
         "tests/unit/test_gateway_flag.py::TestGatewayFlag::test_left_out_otherwise",
-        "tests/unit/test_gateway_flag.py::TestPasswordOnStdin::test_password_goes_to_stdin_once",
-        "tests/unit/test_gateway_flag.py::TestPasswordOnStdin::test_not_used_otherwise",
+        "tests/unit/test_gateway_flag.py::TestStoredPasswordAtThePrompt::test_nothing_is_written_before_a_prompt",
+        "tests/unit/test_gateway_flag.py::TestStoredPasswordAtThePrompt::test_typed_at_the_password_prompt",
         "tests/unit/test_saml_dialog_service.py::TestGpclientCommand::test_the_result_goes_to_stdin_and_there_is_no_browser",
         "tests/unit/test_saml_dialog_service.py::TestGpclientCommand::test_the_old_command_without_a_result"
       ]
