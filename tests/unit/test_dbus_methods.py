@@ -285,7 +285,8 @@ class TestConnectSuccess:
         plugin._openssl_error_seen = True
         plugin._openssl_retried = True
         plugin._otp_flags_written = True
-        plugin._otp_flag_attempts = 3
+        plugin._pending_flags = {"otp-flags": "2"}
+        plugin._pending_drop = ["otp"]
         plugin._answered_prompt = (9, "x")
         plugin._tunnel_up = True
 
@@ -303,7 +304,8 @@ class TestConnectSuccess:
         assert plugin._openssl_error_seen is False
         assert plugin._openssl_retried is False
         assert plugin._otp_flags_written is False
-        assert plugin._otp_flag_attempts == 0
+        assert plugin._pending_flags == {}
+        assert plugin._pending_drop == []
         assert plugin._answered_prompt is None
         assert plugin._tunnel_up is False
 
@@ -757,7 +759,7 @@ def _dirty(plugin):
     plugin._openssl_error_seen = True
     plugin._openssl_retried = True
     plugin._otp_flags_written = True
-    plugin._otp_flag_attempts = 2
+    plugin._pending_flags = {"otp-flags": "2"}
     plugin.as_gateway = True
     plugin.preferred_gateway = "gw1"
     plugin._connection_uuid = "uuid"
@@ -905,7 +907,8 @@ class TestDisconnect:
             "_openssl_error_seen",
             "_openssl_retried",
             "_otp_flags_written",
-            "_otp_flag_attempts",
+            "_pending_flags",
+            "_pending_drop",
             "as_gateway",
             "preferred_gateway",
             "_connection_uuid",

@@ -69,7 +69,11 @@ class TestStoredOneTimeCode:
         assert result.stdout == "password\ns3cret\n\n\n"
 
 
-class TestForgetOneTimeSecret:
+class TestOneTimeFlagsAreWrittenLate:
+    """Issue #120: NetworkManager rejects every secrets request of an
+    activation whose profile changed, so the profile is written only after the
+    tunnel is up or the activation failed."""
+
     def _plugin(self, service_module):
         plugin = service_module.GpclientVPNPlugin()
         plugin._connection_uuid = "e5b3e5b3-0000-0000-0000-000000000000"
@@ -83,62 +87,128 @@ class TestForgetOneTimeSecret:
         plugin._update_profile = record
         return plugin, calls
 
-    def _with_results(self, plugin, calls, results):
-        async def flaky(data, drop_secrets=()):
-            calls.append((data, list(drop_secrets)))
-            return results.pop(0)
-
-        plugin._update_profile = flaky
-
     ONE_WRITE = ({"otp-flags": "2"}, ["otp"])
 
-    def test_marks_not_saved_and_drops_the_value_in_one_write(self, service_module):
+    def _prompt(self, plugin, answers=1):
+        """Run `answers` one-time prompts through _handle_prompt"""
+        asked = []
+
+        async def ask(key, label, banner, extra_hints=()):
+            asked.append(key)
+            return "123456"
+
+        plugin._interactive = True
+        plugin._request_secret_interactive = ask
+        plugin._write_keys = lambda data, description: None
+        for _ in range(answers):
+            asyncio.run(plugin._handle_prompt("Enter the RSA token"))
+        return asked
+
+    def test_no_write_between_the_prompt_and_the_request(self, service_module):
         plugin, calls = self._plugin(service_module)
 
-        asyncio.run(plugin._forget_one_time_secret())
+        asked = self._prompt(plugin)
+
+        assert asked == ["otp"]
+        assert calls == []
+        assert plugin._pending_flags == {"otp-flags": "2"}
+
+    def test_a_second_prompt_in_the_activation_writes_nothing_either(
+        self, service_module
+    ):
+        plugin, calls = self._plugin(service_module)
+
+        self._prompt(plugin, answers=2)
+
+        assert calls == []
+        assert plugin._pending_drop == ["otp"]  # noted once
+
+    def test_flags_are_written_after_the_tunnel_is_up(self, service_module):
+        plugin, calls = self._plugin(service_module)
+        self._prompt(plugin)
+
+        asyncio.run(plugin._persist_profile())
 
         assert calls == [self.ONE_WRITE]
-        assert plugin._otp_flags_written is True
+        assert plugin._pending_flags == {}
 
-    def test_only_done_once_per_connection(self, service_module):
+    def test_nothing_is_written_when_the_profile_has_the_flag(self, service_module):
         plugin, calls = self._plugin(service_module)
+        plugin._otp_flags_written = True  # read from the profile at Connect
+        self._prompt(plugin)
 
-        asyncio.run(plugin._forget_one_time_secret())
-        asyncio.run(plugin._forget_one_time_secret())
-
-        assert len(calls) == 1  # from the first call only
-
-    def test_nothing_without_a_uuid(self, service_module):
-        plugin, calls = self._plugin(service_module)
-        plugin._connection_uuid = ""
-
-        asyncio.run(plugin._forget_one_time_secret())
+        asyncio.run(plugin._persist_profile())
 
         assert calls == []
 
-    def test_failed_write_is_retried_on_the_next_prompt(self, service_module):
-        """A failed write must not count as done: the code would stay in the
-        profile and the agent would hand it back without asking."""
+    def test_nothing_is_noted_without_a_uuid(self, service_module):
         plugin, calls = self._plugin(service_module)
-        self._with_results(plugin, calls, [False, True])
+        plugin._connection_uuid = ""
+        self._prompt(plugin)
 
-        asyncio.run(plugin._forget_one_time_secret())
-        assert plugin._otp_flags_written is False
-        assert plugin._otp_flag_attempts == 1
+        asyncio.run(plugin._persist_profile())
 
-        asyncio.run(plugin._forget_one_time_secret())
-        assert plugin._otp_flags_written is True
-        assert calls == [self.ONE_WRITE] * 2
+        assert calls == []
 
-        # Done for real now: no third round
-        asyncio.run(plugin._forget_one_time_secret())
-        assert len(calls) == 2
+    def test_nothing_is_written_without_a_one_time_prompt(self, service_module):
+        plugin, calls = self._plugin(service_module)
 
-    def test_permanent_failure_stops_after_two_attempts(
-        self, service_module, caplog
+        asyncio.run(plugin._persist_profile())
+
+        assert calls == []
+
+    def test_flags_are_written_after_a_failed_activation(
+        self, service_module, dbus_signals
     ):
-        """Every write may wait 10 s: a profile that cannot be changed must
-        not cost 10 s at every one-time prompt."""
+        plugin, calls = self._plugin(service_module)
+        self._prompt(plugin)
+
+        async def go():
+            plugin._emit_failure(1)
+            assert calls == []  # the failure is out first
+            await plugin._flags_task
+
+        asyncio.run(go())
+
+        assert calls == [self.ONE_WRITE]
+
+    def test_a_failure_without_pending_flags_starts_no_write(
+        self, service_module, dbus_signals
+    ):
+        plugin, calls = self._plugin(service_module)
+
+        async def go():
+            plugin._emit_failure(1)
+            assert plugin._flags_task is None
+
+        asyncio.run(go())
+
+        assert calls == []
+
+    def test_teardown_waits_for_the_write_after_a_failure(
+        self, service_module, dbus_signals, monkeypatch
+    ):
+        """Disconnect follows the failure at once and resets the UUID: it must
+        not cancel the write, nor let it run with an empty UUID."""
+        plugin, calls = self._plugin(service_module)
+        self._prompt(plugin)
+
+        async def noop():
+            pass
+
+        for name in ("_remember_gpauth", "_stop_gpclient", "_stop_remembered_gpauth"):
+            monkeypatch.setattr(plugin, name, noop)
+
+        async def go():
+            plugin._emit_failure(1)
+            await plugin._teardown()
+
+        asyncio.run(go())
+
+        assert calls == [self.ONE_WRITE]
+        assert plugin._flags_task is None
+
+    def test_a_failed_write_is_not_retried(self, service_module):
         plugin, calls = self._plugin(service_module)
 
         async def failing(data, drop_secrets=()):
@@ -146,35 +216,12 @@ class TestForgetOneTimeSecret:
             return False
 
         plugin._update_profile = failing
+        self._prompt(plugin)
 
-        with caplog.at_level("WARNING", logger=service_module.logger.name):
-            for _ in range(5):
-                asyncio.run(plugin._forget_one_time_secret())
-
-        assert calls == [self.ONE_WRITE] * 2
-        assert plugin._otp_flags_written is False
-        # Said once, when giving up
-        assert caplog.text.count("Giving up on marking the one-time code") == 1
-
-    def test_first_failure_does_not_give_up_yet(self, service_module, caplog):
-        plugin, calls = self._plugin(service_module)
-
-        async def failing(data, drop_secrets=()):
-            calls.append((data, list(drop_secrets)))
-            return False
-
-        plugin._update_profile = failing
-
-        with caplog.at_level("WARNING", logger=service_module.logger.name):
-            asyncio.run(plugin._forget_one_time_secret())
+        asyncio.run(plugin._persist_profile())
+        asyncio.run(plugin._persist_profile())
 
         assert len(calls) == 1
-        assert "Giving up" not in caplog.text
-
-    def test_attempts_start_at_zero_for_a_new_connection(self, service_module):
-        plugin = service_module.GpclientVPNPlugin()
-
-        assert plugin._otp_flag_attempts == 0
 
 
 class TestSplitEscapeSequences:

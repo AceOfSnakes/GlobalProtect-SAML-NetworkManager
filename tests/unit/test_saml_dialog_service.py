@@ -295,7 +295,10 @@ class TestGpclientCommand:
 
 
 def _connection(**data):
-    return {"vpn": {"data": {"gateway": "vpn.example.com", **data}}}
+    return {
+        "connection": {"uuid": "e5b3e5b3-0000-0000-0000-000000000000"},
+        "vpn": {"data": {"gateway": "vpn.example.com", **data}},
+    }
 
 
 @pytest.fixture
@@ -377,10 +380,10 @@ class TestSetupSession:
             "browser": sys.executable,
             "browser_target": "firefox",
         }
-        # one write marks the secret as not saved and drops a stored one
-        assert session.profile_writes == [
-            ({"gpauth-result-flags": "2"}, ["gpauth-result"])
-        ]
+        # Issue #120: no profile write while the activation can still ask
+        assert session.profile_writes == []
+        assert session._pending_flags == {"gpauth-result-flags": "2"}
+        assert session._pending_drop == ["gpauth-result"]
         assert session.started == [json.dumps(GOOD, separators=(",", ":"))]
         assert failures(dbus_signals) == []
 
@@ -415,8 +418,31 @@ class TestSetupSession:
         session.reply = "standard"
 
         connect(session, {"saml-auth": "dialog", **flags})
+        assert session.profile_writes == []  # never during the activation
+        asyncio.run(session._persist_profile())  # the tunnel is up
 
         assert len(session.profile_writes) == writes
+        if writes:
+            assert session.profile_writes == [
+                ({"gpauth-result-flags": "2"}, ["gpauth-result"])
+            ]
+
+    def test_profile_flags_written_after_a_failed_activation(
+        self, session, dbus_signals
+    ):
+        session.reply = "standard"
+        connect(session, {"saml-auth": "dialog"})
+
+        async def go():
+            session._emit_failure(1)
+            assert session.profile_writes == []
+            await session._flags_task
+
+        asyncio.run(go())
+
+        assert session.profile_writes == [
+            ({"gpauth-result-flags": "2"}, ["gpauth-result"])
+        ]
 
     def test_standard_runs_the_old_command(self, session, dbus_signals):
         session.reply = "standard"
