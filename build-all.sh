@@ -32,6 +32,8 @@ dockerfile_of() {
 ALL_TARGETS=()
 for file in "$SCRIPT_DIR"/debian/control.ubuntu*; do
     name="${file##*/control.ubuntu}"
+    # A release (22.04) or a variant (24.04-neon); not a backup like 24.04~
+    case "$name" in [0-9][0-9].[0-9][0-9] | [0-9][0-9].[0-9][0-9]-*[!~]) ;; *) continue ;; esac
     if [ -f "$SCRIPT_DIR/$(dockerfile_of "$name")" ]; then
         ALL_TARGETS+=("$name")
     fi

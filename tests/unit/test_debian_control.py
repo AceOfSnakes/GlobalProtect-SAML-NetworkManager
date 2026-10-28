@@ -637,7 +637,7 @@ class TestDockerfiles:
         controls -= missing
         assert controls != self.workflow_versions()
 
-    @pytest.mark.parametrize("version", ["22.04", "24.04", "26.04"])
+    @pytest.mark.parametrize("version", sorted(release_controls.__func__()))
     def test_the_case_of_the_dockerfile_names_every_release_it_builds(self, version):
         assert re.search(r"\b%s\b" % re.escape(version), self.text().split("Per release differences", 1)[1])
 

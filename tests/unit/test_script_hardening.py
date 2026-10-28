@@ -205,6 +205,21 @@ class TestBuildAll:
         assert "gpclient-target-cache-24.04:/build/source/external/GlobalProtect-openconnect/target" in run_line
         assert ":/build/external/GlobalProtect-openconnect/target" not in run_line
 
+    @pytest.mark.parametrize("stray", ["24.04~", "24.04.orig", "24.04-neon~", "x"])
+    def test_a_stray_control_file_is_not_a_target(self, tmp_path, stray):
+        # build-all with no argument must not try FROM ubuntu:24.04~ (#163 review)
+        (tmp_path / "debian").mkdir()
+        (tmp_path / "debian" / f"control.ubuntu{stray}").write_text("x")
+        result, _ = run_build_all(tmp_path, target=stray)
+
+        assert result.returncode != 0
+        assert not (tmp_path / "docker_calls").exists() or stray not in (tmp_path / "docker_calls").read_text()
+
+    def test_a_release_and_a_variant_are_targets(self, tmp_path):
+        result, _ = run_build_all(tmp_path, target="24.04", files=("24.04", "24.04-neon"))
+
+        assert result.returncode == 0, result.stderr
+
     def test_every_dockerfile_builds_in_build_source(self):
         for name in os.listdir(ROOT):
             if name.startswith("Dockerfile.ubuntu"):
