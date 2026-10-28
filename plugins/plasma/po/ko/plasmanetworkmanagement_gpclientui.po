@@ -477,3 +477,18 @@ msgstr "usercert는 절대 경로여야 합니다"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey는 절대 경로여야 합니다"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "파일 선택"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "클라이언트 인증서 선택"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "개인 키 선택"

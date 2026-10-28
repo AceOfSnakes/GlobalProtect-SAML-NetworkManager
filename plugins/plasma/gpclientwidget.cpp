@@ -12,9 +12,12 @@
 
 #include <KLocalizedString>
 #include <NetworkManagerQt/Utils>
+#include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QIcon>
 #include <QLineEdit>
 #include <QSignalBlocker>
 #include <QDoubleSpinBox>
@@ -26,6 +29,23 @@
 static QString gatewayAutoLabel()
 {
     return i18n("First proposed by portal (automatic)");
+}
+
+/* A "choose a file" icon in a path field: the chosen file goes into the field
+ * (typing still works). The dialog starts in the folder of the current path. */
+static void addChooseFileAction(QLineEdit *edit, QWidget *parent, const QString &title)
+{
+    auto *action = new QAction(QIcon::fromTheme(QStringLiteral("document-open")), i18n("Choose a file"), edit);
+    action->setToolTip(i18n("Choose a file"));
+    edit->addAction(action, QLineEdit::TrailingPosition);
+    QObject::connect(action, &QAction::triggered, edit, [edit, parent, title]() {
+        const QString current = edit->text().trimmed();
+        const QString startDir = QFileInfo(current).isAbsolute() ? QFileInfo(current).absolutePath() : QString();
+        const QString path = QFileDialog::getOpenFileName(parent, title, startDir);
+        if (!path.isEmpty()) {
+            edit->setText(path);
+        }
+    });
 }
 
 /* Last entry of the browser combo: the user types the path of a browser. */
@@ -141,6 +161,8 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->userCertLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->userKeyLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
+    addChooseFileAction(m_ui->userCertLineEdit, this, i18n("Choose the client certificate"));
+    addChooseFileAction(m_ui->userKeyLineEdit, this, i18n("Choose the private key"));
     connect(m_ui->certPassLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->certPassFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
     // "Ask every time" stores nothing: no typing into the field (as the password)

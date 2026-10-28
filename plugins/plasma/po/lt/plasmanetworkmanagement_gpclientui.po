@@ -477,3 +477,18 @@ msgstr "usercert turi būti absoliutusis kelias"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey turi būti absoliutusis kelias"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Pasirinkti failą"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Pasirinkite kliento sertifikatą"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Pasirinkite privatųjį raktą"

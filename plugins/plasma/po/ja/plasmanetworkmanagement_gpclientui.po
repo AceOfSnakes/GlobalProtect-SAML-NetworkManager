@@ -477,3 +477,18 @@ msgstr "usercert は絶対パスである必要があります"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey は絶対パスである必要があります"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "ファイルを選択"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "クライアント証明書を選択"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "秘密鍵を選択"

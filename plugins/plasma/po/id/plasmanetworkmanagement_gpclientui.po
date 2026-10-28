@@ -451,3 +451,18 @@ msgstr "usercert harus berupa path absolut"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey harus berupa path absolut"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Pilih berkas"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Pilih sertifikat klien"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Pilih kunci pribadi"

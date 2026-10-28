@@ -56,6 +56,52 @@ stuff_changed_cb (GtkWidget *widget, gpointer user_data)
     g_signal_emit_by_name (G_OBJECT (user_data), "changed");
 }
 
+/* Client certificate and key fields: the "document-open" icon opens a file
+ * chooser and the chosen local path goes into the entry (typing still works).
+ * The title is passed as an N_() string. */
+static void
+choose_file_response_cb (GtkNativeDialog *dialog, gint response, gpointer user_data)
+{
+    if (response == GTK_RESPONSE_ACCEPT) {
+        GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER (dialog));
+        char *path = file ? g_file_get_path (file) : NULL; /* NULL: not a local file */
+
+        if (path)
+            gtk_entry_set_text (GTK_ENTRY (user_data), path);
+        g_free (path);
+        g_clear_object (&file);
+    }
+    g_object_unref (dialog);
+}
+
+static void
+choose_file_icon_press_cb (GtkEntry *entry, GtkEntryIconPosition pos, GdkEvent *event, gpointer title)
+{
+    GtkWidget *toplevel = gtk_widget_get_toplevel (GTK_WIDGET (entry));
+    GtkFileChooserNative *dialog = gtk_file_chooser_native_new (
+        _(title), GTK_IS_WINDOW (toplevel) ? GTK_WINDOW (toplevel) : NULL,
+        GTK_FILE_CHOOSER_ACTION_OPEN, NULL, NULL);
+    const char *current = gtk_entry_get_text (entry);
+
+    if (g_path_is_absolute (current)) {
+        char *dir = g_path_get_dirname (current);
+
+        gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER (dialog), dir);
+        g_free (dir);
+    }
+    g_signal_connect_object (dialog, "response", G_CALLBACK (choose_file_response_cb), entry, 0);
+    gtk_native_dialog_show (GTK_NATIVE_DIALOG (dialog));
+}
+
+static void
+add_choose_file_icon (GtkEntry *entry, const char *title)
+{
+    gtk_entry_set_icon_from_icon_name (entry, GTK_ENTRY_ICON_SECONDARY, "document-open");
+    gtk_entry_set_icon_tooltip_text (entry, GTK_ENTRY_ICON_SECONDARY, _("Choose a file"));
+    gtk_entry_set_icon_activatable (entry, GTK_ENTRY_ICON_SECONDARY, TRUE);
+    g_signal_connect (entry, "icon-press", G_CALLBACK (choose_file_icon_press_cb), (gpointer) title);
+}
+
 static void
 hip_toggled_cb (GtkWidget *widget, gpointer user_data)
 {
@@ -525,6 +571,7 @@ build_ui (NMGpclientEditor *self)
         if (value && *value)
             gtk_entry_set_text (self->usercert_entry, value);
     }
+    add_choose_file_icon (self->usercert_entry, N_("Choose the client certificate"));
     g_signal_connect (G_OBJECT (self->usercert_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->usercert_entry), 1, row++, 1, 1);
 
@@ -542,6 +589,7 @@ build_ui (NMGpclientEditor *self)
         if (value && *value)
             gtk_entry_set_text (self->userkey_entry, value);
     }
+    add_choose_file_icon (self->userkey_entry, N_("Choose the private key"));
     g_signal_connect (G_OBJECT (self->userkey_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->userkey_entry), 1, row++, 1, 1);
 

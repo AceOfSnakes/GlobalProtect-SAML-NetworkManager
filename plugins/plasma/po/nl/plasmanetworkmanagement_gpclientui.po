@@ -477,3 +477,18 @@ msgstr "usercert moet een absoluut pad zijn"
 #, kde-format
 msgid "userkey must be an absolute path"
 msgstr "userkey moet een absoluut pad zijn"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose a file"
+msgstr "Kies een bestand"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the client certificate"
+msgstr "Kies het clientcertificaat"
+
+#: gpclientwidget.cpp
+#, kde-format
+msgid "Choose the private key"
+msgstr "Kies de privésleutel"
