@@ -1962,6 +1962,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 or self._auth_task
                 or self._flags_task
             ):
+                # A post-failure flags write still in flight is awaited, not
+                # cancelled (the flag would never be written); it may land in
+                # the new activation and fail its first secrets request once
+                # (#120)
                 logger.info("Connect() while a session is active: stopping it first")
                 await self._teardown()
             await self._setup_session(connection, interactive, self._generation)
@@ -2359,6 +2363,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Before the first await: a Connect() that is setting up sees it
         self._generation += 1
         async with self._lifecycle_lock:
+            # The activation is over (user cancel, NM timeout): write what the
+            # login left pending, before the teardown clears the UUID. Not in
+            # a Connect-driven teardown: a new activation runs there.
+            await self._flush_pending_flags()
             await self._teardown()
 
         # Emit state change

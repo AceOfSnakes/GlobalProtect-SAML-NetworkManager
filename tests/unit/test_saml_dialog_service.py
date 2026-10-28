@@ -444,6 +444,81 @@ class TestSetupSession:
             ({"gpauth-result-flags": "2"}, ["gpauth-result"])
         ]
 
+    @pytest.mark.parametrize(
+        ("flags", "writes"), [({"otp-flags": "2"}, 0), ({}, 1)]
+    )
+    def test_otp_flags_written_only_when_missing(self, session, flags, writes):
+        connect(session, flags)
+        session.reply = "123456"
+        session._write_keys = lambda data, description: None
+
+        async def go():
+            await session._handle_prompt("Enter the RSA token")
+            assert session.profile_writes == []  # never during the activation
+            await session._persist_profile()
+
+        asyncio.run(go())
+
+        assert len(session.profile_writes) == writes
+        if writes:
+            assert session.profile_writes == [({"otp-flags": "2"}, ["otp"])]
+
+    def test_disconnect_writes_the_pending_flags(self, session, dbus_signals):
+        connect(session, {"saml-auth": "dialog"})
+        assert session.profile_writes == []
+
+        asyncio.run(session.Disconnect())
+
+        assert session.profile_writes == [
+            ({"gpauth-result-flags": "2"}, ["gpauth-result"])
+        ]
+
+    def test_disconnect_without_pending_flags_writes_nothing(
+        self, session, dbus_signals
+    ):
+        connect(session, {})
+
+        asyncio.run(session.Disconnect())
+
+        assert session.profile_writes == []
+
+    def test_a_connect_driven_teardown_does_not_write_the_old_flags(
+        self, session, dbus_signals
+    ):
+        connect(session, {"saml-auth": "dialog"})  # flags pending, no failure
+        session.reply = "standard"
+
+        connect(session, {})  # a new activation: tears the old one down
+
+        assert session.profile_writes == []
+        assert session._pending_flags == {}
+
+    @pytest.mark.parametrize("task", [True, False])
+    def test_connect_tears_down_when_only_the_flags_task_is_set(
+        self, session, dbus_signals, monkeypatch, task
+    ):
+        torn_down = []
+        real = session._teardown
+
+        async def spy():
+            torn_down.append(1)
+            await real()
+
+        monkeypatch.setattr(session, "_teardown", spy)
+
+        async def noop():
+            pass
+
+        async def go():
+            if task:
+                session._flags_task = asyncio.ensure_future(noop())
+            await session._do_connect(_connection(), interactive=True)
+
+        asyncio.run(go())
+
+        assert bool(torn_down) is task
+        assert session._flags_task is None
+
     def test_standard_runs_the_old_command(self, session, dbus_signals):
         session.reply = "standard"
 

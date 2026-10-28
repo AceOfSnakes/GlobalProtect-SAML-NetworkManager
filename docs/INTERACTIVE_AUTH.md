@@ -151,8 +151,8 @@ Limits:
 - The auth dialog refuses to run gpauth as root (an agent that runs as
   root): start the connection as the desktop user.
 - The result is a one-time secret: flag `gpauth-result-flags=2` (not saved)
-  is written to the profile after the activation has ended (tunnel up, or
-  failure), not before the request: NetworkManager rejects every secrets
+  is written to the profile after the activation has ended (tunnel up,
+  failure or disconnect), not before the request: NetworkManager rejects every secrets
   request of an activation whose profile changed (issue #120). The dialog
   never fills it from a stored value.
 
