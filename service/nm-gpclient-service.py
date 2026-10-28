@@ -140,8 +140,6 @@ CERT_PASS_MAX_TRIES = 3
 # password must never be typed there, and the key passphrase never at a login
 # prompt.
 CERT_PASS_PROMPT_RE = re.compile(r"Enter the (?:PEM|PKCS#12) passphrase", re.IGNORECASE)
-# Tries per connection to mark the code as not-saved in the profile
-OTP_FLAG_MAX_ATTEMPTS = 2
 
 # --- SAML in the auth dialog (saml-auth=dialog, issue #125) ------------------
 #
@@ -1805,9 +1803,15 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._openssl_retried = False
         self._gateway_not_found_seen = False
         self._gateway_flag_dropped = False  # restarted without --gateway
-        self._otp_flags_written = False  # profile told not to save the passcode
+        self._otp_flags_written = False  # profile has otp-flags=2
         self._saml_flags_written = False  # profile has gpauth-result-flags=2
-        self._otp_flag_attempts = 0  # tries so far to do that (bounded)
+        # Flag writes owed to the profile: {data: ..., drop: [...]}. Never
+        # written while the activation can still ask for secrets: NetworkManager
+        # rejects every later secrets request of an activation whose profile
+        # changed ("The connection was modified since activation", issue #120)
+        self._pending_flags: Dict[str, str] = {}
+        self._pending_drop: List[str] = []
+        self._flags_task = None  # writes them after a failed activation
 
         # saml-auth=dialog: the auth dialog runs gpauth, gpclient gets the
         # result on stdin (issue #125). The result lives in memory only.
@@ -1955,7 +1959,12 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 or self.profile_task
                 or self.stdout_monitor_task
                 or self._auth_task
+                or self._flags_task
             ):
+                # A post-failure flags write still in flight is awaited, not
+                # cancelled (the flag would never be written); it may land in
+                # the new activation and fail its first secrets request once
+                # (#120)
                 logger.info("Connect() while a session is active: stopping it first")
                 await self._teardown()
             await self._setup_session(connection, interactive, self._generation)
@@ -1989,7 +1998,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._gateway_not_found_seen = False
         self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
-        self._otp_flag_attempts = 0
+        self._pending_flags = {}
+        self._pending_drop = []
         self._auth_result = ""
 
         try:
@@ -2143,6 +2153,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             )
             logger.info(f"saml-auth: {saml_auth}")
             self._saml_flags_written = data_dict.get(f"{SAML_RESULT_KEY}-flags") == "2"
+            self._otp_flags_written = data_dict.get(f"{OTP_SECRET_KEY}-flags") == "2"
 
             # Get DNS servers (optional)
             self.dns_servers = []
@@ -2248,10 +2259,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         }
         # Not saved, never answered from the profile (a stale result is
         # useless); the dialog sends a new one every time
+        # (the dialog never pre-fills it; the profile write waits, see
+        # _note_not_saved)
         if not self._saml_flags_written:
-            await self._update_profile(
-                {f"{SAML_RESULT_KEY}-flags": "2"}, drop_secrets=[SAML_RESULT_KEY]
-            )
+            self._note_not_saved(SAML_RESULT_KEY)
+            self._saml_flags_written = True
         answer = await self._request_secret_interactive(
             SAML_RESULT_KEY,
             f"Sign in to {self.gateway}",
@@ -2342,6 +2354,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Before the first await: a Connect() that is setting up sees it
         self._generation += 1
         async with self._lifecycle_lock:
+            # The activation is over (user cancel, NM timeout): write what the
+            # login left pending, before the teardown clears the UUID. Not in
+            # a Connect-driven teardown: a new activation runs there.
+            await self._flush_pending_flags()
             await self._teardown()
 
         # Emit state change
@@ -2382,6 +2398,14 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._prompt_task = None
         self.stdout_monitor_task = None
         self._auth_task = None
+        # Wait for it (bounded by PROFILE_UPDATE_TIMEOUT per try): the state
+        # reset below clears the connection UUID it needs
+        if self._flags_task:
+            try:
+                await self._flags_task
+            except Exception:
+                logger.exception("Flags update task had failed")
+            self._flags_task = None
 
         # Stop gpclient first, close the PTY after. gpclient is the session
         # leader of the PTY: closing the master sends it SIGHUP, which gpclient
@@ -2418,7 +2442,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._gateway_not_found_seen = False
         self._gateway_flag_dropped = False  # restarted without --gateway
         self._otp_flags_written = False
-        self._otp_flag_attempts = 0
+        self._pending_flags = {}
+        self._pending_drop = []
         self._saml_dialog = False
         self._auth_result = ""
         self.as_gateway = False
@@ -3441,6 +3466,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self._remove_cert_copies()
         self.Failure.emit(reason)
         self._set_state(NM_VPN_SERVICE_STATE_STOPPED)
+        # The activation is over: the profile may change now (issue #120).
+        # Not a session task: _teardown (the Disconnect that follows) waits
+        # for it instead of cancelling it.
+        if self._pending_flags and not self._flags_task:
+            self._flags_task = asyncio.ensure_future(self._flush_pending_flags())
 
     def _set_state(self, state: int) -> None:
         """Record the VPN state, log it and tell NetworkManager.
@@ -3633,9 +3663,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     "Prompt looks like a one-time secret (token/OTP/challenge), "
                     "asking the user"
                 )
-                # Do this first: a passcode left in the profile would be handed
-                # back by the agent without asking anyone (issue #2)
-                await self._forget_one_time_secret()
+                # A passcode left in the profile would be handed back by the
+                # agent without asking anyone (issue #2)
+                if not self._otp_flags_written:
+                    self._note_not_saved(OTP_SECRET_KEY)
+                    self._otp_flags_written = True
                 answer = await self._request_secret_interactive(
                     OTP_SECRET_KEY, label, banner_msg
                 )
@@ -4099,40 +4131,45 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """Store one vpn.data key in the connection profile (best effort)"""
         return await self._update_profile({key: value})
 
-    async def _forget_one_time_secret(self) -> None:
-        """Keep one-time codes out of the connection profile.
+    def _note_not_saved(self, key: str) -> None:
+        """Record that the profile must mark the one-time secret `key` as
+        not-saved (flag 2 = NM_SETTING_SECRET_FLAG_NOT_SAVED) and lose any
+        stored value.
 
         A saved passcode is worse than none: the desktop agent answers the next
         connection from the stale value without asking, and the gateway rejects
         the whole login ("Invalid username or password" in the #2 report).
-        Flag 2 is NM_SETTING_SECRET_FLAG_NOT_SAVED, which tells NetworkManager
-        and the agents to ask every time and store nothing.
-        """
-        if self._otp_flags_written or not self._connection_uuid:
-            return
-        if self._otp_flag_attempts >= OTP_FLAG_MAX_ATTEMPTS:
-            return
+        Nothing is written here: a profile change during the activation makes
+        NetworkManager reject the secrets request (issue #120). The write
+        happens in _flush_pending_flags, after the tunnel is up, the
+        activation failed or a Disconnect ended it. A late write can still hit
+        the next activation of the same profile once (Connect again while the
+        old one is being torn down): its first secrets request fails.
 
-        self._otp_flag_attempts += 1
+        shortcut: the first request of an old profile may still get a stored
+        value from an agent that pre-fills it (our auth dialog never pre-fills
+        and the external UI path uses ShouldAsk); the next connection is safe
+        once the flag is written. Upgrade if an agent shows the stale value.
+        """
+        if not self._connection_uuid:
+            return
+        self._pending_flags[f"{key}-flags"] = "2"
+        if key not in self._pending_drop:
+            self._pending_drop.append(key)
+
+    async def _flush_pending_flags(self) -> None:
+        """Write the flags from _note_not_saved (best effort, once)"""
+        if not self._pending_flags:
+            return
+        data, drop = self._pending_flags, self._pending_drop
+        self._pending_flags, self._pending_drop = {}, []
         logger.info(
-            "Marking the one-time code as not-saved in the profile and dropping "
+            "Marking one-time secrets as not-saved in the profile and dropping "
             "any stored value"
         )
-        # One write, so the flag and the dropped value change together. Only
-        # after it succeeded: on a failure the code may still be in the
-        # profile, so the next one-time prompt has to try again - a few times,
-        # not at every prompt (each write may wait 10 s)
-        self._otp_flags_written = await self._update_profile(
-            {f"{OTP_SECRET_KEY}-flags": "2"}, drop_secrets=[OTP_SECRET_KEY]
-        )
-        if not self._otp_flags_written and (
-            self._otp_flag_attempts >= OTP_FLAG_MAX_ATTEMPTS
-        ):
-            logger.warning(
-                f"Giving up on marking the one-time code as not-saved after "
-                f"{self._otp_flag_attempts} attempts - a stored code may stay "
-                "in the profile"
-            )
+        # shortcut: a failed write is not retried; the next activation notes
+        # the flags again only if the profile still lacks them
+        await self._update_profile(data, drop_secrets=drop)
 
     async def _persist_gateway_list(self) -> None:
         """Cache the discovered gateway list in the connection profile.
@@ -4764,6 +4801,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """The login succeeded, so what we learned along the way is worth
         keeping in the profile: the gateway list for the editor's drop-down,
         and whether this portal needs the legacy TLS workaround"""
+        # The flags in a task of their own, which _teardown waits for: a
+        # Disconnect right after the tunnel came up cancels this task, and
+        # the flags must not be lost with it (shield)
+        if self._pending_flags and not self._flags_task:
+            self._flags_task = asyncio.ensure_future(self._flush_pending_flags())
+        if self._flags_task:
+            await asyncio.shield(self._flags_task)
         await self._persist_gateway_list()
         await self._persist_fix_openssl()
 
