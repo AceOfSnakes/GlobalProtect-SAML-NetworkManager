@@ -162,8 +162,15 @@ def check_state(results, run, name, kind, scenario):
             if kind == "nm-split":
                 # The fake gateway pushes these two split routes (and no default route)
                 routes = section(state, "ip route")
-                missing = [net for net in NM_SPLIT_ROUTES if not [r for r in routes if r.startswith(f"{net} ") and f"dev {tun}" in r]]
-                results.add(f"{label} nm-routing: split routes {', '.join(NM_SPLIT_ROUTES)} are on {tun}", not missing, "; ".join(routes))
+                missing = [
+                    net for net in NM_SPLIT_ROUTES
+                    if not [r for r in routes if r.startswith(f"{net} ") and f"dev {tun}" in r]
+                ]
+                results.add(
+                    f"{label} nm-routing: split routes {', '.join(NM_SPLIT_ROUTES)} are on {tun}",
+                    not missing,
+                    "; ".join(routes),
+                )
             results.add(
                 f"{label} never-default: default route stays on the wired link",
                 bool(route_default)

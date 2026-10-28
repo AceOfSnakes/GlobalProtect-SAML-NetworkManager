@@ -243,7 +243,9 @@ vpnc hook removes the `::/0` entry from the gateway's IPv6 split-include list
 With `nm-routing yes` NetworkManager sets the routes and DNS itself, from what
 the gateway sends, instead of vpnc-script. It applies `ipv4.never-default`,
 `ignore-auto-routes` and the routes of the connection itself. Routes that the
-gateway excludes from the tunnel are ignored.
+gateway excludes from the tunnel are ignored. A gateway that sends only split
+routes (no default route) makes the tunnel split, as in NetworkManager-openconnect,
+whatever `ipv4.never-default` says.
 
 The password for `auth-mode=credentials` is a secret, not data. Type it in the
 **Password** field of the editor and choose where to keep it with the icon in
