@@ -134,6 +134,7 @@ done
 for path in \
     /usr/bin/gpclient /usr/bin/gpauth \
     /usr/lib/NetworkManager/nm-gpclient-service \
+    /usr/lib/NetworkManager/gpclient-nm-script \
     /usr/lib/NetworkManager/VPN/nm-gpclient-service.name \
     /usr/libexec/gpclient/browser-wrapper /usr/libexec/gpclient/edge-wrapper \
     /usr/libexec/nm-gpclient-auth-dialog \

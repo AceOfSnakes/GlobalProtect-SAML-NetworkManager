@@ -441,3 +441,13 @@ msgstr "Izberite zasebni ključ"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Izberite skript HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Naj NetworkManager nastavi poti in DNS (eksperimentalno)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager nastavi poti, DNS in privzeto pot predora glede na podatke, ki jih pošlje prehod, namesto vpnc-script. Poti, ki jih prehod izključi iz predora, so prezrte."

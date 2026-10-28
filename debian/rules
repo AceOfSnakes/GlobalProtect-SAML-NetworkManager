@@ -191,6 +191,9 @@ ifneq ($(HAS_CORE),)
 		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/post-connect.d/90-gpclient-notify
 	install -D -m 755 config/gpclient-nm-notify \
 		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/reconnect.d/90-gpclient-notify
+	# Helper that gpclient runs with --script when a profile has nm-routing=yes
+	install -D -m 755 config/gpclient-nm-script \
+		$(CURDIR)/debian/network-manager-gpclient/usr/lib/NetworkManager/gpclient-nm-script
 endif
 
 

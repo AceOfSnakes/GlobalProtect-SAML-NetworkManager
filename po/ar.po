@@ -368,3 +368,11 @@ msgstr "اختيار المفتاح الخاص"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "اختيار سكربت HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "اسمح لـ NetworkManager بضبط المسارات وDNS (تجريبي)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "يضبط NetworkManager مسارات النفق وDNS والمسار الافتراضي وفق ما ترسله البوابة، بدلاً من vpnc-script. يتم تجاهل المسارات التي تستثنيها البوابة من النفق."
