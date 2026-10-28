@@ -137,7 +137,7 @@ There is no `routes` key: NetworkManager applies the connection's
 `ipv4.routes` itself on top of the VPN configuration, so the service does not
 send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook:
 with `ignore-auto-routes` it empties the gateway's IPv4 and IPv6 split lists,
-so vpnc-script adds no route and no default route (#152). Both flags are read
+so vpnc-script adds no split route and no default route (#152). Both flags are read
 from the `ipv4` setting and act on IPv6 too; `ipv6.ignore-auto-routes` and
 `ipv6.never-default` are not read (put IPv6 networks in `ipv6.routes`).
 
