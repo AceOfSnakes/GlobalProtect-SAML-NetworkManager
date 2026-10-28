@@ -89,7 +89,10 @@ def test_plasma_editor_has_the_password_widgets():
     assert "password-flags" in src and "otp-flags" in src
     assert "setSecrets" in src and "loadSecrets" in src
     ui = read("plugins/plasma/gpclientwidget.ui")
-    assert 'name="passwordLineEdit"' in ui and 'name="passwordFlagsComboBox"' in ui
+    # plasma-nm's own PasswordField (line edit and storage menu), as its openconnect plugin
+    assert 'class="PasswordField" name="passwordField"' in ui
+    assert 'class="PasswordField" name="certPassField"' in ui
+    assert "passwordFlagsComboBox" not in ui and "passwordLineEdit" not in ui
 
 
 @pytest.mark.parametrize("rel", ["README.md", "docs/INTERACTIVE_AUTH.md"])

@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Her zaman açık"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Her seferinde sor (kaydedilmez)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Parola"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Parola depolama:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Parola:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS, VPN'e özgü alan adlarının VPN DNS üzerinden çözülmesini, diğer alan adları için yerel DNS'in kullanılmasını sağlar.\n"
 "Geçersiz kılma: bunun yerine özel DNS kullanmak için noktalı virgülle ayrılmış DNS sunucuları girin (örn. 8.8.8.8;8.8.4.4)."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Tüm kullanıcılar için sakla (sistem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Yalnızca bu kullanıcı için sakla (aracı)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Kullanıcı adı ve parola (RSA belirteci)"
 #, kde-format
 msgid "Username:"
 msgstr "Kullanıcı adı:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Parolanın saklandığı yer. \"Her seferinde sor\" hiçbir şey saklamaz."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Özel anahtar dosyasının isteğe bağlı mutlak yolu (PEM); masaüstü kullanıcısına ait olmalıdır. İstemci sertifikası yoksa yok sayılır."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Parolanın saklanması:"
 
 #: rc.cpp
 #, kde-format

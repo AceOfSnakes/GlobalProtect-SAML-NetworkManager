@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "תמיד פעיל"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "לשאול בכל פעם (לא נשמר)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "סיסמה"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "אחסון הסיסמה:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "סיסמה:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "split DNS מאפשר לפענח דומיינים ייחודיים ל־VPN דרך ה־DNS של ה־VPN, תוך שימוש ב־DNS מקומי לשאר הדומיינים.\n"
 "עקיפה: יש להזין שרתי DNS מופרדים בנקודה־פסיק (למשל 8.8.8.8;8.8.4.4) כדי להשתמש ב־DNS מותאם אישית במקום זאת."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "אחסון לכל המשתמשים (המערכת)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "אחסון למשתמש זה בלבד (סוכן)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "שם משתמש וסיסמה (אסימון RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "שם משתמש:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "היכן הסיסמה נשמרת. „לשאול בכל פעם” לא שומר דבר."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "נתיב מוחלט אופציונלי לקובץ המפתח הפרטי (PEM), שחייב להיות בבעלות משתמש שולחן העבודה. מתעלמים ממנו ללא אישור לקוח."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "אחסון ביטוי הסיסמה:"
 
 #: rc.cpp
 #, kde-format

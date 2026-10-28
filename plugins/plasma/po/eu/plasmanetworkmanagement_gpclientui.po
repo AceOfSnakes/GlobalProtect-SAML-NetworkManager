@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Beti aktibo"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Galdetu aldi bakoitzean (ez da gordetzen)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Pasahitza"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Pasahitzaren biltegiratzea:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Pasahitza:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS-ak VPNko domeinuak VPNko DNS bidez ebaztea ahalbidetzen du, beste domeinuetarako DNS lokala erabiliz.\n"
 "Gainidatzi: sartu puntu eta komaz bereizitako DNS zerbitzariak (adib. 8.8.8.8;8.8.4.4) DNS pertsonalizatua erabiltzeko."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Gorde erabiltzaile guztientzat (sistema)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Gorde erabiltzaile honentzat soilik (agentea)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Erabiltzaile-izena eta pasahitza (RSA tokena)"
 #, kde-format
 msgid "Username:"
 msgstr "Erabiltzaile-izena:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Pasahitza non gordetzen den. «Galdetu aldi bakoitzean» aukerak ez du ezer gordetzen."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Gako pribatuaren fitxategiaren bide-izen absolutu aukerakoa (PEM), mahaigaineko erabiltzailearen jabetzakoa izan behar duena. Ez da kontuan hartzen bezero-ziurtagiririk gabe."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Pasaesaldiaren biltegiratzea:"
 
 #: rc.cpp
 #, kde-format

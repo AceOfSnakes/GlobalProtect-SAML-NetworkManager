@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Πάντα ενεργό"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Ερώτηση κάθε φορά (δεν αποθηκεύεται)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Κωδικός πρόσβασης"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Αποθήκευση κωδικού πρόσβασης:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Κωδικός πρόσβασης:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Το split DNS επιτρέπει την επίλυση τομέων του VPN μέσω του DNS του VPN, ενώ για τους υπόλοιπους τομείς χρησιμοποιείται το τοπικό DNS.\n"
 "Παράκαμψη: εισαγάγετε διακομιστές DNS χωρισμένους με ερωτηματικό (π.χ. 8.8.8.8;8.8.4.4) για να χρησιμοποιηθούν αντί γι' αυτό προσαρμοσμένοι διακομιστές DNS."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Αποθήκευση για όλους τους χρήστες (σύστημα)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Αποθήκευση μόνο για αυτόν τον χρήστη (πράκτορας)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Όνομα χρήστη και κωδικός πρόσβασης (δια
 #, kde-format
 msgid "Username:"
 msgstr "Όνομα χρήστη:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Πού φυλάσσεται ο κωδικός πρόσβασης. Η «Ερώτηση κάθε φορά» δεν αποθηκεύει τίποτα."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Προαιρετική απόλυτη διαδρομή προς το αρχείο του ιδιωτικού κλειδιού (PEM), που ανήκει στον χρήστη της επιφάνειας εργασίας. Αγνοείται χωρίς πιστοποιητικό πελάτη."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Αποθήκευση φράσης πρόσβασης:"
 
 #: rc.cpp
 #, kde-format

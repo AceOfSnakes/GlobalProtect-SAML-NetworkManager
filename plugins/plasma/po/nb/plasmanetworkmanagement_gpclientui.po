@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Alltid på"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Spør hver gang (lagres ikke)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "Passord"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Lagring av passord:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Passord:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "Delt DNS lar deg slå opp VPN-spesifikke domener via VPN-DNS og bruke lokal DNS for andre domener.\n"
 "Overstyring: Skriv inn DNS-tjenere atskilt med semikolon (f.eks. 8.8.8.8;8.8.4.4) for å bruke egen DNS i stedet."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Lagre for alle brukere (system)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Lagre bare for denne brukeren (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "Brukernavn og passord (RSA-token)"
 #, kde-format
 msgid "Username:"
 msgstr "Brukernavn:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Hvor passordet lagres. «Spør hver gang» lagrer ingenting."
 
 #: rc.cpp
 #, kde-format
@@ -457,11 +432,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Valgfri absolutt sti til filen med den private nøkkelen (PEM), som må eies av skrivebordsbrukeren. Ignoreres uten klientsertifikat."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Lagring av passfrasen:"
 
 #: rc.cpp
 #, kde-format
