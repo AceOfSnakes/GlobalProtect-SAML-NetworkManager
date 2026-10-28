@@ -639,7 +639,8 @@ class TestDockerfiles:
 
     @pytest.mark.parametrize("version", sorted(release_controls.__func__()))
     def test_the_case_of_the_dockerfile_names_every_release_it_builds(self, version):
-        assert re.search(r"\b%s\b" % re.escape(version), self.text().split("Per release differences", 1)[1])
+        case = re.search(r'case "\$UBUNTU" in(.*?)esac', self.text(), re.S).group(1)
+        assert re.search(r"(^|[\s|])%s[|)]" % re.escape(version), case, re.M)
 
     def test_the_dockerfile_parser_finds_the_packages(self):
         text = "RUN apt-get update && apt-get install -y \\\n    build-essential \\\n    qt6-base-dev \\\n    curl \\\n    && rm -rf x\n"
