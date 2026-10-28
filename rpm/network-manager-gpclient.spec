@@ -141,8 +141,8 @@ connections.
 
 %prep
 %setup -q -n %{name}-%{version} -a 1
-# gpclient and gpauth are GPL-3.0-only: ship upstream's text (%license takes
-# basenames, and LICENSE is this project's LGPL-2.1)
+# gpclient and gpauth are GPL-3.0-only: ship upstream's text (license files go
+# by basename, and LICENSE is this project's LGPL-2.1)
 cp -p external/GlobalProtect-openconnect/LICENSE LICENSE.GPL-3.0
 
 %build
