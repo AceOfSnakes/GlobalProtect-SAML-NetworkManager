@@ -263,3 +263,70 @@ class TestNoAliasedLocations:
     ])
     def test_an_aliased_target_is_reported(self, target):
         assert aliased_locations("\tinstall -D -m 644 f \\\n\t\t%s\n" % target) != []
+
+
+# --- the named volumes of build-all.sh belong to the build user (issue #139) ---
+
+def _builds_rust(path):
+    with open(path, encoding="utf-8") as handle:
+        return "rustup" in handle.read()
+
+
+# The images that build gpclient and gpauth (the neon variant builds only the
+# Plasma package and uses no cache volume)
+DOCKERFILES = [p for p in sorted(glob.glob(os.path.join(ROOT, "Dockerfile.ubuntu*"))) if _builds_rust(p)]
+
+
+def named_volumes():
+    """Mount points of the named volumes of build-all.sh (a bind mount starts with $)"""
+    with open(os.path.join(ROOT, "build-all.sh"), encoding="utf-8") as handle:
+        mounts = re.findall(r'-v "([^":]+):([^"]+)"', handle.read())
+    return [dest for source, dest in mounts if not source.startswith("$")]
+
+
+def unowned_mount_points(dockerfile, mounts):
+    """Mount points that the image does not create as a directory of builder.
+
+    Docker gives a new named volume the owner of the directory in the image; a
+    mount point missing from the image becomes a volume of root.
+    """
+    lines = dockerfile.splitlines()
+    copy = next(i for i, l in enumerate(lines) if l.startswith("COPY ") and "/build/source/" in l)
+    user, owned = "root", set()
+    for i, line in enumerate(lines):
+        if line.startswith("USER "):
+            user = line.split()[1]
+        made = re.match(r"RUN mkdir -p (\S+)$", line)
+        if made and user == "builder" and i > copy:
+            owned.add("/build/source/" + made.group(1))
+    text = dockerfile.replace("\\\n", " ")
+    for line in text.splitlines():
+        if "mkdir -p" in line and "chown -R builder:builder" in line:
+            owned.update(p for p in line.split() if p.startswith("/"))
+    return [m for m in mounts if m not in owned]
+
+
+def test_build_all_mounts_the_rust_target_cache():
+    assert "/build/source/external/GlobalProtect-openconnect/target" in named_volumes()
+
+
+def test_the_rust_images_are_the_ubuntu_versions():
+    assert [os.path.basename(p) for p in DOCKERFILES] == [
+        "Dockerfile.ubuntu22.04", "Dockerfile.ubuntu24.04", "Dockerfile.ubuntu26.04"]
+
+
+@pytest.mark.parametrize("path", DOCKERFILES, ids=os.path.basename)
+def test_every_named_volume_is_a_directory_of_builder(path):
+    with open(path, encoding="utf-8") as handle:
+        assert unowned_mount_points(handle.read(), named_volumes()) == []
+
+
+@pytest.mark.parametrize("path", DOCKERFILES, ids=os.path.basename)
+def test_a_missing_or_root_owned_target_directory_is_reported(path):
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    line = "RUN mkdir -p external/GlobalProtect-openconnect/target\n"
+    target = "/build/source/external/GlobalProtect-openconnect/target"
+    assert unowned_mount_points(text.replace(line, ""), named_volumes()) == [target]
+    as_root = text.replace(line, "USER root\n" + line + "USER builder\n")
+    assert unowned_mount_points(as_root, named_volumes()) == [target]
