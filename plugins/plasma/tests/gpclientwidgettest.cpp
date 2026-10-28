@@ -15,7 +15,9 @@
 #include <QLineEdit>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QTemporaryDir>
 #include <QDoubleSpinBox>
+#include <QFile>
 #include <QtTest>
 
 namespace
@@ -39,7 +41,10 @@ private:
         return setting;
     }
 
+    QTemporaryDir m_config;
+
 private Q_SLOTS:
+    void initTestCase();
     void timeout_data();
     void timeout();
     void keepsUnknownDataKeys();
@@ -568,6 +573,22 @@ void GpclientWidgetTest::doesNotInventPersistentAndUserName()
     saved.fromMap(widget.setting());
     QVERIFY(!saved.persistent());
     QVERIFY(saved.username().isEmpty());
+}
+
+/* KWallet off: plasma-nm's PasswordField then starts at "all users" (in the
+ * profile as plain text), so the "new, default is the agent" rows show that the
+ * editor sets the agent itself. */
+void GpclientWidgetTest::initTestCase()
+{
+    QVERIFY(m_config.isValid());
+    QFile rc(m_config.filePath(QStringLiteral("kwalletrc")));
+    QVERIFY(rc.open(QIODevice::WriteOnly));
+    rc.write("[Wallet]\nEnabled=false\n");
+    rc.close();
+    qputenv("XDG_CONFIG_HOME", QFile::encodeName(m_config.path()));
+
+    PasswordField field;
+    QCOMPARE(field.passwordOption(), PasswordField::StoreForAllUsers);
 }
 
 void GpclientWidgetTest::passwordStorage_data()
