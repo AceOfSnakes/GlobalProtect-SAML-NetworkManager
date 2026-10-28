@@ -135,7 +135,9 @@ Passes IP configuration to NetworkManager. Skipped for an IPv6-only tunnel
 
 There is no `routes` key: NetworkManager applies the connection's
 `ipv4.routes` itself on top of the VPN configuration, so the service does not
-send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook.
+send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook:
+with `ignore-auto-routes` it empties the gateway's IPv4 and IPv6 split lists,
+so vpnc-script adds no route and no default route (#152).
 
 #### `Ip6Config(a{sv})`
 Sent after `Ip4Config` (or first, for an IPv6-only tunnel), only for a tunnel
