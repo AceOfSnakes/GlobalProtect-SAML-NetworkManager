@@ -340,11 +340,14 @@ class TestGatewayNotFoundRestartInDialogMode:
             ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED)
         ]
 
+    @pytest.mark.parametrize("answer", ["result", "error"])
     def test_a_disconnect_during_the_request_restarts_nothing(
-        self, service_module, monkeypatch, tmp_path, dbus_signals
+        self, service_module, monkeypatch, tmp_path, dbus_signals, answer
     ):
         async def reply(plugin):
             plugin._generation += 1  # what Disconnect() does
+            if answer == "error":
+                raise Exception("the dialog went away")
             return self.NEW
 
         _, launches, _ = self._run(
