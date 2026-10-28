@@ -23,7 +23,7 @@ openconnect does, in place of vpnc-script, with the same reasons and environment
 The gateway then pushes only split routes (no default route), and nothing but
 the tun device exists until NetworkManager configures it from the service's
 Ip4Config. SIGTERM/SIGINT/SIGHUP run
-vpnc-script with reason disconnect, close the descriptor (which removes the
+vpnc-script (or the --script program) with reason disconnect, close the descriptor (which removes the
 interface) and exit 0.
 
 With --cookie-on-stdin (saml-auth=dialog) it runs no gpauth: it reads one line
