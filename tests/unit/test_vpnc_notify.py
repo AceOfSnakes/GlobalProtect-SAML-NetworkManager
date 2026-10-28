@@ -563,6 +563,54 @@ class TestIpv4FromEnv:
 
         assert _names(dbus_signals) == ["Config", "Ip4Config", "StateChanged"]
 
+    @pytest.mark.parametrize("method", ["manual", "link-local", "disabled", "shared"])
+    def test_an_ipv4_tunnel_fails_without_ipv4_method_auto(
+        self, service_module, dbus_signals, method
+    ):
+        notify(active_plugin(service_module, ipv4_method=method))
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+
+    def test_an_ipv4_tunnel_starts_with_ipv4_method_auto(
+        self, service_module, dbus_signals
+    ):
+        notify(active_plugin(service_module, ipv4_method="auto"))
+
+        assert _names(dbus_signals) == ["Config", "Ip4Config", "StateChanged"]
+
+    @pytest.mark.parametrize("method", ["manual", "disabled"])
+    def test_a_dual_stack_tunnel_with_ipv6_auto_warns_about_ipv4_method(
+        self, service_module, dbus_signals, caplog, method
+    ):
+        plugin = active_plugin(service_module, ipv4_method=method, ipv6_method="auto")
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Config", "Ip4Config", "Ip6Config", "StateChanged"]
+        assert f"ipv4.method is {method!r}" in caplog.text
+
+    @pytest.mark.parametrize("ipv6_method", ["manual", "ignore"])
+    def test_a_dual_stack_tunnel_fails_without_any_auto_method(
+        self, service_module, dbus_signals, ipv6_method
+    ):
+        plugin = active_plugin(service_module, ipv4_method="manual", ipv6_method=ipv6_method)
+
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+
+    def test_an_ipv6_only_tunnel_does_not_care_about_ipv4_method(
+        self, service_module, dbus_signals
+    ):
+        plugin = active_plugin(service_module, ipv4_method="manual")
+
+        notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Config", "Ip6Config", "StateChanged"]
+
     def test_a_reconnect_without_any_address_fails(self, service_module, dbus_signals):
         plugin = active_plugin(service_module)
         notify(plugin)
@@ -605,6 +653,33 @@ class TestIpv4FromEnv:
             vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"),
             reason="reconnect",
         )
+
+        assert "Failure" not in _names(dbus_signals)
+        assert not plugin.gpclient_process.terminated
+
+    @pytest.mark.parametrize("method", ["manual", "disabled"])
+    def test_an_ipv4_only_reconnect_fails_without_ipv4_method_auto(
+        self, service_module, dbus_signals, method
+    ):
+        # the connect was dual-stack (IPv6 auto: only a warning)
+        plugin = active_plugin(service_module, ipv4_method=method, ipv6_method="auto")
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(), reason="reconnect")
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+        assert plugin.gpclient_process.terminated
+
+    def test_an_ipv4_only_reconnect_with_ipv4_method_auto_goes_on(
+        self, service_module, dbus_signals
+    ):
+        plugin = active_plugin(service_module, ipv4_method="auto", ipv6_method="auto")
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(), reason="reconnect")
 
         assert "Failure" not in _names(dbus_signals)
         assert not plugin.gpclient_process.terminated
