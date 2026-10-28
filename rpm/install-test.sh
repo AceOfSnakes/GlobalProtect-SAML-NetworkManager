@@ -103,6 +103,13 @@ case "${ID:-}" in
     opensuse-* | sles)
         # The RPMs are not signed here (only the repository they are published in is)
         install_cmd=(zypper --non-interactive install --no-recommends --allow-unsigned-rpm)
+        # download.opensuse.org sends each file to a mirror: one that has not synced the
+        # newest metadata yet fails the refresh, the next try usually gets another one
+        for attempt in 1 2 3 4 5; do
+            zypper --non-interactive refresh && break
+            [ "$attempt" -lt 5 ] || fail "zypper refresh failed $attempt times"
+            sleep 30
+        done
         ;;
     *)
         install_cmd=(dnf -y --setopt=install_weak_deps=False install)
