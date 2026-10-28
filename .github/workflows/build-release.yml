@@ -139,14 +139,15 @@ jobs:
           mkdir -p "$out"
           chmod 777 "$out"
 
-          # build_packages <image name> <Dockerfile> <control file>: build the
-          # image, then the packages in it. A fresh container per build: only
-          # its own .deb files are in /build and get copied to the output
-          # directory (fail on error).
+          # build_packages <image name> <Dockerfile> <control file> [docker build
+          # arguments]: build the image, then the packages in it. A fresh
+          # container per build: only its own .deb files are in /build and get
+          # copied to the output directory (fail on error).
           build_packages() {
             local name="$1" dockerfile="$2" control="$3"
+            shift 3
             echo "Building $name from $dockerfile and $control"
-            docker build -t "gpclient-builder:$name" -f "$dockerfile" .
+            docker build "$@" -t "gpclient-builder:$name" -f "$dockerfile" .
 
             # WORKDIR is /build/source, so ".." = /build where dpkg-buildpackage writes .deb files
             docker run --rm -e PR_SUFFIX="$pr_suffix" -e CONTROL="$control" \
@@ -187,7 +188,9 @@ jobs:
             ' "$1"
           }
 
-          build_packages "ubuntu$ubuntu" "Dockerfile.ubuntu$ubuntu" "debian/control.ubuntu$ubuntu"
+          # One Dockerfile.ubuntu for every release; it installs the build dependencies
+          # of debian/control.ubuntu<version>.
+          build_packages "ubuntu$ubuntu" "Dockerfile.ubuntu" "debian/control.ubuntu$ubuntu" --build-arg "UBUNTU=$ubuntu"
 
           mapfile -t variants < <(for file in Dockerfile.ubuntu${ubuntu}-* debian/control.ubuntu${ubuntu}-*; do
             [ -e "$file" ] && echo "${file##*ubuntu${ubuntu}-}"

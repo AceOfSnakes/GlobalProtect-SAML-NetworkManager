@@ -311,9 +311,8 @@ def test_build_all_mounts_the_rust_target_cache():
     assert "/build/source/external/GlobalProtect-openconnect/target" in named_volumes()
 
 
-def test_the_rust_images_are_the_ubuntu_versions():
-    assert [os.path.basename(p) for p in DOCKERFILES] == [
-        "Dockerfile.ubuntu22.04", "Dockerfile.ubuntu24.04", "Dockerfile.ubuntu26.04"]
+def test_the_rust_image_is_the_one_ubuntu_dockerfile():
+    assert [os.path.basename(p) for p in DOCKERFILES] == ["Dockerfile.ubuntu"]
 
 
 @pytest.mark.parametrize("path", DOCKERFILES, ids=os.path.basename)

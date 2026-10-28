@@ -671,7 +671,7 @@ class TestEndOfLifeReleases:
     def eol_in_dockerfiles(self):
         found = set()
         for version, codename in self.CODENAMES.items():
-            with open(os.path.join(ROOT, f"Dockerfile.ubuntu{version}"), encoding="utf-8") as handle:
+            with open(os.path.join(ROOT, "Dockerfile.ubuntu"), encoding="utf-8") as handle:
                 text = handle.read()
             pattern = r'echo "([A-Za-z0-9+/=]+)" \| base64 -d > /etc/apt/sources\.list\.d/ubuntu\.sources'
             for blob in re.findall(pattern, text):

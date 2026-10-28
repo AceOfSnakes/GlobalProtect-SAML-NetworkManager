@@ -156,7 +156,7 @@ The project uses Docker for reproducible builds:
 
 ```bash
 # Build Docker image for Ubuntu 24.04
-docker build -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu24.04 .
+docker build -t gpclient-builder:ubuntu24.04 --build-arg UBUNTU=24.04 -f Dockerfile.ubuntu .
 
 # Run build
 docker run --rm -v $(pwd)/output:/output gpclient-builder:ubuntu24.04

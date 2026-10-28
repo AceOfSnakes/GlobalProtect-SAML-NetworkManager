@@ -159,7 +159,8 @@ def run_build_all(tmp_path, target="24.04", suffix=None, files=("24.04",), arch=
     shutil.copy(os.path.join(ROOT, "build-all.sh"), tmp_path / "build-all.sh")
     (tmp_path / "debian").mkdir(exist_ok=True)
     for name in files:
-        shutil.copy(os.path.join(ROOT, f"Dockerfile.ubuntu{name}"), tmp_path / f"Dockerfile.ubuntu{name}")
+        dockerfile = f"Dockerfile.ubuntu{name}" if "-" in name else "Dockerfile.ubuntu"
+        shutil.copy(os.path.join(ROOT, dockerfile), tmp_path / dockerfile)
         shutil.copy(os.path.join(ROOT, "debian", f"control.ubuntu{name}"), tmp_path / "debian")
     out = tmp_path / "output" / "ubuntu24.04"
     out.mkdir(parents=True)
@@ -249,10 +250,11 @@ class TestBuildAll:
         other.mkdir()
         result, _ = run_build_all(tmp_path, cwd=other)
         build = next(c for c in (tmp_path / "docker_calls").read_text().splitlines() if c.startswith("build "))
-        dockerfile = build.split()[2]
+        words = build.split()
+        dockerfile = words[words.index("-f") + 1]
 
         assert result.returncode == 0, result.stderr
-        assert dockerfile == str(tmp_path / "Dockerfile.ubuntu24.04")
+        assert dockerfile == str(tmp_path / "Dockerfile.ubuntu")
 
     def test_a_variant_builds_from_its_own_dockerfile_and_control_file(self, tmp_path):
         result, _ = run_build_all(tmp_path, "24.04-neon", files=("24.04", "24.04-neon"))
@@ -261,7 +263,15 @@ class TestBuildAll:
         assert result.returncode == 0, result.stderr
         assert f"build -f {tmp_path}/Dockerfile.ubuntu24.04-neon -t gpclient-builder:ubuntu24.04-neon" in calls
         assert "cp debian/control.ubuntu24.04-neon debian/control" in (tmp_path / "run_command").read_text()
-        assert "Dockerfile.ubuntu24.04 " not in calls
+        assert "Dockerfile.ubuntu " not in calls
+        assert "--build-arg" not in calls
+
+    def test_a_version_builds_from_the_one_dockerfile_with_its_release(self, tmp_path):
+        result, _ = run_build_all(tmp_path, "24.04")
+        build = next(c for c in (tmp_path / "docker_calls").read_text().splitlines() if c.startswith("build "))
+
+        assert result.returncode == 0, result.stderr
+        assert build.startswith(f"build --build-arg UBUNTU=24.04 -f {tmp_path}/Dockerfile.ubuntu -t gpclient-builder:ubuntu24.04 ")
 
     def test_building_all_includes_the_variants(self, tmp_path):
         result, _ = run_build_all(tmp_path, None, files=("24.04", "24.04-neon"))
@@ -281,8 +291,8 @@ class TestBuildAll:
         assert not (tmp_path / "docker_calls").exists()
 
     def test_a_dockerfile_without_a_control_file_is_not_a_target(self, tmp_path):
-        shutil.copy(os.path.join(ROOT, "Dockerfile.ubuntu22.04"), tmp_path / "Dockerfile.ubuntu22.04")
-        result, _ = run_build_all(tmp_path, "22.04")
+        shutil.copy(os.path.join(ROOT, "Dockerfile.ubuntu24.04-neon"), tmp_path / "Dockerfile.ubuntu24.04-neon")
+        result, _ = run_build_all(tmp_path, "24.04-neon", files=())
 
         assert result.returncode == 1
         assert not (tmp_path / "docker_calls").exists()

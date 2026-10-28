@@ -2,8 +2,9 @@
 # Build script for creating .deb packages for multiple Ubuntu versions
 # Usage: ./build-all.sh [VERSION]
 #   VERSION: Optional target: an Ubuntu version (22.04, 24.04, 26.04) or a release
-#            variant (24.04-neon). A target is valid when Dockerfile.ubuntu<VERSION>
-#            and debian/control.ubuntu<VERSION> exist. If not specified, builds all.
+#            variant (24.04-neon). A target is valid when debian/control.ubuntu<VERSION>
+#            and its Dockerfile exist (Dockerfile.ubuntu for a version,
+#            Dockerfile.ubuntu<VERSION> for a variant). If not specified, builds all.
 # Environment:
 #   VERSION_SUFFIX  Optional, like the pull request suffix of CI (+pr<PR>.<run>):
 #                   added to the package version, after the release codename tag.
@@ -21,11 +22,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# A target has a Dockerfile and a control file (the same rule as CI).
+# dockerfile_of <target>: one Dockerfile.ubuntu (build argument UBUNTU) builds every
+# version; a variant (name with -) has its own Dockerfile.ubuntu<target>.
+dockerfile_of() {
+    case "$1" in *-*) echo "Dockerfile.ubuntu$1" ;; *) echo "Dockerfile.ubuntu" ;; esac
+}
+
+# A target has a control file and a Dockerfile (the same rule as CI).
 ALL_TARGETS=()
-for file in "$SCRIPT_DIR"/Dockerfile.ubuntu*; do
-    name="${file##*/Dockerfile.ubuntu}"
-    if [ -f "$SCRIPT_DIR/debian/control.ubuntu${name}" ]; then
+for file in "$SCRIPT_DIR"/debian/control.ubuntu*; do
+    name="${file##*/control.ubuntu}"
+    if [ -f "$SCRIPT_DIR/$(dockerfile_of "$name")" ]; then
         ALL_TARGETS+=("$name")
     fi
 done
@@ -127,11 +134,13 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     echo "======================================"
 
     IMAGE_NAME="gpclient-builder:ubuntu${VERSION}"
-    DOCKERFILE="Dockerfile.ubuntu${VERSION}"
+    DOCKERFILE="$(dockerfile_of "$VERSION")"
+    BUILD_ARGS=()
+    case "$VERSION" in *-*) ;; *) BUILD_ARGS=(--build-arg "UBUNTU=$VERSION") ;; esac
     OUTPUT_DIR="$SCRIPT_DIR/output/ubuntu${VERSION}"
 
     echo "=== Building Docker image from $DOCKERFILE ==="
-    docker build -f "$SCRIPT_DIR/$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
+    docker build "${BUILD_ARGS[@]}" -f "$SCRIPT_DIR/$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
 
     echo "=== Building .deb package for Ubuntu $VERSION ==="
     mkdir -p "$OUTPUT_DIR"
