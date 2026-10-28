@@ -69,6 +69,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --defaul
 source $HOME/.cargo/env
 ```
 
+The packages are built with `cargo auditable build` ([cargo-auditable](https://github.com/rust-secure-code/cargo-auditable)),
+so `gpclient` and `gpauth` carry their dependency list (`cargo audit bin`, syft and osv-scanner read it). The images
+and `rpm/container-build.sh` install it; `make` uses it when `cargo install cargo-auditable --locked` was run, and builds without it otherwise.
+
 ## Building
 
 ### Build Debian packages (recommended):

@@ -74,7 +74,7 @@ ifneq ($(HAS_CORE),)
 	# Cargo will reuse compiled dependencies from target cache volume
 	# Only local crates (gpauth, gpclient, gpapi, common, openconnect) will be recompiled
 	@echo "Building gpclient and gpauth (reusing cached dependencies)..."
-	cd external/GlobalProtect-openconnect && cargo build --locked --release --bin gpclient --bin gpauth
+	cd external/GlobalProtect-openconnect && cargo auditable build --locked --release --bin gpclient --bin gpauth
 endif
 
 # Run the QtTest of the Plasma settings widget (plugins/plasma/tests) in the
