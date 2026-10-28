@@ -245,6 +245,120 @@ class TestGatewayNotFoundRestart:
         assert not service_module.GATEWAY_NOT_FOUND_RE.search(line)
 
 
+class TestGatewayNotFoundRestartInDialogMode:
+    """A portal may accept a SAML result once: the retry asks the dialog again"""
+
+    OLD = json.dumps({"success": {"username": "u", "preloginCookie": "old-cookie"}},
+                     separators=(",", ":"))
+    NEW = json.dumps({"success": {"username": "u", "preloginCookie": "new-cookie"}},
+                     separators=(",", ":"))
+
+    def _run(self, service_module, monkeypatch, tmp_path, reply, **settings):
+        asked = []
+
+        async def request(key, label, banner, extra_hints=()):
+            asked.append(key)
+            return await reply(plugin_box[0])
+
+        plugin_box = []
+        monkeypatch.setattr(
+            service_module.GpclientVPNPlugin, "_request_secret_interactive",
+            lambda self, *a, **k: request(*a, **k),
+        )
+        orig = service_module.GpclientVPNPlugin.__init__
+
+        def init(self, *a, **k):
+            orig(self, *a, **k)
+            plugin_box.append(self)
+
+        monkeypatch.setattr(service_module.GpclientVPNPlugin, "__init__", init)
+        plugin, launches = _launches(
+            service_module, monkeypatch, tmp_path, not_found="flag", stdin_wait="5",
+            preferred_gateway="gw-b", _stored_gateway_list=STORED,
+            _interactive=True, **settings,
+        )
+        return plugin, launches, asked
+
+    def test_the_retry_gets_a_new_result(
+        self, service_module, monkeypatch, tmp_path, caplog
+    ):
+        async def reply(plugin):
+            return self.NEW
+
+        with caplog.at_level(logging.INFO):
+            _, launches, asked = self._run(
+                service_module, monkeypatch, tmp_path, reply,
+                _auth_result=self.OLD, _saml_dialog=True,
+            )
+
+        assert asked == ["gpauth-result"]
+        assert [x["stdin"] for x in launches] == [self.OLD + "\n", self.NEW + "\n"]
+        assert [_gateway_args(x) for x in launches] == [["--gateway=b.example.com"], []]
+        assert "new-cookie" not in caplog.text
+
+    def test_no_new_result_in_the_service_mode(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        async def reply(plugin):
+            raise AssertionError("the dialog must not be asked")
+
+        _, launches, asked = self._run(
+            service_module, monkeypatch, tmp_path, reply, _auth_result=""
+        )
+
+        assert asked == []
+        assert len(launches) == 2
+
+    def test_a_standard_login_answer_restarts_without_a_result(
+        self, service_module, monkeypatch, tmp_path
+    ):
+        async def reply(plugin):
+            return service_module.SAML_RESULT_STANDARD
+
+        plugin, launches, asked = self._run(
+            service_module, monkeypatch, tmp_path, reply,
+            _auth_result=self.OLD, _saml_dialog=True,
+        )
+
+        assert asked == ["gpauth-result"]
+        assert [x["stdin"] for x in launches] == [self.OLD + "\n", ""]
+        assert plugin._saml_dialog is False
+
+    def test_a_failed_request_fails_the_login_once(
+        self, service_module, monkeypatch, tmp_path, dbus_signals
+    ):
+        async def reply(plugin):
+            raise Exception("boom")
+
+        _, launches, _ = self._run(
+            service_module, monkeypatch, tmp_path, reply,
+            _auth_result=self.OLD, _saml_dialog=True,
+        )
+
+        assert len(launches) == 1
+        assert [s for s in dbus_signals if s[0] == "Failure"] == [
+            ("Failure", service_module.NM_VPN_PLUGIN_FAILURE_LOGIN_FAILED)
+        ]
+
+    @pytest.mark.parametrize("answer", ["result", "error"])
+    def test_a_disconnect_during_the_request_restarts_nothing(
+        self, service_module, monkeypatch, tmp_path, dbus_signals, answer
+    ):
+        async def reply(plugin):
+            plugin._generation += 1  # what Disconnect() does
+            if answer == "error":
+                raise Exception("the dialog went away")
+            return self.NEW
+
+        _, launches, _ = self._run(
+            service_module, monkeypatch, tmp_path, reply,
+            _auth_result=self.OLD, _saml_dialog=True,
+        )
+
+        assert len(launches) == 1
+        assert [s for s in dbus_signals if s[0] == "Failure"] == []
+
+
 class TestStoredPasswordAtThePrompt:
     """No --passwd-on-stdin (it fed the password to the next prompt of a SAML
     login): the stored password is typed only when gpclient asks for it.

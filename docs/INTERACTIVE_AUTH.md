@@ -123,6 +123,9 @@ Other results:
 - The server has a standard (password) login: gpauth fails with "non-SAML
   prelogin". The dialog answers `standard` and the service runs gpclient the
   usual way, with the prompts described above.
+- The stored preferred gateway is no longer offered by the portal: the service
+  restarts gpclient without `--gateway`. The portal may accept a SAML result
+  only once, so the dialog asks for a new login before this retry.
 - The agent goes away (SIGTERM, end of stdin): the dialog stops gpauth.
 - KDE Plasma: plasma-nm does not start the GNOME auth dialog. Its password
   dialog loads the Plasma plugin (`GpclientAuthWidget`), which runs gpauth
