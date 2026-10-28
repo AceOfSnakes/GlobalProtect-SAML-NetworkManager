@@ -10,6 +10,9 @@
 #include "nm-gpclient-mtu.h"
 #include "nm-gpclient-validate.h"
 
+// plasma-nm's own password field with the storage menu (bundled header)
+#include "passwordfield.h"
+
 #include <KLocalizedString>
 #include <NetworkManagerQt/Utils>
 #include <QAction>
@@ -73,10 +76,35 @@ static QString browserValue(const QString &text)
  * so that limit and its clearer error come first. */
 static const int samlTimeoutDefault = 360;
 
-/* The "Password storage" combo, as NMSettingSecretFlags: 1 = agent-owned
+/* The storage menu of a PasswordField, as NMSettingSecretFlags: 1 = agent-owned
  * (this user only), 0 = system-owned (all users, in the profile), 2 = not saved
- * (asked every time). A new connection starts with the agent. */
+ * (asked every time). A new connection starts with the agent. The index is the
+ * position in these arrays (the same mapping as plasma-nm's openconnect and
+ * l2tp plugins). */
 static const uint passwordFlagsByIndex[] = {1, 0, 2};
+static const PasswordField::PasswordOption passwordOptionByIndex[] = {
+    PasswordField::StoreForUser,
+    PasswordField::StoreForAllUsers,
+    PasswordField::AlwaysAsk,
+};
+
+static int storageIndex(const PasswordField *field)
+{
+    switch (field->passwordOption()) {
+    case PasswordField::StoreForAllUsers:
+        return 1;
+    case PasswordField::AlwaysAsk:
+        return 2;
+    default:
+        return 0;
+    }
+}
+
+static void setupPasswordField(PasswordField *field)
+{
+    field->setPasswordModeEnabled(true);
+    field->setPasswordOptionsEnabled(true);
+}
 
 /* Browser values understood by the service (see resolve_browser()) */
 static const QStringList browserValues = {
@@ -101,12 +129,8 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
 
     m_ui->preferredGatewayComboBox->addItem(gatewayAutoLabel());
 
-    m_ui->passwordFlagsComboBox->addItem(i18n("Store for this user only (agent)"));
-    m_ui->passwordFlagsComboBox->addItem(i18n("Store for all users (system)"));
-    m_ui->passwordFlagsComboBox->addItem(i18n("Ask every time (not saved)"));
-    m_ui->certPassFlagsComboBox->addItem(i18n("Store for this user only (agent)"));
-    m_ui->certPassFlagsComboBox->addItem(i18n("Store for all users (system)"));
-    m_ui->certPassFlagsComboBox->addItem(i18n("Ask every time (not saved)"));
+    setupPasswordField(m_ui->passwordField);
+    setupPasswordField(m_ui->certPassField);
 
     m_ui->fixOpensslComboBox->addItem(i18n("Automatic (enable when the portal needs it)"));
     m_ui->fixOpensslComboBox->addItem(i18n("Always on"));
@@ -150,15 +174,8 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
         Q_EMIT settingChanged();
     });
     connect(m_ui->usernameLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
-    connect(m_ui->passwordLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
-    connect(m_ui->passwordFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
-    // "Ask every time" stores nothing: no typing into the field (as in GNOME)
-    connect(m_ui->passwordFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
-        m_ui->passwordLineEdit->setEnabled(index != 2);
-        if (index == 2) {
-            m_ui->passwordLineEdit->clear();
-        }
-    });
+    connect(m_ui->passwordField, &PasswordField::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->passwordField, &PasswordField::passwordOptionChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->browserComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->dnsLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->userCertLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
@@ -166,15 +183,8 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     addChooseFileAction(m_ui->userCertLineEdit, this, i18n("Choose the client certificate"));
     addChooseFileAction(m_ui->userKeyLineEdit, this, i18n("Choose the private key"));
     addChooseFileAction(m_ui->hipScriptLineEdit, this, i18n("Choose the HIP script"));
-    connect(m_ui->certPassLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
-    connect(m_ui->certPassFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GpclientWidget::settingChanged);
-    // "Ask every time" stores nothing: no typing into the field (as the password)
-    connect(m_ui->certPassFlagsComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
-        m_ui->certPassLineEdit->setEnabled(index != 2);
-        if (index == 2) {
-            m_ui->certPassLineEdit->clear();
-        }
-    });
+    connect(m_ui->certPassField, &PasswordField::textChanged, this, &GpclientWidget::settingChanged);
+    connect(m_ui->certPassField, &PasswordField::passwordOptionChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->hipCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
     connect(m_ui->hipScriptLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     // The HIP script only matters while HIP is on
@@ -207,9 +217,7 @@ GpclientWidget::~GpclientWidget()
 void GpclientWidget::setPasswordVisible(bool visible)
 {
     m_ui->passwordLabel->setVisible(visible);
-    m_ui->passwordLineEdit->setVisible(visible);
-    m_ui->passwordFlagsLabel->setVisible(visible);
-    m_ui->passwordFlagsComboBox->setVisible(visible);
+    m_ui->passwordField->setVisible(visible);
 }
 
 void GpclientWidget::loadSecrets(const NetworkManager::Setting::Ptr &setting)
@@ -217,8 +225,8 @@ void GpclientWidget::loadSecrets(const NetworkManager::Setting::Ptr &setting)
     const NetworkManager::VpnSetting::Ptr vpnSetting = setting.staticCast<NetworkManager::VpnSetting>();
 
     if (vpnSetting) {
-        m_ui->passwordLineEdit->setText(vpnSetting->secrets().value(QLatin1String("password")));
-        m_ui->certPassLineEdit->setText(vpnSetting->secrets().value(QLatin1String("cert-pass")));
+        m_ui->passwordField->setText(vpnSetting->secrets().value(QLatin1String("password")));
+        m_ui->certPassField->setText(vpnSetting->secrets().value(QLatin1String("cert-pass")));
     }
 }
 
@@ -279,17 +287,15 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         if (!m_isNew && (passwordFlags & 2u)) {
             m_passwordFlagsIndex = 2;
         }
-        m_ui->passwordFlagsComboBox->setCurrentIndex(m_passwordFlagsIndex);
-        // Loaded before the combo's signal is connected: "Ask every time" here too
-        m_ui->passwordLineEdit->setEnabled(m_passwordFlagsIndex != 2);
+        // "Ask every time" clears and disables the field's line edit (PasswordField)
+        m_ui->passwordField->setPasswordOption(passwordOptionByIndex[m_passwordFlagsIndex]);
         // The passphrase of the client certificate: the same rules
         const uint certPassFlags = data.value(QLatin1String("cert-pass-flags")).toUInt();
         m_certPassFlagsIndex = m_isNew || (certPassFlags & 1u) ? 0 : 1;
         if (!m_isNew && (certPassFlags & 2u)) {
             m_certPassFlagsIndex = 2;
         }
-        m_ui->certPassFlagsComboBox->setCurrentIndex(m_certPassFlagsIndex);
-        m_ui->certPassLineEdit->setEnabled(m_certPassFlagsIndex != 2);
+        m_ui->certPassField->setPasswordOption(passwordOptionByIndex[m_certPassFlagsIndex]);
         loadSecrets(setting);
         setPasswordVisible(m_ui->authModeComboBox->currentIndex() == 1);
 
@@ -415,13 +421,13 @@ QVariantMap GpclientWidget::setting() const
 
     // Save the password flags: a new connection gets the default, an existing
     // one keeps its own (an untouched combo writes nothing)
-    const int flagsIndex = m_ui->passwordFlagsComboBox->currentIndex();
+    const int flagsIndex = storageIndex(m_ui->passwordField);
     const uint passwordFlags = passwordFlagsByIndex[qBound(0, flagsIndex, 2)];
     if (m_isNew || flagsIndex != m_passwordFlagsIndex) {
         data.insert(QLatin1String("password-flags"), QString::number(passwordFlags));
     }
 
-    const int certFlagsIndex = m_ui->certPassFlagsComboBox->currentIndex();
+    const int certFlagsIndex = storageIndex(m_ui->certPassField);
     const uint certPassFlags = passwordFlagsByIndex[qBound(0, certFlagsIndex, 2)];
     if (m_isNew || certFlagsIndex != m_certPassFlagsIndex) {
         data.insert(QLatin1String("cert-pass-flags"), QString::number(certPassFlags));
@@ -519,13 +525,13 @@ QVariantMap GpclientWidget::setting() const
     // The password stays out of the connection when it is not to be saved. An
     // agent-owned secret goes to NetworkManager, which hands it to the agent and
     // keeps it out of the profile file.
-    const QString password = m_ui->passwordLineEdit->text();
+    const QString password = m_ui->passwordField->text();
     NMStringMap secrets;
     if (!password.isEmpty() && !(passwordFlags & 2u)) {
         secrets.insert(QStringLiteral("password"), password);
     }
     // The passphrase of the key is saved only with a certificate, like the password
-    const QString certPass = m_ui->certPassLineEdit->text();
+    const QString certPass = m_ui->certPassField->text();
     if (!userCert.isEmpty() && !certPass.isEmpty() && !(certPassFlags & 2u)) {
         secrets.insert(QStringLiteral("cert-pass"), certPass);
     }

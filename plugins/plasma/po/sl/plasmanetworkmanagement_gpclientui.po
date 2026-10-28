@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Vedno vklopljeno"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Vprašaj vsakič (ne shrani)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Geslo"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Shranjevanje gesla:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Geslo:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS omogoča razreševanje domen VPN prek DNS VPN, za druge domene pa se uporablja lokalni DNS.\n"
 "Prepis: vnesite strežnike DNS, ločene s podpičjem (npr. 8.8.8.8;8.8.4.4), da se namesto tega uporabi lasten DNS."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Shrani za vse uporabnike (sistem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Shrani samo za tega uporabnika (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Uporabniško ime in geslo (žeton RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Uporabniško ime:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Kje se geslo hrani. »Vprašaj vsakič« ne shrani ničesar."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), katere lastnik mora biti uporabnik namizja. Brez odjemalčevega certifikata se prezre."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Shranjevanje gesla certifikata:"
 
 #: rc.cpp
 #, kde-format

@@ -18,9 +18,11 @@ Comment: The file headers say "LGPL-2.1-only OR LGPL-3.0-only OR
 
 Files: plugins/plasma/include/settingwidget.h
  plugins/plasma/include/vpnuiplugin.h
+ plugins/plasma/include/passwordfield.h
 Copyright: 2008 Will Stephenson <wstephenson@kde.org>
  2013 Lukáš Tinkl <ltinkl@redhat.com>
  2013 Jan Grulich <jgrulich@redhat.com>
+ 2015 Jan Grulich <jgrulich@redhat.com>
 License: LGPL-2.1
 Comment: Copied from plasma-nm. The file headers say "LGPL-2.1-only OR
  LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL".

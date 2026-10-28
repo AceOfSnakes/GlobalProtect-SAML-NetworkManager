@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "永遠開啟"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "每次詢問（不儲存）"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "密碼"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "密碼儲存："
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "密碼："
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS 允許透過 VPN DNS 解析 VPN 專用網域，同時對其他網域使用本機 DNS。\n"
 "覆寫：輸入以分號分隔的 DNS 伺服器（例如 8.8.8.8;8.8.4.4）以改用自訂 DNS。"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "為所有使用者儲存（系統）"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "僅為此使用者儲存（代理程式）"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "使用者名稱和密碼（RSA 權杖）"
 #, kde-format
 msgid "Username:"
 msgstr "使用者名稱："
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "密碼的儲存位置。「每次詢問」不會儲存任何內容。"
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "私密金鑰檔案(PEM)的選用絕對路徑，必須歸桌面使用者所有。沒有用戶端憑證時會忽略。"
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "密碼短語儲存位置："
 
 #: rc.cpp
 #, kde-format

@@ -109,29 +109,9 @@ Username and password: the portal asks on the terminal - the credentials and any
     </widget>
    </item>
    <item row="5" column="1">
-    <widget class="QLineEdit" name="passwordLineEdit">
+    <widget class="PasswordField" name="passwordField">
      <property name="toolTip">
       <string>Optional. Used by the "Username and password" authentication.</string>
-     </property>
-     <property name="echoMode">
-      <enum>QLineEdit::Password</enum>
-     </property>
-     <property name="placeholderText">
-      <string>Optional</string>
-     </property>
-    </widget>
-   </item>
-   <item row="6" column="0">
-    <widget class="QLabel" name="passwordFlagsLabel">
-     <property name="text">
-      <string>Password storage:</string>
-     </property>
-    </widget>
-   </item>
-   <item row="6" column="1">
-    <widget class="QComboBox" name="passwordFlagsComboBox">
-     <property name="toolTip">
-      <string>Where the password is kept. "Ask every time" stores nothing.</string>
      </property>
     </widget>
    </item>
@@ -349,32 +329,17 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
     </widget>
    </item>
    <item row="17" column="1">
-    <widget class="QLineEdit" name="certPassLineEdit">
-     <property name="echoMode">
-      <enum>QLineEdit::Password</enum>
-     </property>
-     <property name="placeholderText">
-      <string>Optional</string>
-     </property>
-    </widget>
-   </item>
-   <item row="18" column="0">
-    <widget class="QLabel" name="certPassFlagsLabel">
-     <property name="text">
-      <string>Passphrase storage:</string>
-     </property>
-    </widget>
-   </item>
-   <item row="18" column="1">
-    <widget class="QComboBox" name="certPassFlagsComboBox">
-     <property name="toolTip">
-      <string>Where the password is kept. "Ask every time" stores nothing.</string>
-     </property>
+    <widget class="PasswordField" name="certPassField">
     </widget>
    </item>
   </layout>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>PasswordField</class>
+   <extends>QWidget</extends>
+   <header>passwordfield.h</header>
+  </customwidget>
   <customwidget>
    <class>MtuSpinBox</class>
    <extends>QSpinBox</extends>

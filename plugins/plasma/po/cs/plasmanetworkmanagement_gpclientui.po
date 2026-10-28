@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Vždy zapnuto"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Ptát se pokaždé (neukládá se)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Heslo"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Uložení hesla:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Heslo:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS umožňuje překládat domény specifické pro VPN přes DNS VPN a pro ostatní domény používat místní DNS.\n"
 "Přepsat: zadejte servery DNS oddělené středníkem (např. 8.8.8.8;8.8.4.4), aby se místo toho použily vlastní servery DNS."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Uložit pro všechny uživatele (systém)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Uložit jen pro tohoto uživatele (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Uživatelské jméno a heslo (token RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Uživatelské jméno:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Kde se heslo uchovává. „Ptát se pokaždé“ neukládá nic."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Volitelná absolutní cesta k souboru soukromého klíče (PEM), který vlastní uživatel plochy. Bez klientského certifikátu se ignoruje."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Uložení hesla:"
 
 #: rc.cpp
 #, kde-format
