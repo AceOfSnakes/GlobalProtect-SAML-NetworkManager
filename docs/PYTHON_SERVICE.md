@@ -33,6 +33,8 @@ Starts VPN connection.
 - `dns` (optional) - DNS servers separated by semicolons (e.g., `8.8.8.8;8.8.4.4`);
   overrides the servers the gateway pushes
 - `dns-domains` (optional) - extra search domains, space-separated
+- `nm-routing` (optional, `yes`/`true`; default `no`) - NetworkManager sets the
+  routes instead of vpnc-script; see "NetworkManager routing" below
 
 **Process:**
 1. Gets configuration from NetworkManager
@@ -85,7 +87,10 @@ The D-Bus policy lets only root call the service.
   `INTERNAL_IP4_ADDRESS`, `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`,
   `INTERNAL_IP4_MTU`, `INTERNAL_IP4_DNS`, `INTERNAL_IP6_ADDRESS`,
   `INTERNAL_IP6_NETMASK`, `INTERNAL_IP6_DNS`, `CISCO_DEF_DOMAIN`,
-  `CISCO_SPLIT_DNS`
+  `CISCO_SPLIT_DNS`, and the split-include lists `CISCO_SPLIT_INC`,
+  `CISCO_SPLIT_INC_<n>_{ADDR,MASK,MASKLEN}`, `CISCO_IPV6_SPLIT_INC` and
+  `CISCO_IPV6_SPLIT_INC_<n>_{ADDR,MASKLEN}` (`n` below 256). The split-exclude
+  lists are not sent.
 
 The service rejects the call with the D-Bus error
 `org.freedesktop.NetworkManager.gpclient.Tunnel.Error.Rejected` and changes
@@ -283,6 +288,35 @@ generation counter before they wait for `_lifecycle_lock` (issue #52), and
 `Notify` rejects a call when the generation is not the one of the session
 (`_session_gen`), even while the token is still set.
 
+### NetworkManager routing (`nm-routing`)
+
+With `nm-routing=yes` in `vpn.data`, NetworkManager configures the routes of the
+tunnel instead of vpnc-script, as NetworkManager-openconnect does. The default
+is `no`: nothing changes. The setting is read for each `Connect()`.
+
+- The service starts gpclient with `--script /usr/lib/NetworkManager/gpclient-nm-script`.
+  openconnect runs the helper in place of vpnc-script. The path is absolute and
+  has no space, because openconnect runs it with `/bin/sh -c`.
+- The helper (`config/gpclient-nm-script`) configures nothing. For the reasons
+  `connect` and `reconnect` it runs `nm-gpclient-service --vpnc-notify` with the
+  same checks as the vpnc hook (absolute path, executable file, `timeout 10`, no
+  trace of the token). For all other reasons it exits 0. A failed call is a
+  warning on stderr; the exit status stays 0. The hooks in `/etc/vpnc/*.d` and
+  the routing hook do not run, so `ignore-auto-routes` and the routing hook have
+  no effect; NetworkManager applies `ipv4.ignore-auto-routes` itself.
+- `Ip4Config` gets `routes` (`aau`, one `[network, prefix, 0, 0]` per route:
+  network in network byte order as `address`, next hop and metric 0) from
+  `CISCO_SPLIT_INC`. The prefix is `MASKLEN`, else the length of `MASK`. Entries
+  that are not valid are skipped. `Ip6Config` gets `routes` (`a(ayuayu)`: address,
+  prefix, next hop `::`, metric) from `CISCO_IPV6_SPLIT_INC`.
+- An entry with prefix 0 (a default route) is not a route. `never-default` is
+  set in the config of that family when there are routes and no entry was a
+  default route (the rule of NetworkManager-openconnect). Without a list, or
+  when all entries are skipped, there is no `routes` and no `never-default`
+  from this rule.
+- Split-exclude lists (`CISCO_SPLIT_EXC`, `CISCO_IPV6_SPLIT_EXC`) are dropped:
+  NetworkManager has no place for them (NetworkManager-openconnect drops them too).
+
 ### Tunnel Settings in the gpclient Log
 Since GlobalProtect-openconnect 3.1.0 gpclient logs the negotiated tunnel
 settings (`VPN interface:`, `VPN IPv4:`, `VPN DNS:`, `VPN search domains:`,
@@ -314,6 +348,7 @@ openconnect
 ### Installation Paths
 - Service: `/usr/lib/NetworkManager/nm-gpclient-service`
 - Descriptor: `/usr/lib/NetworkManager/VPN/nm-gpclient-service.name`
+- `nm-routing` helper: `/usr/lib/NetworkManager/gpclient-nm-script`
 
 ### Permissions
 Service must be executable (755) and will be run by NetworkManager.

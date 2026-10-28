@@ -42,7 +42,7 @@ def state(kind, edge=None, **override):
         "processes": [],
         "windows": ["mutter guard window"],
     }
-    if kind in ("full", "split"):
+    if kind in ("full", "split", "nm-split"):
         sections["nmcli connection show --active"] = [WIRED, VPN, "gpd0:tun:activated:gpd0", "lo:loopback:activated:lo"]
         sections["ip -4 addr show gpd0"] = [
             "4: gpd0: <POINTOPOINT> mtu 1400",
@@ -59,6 +59,8 @@ def state(kind, edge=None, **override):
         flag = "+" if kind == "full" else "-"
         sections["resolvectl status gpd0"] = [line.replace("{}", flag) for line in status]
         sections["ip route"] = sections["ip route"] + ["10.20.0.0/16 dev gpd0 scope link"]
+        if kind == "nm-split":
+            sections["ip route"] = sections["ip route"] + ["172.16.0.0/12 dev gpd0 proto static scope link metric 50"]
         if kind == "full":
             sections["ip route show default"] = ["default dev gpd0 scope link"]
             sections["ip route get 9.9.9.9"] = GET_VPN.format("9.9.9.9").split("\n")
@@ -125,6 +127,9 @@ def write_run(path, scenario, scenario_exit="0"):
         files["state-disconnected.txt"] = state("baseline")
         files["state-connected-never-default.txt"] = state("split")
         files["state-disconnected-final.txt"] = state("baseline")
+        files["state-connected-nm-routing.txt"] = state("nm-split")
+        files["state-disconnected-nm-routing.txt"] = state("baseline")
+        files["state-edge-open-3.txt"] = state("baseline", edge="open")
         files["dbus-policy.txt"] = DBUS_POLICY
     elif scenario == "auth-cancel":
         files["state-before.txt"] = state("baseline")
@@ -309,6 +314,27 @@ BREAKS = [
         "10.20.0.10 via 192.168.1.1 dev enp0s31f6",
         "[connected-default] full tunnel: company network goes through gpd0",
     ),
+    (
+        "routing",
+        "state-connected-nm-routing.txt",
+        "172.16.0.0/12 dev gpd0",
+        "172.16.0.0/12 via 192.168.1.1 dev enp0s31f6",
+        "[connected-nm-routing] nm-routing: split routes 10.20.0.0/16, 172.16.0.0/12 are on gpd0",
+    ),
+    (
+        "routing",
+        "state-connected-nm-routing.txt",
+        "## ip route show default\ndefault via 192.168.1.1 dev enp0s31f6 metric 100",
+        "## ip route show default\ndefault dev gpd0 scope link",
+        "[connected-nm-routing] never-default: default route stays on the wired link",
+    ),
+    (
+        "routing",
+        "state-disconnected-nm-routing.txt",
+        "9.9.9.9 via 192.168.1.1 dev enp0s31f6",
+        "9.9.9.9 dev gpd0",
+        "[disconnected-nm-routing] routes: Internet via the wired link",
+    ),
     ("kde", "state-start.txt", "Wired connection 1:802-3-ethernet:activated", "Wired connection 1:802-3-ethernet:unavailable", "[start] wired connection stays active"),
     ("auth-cancel", "scenario.exit", "0", "1", "scenario ran to the end (exit 0)"),
     # saml-dialog: a gpauth under gpclient (service mode) or under its sudo is wrong, so is no gpauth at all
@@ -378,6 +404,7 @@ def test_missing_browser_trace_fails(tmp_path, scenario):
     os.remove(tmp_path / "state-edge-open-1.txt")
     if scenario == "routing":
         os.remove(tmp_path / "state-edge-open-2.txt")
+        os.remove(tmp_path / "state-edge-open-3.txt")
     assert "browser was running during the sign-in" in failed_names(tmp_path, scenario)
 
 

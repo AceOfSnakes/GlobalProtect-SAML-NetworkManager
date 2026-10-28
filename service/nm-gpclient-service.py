@@ -113,6 +113,8 @@ SERVICE_PROGRAM = os.path.realpath(__file__)
 VPNC_REASON_CONNECT = "connect"
 VPNC_REASON_RECONNECT = "reconnect"
 VPNC_NOTIFY_REASONS = (VPNC_REASON_CONNECT, VPNC_REASON_RECONNECT)
+# Most split-include routes of each family that are read (and sent)
+VPNC_SPLIT_MAX = 256
 # The vpnc variables --vpnc-notify sends, and nothing else of its environment
 VPNC_NOTIFY_ENV = (
     "TUNDEV",
@@ -127,7 +129,22 @@ VPNC_NOTIFY_ENV = (
     "INTERNAL_IP6_DNS",
     "CISCO_DEF_DOMAIN",
     "CISCO_SPLIT_DNS",
+    # The split-include routes (nm-routing). The exclude lists are not sent:
+    # NetworkManager has no place for them
+    "CISCO_SPLIT_INC",
+    "CISCO_IPV6_SPLIT_INC",
+) + tuple(
+    f"CISCO_SPLIT_INC_{n}_{part}"
+    for n in range(VPNC_SPLIT_MAX)
+    for part in ("ADDR", "MASK", "MASKLEN")
+) + tuple(
+    f"CISCO_IPV6_SPLIT_INC_{n}_{part}"
+    for n in range(VPNC_SPLIT_MAX)
+    for part in ("ADDR", "MASKLEN")
 )
+# With nm-routing, gpclient runs this instead of vpnc-script (--script): it
+# configures nothing and only tells the service about the tunnel
+NM_SCRIPT_PROGRAM = "/usr/lib/NetworkManager/gpclient-nm-script"
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
@@ -1288,6 +1305,50 @@ def tunnel_mtu_from_env(env: Dict[str, str]) -> Optional[int]:
     return None
 
 
+def split_include_routes(
+    env: Dict[str, str], version: int
+) -> Tuple[List[Tuple[Union[ipaddress.IPv4Address, ipaddress.IPv6Address], int]], bool]:
+    """The split-include routes of the vpnc environment (CISCO_SPLIT_INC for
+    version 4, CISCO_IPV6_SPLIT_INC for 6) as (network, prefix) pairs, and
+    whether an entry was a default route (prefix 0, left out of the pairs).
+
+    The prefix is MASKLEN, else (IPv4 only) the length of MASK. Entries that
+    are invalid are skipped, like NetworkManager-openconnect does; at most
+    VPNC_SPLIT_MAX entries are read.
+    """
+    name = "CISCO_SPLIT_INC" if version == 4 else "CISCO_IPV6_SPLIT_INC"
+    count = env.get(name, "")
+    if not (count.isascii() and count.isdigit()):
+        return [], False
+    routes: List[Tuple[Union[ipaddress.IPv4Address, ipaddress.IPv6Address], int]] = []
+    default_seen = False
+    for n in range(min(int(count), VPNC_SPLIT_MAX)):
+        address = parse_ip_address(env.get(f"{name}_{n}_ADDR", ""))
+        if address is None or address.version != version:
+            continue
+        length = env.get(f"{name}_{n}_MASKLEN", "")
+        if length:
+            if not (length.isascii() and length.isdigit()):
+                continue
+            prefix = int(length)
+        elif version == 4:
+            try:
+                prefix = ipaddress.IPv4Network(
+                    f"0.0.0.0/{env.get(f'{name}_{n}_MASK', '')}"
+                ).prefixlen
+            except ValueError:
+                continue
+        else:
+            continue
+        if prefix > address.max_prefixlen:
+            continue
+        if prefix == 0:
+            default_seen = True
+        else:
+            routes.append((address, prefix))
+    return routes, default_seen
+
+
 def vpnc_notify_env(environ: Dict[str, str]) -> Tuple[str, str, Dict[str, str]]:
     """What --vpnc-notify sends: (reason, token, the allow-listed vpnc
     variables that are set). Other variables of `environ` never leave."""
@@ -1821,6 +1882,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         # Portal / gateway selection (issue #7)
         self.as_gateway = False
+        self.nm_routing = False  # NetworkManager sets the routes (nm-routing)
         self.mtu: Optional[int] = None  # pass --mtu to gpclient when set
         self.preferred_gateway = ""
         self._connection_uuid = ""
@@ -2129,6 +2191,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 data_dict.get("gateway-list-count", "")
             )
             logger.info(f"Treat server as gateway: {self.as_gateway}")
+            # NetworkManager sets the routes from the split-include lists
+            # instead of vpnc-script (opt-in)
+            self.nm_routing = data_dict.get("nm-routing", "no").lower() in (
+                "yes",
+                "true",
+            )
+            logger.info(f"nm-routing: {self.nm_routing}")
             logger.info(
                 "Preferred gateway: "
                 + (self.preferred_gateway or "<first proposed by the portal>")
@@ -2436,6 +2505,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.hip_enabled = True
         self.hip_script = None
         self.never_default = False
+        self.nm_routing = False
         self.browser_target = None
         self.fix_openssl_mode = "auto"
         self.fix_openssl = False
@@ -2871,6 +2941,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             tun_name = tunnel_interface_name(self._connection_uuid)
             if tun_name:
                 cmd.append(f"--interface={tun_name}")
+
+            # NetworkManager sets the routes: a script that only notifies us
+            # replaces vpnc-script
+            if self.nm_routing:
+                cmd.extend(["--script", NM_SCRIPT_PROGRAM])
 
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:
@@ -3317,6 +3392,26 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             "by the portal - retrying without --gateway"
         )
         self._gateway_flag_dropped = True
+        if self._auth_result:
+            # The first gpclient sent this prelogin cookie to the portal, and a
+            # portal may accept it only once: the dialog makes a new one.
+            # (_written_secrets keeps the old value: the log stays scrubbed)
+            logger.info(
+                "The SAML result was already used at the portal - asking the "
+                "auth dialog for a new login before the retry"
+            )
+            gen = self._session_gen
+            self._auth_result = ""
+            try:
+                await self._request_auth_result()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if gen == self._generation:
+                    self._fail_login(f"The SAML login in the auth dialog failed: {e}")
+                return True
+            if gen != self._generation:
+                return True
         if await self._restart_gpclient():
             return True
 
@@ -4800,12 +4895,14 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # has-ip4 is set only with an IPv4 address (NM does not wait for
         # Ip4Config without it), and has-ip6 only with an IPv6 one
         if address is not None:
+            self._add_nm_routes(config, env, 4)
             logger.info(f"Ip4Config: {config}")
             self.Ip4Config.emit(config)
         config6 = self._build_ip6_config(
             iface, config.get("domains", ("as", []))[1], learned_dns
         )
         if config6 is not None:
+            self._add_nm_routes(config6, env, 6)
             logger.info(f"Ip6Config: {config6}")
             self.Ip6Config.emit(config6)
 
@@ -4816,6 +4913,33 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self.profile_task = self._create_task(
                 self._persist_profile(), "profile update"
             )
+
+    def _add_nm_routes(
+        self, config: Dict[str, Tuple[str, Any]], env: Dict[str, str], version: int
+    ) -> None:
+        """With nm-routing, put the split-include routes in an IP config.
+
+        never-default is set when there are routes and none is a default route
+        (NetworkManager-openconnect's rule); one the profile asked for stays.
+        """
+        if not self.nm_routing:
+            return
+        routes, default_seen = split_include_routes(env, version)
+        if not routes:
+            return
+        if version == 4:
+            config["routes"] = (
+                "aau",
+                [[ipv4_to_nm_uint32(str(a)), prefix, 0, 0] for a, prefix in routes],
+            )
+        else:
+            config["routes"] = (
+                "a(ayuayu)",
+                [(a.packed, prefix, bytes(16), 0) for a, prefix in routes],
+            )
+        if not default_seen:
+            config["never-default"] = ("b", True)
+        logger.info(f"NetworkManager routes IPv{version}: {len(routes)}")
 
     async def _persist_profile(self) -> None:
         """The login succeeded, so what we learned along the way is worth

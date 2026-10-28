@@ -467,3 +467,13 @@ msgstr "개인 키 선택"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "HIP 스크립트 선택"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "NetworkManager가 경로와 DNS를 설정하도록 하기 (실험적)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "vpnc-script 대신 NetworkManager가 게이트웨이가 보낸 정보로 터널의 경로, DNS, 기본 경로를 설정합니다. 게이트웨이가 터널에서 제외한 경로는 무시됩니다."

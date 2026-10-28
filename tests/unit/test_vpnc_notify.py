@@ -932,6 +932,7 @@ class TestVpncNotifyMode:
                     "VPNGATEWAY": "203.0.113.9",
                     "CISCO_SPLIT_DNS": "a.example",
                     "INTERNAL_IP4_NETMASKLEN": "24",
+                    "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0",
                 },
             ),
         ]
@@ -939,7 +940,7 @@ class TestVpncNotifyMode:
     @pytest.mark.parametrize(
         "name",
         ["PATH", "HOME", "SUDO_USER", "GPCLIENT_NM_NOTIFY", "GPCLIENT_NM_TOKEN",
-         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU", "CISCO_BANNER"],
+         "reason", "reasoning", "MTU", "CISCO_BANNER"],
     )
     def test_a_variable_that_is_not_listed_is_not_sent(
         self, service_module, proxy, name
@@ -951,9 +952,7 @@ class TestVpncNotifyMode:
         assert name not in service_module.VPNC_NOTIFY_ENV
 
     def test_the_listed_variables_are_what_the_service_reads(self, service_module):
-        # The allow-list holds nothing the service never looks at, and the
-        # indexed split routes (it does not use them) are not in it
-        assert "CISCO_SPLIT_INC" not in service_module.VPNC_NOTIFY_ENV
+        # The allow-list holds nothing the service never looks at
         assert len(set(service_module.VPNC_NOTIFY_ENV)) == len(
             service_module.VPNC_NOTIFY_ENV
         )

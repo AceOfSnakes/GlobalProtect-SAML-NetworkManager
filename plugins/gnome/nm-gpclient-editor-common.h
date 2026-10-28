@@ -67,6 +67,17 @@ nm_gpclient_editor_data_is_true (NMSettingVpn *s_vpn, const char *key)
     return g_ascii_strcasecmp (value ? value : "", "true") == 0;
 }
 
+/* TRUE when the vpn.data item is "yes" or "true" (any case), as the service
+ * reads it; a missing item is FALSE */
+static inline gboolean
+nm_gpclient_editor_data_is_yes (NMSettingVpn *s_vpn, const char *key)
+{
+    const char *value = s_vpn ? nm_setting_vpn_get_data_item (s_vpn, key) : NULL;
+
+    return g_ascii_strcasecmp (value ? value : "", "yes") == 0
+           || g_ascii_strcasecmp (value ? value : "", "true") == 0;
+}
+
 /* HIP is on unless the stored value is something other than "true" */
 static inline gboolean
 nm_gpclient_editor_hip_enabled (NMSettingVpn *s_vpn)
