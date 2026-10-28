@@ -80,7 +80,7 @@ check_vpnc_script() {
     # Without post-connect hooks the service is never told that the tunnel is up
     grep -q 'run_hooks post-connect' "$script" \
         || fail "$script does not run post-connect hooks: the connection would never be reported as up"
-    for hook in connect.d/90-gpclient-routing post-connect.d/90-gpclient-notify reconnect.d/90-gpclient-notify; do
+    for hook in connect.d/90-gpclient-routing disconnect.d/90-gpclient-routing post-connect.d/90-gpclient-notify reconnect.d/90-gpclient-notify; do
         [ -x "$root$hooks/$hook" ] \
             || fail "$script runs the hooks of $hooks, but $hooks/$hook is not there"
     done
@@ -142,6 +142,7 @@ for path in \
     /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service \
     /usr/share/dbus-1/system.d/nm-gpclient.conf \
     /etc/vpnc/connect.d/90-gpclient-routing \
+    /etc/vpnc/disconnect.d/90-gpclient-routing \
     /etc/vpnc/post-connect.d/90-gpclient-notify \
     /etc/vpnc/reconnect.d/90-gpclient-notify \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient.so" \

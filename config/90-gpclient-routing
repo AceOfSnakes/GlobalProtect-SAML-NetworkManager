@@ -1,6 +1,11 @@
 #!/bin/sh
 # IMPORTANT: This script is sourced by vpnc-script which uses /bin/sh
 # Therefore we MUST use POSIX-compatible shell syntax only (no bash-isms)
+#
+# Installed in /etc/vpnc/connect.d and /etc/vpnc/disconnect.d. On disconnect,
+# vpnc-script deletes the routes of the gateway's original lists, so it must
+# see the same edited lists as on connect: else it deletes routes it never
+# added (for example a route of the user with the same prefix).
 
 # NM flags propagated by nm-gpclient-service.py
 ignore_all="${GPCLIENT_NM_IGNORE_AUTO_ROUTES:-0}"
@@ -98,6 +103,7 @@ compact_split_inc_remove_default() {
 }
 
 # Add custom DNS domains if specified
+# (on disconnect too: vpnc-script's unbound restore removes these domains again)
 if [ -n "$custom_dns_domains" ]; then
   echo "vpnc hook: Adding custom DNS domains: $custom_dns_domains" >&2
 

@@ -1178,6 +1178,46 @@ class TestRoutingHookSplitInc:
         assert got["CISCO_IPV6_SPLIT_INC"] == "2"
         assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "64"
 
+    # #155: vpnc-script runs the hook on disconnect too, with the same route edits
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_ignore_auto_routes_edits_the_lists_for_both_reasons(self, reason):
+        got = self.run_hook({**self.V6, **self.V6_EXC, "reason": reason,
+                             "CISCO_SPLIT_EXC": "1", "CISCO_SPLIT_EXC_0_ADDR": "10.1.0.0",
+                             "GPCLIENT_NM_IGNORE_AUTO_ROUTES": "1"})
+
+        assert got["CISCO_SPLIT_EXC"] == "0"
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+        assert got["CISCO_IPV6_SPLIT_EXC"] == "0"
+        assert "CISCO_SPLIT_EXC_0_ADDR" not in got
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_never_default_edits_the_lists_for_both_reasons(self, reason):
+        got = self.run_hook({**self.V6, "reason": reason, "GPCLIENT_NM_NEVER_DEFAULT": "1"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "2"
+        assert got["CISCO_IPV6_SPLIT_INC_1_ADDR"] == "fd01::"
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_lists_stay_without_the_flags_for_both_reasons(self, reason):
+        got = self.run_hook({**self.V6, "reason": reason})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "3"
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_custom_dns_domains_are_appended_for_both_reasons(self, reason):
+        # the same CISCO_DEF_DOMAIN on disconnect: the unbound restore removes them
+        got = self.run_hook({"reason": reason, "CISCO_DEF_DOMAIN": "corp.example",
+                             "GPCLIENT_CUSTOM_DNS_DOMAINS": "extra.example"})
+
+        assert got["CISCO_DEF_DOMAIN"] == "corp.example extra.example"
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_without_custom_dns_domains_the_domain_stays(self, reason):
+        got = self.run_hook({"reason": reason, "CISCO_DEF_DOMAIN": "corp.example"})
+
+        assert got["CISCO_DEF_DOMAIN"] == "corp.example"
+
 
 class TestInterfaces:
     def test_the_notification_has_its_own_interface(self, service_module):

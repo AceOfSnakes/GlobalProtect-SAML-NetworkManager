@@ -183,6 +183,8 @@ ifneq ($(HAS_CORE),)
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing \
 		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/connect.d/90-gpclient-routing
+	install -D -m 755 config/90-gpclient-routing \
+		$(CURDIR)/debian/network-manager-gpclient/etc/vpnc/disconnect.d/90-gpclient-routing
 	# Install vpnc hook that tells the service the tunnel is up (post-connect and
 	# reconnect: vpnc-script has configured the tunnel then)
 	install -D -m 755 config/gpclient-nm-notify \

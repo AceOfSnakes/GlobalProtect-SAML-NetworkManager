@@ -167,8 +167,10 @@ the hooks with openconnect's environment (`INTERNAL_IP4_DNS`,
 `CISCO_DEF_DOMAIN`, `CISCO_SPLIT_DNS`, ...), and the hook
 `/etc/vpnc/post-connect.d/90-gpclient-notify` passes it on. The routing hook
 `/etc/vpnc/connect.d/90-gpclient-routing` runs before vpnc-script configures
-the tunnel; it keeps the route policy (`ignore-auto-routes`, `never-default`)
-and adds the profile's `dns-domains` to `CISCO_DEF_DOMAIN`. The address is
+the tunnel, and again from `disconnect.d` before it removes the routes, so
+that vpnc-script does not delete routes it never added (#155). It keeps the
+route policy (`ignore-auto-routes`, `never-default`) and adds the profile's
+`dns-domains` to `CISCO_DEF_DOMAIN`. The address is
 `INTERNAL_IP4_ADDRESS` with prefix 32 always: vpnc-script adds it as
 `/32 peer`, whatever the netmask says, and a wider prefix would make
 NetworkManager add a second address and a prefix route. The

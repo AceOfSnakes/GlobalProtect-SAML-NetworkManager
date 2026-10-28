@@ -484,6 +484,7 @@ def test_check_openssl_rejects_other_libraries(tmp_path, ldd_output):
 # the tunnel is up
 HOOKS = [
     ("connect.d", "90-gpclient-routing"),
+    ("disconnect.d", "90-gpclient-routing"),
     ("post-connect.d", "90-gpclient-notify"),
     ("reconnect.d", "90-gpclient-notify"),
 ]
@@ -570,6 +571,22 @@ def test_spec_openssl_and_vpnc_script_per_family():
     # Not for openSUSE, where it resolves to LibreSSL
     assert "BuildRequires:  pkgconfig(openssl)" not in suse
     assert "Requires:       vpnc\n%else\nRequires:       vpnc-script\n%endif" in spec
+
+
+def test_check_vpnc_script_rejects_a_missing_disconnect_hook(tmp_path):
+    root = make_vpnc_root(tmp_path)
+    (root / "etc/vpnc/disconnect.d/90-gpclient-routing").unlink()
+    result = run_function(tmp_path, f'check_vpnc_script "{root}"')
+    assert result.returncode == 1
+    assert "disconnect.d/90-gpclient-routing" in result.stderr
+
+
+def test_spec_installs_and_lists_the_routing_hook_for_disconnect():
+    spec = read("rpm/network-manager-gpclient.spec")
+    path = "%{_sysconfdir}/vpnc/disconnect.d/90-gpclient-routing"
+    assert f"install -D -m 0755 config/90-gpclient-routing \\\n  %{{buildroot}}{path}\n" in spec
+    assert f"\n%config(noreplace) {path}\n" in spec
+    assert "\n%dir %{_sysconfdir}/vpnc/disconnect.d\n" in spec
 
 
 def test_spec_owns_its_directories_and_stops_the_service_by_command_line():
