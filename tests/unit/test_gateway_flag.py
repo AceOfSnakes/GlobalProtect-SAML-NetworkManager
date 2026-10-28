@@ -5,7 +5,7 @@ Tests for gpclient's --gateway (issue #53, item 1.4).
 or address before (it is in the cached gateway-list); a stale cache makes
 gpclient fail with "Cannot find gateway specified", and the service restarts it
 once without the option. The editors store the whole cached entry
-"name (address)"; the service passes the name of the entry in every case.
+"name (address)"; the service passes the address of the entry (its name when it has none).
 
 The real command is captured: a stand-in for gpclient records argv and stdin.
 
@@ -54,7 +54,7 @@ STORED = "gw-a (a.example.com);gw-b (b.example.com)"
 
 
 def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False,
-              stdin_wait="0", prompt="", **settings):
+              stdin_wait="0", prompt="", connection=None, **settings):
     """Run gpclient to its end (with restarts); return the recorded launches"""
     log = tmp_path / "launches.jsonl"
     script = tmp_path / "gpclient.py"
@@ -77,7 +77,14 @@ def _launches(service_module, monkeypatch, tmp_path, not_found="", as_text=False
         setattr(plugin, name, value)
 
     async def run():
-        assert await plugin._start_gpclient()
+        if connection:
+            for name in ("_cleanup_stale_gpd0", "_stop_gpclient"):
+                monkeypatch.setattr(plugin, name, lambda: asyncio.sleep(0))
+            await plugin._do_connect(connection, interactive=True)
+            if plugin.profile_task:
+                plugin.profile_task.cancel()
+        else:
+            assert await plugin._start_gpclient()
         while True:
             task = plugin.stdout_monitor_task
             await asyncio.wait_for(asyncio.shield(task), 30)
@@ -107,19 +114,25 @@ class TestGatewayFlag:
         )
 
         (launch,) = launches
-        # always the name of the entry (what the portal lists)
-        assert _gateway_args(launch) == ["--gateway=gw-b"]
+        # always the address of the entry (unique, gpclient matches it)
+        assert _gateway_args(launch) == ["--gateway=b.example.com"]
         argv = launch["argv"]
-        assert argv.index("connect") < argv.index("--gateway=gw-b")
-        assert argv.index("--gateway=gw-b") < argv.index("--")
+        assert argv.index("connect") < argv.index("--gateway=b.example.com")
+        assert argv.index("--gateway=b.example.com") < argv.index("--")
 
     @pytest.mark.parametrize(
         ("preferred", "stored", "expected"),
         [
-            ("Branch (HQ) (hq.example.com)", "Branch (HQ) (hq.example.com)", "Branch (HQ)"),
-            ("hq.example.com", "Branch (HQ) (hq.example.com)", "Branch (HQ)"),
-            ("Branch (HQ)", "Branch (HQ) (hq.example.com)", "Branch (HQ)"),
-            ("US East (a.example.com)", "x (x.example.com);US East (a.example.com)", "US East"),
+            ("Branch (HQ) (hq.example.com)", "Branch (HQ) (hq.example.com)", "hq.example.com"),
+            ("hq.example.com", "Branch (HQ) (hq.example.com)", "hq.example.com"),
+            ("Branch (HQ)", "Branch (HQ) (hq.example.com)", "hq.example.com"),
+            ("US East (a.example.com)", "x (x.example.com);US East (a.example.com)", "a.example.com"),
+            # names are not unique: the picked entry decides, by its address
+            ("VPN (b.example.com)", "VPN (a.example.com);VPN (b.example.com)", "b.example.com"),
+            ("b.example.com", "VPN (a.example.com);VPN (b.example.com)", "b.example.com"),
+            # the cache has no comma in a name: the address is still exact
+            ("Office Berlin (b.example.com)", "Office Berlin (b.example.com)", "b.example.com"),
+            ("Office Berlin", "Office Berlin (b.example.com)", "b.example.com"),
             ("plain", "plain", "plain"),  # an entry without an address
             ("gw-b (b.example.com) ", STORED, ""),  # not exact
             ("(b.example.com)", STORED, ""),
@@ -175,7 +188,7 @@ class TestGatewayNotFoundRestart:
                 preferred_gateway="gw-b", _stored_gateway_list=STORED,
             )
 
-        assert [_gateway_args(x) for x in launches] == [["--gateway=gw-b"], []]
+        assert [_gateway_args(x) for x in launches] == [["--gateway=b.example.com"], []]
         assert "no longer offered" in caplog.text
 
     def test_the_error_as_a_plain_line_does_not_restart(
@@ -187,7 +200,7 @@ class TestGatewayNotFoundRestart:
             preferred_gateway="gw-b", _stored_gateway_list=STORED,
         )
 
-        assert [_gateway_args(x) for x in launches] == [["--gateway=gw-b"]]
+        assert [_gateway_args(x) for x in launches] == [["--gateway=b.example.com"]]
 
     def test_a_second_failure_is_not_retried(
         self, service_module, monkeypatch, tmp_path, dbus_signals
@@ -229,18 +242,26 @@ class TestGatewayNotFoundRestart:
 
 class TestStoredPasswordAtThePrompt:
     """No --passwd-on-stdin (it fed the password to the next prompt of a SAML
-    login): the stored password is typed only when gpclient asks for it"""
+    login): the stored password is typed only when gpclient asks for it.
+    These go through the real Connect path (_do_connect)."""
+
+    CONNECTION = {"vpn": {
+        "data": {"gateway": "portal.example.com", "auth-mode": "credentials",
+                 "username": "user"},
+        "secrets": {"password": "s3cr3t-pw"},
+    }}
 
     def test_nothing_is_written_before_a_prompt(
         self, service_module, monkeypatch, tmp_path
     ):
         _, launches = _launches(
             service_module, monkeypatch, tmp_path, stdin_wait="0.5",
-            vpn_username="user", vpn_password="s3cr3t-pw", _answered_username=True,
+            connection=self.CONNECTION,
         )
 
         (launch,) = launches
         assert "--passwd-on-stdin" not in launch["argv"]
+        assert "--user=user" in launch["argv"]
         assert launch["stdin"] == ""  # no input queued at spawn
 
     def test_typed_at_the_password_prompt(
@@ -248,8 +269,7 @@ class TestStoredPasswordAtThePrompt:
     ):
         _, launches = _launches(
             service_module, monkeypatch, tmp_path, stdin_wait="5",
-            prompt="? Password: ", vpn_username="user", vpn_password="s3cr3t-pw",
-            _answered_username=True, _interactive=True,
+            prompt="? Password: ", connection=self.CONNECTION,
         )
 
         (launch,) = launches

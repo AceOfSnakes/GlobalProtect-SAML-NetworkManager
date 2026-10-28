@@ -277,7 +277,9 @@ nmcli -g vpn.data connection show "My VPN"
 It is passed only for `preferred-gateway`, and only when the portal offered that
 gateway before (it is in `gateway-list`): the value is the whole entry the
 editors store (`name (address)`), the name or the address. gpclient always gets
-the name of the entry. The option is used only without *Address is a gateway*:
+the address of that entry (its name only when the entry has no address), because
+gpclient takes the first gateway with that name or address and names are not
+unique. The option is used only without *Address is a gateway*:
 with `as-gateway` the service passes `--as-gateway` and ignores
 `preferred-gateway`. When gpclient does not find the gateway after all, the
 service starts gpclient once more without the option and answers the gateway

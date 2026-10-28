@@ -3254,8 +3254,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         Only a gateway the portal offered before (cached gateway-list) is
         passed. The editors store the whole entry "name (address)"; nmcli
-        users write the name or the address. gpclient matches the exact name
-        or address, so the name of the entry is passed in every case.
+        users write the name or the address. gpclient takes the first gateway
+        whose name or address equals the value. Names are not unique and the
+        cache may have changed a name (_gateway_entry), addresses are unique:
+        so the address of the entry is passed, its name only without one.
         """
         preferred = self.preferred_gateway
         if not preferred or self._gateway_flag_dropped:
@@ -3267,7 +3269,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 name, _, host = entry[:-1].rpartition("(")
                 name, host = name.strip(), host.strip()
             if name and preferred in (entry, name, host):
-                return name
+                return host or name
         return ""
 
     async def _retry_without_gateway(self) -> bool:
