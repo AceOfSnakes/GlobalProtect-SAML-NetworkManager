@@ -130,14 +130,18 @@ class TestGatewayFlag:
             # names are not unique: the picked entry decides, by its address
             ("VPN (b.example.com)", "VPN (a.example.com);VPN (b.example.com)", "b.example.com"),
             ("b.example.com", "VPN (a.example.com);VPN (b.example.com)", "b.example.com"),
-            # the cache has no comma in a name: the address is still exact
+            # the cache writes "Office, Berlin" as "Office Berlin" (_gateway_entry):
+            # the name differs from upstream's, the address does not
             ("Office Berlin (b.example.com)", "Office Berlin (b.example.com)", "b.example.com"),
             ("Office Berlin", "Office Berlin (b.example.com)", "b.example.com"),
             ("plain", "plain", "plain"),  # an entry without an address
             ("gw-b (b.example.com) ", STORED, ""),  # not exact
             ("(b.example.com)", STORED, ""),
             ("gw-b (other.example.com)", STORED, ""),
-            ("gw-b", "(b.example.com)", ""),  # an entry without a name
+            # an entry without a name (upstream prints " (address)")
+            ("(b.example.com)", "(b.example.com)", "b.example.com"),
+            ("b.example.com", "(b.example.com)", "b.example.com"),
+            ("gw-b", "(b.example.com)", ""),
         ],
     )
     def test_cached_gateway_arg(self, service_module, preferred, stored, expected):

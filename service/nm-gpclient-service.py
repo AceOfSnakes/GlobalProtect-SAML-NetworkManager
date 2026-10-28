@@ -3268,7 +3268,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if entry.endswith(")") and "(" in entry:
                 name, _, host = entry[:-1].rpartition("(")
                 name, host = name.strip(), host.strip()
-            if name and preferred in (entry, name, host):
+            # an entry without a name, "(address)", is matched by its address
+            if (name or host) and preferred in (entry, name, host):
                 return host or name
         return ""
 

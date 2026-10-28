@@ -36,9 +36,9 @@ Starts VPN connection.
 
 **Process:**
 1. Gets configuration from NetworkManager
-2. Runs `gpclient connect --browser X Z`. It adds `--gateway=<preferred-gateway>`
-   when the portal offered that entry, name or address before (it is in
-   `gateway-list`)
+2. Runs `gpclient connect --browser X Z`. It adds `--gateway=<address of the cached entry>`
+   when `preferred-gateway` is an entry, name or address the portal offered
+   before (it is in `gateway-list`)
    With `saml-auth=dialog` it first asks the auth dialog for the SAML result
    and then adds `--cookie-on-stdin` (no `--browser`, no `SUDO_UID`); see
    [INTERACTIVE_AUTH.md](INTERACTIVE_AUTH.md#saml-login-in-the-auth-dialog).
