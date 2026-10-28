@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Selalu aktif"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Tanya setiap kali (tidak disimpan)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Kata sandi"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Penyimpanan kata sandi:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Kata sandi:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS memungkinkan domain khusus VPN diselesaikan lewat DNS VPN, sementara domain lain memakai DNS lokal.\n"
 "Timpa: masukkan server DNS yang dipisahkan titik koma (mis. 8.8.8.8;8.8.4.4) untuk memakai DNS khusus."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Simpan untuk semua pengguna (sistem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Simpan hanya untuk pengguna ini (agen)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Nama pengguna dan kata sandi (token RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Nama pengguna:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Tempat kata sandi disimpan. “Tanya setiap kali” tidak menyimpan apa pun."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Path absolut opsional ke berkas kunci privat (PEM), yang harus dimiliki oleh pengguna desktop. Diabaikan tanpa sertifikat klien."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Penyimpanan frasa sandi:"
 
 #: rc.cpp
 #, kde-format

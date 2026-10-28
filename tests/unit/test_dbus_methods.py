@@ -410,6 +410,27 @@ class TestConnectRouting:
 
         assert plugin.ipv6_method == expected
 
+    @pytest.mark.parametrize(
+        "ipv4, expected",
+        [
+            ({"method": ("s", "manual")}, "manual"),
+            ({"method": "disabled"}, "disabled"),
+            ({"method": ("s", "auto")}, "auto"),
+            ({}, "auto"),
+            (None, "auto"),
+        ],
+    )
+    def test_ipv4_method(self, service_module, monkeypatch, ipv4, expected):
+        plugin = _plugin(service_module, monkeypatch)
+        plugin.ipv4_method = "manual"  # a stale value of an earlier Connect
+        conn = _conn()
+        if ipv4 is not None:
+            conn["ipv4"] = ipv4
+
+        connect(plugin, conn)
+
+        assert plugin.ipv4_method == expected
+
     def test_never_default_and_ignore_auto_routes(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
 

@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Aina käytössä"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Kysy joka kerta (ei tallenneta)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Salasana"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Salasanan tallennus:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Salasana:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS mahdollistaa VPN-kohtaisten verkkotunnusten selvittämisen VPN:n DNS:llä, kun muille verkkotunnuksille käytetään paikallista DNS:ää.\n"
 "Ohitus: anna puolipisteillä erotetut DNS-palvelimet (esim. 8.8.8.8;8.8.4.4) käyttääksesi omaa DNS:ää."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Tallenna kaikille käyttäjille (järjestelmä)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Tallenna vain tälle käyttäjälle (agentti)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Käyttäjätunnus ja salasana (RSA-tunnus)"
 #, kde-format
 msgid "Username:"
 msgstr "Käyttäjätunnus:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Minne salasana tallennetaan. ”Kysy joka kerta” ei tallenna mitään."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Yksityisen avaimen tiedoston valinnainen absoluuttinen polku (PEM), jonka omistajan on oltava työpöytäkäyttäjä. Ohitetaan ilman asiakasvarmennetta."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Salasanan tallennus:"
 
 #: rc.cpp
 #, kde-format

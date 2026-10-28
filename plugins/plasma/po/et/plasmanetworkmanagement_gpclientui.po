@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Alati sees"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Küsi iga kord (ei salvestata)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Parool"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Parooli salvestamine:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Parool:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Jagatud DNS võimaldab VPN-i-spetsiifilisi domeene lahendada VPN-i DNS-i kaudu ja kasutada muude domeenide jaoks kohalikku DNS-i.\n"
 "Ülekirjutamine: sisestage poolkoolonitega eraldatud DNS-serverid (nt 8.8.8.8;8.8.4.4), et kasutada selle asemel enda DNS-servereid."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Salvesta kõigile kasutajatele (süsteem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Salvesta ainult sellele kasutajale (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Kasutajanimi ja parool (RSA tunnus)"
 #, kde-format
 msgid "Username:"
 msgstr "Kasutajanimi:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Kus parooli hoitakse. „Küsi iga kord“ ei salvesta midagi."
 
 #: rc.cpp
 #, kde-format
@@ -431,11 +406,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Privaatvõtme faili valikuline absoluutne tee (PEM), mis peab kuuluma töölauakasutajale. Ilma kliendisertifikaadita eiratakse."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Parooifraasi salvestamine:"
 
 #: rc.cpp
 #, kde-format

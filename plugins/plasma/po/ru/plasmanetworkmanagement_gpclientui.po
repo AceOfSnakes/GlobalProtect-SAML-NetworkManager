@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Всегда включено"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Спрашивать каждый раз (не сохраняется)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "Пароль"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Хранение пароля:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Пароль:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "Раздельный DNS позволяет разрешать домены VPN через DNS VPN, а остальные домены — через локальный DNS.\n"
 "Переопределение: введите DNS-серверы через точку с запятой (например, 8.8.8.8;8.8.4.4), чтобы использовать вместо этого свои."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Хранить для всех пользователей (системно)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Хранить только для этого пользователя (агент)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "Имя пользователя и пароль (токен RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Имя пользователя:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Где хранится пароль. «Спрашивать каждый раз» ничего не сохраняет."
 
 #: rc.cpp
 #, kde-format
@@ -457,11 +432,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Необязательный абсолютный путь к файлу закрытого ключа (PEM); владельцем файла должен быть пользователь рабочего стола. Без клиентского сертификата игнорируется."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Хранение парольной фразы:"
 
 #: rc.cpp
 #, kde-format

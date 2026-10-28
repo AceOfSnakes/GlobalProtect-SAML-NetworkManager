@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Altijd aan"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Elke keer vragen (niet opgeslagen)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "Wachtwoord"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Wachtwoordopslag:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Wachtwoord:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "Met split-DNS worden VPN-specifieke domeinen via de VPN-DNS omgezet en andere domeinen via de lokale DNS.\n"
 "Overschrijven: voer door puntkomma's gescheiden DNS-servers in (bijv. 8.8.8.8;8.8.4.4) om in plaats daarvan eigen DNS te gebruiken."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Opslaan voor alle gebruikers (systeem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Alleen voor deze gebruiker opslaan (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "Gebruikersnaam en wachtwoord (RSA-token)"
 #, kde-format
 msgid "Username:"
 msgstr "Gebruikersnaam:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Waar het wachtwoord wordt bewaard. \"Elke keer vragen\" slaat niets op."
 
 #: rc.cpp
 #, kde-format
@@ -457,11 +432,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Optioneel absoluut pad naar het bestand met de privésleutel (PEM), dat eigendom moet zijn van de bureaubladgebruiker. Genegeerd zonder clientcertificaat."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Opslag van de wachtzin:"
 
 #: rc.cpp
 #, kde-format

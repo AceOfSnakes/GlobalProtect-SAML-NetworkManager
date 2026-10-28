@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Întotdeauna activat"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Întreabă de fiecare dată (nesalvată)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "Parolă"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Stocarea parolei:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Parolă:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "DNS-ul divizat permite rezolvarea domeniilor specifice VPN prin DNS-ul VPN, folosind DNS-ul local pentru celelalte domenii.\n"
 "Suprascriere: introduceți servere DNS separate prin punct și virgulă (de exemplu, 8.8.8.8;8.8.4.4) pentru a folosi în schimb un DNS personalizat."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Stochează pentru toți utilizatorii (sistem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Stochează numai pentru acest utilizator (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "Nume de utilizator și parolă (token RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Nume de utilizator:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Unde se păstrează parola. „Întreabă de fiecare dată” nu stochează nimic."
 
 #: rc.cpp
 #, kde-format
@@ -457,11 +432,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Calea absolută opțională a fișierului cheii private (PEM), care trebuie să aparțină utilizatorului desktopului. Ignorată fără certificat client."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Stocarea frazei secrete:"
 
 #: rc.cpp
 #, kde-format

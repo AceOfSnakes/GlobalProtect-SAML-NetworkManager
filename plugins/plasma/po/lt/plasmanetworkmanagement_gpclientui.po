@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Visada įjungta"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Klausti kaskart (neįrašoma)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "Slaptažodis"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Slaptažodžio laikymas:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Slaptažodis:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "Suskaidytas DNS leidžia VPN domenus išspręsti per VPN DNS, o kitus domenus - per vietinį DNS.\n"
 "Nepaisyti: įveskite kabliataškiais atskirtus DNS serverius (pvz., 8.8.8.8;8.8.4.4), kad vietoj to būtų naudojamas jūsų DNS."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Laikyti visiems naudotojams (sistemoje)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Laikyti tik šiam naudotojui (agente)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "Naudotojo vardas ir slaptažodis (RSA raktas)"
 #, kde-format
 msgid "Username:"
 msgstr "Naudotojo vardas:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Kur laikomas slaptažodis. „Klausti kaskart“ nieko neįrašo."
 
 #: rc.cpp
 #, kde-format
@@ -457,11 +432,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "Pasirinktinis absoliutus privataus rakto failo kelias (PEM), kuris turi priklausyti darbalaukio naudotojui. Be kliento sertifikato ignoruojamas."
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "Slaptafrazės saugojimas:"
 
 #: rc.cpp
 #, kde-format

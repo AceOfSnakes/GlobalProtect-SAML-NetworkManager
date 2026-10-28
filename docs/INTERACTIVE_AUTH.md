@@ -66,7 +66,7 @@ read it in the process list, and your shell keeps it in its history.
 
 Ask NetworkManager to collect the password upfront. In the editor, choose
 **Username and password** and type the password in the **Password** field: the
-storage menu (the icon in the field in GNOME, the **Password storage** list in
+storage menu (the icon in the field in GNOME, the list under the field in
 Plasma) sets `password-flags` (1 = this user only, 0 = all users, in the
 profile as plain text, 2 = ask every time). Emptying the field does not delete
 a stored password (NetworkManager keeps the old one): choose "ask every time"

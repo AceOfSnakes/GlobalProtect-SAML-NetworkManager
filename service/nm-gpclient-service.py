@@ -1837,6 +1837,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # Routing configuration
         self.never_default = False
         self.ignore_auto_routes = False
+        self.ipv4_method = "auto"  # the profile's ipv4.method
         self.ipv6_method = "auto"  # the profile's ipv6.method
 
         # The tunnel's IPv6 address, from the last notification
@@ -2027,6 +2028,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.info(f"never-default: {self.never_default}")
             self.ignore_auto_routes = ipv4_config.get("ignore-auto-routes", False)
             logger.info(f"ignore-auto-routes: {self.ignore_auto_routes}")
+            self.ipv4_method = ipv4_config.get("method", "auto")
             ipv6_method = connection.get("ipv6", {}).get("method", "auto")
             if isinstance(ipv6_method, tuple) and len(ipv6_method) == 2:
                 ipv6_method = ipv6_method[1]
@@ -4720,7 +4722,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 "vpnc-script reports no usable tunnel address (IPv4 or IPv6)",
             )
             return
-        # NetworkManager 1.46 and newer ignore has-ip6 unless ipv6.method is
+        # NetworkManager 1.42 and newer ignore has-ip6 unless ipv6.method is
         # "auto", so an IPv6-only tunnel would come up with no IP configuration.
         # On 1.36 (Ubuntu 22.04) this refuses a tunnel NM would have brought up
         # with another method: accepted, the profile does not ask for automatic
@@ -4732,6 +4734,24 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 f"ipv6.method is {self.ipv6_method!r}",
             )
             return
+
+        # NetworkManager 1.42 and newer ignore has-ip4 unless ipv4.method is
+        # "auto" (1.36 does not). Same accepted refusal as for IPv6 above; with
+        # a working automatic IPv6 the tunnel still comes up, so only warn.
+        if address is not None and self.ipv4_method != "auto":
+            if self._tunnel_ip6 is not None and self.ipv6_method == "auto":
+                logger.warning(
+                    "NetworkManager may ignore the IPv4 tunnel configuration: "
+                    f"ipv4.method is {self.ipv4_method!r}, not 'auto'"
+                )
+            else:
+                self._fail(
+                    NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG,
+                    "The tunnel has an IPv4 address, but the profile's "
+                    f"ipv4.method is {self.ipv4_method!r}: NetworkManager would "
+                    "not apply it; set ipv4.method auto",
+                )
+                return
 
         config: Dict[str, Tuple[str, Any]] = {"tundev": ("s", iface)}
         if address is None:

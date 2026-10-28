@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr ""
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr ""
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -244,11 +239,6 @@ msgstr ""
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr ""
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr ""
 
@@ -283,16 +273,6 @@ msgid ""
 "use custom DNS instead."
 msgstr ""
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr ""
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr ""
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -311,11 +291,6 @@ msgstr ""
 #: rc.cpp
 #, kde-format
 msgid "Username:"
-msgstr ""
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
 msgstr ""
 
 #: rc.cpp
@@ -434,11 +409,6 @@ msgstr ""
 msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
-msgstr ""
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
 msgstr ""
 
 #: rc.cpp

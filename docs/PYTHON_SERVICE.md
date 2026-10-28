@@ -50,8 +50,10 @@ Starts VPN connection.
    activation that never gets there
 5. On `Notify`, emits `Config`, `Ip4Config` only with an IPv4 address and
    `Ip6Config` only with an IPv6 address, then `StateChanged(STARTED)`. With
-   neither address, or with only an IPv6 address and an `ipv6.method` other
-   than `auto`, it emits `Failure(BAD_IP_CONFIG)` instead
+   neither address, with only an IPv6 address and an `ipv6.method` other
+   than `auto`, or with an IPv4 address and an `ipv4.method` other than `auto`
+   (unless it also has an IPv6 address and `ipv6.method` is `auto`), it emits
+   `Failure(BAD_IP_CONFIG)` instead
 
 #### `Disconnect()`
 Disconnects VPN.
@@ -133,7 +135,11 @@ Passes IP configuration to NetworkManager. Skipped for an IPv6-only tunnel
 
 There is no `routes` key: NetworkManager applies the connection's
 `ipv4.routes` itself on top of the VPN configuration, so the service does not
-send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook.
+send them back. `never-default` and `ignore-auto-routes` go to the vpnc hook:
+with `ignore-auto-routes` it empties the gateway's IPv4 and IPv6 split lists,
+so vpnc-script adds no split route and no default route (#152). Both flags are read
+from the `ipv4` setting and act on IPv6 too; `ipv6.ignore-auto-routes` and
+`ipv6.never-default` are not read (put IPv6 networks in `ipv6.routes`).
 
 #### `Ip6Config(a{sv})`
 Sent after `Ip4Config` (or first, for an IPv6-only tunnel), only for a tunnel
@@ -152,8 +158,9 @@ is no `Ip6Config` and `has-ip6` is false.
   gateway's `INTERNAL_IP6_DNS`
 - `domains` (array of string) - the same list as in `Ip4Config`
 - `never-default` (boolean) - true when the profile has `ipv4.never-default`,
-  so NetworkManager adds no IPv6 default route either (an IPv6 default route
-  that vpnc-script adds itself stays: issue #109)
+  so NetworkManager adds no IPv6 default route either (and the routing hook
+  removes `::/0` from `CISCO_IPV6_SPLIT_INC`, or sets an empty list when the
+  gateway sends none, so vpnc-script adds none: issue #109)
 
 The gateway's DNS reaches the service in the `Notify` call: vpnc-script runs
 the hooks with openconnect's environment (`INTERNAL_IP4_DNS`,
@@ -249,9 +256,12 @@ On `connect` the service:
    (`has-ip4`), and `Ip6Config` when it has an IPv6 address (`has-ip6`). A
    tunnel with neither address fails with `BAD_IP_CONFIG`; so does an
    IPv6-only tunnel when the profile's `ipv6.method` is not `auto`
-   (NetworkManager 1.46 and newer ignore `has-ip6` then; on 1.36 this refuses
+   (NetworkManager 1.42 and newer ignore `has-ip6` then; on 1.36 this refuses
    a tunnel NetworkManager would have brought up, which is accepted: the
-   profile does not ask for automatic IPv6). The `Config`
+   profile does not ask for automatic IPv6). A tunnel with an IPv4 address
+   fails the same way when `ipv4.method` is not `auto` (NetworkManager 1.42
+   and newer ignore `has-ip4` then), unless it also has an IPv6 address and
+   `ipv6.method` is `auto`: then the service only logs a warning. The `Config`
    `gateway` is the VPN server: `u` for IPv4, `ay` for IPv6 (NetworkManager
    1.36 and 1.46 read both from that key); without a server address, the
    tunnel's own address
@@ -261,7 +271,8 @@ On `connect` the service:
 
 On `reconnect` it only emits `Config` again, `Ip4Config` only with an IPv4
 address, and `Ip6Config` only with an IPv6 address. A `reconnect` without a
-usable address (or IPv6-only with a non-`auto` `ipv6.method`) fails the
+usable address (or IPv6-only with a non-`auto` `ipv6.method`, or IPv4 with
+a non-`auto` `ipv4.method`, see above) fails the
 connection: `Failure`, `STOPPED`, and gpclient is terminated.
 
 Everything from the checks to the signals runs without an `await`, so a

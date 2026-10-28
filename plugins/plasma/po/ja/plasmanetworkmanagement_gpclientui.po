@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "常に有効"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "毎回尋ねる (保存しない)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "パスワード"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "パスワードの保存先:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "パスワード:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "スプリット DNS では、VPN 固有のドメインは VPN の DNS で名前解決し、それ以外のドメインはローカルの DNS を使用します。\n"
 "オーバーライド: セミコロンで区切った DNS サーバー (例: 8.8.8.8;8.8.4.4) を入力すると、代わりにそれらを使用します。"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "すべてのユーザー用に保存 (システム)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "このユーザーのみ用に保存 (エージェント)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "ユーザー名とパスワード (RSA トークン)"
 #, kde-format
 msgid "Username:"
 msgstr "ユーザー名:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "パスワードの保存先。「毎回尋ねる」では何も保存されません。"
 
 #: rc.cpp
 #, kde-format
@@ -457,11 +432,6 @@ msgid ""
 "Optional absolute path to the private key file (PEM), owned by your "
 "desktop user. Ignored without a client certificate."
 msgstr "秘密鍵ファイル (PEM) の絶対パス (省略可)。デスクトップユーザーが所有している必要があります。クライアント証明書がない場合は無視されます。"
-
-#: rc.cpp
-#, kde-format
-msgid "Passphrase storage:"
-msgstr "パスフレーズの保存先:"
 
 #: rc.cpp
 #, kde-format
