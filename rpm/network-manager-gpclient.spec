@@ -254,6 +254,8 @@ test -x %{buildroot}%{_bindir}/gpclient
 test -f %{buildroot}%{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
 test -d %{buildroot}%{python3_sitearch}/sdbus
 PYTHONPATH=%{buildroot}%{python3_sitearch} /usr/bin/python3 -c 'import sdbus'
+# The Plasma widget tests, as debian/rules runs them
+(cd plugins/plasma/build && ctest --output-on-failure --no-tests=error)
 
 %post
 %if 0%{?fedora} || 0%{?rhel}

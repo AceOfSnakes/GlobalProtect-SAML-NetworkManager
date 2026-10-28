@@ -1036,3 +1036,26 @@ def test_selinux_te_check_rejects_a_changed_rule(old, new):
 def test_selinux_te_check_rejects_a_missing_rule():
     te = "\n".join(line for line in good_te_rules().splitlines() if "ptmx_t:chr_file" not in line)
     assert selinux_te_problems(te)
+
+
+def check_section(spec):
+    return spec.split("\n%check\n", 1)[1].split("\n%post", 1)[0]
+
+
+CTEST = "(cd plugins/plasma/build && ctest --output-on-failure --no-tests=error)"
+
+
+def test_spec_check_runs_the_plasma_widget_tests_as_debian_does():
+    assert CTEST in check_section(read("rpm/network-manager-gpclient.spec"))
+    assert "cd plugins/plasma/build && ctest --output-on-failure --no-tests=error" in read("debian/rules")
+
+
+@pytest.mark.parametrize("old, new", [
+    (CTEST + "\n", ""),  # not run
+    ("--no-tests=error", ""),  # a build without tests would pass
+])
+def test_a_check_without_the_plasma_widget_tests_is_found(old, new):
+    spec = read("rpm/network-manager-gpclient.spec")
+    assert old in spec
+
+    assert CTEST not in check_section(spec.replace(old, new, 1))
