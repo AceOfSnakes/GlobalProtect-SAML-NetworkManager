@@ -300,6 +300,11 @@ the service keeps both. After a SIGKILL it runs that script as root with
 (`VPNC_DISCONNECT_TIMEOUT`). It uses the path only if it is absolute and a
 regular, executable file owned by root that group and others cannot write. With
 `nm-routing` there is nothing to undo, so the script does not send the path.
+The service keeps only the environment of the `connect` notification: the
+routing hook edited the split lists and the DNS domains for it, and a
+`reconnect` carries the gateway's raw lists but changes no routes or DNS. The
+worst case of `Disconnect()` is now about 10 s (SIGTERM) + 2 s (SIGKILL) + 10 s
+(the script).
 Known limit: if gpclient crashes on its own, the service does not run the
 script.
 

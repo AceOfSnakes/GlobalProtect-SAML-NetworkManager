@@ -4843,7 +4843,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """
         iface = self._check_notify(reason, token, env)
         logger.info(f"VPN connected - vpnc-script reports tunnel {iface} ({reason})")
-        self._remember_vpnc_disconnect(env)
+        # Only the connect: a reconnect has the gateway's raw split lists (the
+        # routing hook does not run for it) and changes no routes or DNS
+        if reason == VPNC_REASON_CONNECT:
+            self._remember_vpnc_disconnect(env)
 
         address = tunnel_ipv4_from_env(env)
         # The Config "gateway" is the VPN server's address, which NetworkManager
@@ -4971,7 +4974,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         if vpnc_script_path(path) is None:
             logger.warning("Not using the vpnc-script path the hook reported: unsafe")
             return
-        keep = {k: v for k, v in env.items() if k != VPNC_SCRIPT_ENV}
+        keep = {k: env[k] for k in VPNC_NOTIFY_ENV if k in env and k != VPNC_SCRIPT_ENV}
         if not keep.get("VPNPID", "0").isdigit():
             del keep["VPNPID"]
         self._vpnc_disconnect = (path, keep)
@@ -4983,6 +4986,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             return
         path, env = self._vpnc_disconnect
         self._vpnc_disconnect = None
+        if vpnc_script_path(path) is None:  # changed since the notification
+            logger.warning(f"Not running {path} for the disconnect: it is unsafe now")
+            return
         logger.warning(
             "gpclient was killed before vpnc-script could undo its routes and "
             f"DNS: running {path} with reason=disconnect"
@@ -4990,7 +4996,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         try:
             proc = await asyncio.create_subprocess_exec(
                 path,
-                env={"PATH": VPNC_DISCONNECT_PATH, "reason": "disconnect", **env},
+                env={**env, "PATH": VPNC_DISCONNECT_PATH, "reason": "disconnect"},
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

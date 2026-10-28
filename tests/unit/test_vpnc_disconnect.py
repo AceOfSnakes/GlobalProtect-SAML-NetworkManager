@@ -147,10 +147,14 @@ class TestRunAfterKill:
         )
 
     def test_a_script_that_cannot_start_does_not_raise(
-        self, service_module, make_script, caplog
+        self, service_module, make_script, caplog, monkeypatch
     ):
         plugin = _connected(service_module, make_script())
-        os.remove(plugin._vpnc_disconnect[0])
+
+        async def broken(*args, **kwargs):
+            raise OSError("exec format error")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", broken)
 
         _stop(plugin, FakeGpclient(exit_after=None))
 
@@ -218,6 +222,71 @@ class TestNoRun:
         _stop(plugin, GonePid(exit_after=None))
 
         assert _ran(make_script) is None
+
+
+class TestContext:
+    def test_a_reconnect_keeps_the_connect_environment(
+        self, service_module, make_script
+    ):
+        # the reconnect carries the gateway's raw lists (the routing hook does
+        # not run for it)
+        plugin = _connected(service_module, make_script())
+        notify(
+            plugin,
+            vpnc_env(
+                VPNPID="777",
+                GPCLIENT_VPNC_SCRIPT=plugin._vpnc_disconnect[0],
+                CISCO_SPLIT_EXC="1",
+                CISCO_SPLIT_EXC_0_ADDR="198.51.100.0",
+                CISCO_SPLIT_EXC_0_MASKLEN="24",
+            ),
+            reason="reconnect",
+        )
+
+        _stop(plugin, FakeGpclient(exit_after=None))
+
+        got = _ran(make_script)
+        assert got["CISCO_SPLIT_EXC_0_ADDR"] == "192.0.2.0"
+
+    def test_a_reconnect_alone_remembers_nothing(self, service_module, make_script):
+        plugin = _connected(service_module, None)
+        notify(plugin, vpnc_env(GPCLIENT_VPNC_SCRIPT=make_script()), reason="reconnect")
+
+        assert plugin._vpnc_disconnect is None
+
+    @pytest.mark.parametrize(
+        "name, value",
+        [("PATH", "/tmp/evil"), ("reason", "connect"), ("LD_PRELOAD", "/tmp/x.so"),
+         ("BASH_ENV", "/tmp/x"), ("ENV", "/tmp/x"), ("HOME", "/tmp")],
+    )
+    def test_only_the_listed_variables_reach_the_script(
+        self, service_module, make_script, name, value
+    ):
+        plugin = active_plugin(service_module)
+        notify(plugin, vpnc_env(GPCLIENT_VPNC_SCRIPT=make_script(), **{name: value}))
+
+        _stop(plugin, FakeGpclient(exit_after=None))
+
+        got = _ran(make_script)
+        assert got["reason"] == "disconnect"
+        assert got["PATH"] == service_module.VPNC_DISCONNECT_PATH
+        assert got.get(name) != value or name in ("PATH", "reason")
+
+    @pytest.mark.parametrize("change", ["writable", "removed"])
+    def test_a_script_that_changed_since_the_notification_is_not_run(
+        self, service_module, make_script, caplog, change
+    ):
+        script = make_script()
+        plugin = _connected(service_module, script)
+        if change == "removed":
+            os.remove(script)
+        else:
+            os.chmod(script, 0o777)
+
+        _stop(plugin, FakeGpclient(exit_after=None))
+
+        assert _ran(make_script) is None
+        assert "unsafe now" in caplog.text
 
 
 class TestPathCheck:
@@ -324,11 +393,16 @@ class TestHooks:
         assert got == "unset"
 
     def test_the_hook_does_not_leak_it_into_vpnc_script(self, tmp_path):
+        notify_prog = tmp_path / "notify"
+        notify_prog.write_text("#!/bin/sh\nexit 0\n")
+        notify_prog.chmod(0o755)
         fake = tmp_path / "vpnc-script"
         fake.write_text(f'#!/bin/sh\n. "{HOOK}"\necho "${{GPCLIENT_VPNC_SCRIPT-unset}}"\n')
         fake.chmod(0o755)
+        env = {"PATH": os.environ["PATH"], "GPCLIENT_NM_TOKEN": "t",
+               "GPCLIENT_NM_NOTIFY": str(notify_prog), "reason": "connect"}
 
-        out = subprocess.run([str(fake)], env={"PATH": os.environ["PATH"]},
-                             capture_output=True, text=True, check=True).stdout
+        out = subprocess.run([str(fake)], env=env, capture_output=True, text=True,
+                             check=True).stdout
 
         assert out.strip() == "unset"
