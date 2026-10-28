@@ -3437,6 +3437,26 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             "by the portal - retrying without --gateway"
         )
         self._gateway_flag_dropped = True
+        if self._auth_result:
+            # The first gpclient sent this prelogin cookie to the portal, and a
+            # portal may accept it only once: the dialog makes a new one.
+            # (_written_secrets keeps the old value: the log stays scrubbed)
+            logger.info(
+                "The SAML result was already used at the portal - asking the "
+                "auth dialog for a new login before the retry"
+            )
+            gen = self._session_gen
+            self._auth_result = ""
+            try:
+                await self._request_auth_result()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if gen == self._generation:
+                    self._fail_login(f"The SAML login in the auth dialog failed: {e}")
+                return True
+            if gen != self._generation:
+                return True
         if await self._restart_gpclient():
             return True
 
