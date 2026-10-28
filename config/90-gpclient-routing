@@ -36,21 +36,27 @@ unset_indexed() {
   export "$_count_var"
 }
 
-# Helper: remove default-route-like entry (MASK=0.0.0.0) and compact indices
+# Helper: remove default-route entries and compact indices.
+# Args: prefix (CISCO_SPLIT_INC or CISCO_IPV6_SPLIT_INC), field that marks
+# a default route (MASK or MASKLEN), its value (0.0.0.0 or 0)
 compact_split_inc_remove_default() {
-  _old=${CISCO_SPLIT_INC:-0}
+  _pfx="$1"
+  _mfield="$2"
+  _mdef="$3"
+  eval "_old=\${$_pfx:-0}"
+
   case "$_old" in ''|*[!0-9]*) _old=0 ;; esac
 
   _new=0
   _i=0
   while [ "$_i" -lt "$_old" ]; do
-    eval "_mask=\${CISCO_SPLIT_INC_${_i}_MASK-}"
+    eval "_mask=\${${_pfx}_${_i}_${_mfield}-}"
 
-    # treat 0.0.0.0 mask as invalid/default
+    # a default-route entry is dropped
     # shellcheck disable=SC2154 # _mask is set by the eval above
-    if [ "$_mask" = "0.0.0.0" ]; then
+    if [ "$_mask" = "$_mdef" ]; then
       for _f in $fields; do
-        unset "CISCO_SPLIT_INC_${_i}_${_f}"
+        unset "${_pfx}_${_i}_${_f}"
       done
       _i=$((_i+1))
       continue
@@ -59,17 +65,17 @@ compact_split_inc_remove_default() {
     # move i -> new
     if [ "$_new" -ne "$_i" ]; then
       for _f in $fields; do
-        eval "_val=\${CISCO_SPLIT_INC_${_i}_${_f}-}"
+        eval "_val=\${${_pfx}_${_i}_${_f}-}"
 
         if [ -n "$_val" ]; then
-          eval "CISCO_SPLIT_INC_${_new}_${_f}=\"\$_val\""
-          eval "export CISCO_SPLIT_INC_${_new}_${_f}"
+          eval "${_pfx}_${_new}_${_f}=\"\$_val\""
+          eval "export ${_pfx}_${_new}_${_f}"
         else
-          unset "CISCO_SPLIT_INC_${_new}_${_f}"
+          unset "${_pfx}_${_new}_${_f}"
         fi
       done
       for _f in $fields; do
-        unset "CISCO_SPLIT_INC_${_i}_${_f}"
+        unset "${_pfx}_${_i}_${_f}"
       done
     fi
 
@@ -81,13 +87,14 @@ compact_split_inc_remove_default() {
   _j=$_new
   while [ "$_j" -lt "$_old" ]; do
     for _f in $fields; do
-      unset "CISCO_SPLIT_INC_${_j}_${_f}"
+      unset "${_pfx}_${_j}_${_f}"
     done
     _j=$((_j+1))
   done
 
-  CISCO_SPLIT_INC=$_new
-  export CISCO_SPLIT_INC
+  eval "$_pfx=\$_new"
+  # shellcheck disable=SC2163 # exports the variable named by _pfx, on purpose
+  export "$_pfx"
 }
 
 # Add custom DNS domains if specified
@@ -117,5 +124,10 @@ if [ "$ignore_all" = "1" ]; then
 
 elif [ "$never_def" = "1" ]; then
   echo "vpnc hook: NM never-default=1 -> removing default route from split-inc" >&2
-  compact_split_inc_remove_default
+  compact_split_inc_remove_default CISCO_SPLIT_INC MASK 0.0.0.0
+  # IPv6 (#109): vpnc-script adds an IPv6 default route for a ::/0 entry, and
+  # when CISCO_IPV6_SPLIT_INC is empty and INTERNAL_IP6_* is set. The helper
+  # leaves the count "0" (not empty) in both cases, as for IPv4: no IPv6 route
+  # from split-inc, and the INTERNAL_IP6_* address variables stay untouched.
+  compact_split_inc_remove_default CISCO_IPV6_SPLIT_INC MASKLEN 0
 fi

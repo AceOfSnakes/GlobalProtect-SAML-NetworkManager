@@ -154,8 +154,9 @@ is no `Ip6Config` and `has-ip6` is false.
   gateway's `INTERNAL_IP6_DNS`
 - `domains` (array of string) - the same list as in `Ip4Config`
 - `never-default` (boolean) - true when the profile has `ipv4.never-default`,
-  so NetworkManager adds no IPv6 default route either (an IPv6 default route
-  that vpnc-script adds itself stays: issue #109)
+  so NetworkManager adds no IPv6 default route either (and the routing hook
+  removes `::/0` from `CISCO_IPV6_SPLIT_INC`, or sets an empty list when the
+  gateway sends none, so vpnc-script adds none: issue #109)
 
 The gateway's DNS reaches the service in the `Notify` call: vpnc-script runs
 the hooks with openconnect's environment (`INTERNAL_IP4_DNS`,

@@ -1048,6 +1048,105 @@ class TestRoutingHook:
             assert name in text
 
 
+class TestRoutingHookSplitInc:
+    """Run the hook in sh and read back the split-include variables (#109)."""
+
+    HOOK = TestRoutingHook.HOOK
+
+    def run_hook(self, env):
+        import subprocess
+
+        script = (
+            f'. "{self.HOOK}" 2>/dev/null; '
+            'for v in $(set | grep -o "^CISCO_[A-Z0-9_]*" | sort); do '
+            'eval "echo $v=\\${$v}"; done'
+        )
+        out = subprocess.run(
+            ["sh", "-c", script],
+            env={"PATH": os.environ["PATH"], **env},
+            capture_output=True, text=True, check=True,
+        ).stdout
+        return dict(line.split("=", 1) for line in out.splitlines())
+
+    V6 = {
+        "CISCO_IPV6_SPLIT_INC": "3",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "fd00::",
+        "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48",
+        "CISCO_IPV6_SPLIT_INC_1_ADDR": "::",
+        "CISCO_IPV6_SPLIT_INC_1_MASKLEN": "0",
+        "CISCO_IPV6_SPLIT_INC_2_ADDR": "fd01::",
+        "CISCO_IPV6_SPLIT_INC_2_MASKLEN": "64",
+    }
+
+    def test_ipv6_default_is_removed_and_the_rest_renumbered(self):
+        got = self.run_hook({**self.V6, "GPCLIENT_NM_NEVER_DEFAULT": "1"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "2"
+        assert got["CISCO_IPV6_SPLIT_INC_0_ADDR"] == "fd00::"
+        assert got["CISCO_IPV6_SPLIT_INC_0_MASKLEN"] == "48"
+        assert got["CISCO_IPV6_SPLIT_INC_1_ADDR"] == "fd01::"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "64"
+        assert "CISCO_IPV6_SPLIT_INC_2_ADDR" not in got
+        assert "CISCO_IPV6_SPLIT_INC_2_MASKLEN" not in got
+
+    def test_only_default_leaves_count_zero_not_empty(self):
+        got = self.run_hook({
+            "GPCLIENT_NM_NEVER_DEFAULT": "1",
+            "CISCO_IPV6_SPLIT_INC": "1",
+            "CISCO_IPV6_SPLIT_INC_0_ADDR": "::",
+            "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "0",
+        })
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+        assert "CISCO_IPV6_SPLIT_INC_0_MASKLEN" not in got
+
+    def test_ipv4_default_is_still_removed(self):
+        got = self.run_hook({
+            "GPCLIENT_NM_NEVER_DEFAULT": "1",
+            "CISCO_SPLIT_INC": "2",
+            "CISCO_SPLIT_INC_0_ADDR": "0.0.0.0",
+            "CISCO_SPLIT_INC_0_MASK": "0.0.0.0",
+            "CISCO_SPLIT_INC_0_MASKLEN": "0",
+            "CISCO_SPLIT_INC_1_ADDR": "10.0.0.0",
+            "CISCO_SPLIT_INC_1_MASK": "255.0.0.0",
+            "CISCO_SPLIT_INC_1_MASKLEN": "8",
+        })
+
+        assert got["CISCO_SPLIT_INC"] == "1"
+        assert got["CISCO_SPLIT_INC_0_ADDR"] == "10.0.0.0"
+
+    @pytest.mark.parametrize("never_default", ["0", ""])
+    def test_ipv6_default_stays_without_never_default(self, never_default):
+        got = self.run_hook({**self.V6, "GPCLIENT_NM_NEVER_DEFAULT": never_default})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "3"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "0"
+
+    def test_no_ipv6_list_leaves_count_zero(self):
+        # openconnect sets no list when the gateway sends none; an empty count
+        # makes vpnc-script add an IPv6 default route for INTERNAL_IP6_ADDRESS
+        got = self.run_hook({"GPCLIENT_NM_NEVER_DEFAULT": "1", "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+
+    @pytest.mark.parametrize("never_default", ["0", ""])
+    def test_no_ipv6_list_stays_unset_without_never_default(self, never_default):
+        got = self.run_hook({"GPCLIENT_NM_NEVER_DEFAULT": never_default, "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert "CISCO_IPV6_SPLIT_INC" not in got
+
+    def test_non_default_ipv6_entries_are_kept(self):
+        env = {k: v for k, v in self.V6.items() if "_1_" not in k}
+        env["CISCO_IPV6_SPLIT_INC"] = "2"
+        env["CISCO_IPV6_SPLIT_INC_1_ADDR"] = "fd01::"
+        env["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] = "64"
+        del env["CISCO_IPV6_SPLIT_INC_2_ADDR"], env["CISCO_IPV6_SPLIT_INC_2_MASKLEN"]
+        got = self.run_hook({**env, "GPCLIENT_NM_NEVER_DEFAULT": "1"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "2"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "64"
+
+
 class TestInterfaces:
     def test_the_notification_has_its_own_interface(self, service_module):
         assert service_module.NM_DBUS_INTERFACE_TUNNEL == (
