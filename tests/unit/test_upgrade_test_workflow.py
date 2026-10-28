@@ -669,14 +669,16 @@ class TestEndOfLifeReleases:
         return set(match.group(1).split())
 
     def eol_in_dockerfiles(self):
+        # One Dockerfile.ubuntu for every release: an EOL release's sources blob
+        # names its codename (Suites:)
         found = set()
-        for version, codename in self.CODENAMES.items():
-            with open(os.path.join(ROOT, "Dockerfile.ubuntu"), encoding="utf-8") as handle:
-                text = handle.read()
-            pattern = r'echo "([A-Za-z0-9+/=]+)" \| base64 -d > /etc/apt/sources\.list\.d/ubuntu\.sources'
-            for blob in re.findall(pattern, text):
-                if "old-releases.ubuntu.com" in base64.b64decode(blob).decode():
-                    found.add(codename)
+        with open(os.path.join(ROOT, "Dockerfile.ubuntu"), encoding="utf-8") as handle:
+            text = handle.read()
+        pattern = r'echo "([A-Za-z0-9+/=]+)" \| base64 -d > /etc/apt/sources\.list\.d/ubuntu\.sources'
+        for blob in re.findall(pattern, text):
+            sources = base64.b64decode(blob).decode()
+            if "old-releases.ubuntu.com" in sources:
+                found.update(c for c in self.CODENAMES.values() if re.search(rf"\b{c}\b", sources))
         return found
 
     def test_the_set_matches_the_dockerfiles(self):
