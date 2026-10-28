@@ -441,3 +441,13 @@ msgstr "Vælg den private nøgle"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Vælg HIP-scriptet"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Lad NetworkManager angive ruter og DNS (eksperimentelt)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager konfigurerer tunnelens ruter, DNS og standardrute ud fra det, gatewayen sender, i stedet for vpnc-script. Ruter, som gatewayen udelukker fra tunnelen, ignoreres."

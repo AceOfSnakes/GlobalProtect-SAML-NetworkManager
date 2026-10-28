@@ -368,3 +368,11 @@ msgstr "Vali privaatvõti"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "Vali HIP-skript"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Lase NetworkManageril määrata marsruudid ja DNS (katseline)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager seadistab tunneli marsruudid, DNS-i ja vaikemarsruudi lüüsi saadetud andmete põhjal vpnc-scripti asemel. Marsruute, mille lüüs tunnelist välja jätab, ignoreeritakse."

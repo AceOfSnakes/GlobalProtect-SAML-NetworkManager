@@ -441,3 +441,13 @@ msgstr "Özel anahtarı seçin"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "HIP betiğini seçin"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Rotaları ve DNS'i NetworkManager ayarlasın (deneysel)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager, vpnc-script yerine tünelin rotalarını, DNS'ini ve varsayılan rotasını ağ geçidinin gönderdiklerine göre yapılandırır. Ağ geçidinin tünelden hariç tuttuğu rotalar yok sayılır."
