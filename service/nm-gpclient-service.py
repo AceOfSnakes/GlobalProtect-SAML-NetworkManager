@@ -4975,7 +4975,8 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             logger.warning("Not using the vpnc-script path the hook reported: unsafe")
             return
         keep = {k: env[k] for k in VPNC_NOTIFY_ENV if k in env and k != VPNC_SCRIPT_ENV}
-        if not keep.get("VPNPID", "0").isdigit():
+        pid = keep.get("VPNPID", "0")
+        if not (pid.isascii() and pid.isdigit()):
             del keep["VPNPID"]
         self._vpnc_disconnect = (path, keep)
 

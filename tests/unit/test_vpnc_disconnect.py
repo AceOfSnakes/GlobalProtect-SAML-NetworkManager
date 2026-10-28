@@ -306,9 +306,10 @@ class TestPathCheck:
         assert "GPCLIENT_VPNC_SCRIPT" not in env
         assert env["VPNPID"] == "777" and env["CISCO_SPLIT_EXC_0_ADDR"] == "192.0.2.0"
 
-    def test_a_bad_vpnpid_is_dropped(self, service_module, make_script):
+    @pytest.mark.parametrize("pid", ["../x", "", "\u00b2", "1 2"])
+    def test_a_bad_vpnpid_is_dropped(self, service_module, make_script, pid):
         plugin = active_plugin(service_module)
-        notify(plugin, vpnc_env(VPNPID="../x", GPCLIENT_VPNC_SCRIPT=make_script()))
+        notify(plugin, vpnc_env(VPNPID=pid, GPCLIENT_VPNC_SCRIPT=make_script()))
 
         assert "VPNPID" not in plugin._vpnc_disconnect[1]
 
@@ -409,6 +410,29 @@ class TestHooks:
         subprocess.run([str(fake)], env=env, check=True, capture_output=True)
 
         assert (tmp_path / "got").read_text().strip() == expected
+
+    @pytest.mark.parametrize("set_pid, expected", [
+        ("unset VPNPID\n", "unset unexported"),
+        ("VPNPID=5\n", "5 unexported"),
+    ])
+    def test_the_hook_leaves_vpnpid_of_vpnc_script_alone(self, tmp_path, set_pid, expected):
+        notify_prog = tmp_path / "notify"
+        notify_prog.write_text("#!/bin/sh\nexit 0\n")
+        notify_prog.chmod(0o755)
+        fake = tmp_path / "vpnc-script"
+        fake.write_text(
+            f'#!/bin/sh\n{set_pid}. "{HOOK}"\n'
+            'printf "%s" "${VPNPID-unset}"\n'
+            'sh -c \'[ -z "${VPNPID+x}" ] && printf " unexported"\'\n'
+        )
+        fake.chmod(0o755)
+        env = {"PATH": os.environ["PATH"], "GPCLIENT_NM_TOKEN": "t",
+               "GPCLIENT_NM_NOTIFY": str(notify_prog), "reason": "connect"}
+
+        out = subprocess.run([str(fake)], env=env, capture_output=True, text=True,
+                             check=True).stdout
+
+        assert out.strip() == expected
 
     def test_the_hook_does_not_leak_it_into_vpnc_script(self, tmp_path):
         notify_prog = tmp_path / "notify"

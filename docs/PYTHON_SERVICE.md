@@ -304,6 +304,8 @@ The hook also passes `VPNPID`, which names the state files of vpnc-script
 (default route, resolv.conf backup): openconnect before 9.0 does not export it.
 With `scripts/vpnc-script-debug`, `$0` is the real script, so this run is not
 traced.
+Only the first `VPNC_SPLIT_MAX` (256) entries of each split list are kept;
+exclude routes past them stay.
 The service keeps only the environment of the `connect` notification: the
 routing hook edited the split lists and the DNS domains for it, and a
 `reconnect` carries the gateway's raw lists but changes no routes or DNS. The
