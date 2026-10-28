@@ -102,7 +102,10 @@ if(BUILD_TESTING)
     add_executable(gpclientwidgettest tests/gpclientwidgettest.cpp)
     target_link_libraries(gpclientwidgettest PRIVATE gpclientwidget Qt${QT_MAJOR_VERSION}::Test)
     add_test(NAME gpclientwidgettest COMMAND gpclientwidgettest)
-    set_tests_properties(gpclientwidgettest PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # KWallet off (tests/kwallet-off/kwalletrc): plasma-nm's PasswordField then
+    # defaults to "all users", which the editor must override for a new connection
+    set_tests_properties(gpclientwidgettest PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${CMAKE_CURRENT_SOURCE_DIR}/tests/kwallet-off")
 
     # The SAML login of the auth widget, with a fake gpauth (GPCLIENT_TEST_GPAUTH
     # exists only in this build of the widget)
