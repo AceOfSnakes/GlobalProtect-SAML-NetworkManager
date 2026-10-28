@@ -250,10 +250,6 @@ class TestEchoedAnswers:
         plugin._interactive = True
         plugin._request_secret_interactive = ask
 
-        async def forget():
-            return None
-
-        plugin._forget_one_time_secret = forget
         asyncio.run(plugin._handle_prompt(label))
 
     def test_answered_otp_is_masked_in_the_output(self, service_module, caplog):

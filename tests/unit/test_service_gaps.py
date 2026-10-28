@@ -1379,26 +1379,43 @@ class TestPersistThroughUpdate2:
         assert plugin.fix_openssl_mode == "auto"
 
 
-class TestForgetOneTimeSecretThroughUpdate2:
-    def test_flag_and_drop_are_one_update(self, service_module, nm):
+class TestFlushPendingFlagsThroughUpdate2:
+    def test_noting_changes_nothing_in_the_profile(self, service_module, nm):
         plugin = _connected_plugin(service_module)
 
-        asyncio.run(plugin._forget_one_time_secret())
+        plugin._note_not_saved("otp")
+
+        assert nm.named("Update2") == []
+        assert "otp-flags" not in nm.settings["vpn"]["data"][1]
+        assert "otp" in nm.secrets
+
+    def test_flag_and_drop_are_one_update(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+        plugin._note_not_saved("otp")
+
+        asyncio.run(plugin._flush_pending_flags())
 
         assert len(nm.named("Update2")) == 1
         assert nm.settings["vpn"]["data"][1]["otp-flags"] == "2"
         assert nm.secrets == {"password": "s3cret"}
-        assert plugin._otp_flags_written is True
+        assert plugin._pending_flags == {}
+
+    def test_nothing_pending_writes_nothing(self, service_module, nm):
+        plugin = _connected_plugin(service_module)
+
+        asyncio.run(plugin._flush_pending_flags())
+
+        assert nm.named("Update2") == []
 
     def test_failed_update_leaves_flag_and_secret_alone(self, service_module, nm):
         nm.errors["Update2"] = RuntimeError("denied")
         plugin = _connected_plugin(service_module)
+        plugin._note_not_saved("otp")
 
-        asyncio.run(plugin._forget_one_time_secret())
+        asyncio.run(plugin._flush_pending_flags())
 
         assert "otp-flags" not in nm.settings["vpn"]["data"][1]
         assert "otp" in nm.secrets
-        assert plugin._otp_flags_written is False
 
 
 # --- _request_secret_interactive and the prompts that use it --------------------
@@ -1565,14 +1582,18 @@ class TestHandlePromptAsksTheUser:
         assert asked == []
         assert written == [b"alice\r"]
 
-    def test_one_time_prompt_clears_the_profile_first_then_asks(self, service_module):
+    def test_one_time_prompt_notes_the_flags_and_writes_nothing_before_asking(
+        self, service_module
+    ):
         plugin, asked, written = self._plugin(service_module, answer="123456")
+        plugin._connection_uuid = "uuid"
         order = []
 
-        async def forget():
-            order.append("forget")
+        async def update(*args, **kwargs):
+            order.append("write")
+            return True
 
-        plugin._forget_one_time_secret = forget
+        plugin._update_profile = update
         plugin.vpn_password = "stored"
 
         original = plugin._request_secret_interactive
@@ -1585,9 +1606,31 @@ class TestHandlePromptAsksTheUser:
 
         asyncio.run(plugin._handle_prompt("Enter the RSA token"))
 
-        assert order == ["forget", "ask"]
+        # Issue #120: a profile write before the request makes NM reject it
+        assert order == ["ask"]
+        assert plugin._pending_flags == {"otp-flags": "2"}
+        assert plugin._pending_drop == ["otp"]
         assert asked == [(service_module.OTP_SECRET_KEY, "Enter the RSA token")]
         assert written == [b"123456\r"]
+
+    def test_second_one_time_prompt_writes_nothing_either(self, service_module):
+        plugin, asked, written = self._plugin(service_module, answer="123456")
+        plugin._connection_uuid = "uuid"
+
+        asyncio.run(plugin._handle_prompt("Enter the RSA token"))
+        asyncio.run(plugin._handle_prompt("Enter the RSA token"))
+
+        assert len(asked) == 2
+        assert plugin._pending_drop == ["otp"]
+
+    def test_profile_with_the_flag_notes_nothing(self, service_module):
+        plugin, asked, written = self._plugin(service_module, answer="123456")
+        plugin._connection_uuid = "uuid"
+        plugin._otp_flags_written = True
+
+        asyncio.run(plugin._handle_prompt("Enter the RSA token"))
+
+        assert plugin._pending_flags == {}
 
     def test_failed_request_fails_the_login_and_types_nothing(
         self, service_module, dbus_signals
