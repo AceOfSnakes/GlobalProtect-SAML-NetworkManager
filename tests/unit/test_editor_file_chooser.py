@@ -51,6 +51,25 @@ def test_gtk_editor_sets_the_entry_only_for_a_local_file_and_an_accept(rel):
     assert "GTK_RESPONSE_ACCEPT" in src
 
 
+def modal_chooser(src):
+    """The native chooser is made modal right after it is created (as Plasma's)"""
+    return bool(re.search(
+        r"gtk_file_chooser_native_new \([^;]*;\n(?:\s*/\*[^\n]*\*/\n)?"
+        r"\s*gtk_native_dialog_set_modal \(GTK_NATIVE_DIALOG \(dialog\), TRUE\);", src))
+
+
+@pytest.mark.parametrize("rel", GTK)
+def test_gtk_chooser_is_modal(rel):
+    assert modal_chooser(read(rel))
+
+
+@pytest.mark.parametrize("rel", GTK)
+def test_gtk_chooser_that_is_not_modal_is_found(rel):
+    src = re.sub(r"\s*gtk_native_dialog_set_modal \([^\n]*\n", "\n", read(rel))
+
+    assert not modal_chooser(src)
+
+
 @pytest.mark.parametrize("rel", GTK)
 @pytest.mark.parametrize("field", FIELDS)
 def test_gtk_a_field_without_the_icon_is_found(rel, field):

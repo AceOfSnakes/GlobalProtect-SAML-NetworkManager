@@ -80,6 +80,8 @@ choose_file_icon_press_cb (GtkEntry *entry, GtkEntryIconPosition pos, gpointer t
     GtkFileChooserNative *dialog = gtk_file_chooser_native_new (
         _(title), GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL,
         GTK_FILE_CHOOSER_ACTION_OPEN, NULL, NULL);
+    /* modal, as in Plasma: no second dialog, no dialog left without the editor */
+    gtk_native_dialog_set_modal (GTK_NATIVE_DIALOG (dialog), TRUE);
     const char *current = gtk_editable_get_text (GTK_EDITABLE (entry));
 
     if (g_path_is_absolute (current)) {
