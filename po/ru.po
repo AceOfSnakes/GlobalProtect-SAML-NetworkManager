@@ -383,7 +383,7 @@ msgstr "userkey должен быть абсолютным путём"
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose a file"
-msgstr "Выбрать файл"
+msgstr "Выберите файл"
 
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the client certificate"

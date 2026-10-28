@@ -61,15 +61,21 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 static void
 choose_file_response_cb (GtkNativeDialog *dialog, gint response, gpointer user_data)
 {
-    if (response == GTK_RESPONSE_ACCEPT) {
+    GWeakRef *ref = user_data;
+    GtkWidget *entry = g_weak_ref_get (ref); /* NULL: the editor is gone */
+
+    if (entry && response == GTK_RESPONSE_ACCEPT) {
         GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER (dialog));
         char *path = file ? g_file_get_path (file) : NULL; /* NULL: not a local file */
 
         if (path)
-            gtk_editable_set_text (GTK_EDITABLE (user_data), path);
+            gtk_editable_set_text (GTK_EDITABLE (entry), path);
         g_free (path);
         g_clear_object (&file);
     }
+    g_clear_object (&entry);
+    g_weak_ref_clear (ref);
+    g_free (ref);
     g_object_unref (dialog);
 }
 
@@ -92,7 +98,11 @@ choose_file_icon_press_cb (GtkEntry *entry, GtkEntryIconPosition pos, gpointer t
         g_object_unref (folder);
         g_free (dir);
     }
-    g_signal_connect_object (dialog, "response", G_CALLBACK (choose_file_response_cb), entry, 0);
+    /* A weak reference: the dialog is always freed, even when the editor is
+     * closed first (a portal chooser may stay open) */
+    GWeakRef *ref = g_new0 (GWeakRef, 1);
+    g_weak_ref_init (ref, entry);
+    g_signal_connect (dialog, "response", G_CALLBACK (choose_file_response_cb), ref);
     gtk_native_dialog_show (GTK_NATIVE_DIALOG (dialog));
 }
 G_GNUC_END_IGNORE_DEPRECATIONS

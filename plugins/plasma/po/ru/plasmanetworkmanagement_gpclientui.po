@@ -481,7 +481,7 @@ msgstr "userkey должен быть абсолютным путём"
 #: gpclientwidget.cpp
 #, kde-format
 msgid "Choose a file"
-msgstr "Выбрать файл"
+msgstr "Выберите файл"
 
 #: gpclientwidget.cpp
 #, kde-format

@@ -20,6 +20,7 @@
 #include <QIcon>
 #include <QLineEdit>
 #include <QSignalBlocker>
+#include <QStyle>
 #include <QDoubleSpinBox>
 #include <QString>
 #include <QStringList>
@@ -35,7 +36,8 @@ static QString gatewayAutoLabel()
  * (typing still works). The dialog starts in the folder of the current path. */
 static void addChooseFileAction(QLineEdit *edit, QWidget *parent, const QString &title)
 {
-    auto *action = new QAction(QIcon::fromTheme(QStringLiteral("document-open")), i18n("Choose a file"), edit);
+    auto *action = new QAction(QIcon::fromTheme(QStringLiteral("document-open"), edit->style()->standardIcon(QStyle::SP_DialogOpenButton)),
+                               i18n("Choose a file"), edit);
     action->setToolTip(i18n("Choose a file"));
     edit->addAction(action, QLineEdit::TrailingPosition);
     QObject::connect(action, &QAction::triggered, edit, [edit, parent, title]() {

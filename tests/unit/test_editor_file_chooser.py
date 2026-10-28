@@ -43,12 +43,29 @@ def test_gtk_editor_has_the_icon_on_both_fields(rel):
     assert "GTK_FILE_CHOOSER_ACTION_OPEN" in src
 
 
+def guarded_set_text(src):
+    """The entry is set only after Accept, while the editor exists, for a local file"""
+    return bool(re.search(
+        r"if \(entry && response == GTK_RESPONSE_ACCEPT\) \{\n"
+        r"[^}]*g_file_get_path[^}]*\n\s*if \(path\)\n\s*gtk_(?:editable|entry)_set_text \(", src))
+
+
 @pytest.mark.parametrize("rel", GTK)
 def test_gtk_editor_sets_the_entry_only_for_a_local_file_and_an_accept(rel):
-    src = read(rel)
+    assert guarded_set_text(read(rel))
 
-    assert "g_file_get_path" in src
-    assert "GTK_RESPONSE_ACCEPT" in src
+
+@pytest.mark.parametrize("rel", GTK)
+@pytest.mark.parametrize("old, new", [
+    ("entry && response == GTK_RESPONSE_ACCEPT", "entry"),  # also on Cancel
+    ("entry && response == GTK_RESPONSE_ACCEPT", "response == GTK_RESPONSE_ACCEPT"),  # editor gone
+    ("        if (path)\n", ""),  # a non-local file
+])
+def test_gtk_editor_without_a_guard_is_found(rel, old, new):
+    src = read(rel)
+    assert old in src
+
+    assert not guarded_set_text(src.replace(old, new))
 
 
 def modal_chooser(src):
@@ -89,7 +106,7 @@ def test_plasma_editor_has_the_action_on_both_fields():
     src = read(PLASMA)
 
     assert plasma_fields_with_action(src) == set(FIELDS)
-    assert 'QIcon::fromTheme(QStringLiteral("document-open"))' in src
+    assert 'QIcon::fromTheme(QStringLiteral("document-open"), ' in src
     assert "QLineEdit::TrailingPosition" in src
     assert "QFileDialog::getOpenFileName" in src
 
