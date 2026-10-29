@@ -54,6 +54,11 @@ USER builder
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91
 ENV PATH="/home/builder/.cargo/bin:${PATH}"
 
+# cargo-auditable embeds the dependency list in gpclient and gpauth (debian/rules).
+# CARGO_HOME is still the default here, so the binary lands in ~/.cargo/bin, not in the
+# /cargo-cache volume that build-all.sh mounts later.
+RUN cargo install cargo-auditable --locked --version 0.6.6
+
 # Switch back to root to set working directory
 USER root
 

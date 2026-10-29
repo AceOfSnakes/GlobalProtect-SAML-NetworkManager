@@ -1051,7 +1051,7 @@ class TestRulesPlasmaOnly:
         log[1] = "fakemake gnome-plugins"
         assert log == ["fakemake init-submodules", "fakemake gnome-plugins",
                        "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ", "fakemake mo",
-                       "cargo build --locked --release --bin gpclient --bin gpauth"]
+                       "cargo auditable build --locked --release --bin gpclient --bin gpauth"]
 
     def test_gpservice_is_neither_built_nor_installed(self, tmp_path):
         # nothing in this project starts gpservice: the callback path is gpclient launch-gui -> gpauth

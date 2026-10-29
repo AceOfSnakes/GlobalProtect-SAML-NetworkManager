@@ -56,6 +56,11 @@ if [ "${#requires[@]}" -eq 0 ]; then
 fi
 "${install_cmd[@]}" "${requires[@]}"
 
+# cargo-auditable embeds the dependency list in gpclient and gpauth (the spec runs
+# `cargo auditable build`). Not every target packages it, so every target gets the
+# same pinned version from crates.io; 0.6.6 also builds with older rustc releases.
+cargo install cargo-auditable --locked --version 0.6.6 --root /usr/local
+
 rpmbuild -bb --define "_topdir $topdir" "${defines[@]}" "$spec"
 
 find "$topdir/RPMS" -name '*.rpm' -exec cp -v {} "$outdir/" \;
