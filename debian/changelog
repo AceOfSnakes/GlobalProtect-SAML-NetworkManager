@@ -87,7 +87,12 @@ network-manager-gpclient (2.0.0) unstable; urgency=medium
     to commit SHAs, CodeQL, zizmor and Scorecard workflows, ruff and mypy,
     shellcheck of every script, lintian errors fixed, coverage of the
     service gated in CI, upgrade and end-to-end tests, and a README demo as
-    animated WebP
+    animated WebP. One Dockerfile builds every Ubuntu release (closes
+    #158). gpclient and gpauth are built with cargo auditable, so the
+    binaries carry their dependency list (closes #159). The package builds
+    use vendored crates and need no network; a workflow checks that two
+    builds give the same packages (closes #160). The openSUSE builds retry
+    a zypper refresh that a stale mirror breaks
 
  -- WMP <example@example.org>  Thu, 29 Oct 2026 00:09:04 +0000
 
