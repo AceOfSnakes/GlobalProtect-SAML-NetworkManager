@@ -74,7 +74,7 @@ dpkg-buildpackage -us -uc -b          # packages, after: cp debian/control.ubunt
 ```
 
 CI builds every Ubuntu version for `amd64` (`ubuntu-latest`) and `arm64`
-(`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu<version>`) on every pull
+(`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu`, `--build-arg UBUNTU=<version>`) on every pull
 request, except for changes to docs only (`**.md`, `docs/**`). A release can also
 have variants (`Dockerfile.ubuntu<version>-<variant>` with
 `debian/control.ubuntu<version>-<variant>`): `24.04-neon` builds

@@ -354,7 +354,7 @@ class TestBuildVariants:
 
         assert len(result["runs"]) == 1
         assert environment(result["docker_args"])["CONTROL"] == MAIN_CONTROL
-        assert box.builds() == ["build -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu24.04 ."]
+        assert box.builds() == ["build --build-arg UBUNTU=24.04 -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu ."]
 
     def test_a_variant_with_both_files_is_built_after_the_main_build(self, box):
         box.add_variant("neon")
@@ -363,7 +363,7 @@ class TestBuildVariants:
 
         assert [environment(r["docker_args"])["CONTROL"] for r in result["runs"]] == [MAIN_CONTROL, NEON_CONTROL]
         assert box.builds() == [
-            "build -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu24.04 .",
+            "build --build-arg UBUNTU=24.04 -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu .",
             f"build -t {NEON_IMAGE} -f Dockerfile.ubuntu24.04-neon .",
         ]
         assert result["runs"][1]["docker_args"][-4] == NEON_IMAGE
@@ -401,7 +401,7 @@ class TestBuildVariants:
 
         assert result["step"].returncode == 0
         assert len(result["runs"]) == 1
-        assert box.builds() == ["build -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu24.04 ."]
+        assert box.builds() == ["build --build-arg UBUNTU=24.04 -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu ."]
         assert "::warning::variant neon of Ubuntu 24.04 needs both" in result["step"].stdout
 
     def test_a_variant_of_another_release_is_not_built(self, box):
@@ -420,7 +420,7 @@ class TestBuildVariants:
 
         assert result["step"].returncode == 0
         assert [environment(r["docker_args"])["CONTROL"] for r in result["runs"]] == [MAIN_CONTROL]
-        assert box.builds() == ["build -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu24.04 ."]
+        assert box.builds() == ["build --build-arg UBUNTU=24.04 -t gpclient-builder:ubuntu24.04 -f Dockerfile.ubuntu ."]
         assert "Variant neon is built for amd64 only, not for arm64" in result["step"].stdout
 
     def test_a_variant_for_arm64_is_not_built_for_amd64_and_is_built_for_arm64(self, box):

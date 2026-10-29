@@ -63,8 +63,8 @@ esac
 [ -d "$DEBS_DIR" ] || fail "no such directory: $DEBS_DIR"
 
 # Ubuntu releases that are end of life: their archive moved to
-# old-releases.ubuntu.com. Keep in sync with the Dockerfile.ubuntu<version> that
-# write the same ubuntu.sources (tests/unit checks it).
+# old-releases.ubuntu.com. Keep in sync with the Dockerfile.ubuntu if it
+# writes the same ubuntu.sources (tests/unit checks it).
 EOL_CODENAMES=""
 OS_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
 # An empty codename must not match the blanks of an empty list
