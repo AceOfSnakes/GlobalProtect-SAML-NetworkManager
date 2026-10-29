@@ -29,5 +29,8 @@ grep -q '^directory = "vendor/crates"$' vendor/config.tmp || {
     echo "error: unexpected output of cargo vendor" >&2
     exit 1
 }
+# Some crates ship files without read access for others (fnv: 0640); the build user of
+# the container is not the user that vendored, and reads vendor/ through a mount
+chmod -R a+rX vendor
 mv vendor/config.tmp vendor/config.toml
 echo "Vendored $(find vendor/crates -mindepth 1 -maxdepth 1 -type d | wc -l) crates into vendor/crates"

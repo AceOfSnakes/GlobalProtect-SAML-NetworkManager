@@ -49,6 +49,11 @@ HAS_CORE := $(filter network-manager-gpclient,${CONTROL_PACKAGES})
 VENDOR_CONFIG := $(CURDIR)/vendor/config.toml
 CARGO_VENDOR_FLAGS := $(if $(wildcard $(VENDOR_CONFIG)),--offline --config $(VENDOR_CONFIG),)
 
+# dh_clean deletes *.orig files, and every vendored crate has a Cargo.toml.orig that its
+# .cargo-checksum.json lists (vendor/ is also mounted read-only in the CI build)
+override_dh_clean:
+	dh_clean -Xvendor/crates/
+
 override_dh_auto_build:
 ifneq ($(HAS_CORE),)
 	# Ensure GlobalProtect-openconnect nested submodules (openconnect + libxml2)

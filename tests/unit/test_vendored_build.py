@@ -257,6 +257,21 @@ def test_vendor_script_writes_a_config_with_a_relative_directory(tmp_path):
     assert not (root / "vendor" / "config.tmp").exists()
 
 
+@pytest.mark.parametrize("mode", [0o640, 0o600])
+def test_vendored_files_are_readable_by_everyone(tmp_path, mode):
+    # the container's build user may have another uid than the user that vendored
+    root = vendor_root(tmp_path)
+    bindir = fake_cargo(tmp_path, 'directory = "/x/vendor/crates"')
+    cargo = os.path.join(bindir, "cargo")
+    with open(cargo, "a", encoding="utf-8") as handle:
+        handle.write(f'mkdir -p "$5/fnv" && echo x > "$5/fnv/lib.rs" && chmod {mode:o} "$5/fnv/lib.rs"\n')
+    result = run_vendor(root, bindir)
+    assert result.returncode == 0, result.stderr
+
+    assert os.stat(root / "vendor" / "crates" / "fnv" / "lib.rs").st_mode & 0o004
+    assert os.stat(root / "vendor" / "crates" / "fnv").st_mode & 0o005 == 0o005
+
+
 def test_vendor_script_without_a_directory_line_leaves_no_config(tmp_path):
     root = vendor_root(tmp_path)
     (root / "vendor").mkdir()
@@ -273,3 +288,23 @@ def test_vendor_script_needs_the_submodule(tmp_path):
     assert result.returncode == 1
     assert "git submodule update --init --recursive" in result.stderr
     assert not (root / "vendor").exists()
+
+
+DH_CLEAN_RE = re.compile(r"^override_dh_clean:\n\tdh_clean -Xvendor/crates/\n", re.M)
+
+
+def test_dh_clean_keeps_the_vendored_crates():
+    # every crate has a Cargo.toml.orig (in its .cargo-checksum.json) and dh_clean deletes
+    # *.orig; in CI vendor/ is mounted read-only, so the delete fails the build
+    assert DH_CLEAN_RE.search(read("debian/rules"))
+
+
+@pytest.mark.parametrize("old, new", [
+    ("\tdh_clean -Xvendor/crates/\n", "\tdh_clean\n"),
+    ("override_dh_clean:\n", "override_dh_clean_x:\n"),
+])
+def test_a_dh_clean_without_the_exclusion_is_found(old, new):
+    rules = read("debian/rules")
+    assert old in rules
+
+    assert not DH_CLEAN_RE.search(rules.replace(old, new, 1))
