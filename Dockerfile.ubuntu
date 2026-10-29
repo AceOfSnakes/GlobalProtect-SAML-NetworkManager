@@ -1,0 +1,84 @@
+# Ubuntu release: 22.04, 24.04 or 26.04 (docker build --build-arg UBUNTU=24.04)
+ARG UBUNTU
+FROM ubuntu:${UBUNTU}
+
+# An ARG before FROM is gone after it
+ARG UBUNTU
+
+LABEL maintainer="WMP"
+LABEL description="Build environment for network-manager-gpclient .deb package (Ubuntu ${UBUNTU})"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Build dependencies come from the Build-Depends of debian/control.ubuntu<UBUNTU>
+# (mk-build-deps), so the image and the package cannot drift apart. Only tools
+# that the control file does not list are named here: build-essential (dpkg-dev
+# assumes it), devscripts and equivs (mk-build-deps), fakeroot and lintian (the
+# build job), plasma-nm (the Plasma plugin is linked against it; only the 26.04
+# control file lists it). No --no-install-recommends: the old images installed
+# recommended packages too.
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    devscripts \
+    equivs \
+    fakeroot \
+    lintian \
+    plasma-nm \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY debian/control.ubuntu${UBUNTU} /tmp/build-control/control
+RUN apt-get update && \
+    cd /tmp/build-control && \
+    mk-build-deps --install --remove --tool 'apt-get -y' control && \
+    cd / && rm -rf /tmp/build-control /var/lib/apt/lists/*
+
+# Per release differences. python3-sdbus: a package since Ubuntu 24.04, pip
+# before (python3-pip and python3-dev are in the Build-Depends of 22.04).
+RUN case "$UBUNTU" in \
+      22.04) pip3 install sdbus ;; \
+      24.04|26.04) apt-get update && apt-get install -y python3-sdbus && rm -rf /var/lib/apt/lists/* ;; \
+      *) echo "unsupported UBUNTU=$UBUNTU" >&2; exit 1 ;; \
+    esac
+
+# Create build user (to avoid building as root)
+# Use /build/source as WORKDIR so that ".." points to /build (writable by builder)
+RUN useradd -m -s /bin/bash builder && \
+    mkdir -p /build/source /cargo-cache /target-cache && \
+    chown -R builder:builder /build /cargo-cache /target-cache
+
+# Switch to builder user to install Rust
+USER builder
+
+# Install Rust via rustup as builder user (the version comes from rust-toolchain.toml of GlobalProtect-openconnect)
+# This layer will be cached as long as Rust version doesn't change
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91
+ENV PATH="/home/builder/.cargo/bin:${PATH}"
+
+# cargo-auditable embeds the dependency list in gpclient and gpauth (debian/rules).
+# CARGO_HOME is still the default here, so the binary lands in ~/.cargo/bin, not in the
+# /cargo-cache volume that build-all.sh mounts later.
+RUN cargo install cargo-auditable --locked --version 0.6.6
+
+# Switch back to root to set working directory
+USER root
+
+# Set working directory (use /build/source so ".." = /build is writable)
+WORKDIR /build/source
+
+# Switch to builder user for build
+USER builder
+
+# Set Cargo cache directory
+ENV CARGO_HOME=/cargo-cache
+
+# Copy source code (this layer invalidates when source changes)
+COPY --chown=builder:builder . /build/source/
+
+# Mount point of the Rust target cache of build-all.sh (a named volume): Docker
+# gives a new volume the owner of this directory, builder. The directory is not
+# in the build context (.dockerignore), so without it the volume is root's and
+# cargo cannot write to it (issue #139).
+RUN mkdir -p external/GlobalProtect-openconnect/target
+
+# Default command (can be overridden)
+CMD ["bash"]

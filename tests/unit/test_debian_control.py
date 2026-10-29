@@ -82,11 +82,9 @@ RECOMMENDS = {
     "control.ubuntu24.04": "%s-gnome | %s | %s" % (CORE, PLASMA, PLASMA6),
     "control.ubuntu26.04": "%s-gnome | %s" % (CORE, PLASMA),
 }
-DOCKERFILES = {
-    "control.ubuntu22.04": "Dockerfile.ubuntu22.04",
-    "control.ubuntu24.04": "Dockerfile.ubuntu24.04",
-    "control.ubuntu26.04": "Dockerfile.ubuntu26.04",
-}
+# One Dockerfile builds every release: it installs the Build-Depends of its control file
+DOCKERFILE = "Dockerfile.ubuntu"
+WORKFLOW = os.path.join(ROOT, ".github", "workflows", "build-release.yml")
 # What the Plasma plugin needs to build, by Qt (the plugin's CMakeLists.txt)
 BUILD_DEPENDS = {
     "qt5": {"qtbase5-dev", "libkf5networkmanagerqt-dev", "libkf5i18n-dev", "libkf5service-dev",
@@ -582,20 +580,67 @@ class TestDockerfiles:
     def qt_packages(names):
         return {n for n in names if re.match(r"(qt|libkf)", n)}
 
-    @pytest.mark.parametrize("control, dockerfile", sorted(DOCKERFILES.items()))
-    def test_the_dockerfile_installs_the_qt_packages_the_control_file_needs(self, control, dockerfile):
-        with open(os.path.join(ROOT, dockerfile), encoding="utf-8") as handle:
-            docker = self.qt_packages(dockerfile_packages(handle.read()))
-        build = self.qt_packages(build_depends_of(read(control)))
-        assert build >= BUILD_DEPENDS[QT[control]]
-        assert docker >= BUILD_DEPENDS[QT[control]]
-        assert docker == build
+    @staticmethod
+    def text():
+        with open(os.path.join(ROOT, DOCKERFILE), encoding="utf-8") as handle:
+            return handle.read()
 
-    @pytest.mark.parametrize("control, dockerfile", sorted(DOCKERFILES.items()))
-    def test_the_dockerfile_installs_no_packages_of_the_other_qt(self, control, dockerfile):
-        other = BUILD_DEPENDS["qt6" if QT[control] == "qt5" else "qt5"]
-        with open(os.path.join(ROOT, dockerfile), encoding="utf-8") as handle:
-            assert not dockerfile_packages(handle.read()) & other
+    @staticmethod
+    def uses_control_of_release(text):
+        """True when the Dockerfile copies debian/control.ubuntu${UBUNTU} and installs its Build-Depends"""
+        return (re.search(r"^ARG UBUNTU$", text, re.M) is not None
+                and re.search(r"^FROM ubuntu:\$\{UBUNTU\}$", text, re.M) is not None
+                and re.search(r"^COPY debian/control\.ubuntu\$\{UBUNTU\} \S+/control$", text, re.M) is not None
+                and re.search(r"mk-build-deps --install --remove --tool 'apt-get -y' control", text) is not None)
+
+    @staticmethod
+    def workflow_versions():
+        """The Ubuntu versions of the matrix of the release workflow"""
+        with open(WORKFLOW, encoding="utf-8") as handle:
+            lists = re.findall(r"fromJSON\('(\[[^']*\])'\)", handle.read())
+        assert lists
+        return {version for found in lists for version in re.findall(r'"([0-9.]+)"', found)}
+
+    @staticmethod
+    def release_controls():
+        """The versions that have a control file without a variant name"""
+        names = (n[len("control.ubuntu"):] for n in os.listdir(DEBIAN) if n.startswith("control.ubuntu"))
+        return {n for n in names if re.fullmatch(r"[0-9.]+", n)}
+
+    def test_the_dockerfile_installs_the_build_depends_of_the_control_file_of_its_release(self):
+        assert self.uses_control_of_release(self.text())
+
+    @pytest.mark.parametrize("old, new", [
+        ("ARG UBUNTU\n", ""),
+        ("FROM ubuntu:${UBUNTU}", "FROM ubuntu:24.04"),
+        ("COPY debian/control.ubuntu${UBUNTU} ", "COPY debian/control.ubuntu24.04 "),
+        ("mk-build-deps --install", "mk-build-deps"),
+    ])
+    def test_a_dockerfile_that_does_not_use_the_control_file_of_its_release_is_reported(self, old, new):
+        text = self.text()
+        assert old in text
+        assert not self.uses_control_of_release(text.replace(old, new))
+
+    @pytest.mark.parametrize("control", sorted(QT))
+    def test_the_dockerfile_names_no_qt_package_because_the_control_file_has_them(self, control):
+        assert not self.qt_packages(dockerfile_packages(self.text()))
+        assert self.qt_packages(build_depends_of(read(control))) >= BUILD_DEPENDS[QT[control]]
+
+    def test_every_control_file_of_a_release_is_a_version_that_the_workflow_builds(self):
+        assert self.release_controls() == self.workflow_versions()
+
+    @pytest.mark.parametrize("extra, missing", [("24.10", set()), ("20.04", set()), (None, {"26.04"})])
+    def test_a_version_that_the_workflow_does_not_build_is_reported(self, extra, missing):
+        controls = self.release_controls()
+        if extra:
+            controls.add(extra)
+        controls -= missing
+        assert controls != self.workflow_versions()
+
+    @pytest.mark.parametrize("version", sorted(release_controls.__func__()))
+    def test_the_case_of_the_dockerfile_names_every_release_it_builds(self, version):
+        case = re.search(r'case "\$UBUNTU" in(.*?)esac', self.text(), re.S).group(1)
+        assert re.search(r"(^|[\s|])%s[|)]" % re.escape(version), case, re.M)
 
     def test_the_dockerfile_parser_finds_the_packages(self):
         text = "RUN apt-get update && apt-get install -y \\\n    build-essential \\\n    qt6-base-dev \\\n    curl \\\n    && rm -rf x\n"
@@ -743,7 +788,7 @@ class TestNeonDockerfile:
         assert names >= BUILD_DEPENDS["qt6"] and not names & BUILD_DEPENDS["qt5"]
 
     def test_it_is_not_the_dockerfile_of_a_release(self):
-        with open(os.path.join(ROOT, "Dockerfile.ubuntu26.04"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, DOCKERFILE), encoding="utf-8") as handle:
             assert self.packages() != dockerfile_packages(handle.read())
 
     def test_it_installs_no_gnome_packages_and_no_rust(self):
@@ -1006,7 +1051,7 @@ class TestRulesPlasmaOnly:
         log[1] = "fakemake gnome-plugins"
         assert log == ["fakemake init-submodules", "fakemake gnome-plugins",
                        "cmake .. -DQT_MAJOR_VERSION=%s" % QT[name][-1], "fakemake ", "fakemake mo",
-                       "cargo build --locked --release --bin gpclient --bin gpauth"]
+                       "cargo auditable build --locked --release --bin gpclient --bin gpauth"]
 
     def test_gpservice_is_neither_built_nor_installed(self, tmp_path):
         # nothing in this project starts gpservice: the callback path is gpclient launch-gui -> gpauth

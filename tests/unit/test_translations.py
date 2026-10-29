@@ -776,7 +776,9 @@ def test_a_control_file_without_gettext_fails(text):
 
 @pytest.mark.parametrize("path", sorted(glob.glob(os.path.join(ROOT, "Dockerfile.ubuntu*"))), ids=os.path.basename)
 def test_every_build_image_has_gettext(path):
-    assert re.search(r"^\s+gettext \\$", read(os.path.relpath(path, ROOT)), re.M)
+    text = read(os.path.relpath(path, ROOT))
+    # Dockerfile.ubuntu installs the Build-Depends of the control files (gettext: tested above)
+    assert "mk-build-deps" in text or re.search(r"^\s+gettext \\$", text, re.M)
 
 
 def catalog_check_problems(text):

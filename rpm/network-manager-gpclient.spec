@@ -171,11 +171,18 @@ mkdir -p plugins/plasma/build
 /usr/bin/python3 -m pip wheel --no-deps --no-build-isolation --no-index \
   --wheel-dir sdbus-wheel ./sdbus-%{sdbus_version}
 
-# The longest step comes last
+# The longest step comes last. cargo-auditable (rpm/container-build.sh) embeds the
+# dependency list in the binaries; the build fails when it is missing
 # With upstream's release profile (strip, opt-level "z"), as the Debian build: Fedora's
 # rpmbuild exports RUSTFLAGS with -Cstrip=none -Cdebuginfo=2, which would override it
+# With vendor/config.toml (scripts/vendor-crates.sh, in the source archive) the crates come
+# from vendor/ and cargo does not use the network; without it cargo downloads them
+vendor_flags=
+if [ -f "$PWD/vendor/config.toml" ]; then
+  vendor_flags="--offline --config $PWD/vendor/config.toml"
+fi
 (cd external/GlobalProtect-openconnect && \
-  env -u RUSTFLAGS cargo build --locked --release --bin gpclient --bin gpauth)
+  env -u RUSTFLAGS cargo auditable build --locked $vendor_flags --release --bin gpclient --bin gpauth)
 
 %install
 # The translations (po/LINGUAS): each domain goes to its own package

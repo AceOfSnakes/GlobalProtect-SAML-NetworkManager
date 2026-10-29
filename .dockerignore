@@ -15,6 +15,9 @@
 # Output directory
 output/
 
+# Vendored crates (scripts/vendor-crates.sh): mounted read-only into the build container
+vendor/
+
 # Build logs
 build.log
 

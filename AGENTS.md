@@ -74,7 +74,7 @@ dpkg-buildpackage -us -uc -b          # packages, after: cp debian/control.ubunt
 ```
 
 CI builds every Ubuntu version for `amd64` (`ubuntu-latest`) and `arm64`
-(`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu<version>`) on every pull
+(`ubuntu-24.04-arm`) in Docker (`Dockerfile.ubuntu`, `--build-arg UBUNTU=<version>`) on every pull
 request, except for changes to docs only (`**.md`, `docs/**`). A release can also
 have variants (`Dockerfile.ubuntu<version>-<variant>` with
 `debian/control.ubuntu<version>-<variant>`): `24.04-neon` builds
@@ -103,7 +103,7 @@ before you push a change to `scripts/browser-wrapper.sh`:
 ```bash
 python3 -m pytest tests/unit -q       # as root (e.g. in a container)
 T=$(mktemp -d /var/tmp/t.XXXX)
-tar --exclude=./.git --exclude=./external --exclude=./.claude -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
+tar --exclude=./.git --exclude=./external --exclude=./vendor --exclude=./.claude -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
 (cd "$T" && runuser -u nobody -- env HOME="$T" python3 -m pytest tests/unit -q -p no:cacheprovider)
 rm -rf "$T"
 ```

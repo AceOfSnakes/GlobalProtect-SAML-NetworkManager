@@ -624,7 +624,7 @@ def test_spec_strips_the_rust_binaries():
     # Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
     # upstream's release profile (strip = true)
     spec = read("rpm/network-manager-gpclient.spec")
-    assert "env -u RUSTFLAGS cargo build --locked --release" in spec
+    assert "env -u RUSTFLAGS cargo auditable build --locked $vendor_flags --release" in spec
     assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
 
 
@@ -654,13 +654,15 @@ def test_a_missing_gpl_text_is_found(old, new):
     assert "external/GlobalProtect-openconnect/LICENSE" not in main_license_texts(spec.replace(old, new, 1))
 
 
+# `cargo build` and `cargo auditable build`
+CARGO_BUILD_RE = r"\bcargo\b\S* (?:auditable )?build\b"
 CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
 
 
 def cargo_build_lines(text):
     """The shell lines that run `cargo build`, with backslash-continued lines joined"""
     return [line.strip() for line in text.replace("\\\n", " ").splitlines()
-            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)]
+            if not line.lstrip().startswith("#") and re.search(CARGO_BUILD_RE, line, re.I)]
 
 
 def cargo_build_lines_without_locked(text):
@@ -671,7 +673,7 @@ def cargo_build_lines_without_locked(text):
 def test_every_cargo_build_is_locked(path):
     # the build must use the dependency versions of upstream's Cargo.lock, or fail
     text = read(path)
-    assert re.search(r"\bcargo\b\S* build\b", text, re.I)
+    assert re.search(CARGO_BUILD_RE, text, re.I)
     assert cargo_build_lines_without_locked(text) == []
 
 
@@ -722,6 +724,54 @@ def test_feature_flag_forms(text, expected):
 def test_a_feature_flag_on_a_continued_line_is_reported():
     text = "\tcd x && cargo build --locked --release \\\n\t\t--no-default-features\n"
     assert cargo_build_feature_flags(text) == ["--no-default-features"]
+
+
+@pytest.mark.parametrize("text, count", [
+    ("cargo auditable build --locked", 1),
+    ("cargo build --locked", 1),
+    ("cargo auditable --version", 0),
+    ("# cargo auditable build", 0),
+])
+def test_cargo_build_lines_see_auditable_builds(text, count):
+    assert len(cargo_build_lines(text)) == count
+
+
+def test_an_auditable_build_without_locked_or_with_features_is_reported():
+    assert cargo_build_lines_without_locked("cargo auditable build --release")
+    assert cargo_build_feature_flags("cargo auditable build --locked --features x") == ["--features"]
+
+
+AUDITABLE_VERSION = r"cargo install cargo-auditable --locked --version \d+\.\d+\.\d+"
+
+
+@pytest.mark.parametrize("path", ["debian/rules", "rpm/network-manager-gpclient.spec"])
+def test_the_packages_are_built_with_cargo_auditable(path):
+    # the binaries carry their dependency list (#159)
+    lines = cargo_build_lines(read(path))
+    assert lines and all("cargo auditable build" in line for line in lines)
+
+
+@pytest.mark.parametrize("path", ["debian/rules", "rpm/network-manager-gpclient.spec"])
+def test_a_plain_cargo_build_is_reported(path):
+    lines = cargo_build_lines(read(path).replace("cargo auditable build", "cargo build"))
+    assert [line for line in lines if "cargo auditable build" not in line]
+
+
+@pytest.mark.parametrize("path", ["Dockerfile.ubuntu", "rpm/container-build.sh"])
+def test_cargo_auditable_is_installed_locked_and_pinned(path):
+    assert re.search(AUDITABLE_VERSION, read(path))
+
+
+@pytest.mark.parametrize("path", ["Dockerfile.ubuntu", "rpm/container-build.sh"])
+@pytest.mark.parametrize("drop", [" --locked", r" --version \d+\.\d+\.\d+"])
+def test_an_unpinned_cargo_auditable_install_is_reported(path, drop):
+    text = re.sub(drop, "", read(path))
+    assert not re.search(AUDITABLE_VERSION, text)
+
+
+def test_the_pinned_cargo_auditable_version_is_the_same_everywhere():
+    versions = {re.search(AUDITABLE_VERSION, read(p)).group(0) for p in ("Dockerfile.ubuntu", "rpm/container-build.sh")}
+    assert len(versions) == 1
 
 
 def test_spec_neither_builds_nor_installs_nor_packages_gpservice():

@@ -82,11 +82,15 @@ init-submodules:
 	fi
 
 gpclient: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpclient || $(CARGO) build --locked --release --bin gpclient)
+	cd $(GPOC_DIR) && export PATH="$$PATH:$(CARGO_HOME)/bin" && \
+		if cargo auditable --version >/dev/null 2>&1; then cargo auditable build --locked --release --bin gpclient; \
+		else echo "cargo-auditable not found: the binary has no dependency list"; cargo build --locked --release --bin gpclient; fi
 	cp $(GPOC_DIR)/target/release/gpclient .
 
 gpauth: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpauth || $(CARGO) build --locked --release --bin gpauth)
+	cd $(GPOC_DIR) && export PATH="$$PATH:$(CARGO_HOME)/bin" && \
+		if cargo auditable --version >/dev/null 2>&1; then cargo auditable build --locked --release --bin gpauth; \
+		else echo "cargo-auditable not found: the binary has no dependency list"; cargo build --locked --release --bin gpauth; fi
 	cp $(GPOC_DIR)/target/release/gpauth .
 
 install: all
@@ -286,6 +290,7 @@ SHELL_SCRIPTS := \
 	scripts/browser-wrapper.sh \
 	scripts/edge-wrapper.sh \
 	scripts/hide-desktop-entry.sh \
+	scripts/vendor-crates.sh \
 	scripts/vpnc-script-debug \
 	scripts/install-pr-build.sh \
 	tests/e2e/files/loginctl \

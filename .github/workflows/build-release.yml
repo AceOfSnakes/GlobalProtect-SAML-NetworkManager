@@ -107,6 +107,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Vendor the crates
+        # The package build needs no network: the crates are in vendor/ (cargo vendor
+        # of Cargo.lock) and cargo runs --offline (debian/rules, rpm spec)
+        run: |
+          cargo --version
+          bash scripts/vendor-crates.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -139,18 +146,21 @@ jobs:
           mkdir -p "$out"
           chmod 777 "$out"
 
-          # build_packages <image name> <Dockerfile> <control file>: build the
-          # image, then the packages in it. A fresh container per build: only
-          # its own .deb files are in /build and get copied to the output
-          # directory (fail on error).
+          # build_packages <image name> <Dockerfile> <control file> [docker build
+          # arguments]: build the image, then the packages in it. A fresh
+          # container per build: only its own .deb files are in /build and get
+          # copied to the output directory (fail on error).
           build_packages() {
             local name="$1" dockerfile="$2" control="$3"
+            shift 3
             echo "Building $name from $dockerfile and $control"
-            docker build -t "gpclient-builder:$name" -f "$dockerfile" .
+            docker build "$@" -t "gpclient-builder:$name" -f "$dockerfile" .
 
             # WORKDIR is /build/source, so ".." = /build where dpkg-buildpackage writes .deb files
-            docker run --rm -e PR_SUFFIX="$pr_suffix" -e CONTROL="$control" \
+            # --network none: the crates are vendored, the build must not need the network
+            docker run --rm --network none -e PR_SUFFIX="$pr_suffix" -e CONTROL="$control" \
               -v "${{ github.workspace }}/$out:/output" \
+              -v "${{ github.workspace }}/vendor:/build/source/vendor:ro" \
               "gpclient-builder:$name" \
               bash -c '
                 set -e
@@ -187,7 +197,9 @@ jobs:
             ' "$1"
           }
 
-          build_packages "ubuntu$ubuntu" "Dockerfile.ubuntu$ubuntu" "debian/control.ubuntu$ubuntu"
+          # One Dockerfile.ubuntu for every release; it installs the build dependencies
+          # of debian/control.ubuntu<version>.
+          build_packages "ubuntu$ubuntu" "Dockerfile.ubuntu" "debian/control.ubuntu$ubuntu" --build-arg "UBUNTU=$ubuntu"
 
           mapfile -t variants < <(for file in Dockerfile.ubuntu${ubuntu}-* debian/control.ubuntu${ubuntu}-*; do
             [ -e "$file" ] && echo "${file##*ubuntu${ubuntu}-}"
@@ -340,6 +352,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+
+      - name: Vendor the crates
+        # The package build needs no network: the crates are in vendor/ (cargo vendor
+        # of Cargo.lock) and cargo runs --offline (debian/rules, rpm spec)
+        run: |
+          cargo --version
+          bash scripts/vendor-crates.sh
 
       - name: Build RPM packages
         env:

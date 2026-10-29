@@ -2,8 +2,9 @@
 # Build script for creating .deb packages for multiple Ubuntu versions
 # Usage: ./build-all.sh [VERSION]
 #   VERSION: Optional target: an Ubuntu version (22.04, 24.04, 26.04) or a release
-#            variant (24.04-neon). A target is valid when Dockerfile.ubuntu<VERSION>
-#            and debian/control.ubuntu<VERSION> exist. If not specified, builds all.
+#            variant (24.04-neon). A target is valid when debian/control.ubuntu<VERSION>
+#            and its Dockerfile exist (Dockerfile.ubuntu for a version,
+#            Dockerfile.ubuntu<VERSION> for a variant). If not specified, builds all.
 # Environment:
 #   VERSION_SUFFIX  Optional, like the pull request suffix of CI (+pr<PR>.<run>):
 #                   added to the package version, after the release codename tag.
@@ -21,11 +22,19 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# A target has a Dockerfile and a control file (the same rule as CI).
+# dockerfile_of <target>: one Dockerfile.ubuntu (build argument UBUNTU) builds every
+# version; a variant (name with -) has its own Dockerfile.ubuntu<target>.
+dockerfile_of() {
+    case "$1" in *-*) echo "Dockerfile.ubuntu$1" ;; *) echo "Dockerfile.ubuntu" ;; esac
+}
+
+# A target has a control file and a Dockerfile (the same rule as CI).
 ALL_TARGETS=()
-for file in "$SCRIPT_DIR"/Dockerfile.ubuntu*; do
-    name="${file##*/Dockerfile.ubuntu}"
-    if [ -f "$SCRIPT_DIR/debian/control.ubuntu${name}" ]; then
+for file in "$SCRIPT_DIR"/debian/control.ubuntu*; do
+    name="${file##*/control.ubuntu}"
+    # A release (22.04) or a variant (24.04-neon); not a backup like 24.04~
+    case "$name" in [0-9][0-9].[0-9][0-9] | [0-9][0-9].[0-9][0-9]-*[!~]) ;; *) continue ;; esac
+    if [ -f "$SCRIPT_DIR/$(dockerfile_of "$name")" ]; then
         ALL_TARGETS+=("$name")
     fi
 done
@@ -120,6 +129,23 @@ fi
 # Enable Docker BuildKit for better caching
 export DOCKER_BUILDKIT=1
 
+# Vendored crates (scripts/vendor-crates.sh): with them the build needs no network, so
+# the build container runs with --network none. Without them (and without cargo to make
+# them) the build downloads the crates, as before.
+# vendor/ is not in the image (.dockerignore): it is mounted read-only. It is made again
+# when it is missing or older than Cargo.lock (a stale vendor/ would break --locked).
+NETWORK_ARGS=()
+LOCK_FILE="$SCRIPT_DIR/external/GlobalProtect-openconnect/Cargo.lock"
+if { [ ! -f "$SCRIPT_DIR/vendor/config.toml" ] || [ "$LOCK_FILE" -nt "$SCRIPT_DIR/vendor/config.toml" ]; } \
+    && command -v cargo >/dev/null 2>&1; then
+    bash "$SCRIPT_DIR/scripts/vendor-crates.sh"
+fi
+if [ -f "$SCRIPT_DIR/vendor/config.toml" ]; then
+    NETWORK_ARGS=(--network none -v "$SCRIPT_DIR/vendor:/build/source/vendor:ro")
+else
+    echo "NOTE: no vendor/config.toml and no cargo: the build downloads the crates"
+fi
+
 for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     echo ""
     echo "======================================"
@@ -127,11 +153,13 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     echo "======================================"
 
     IMAGE_NAME="gpclient-builder:ubuntu${VERSION}"
-    DOCKERFILE="Dockerfile.ubuntu${VERSION}"
+    DOCKERFILE="$(dockerfile_of "$VERSION")"
+    BUILD_ARGS=()
+    case "$VERSION" in *-*) ;; *) BUILD_ARGS=(--build-arg "UBUNTU=$VERSION") ;; esac
     OUTPUT_DIR="$SCRIPT_DIR/output/ubuntu${VERSION}"
 
     echo "=== Building Docker image from $DOCKERFILE ==="
-    docker build -f "$SCRIPT_DIR/$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
+    docker build "${BUILD_ARGS[@]}" -f "$SCRIPT_DIR/$DOCKERFILE" -t "$IMAGE_NAME" "$SCRIPT_DIR"
 
     echo "=== Building .deb package for Ubuntu $VERSION ==="
     mkdir -p "$OUTPUT_DIR"
@@ -143,6 +171,7 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     # version as CI does (1.4.0-1~noble1+pr54.1): the same sed as build-release.yml,
     # but only with a suffix (CI always tags the version).
     docker run --rm \
+        "${NETWORK_ARGS[@]}" \
         --name "gpclient-build-ubuntu${VERSION}-$$" \
         -e PR_SUFFIX="$VERSION_SUFFIX" \
         -v "$OUTPUT_DIR:/output" \
