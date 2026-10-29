@@ -428,7 +428,7 @@ class TestRelease:
         assert not os.path.exists(os.path.join(workflow_steps.WORKFLOWS, old + ".yml"))
         hits = []
         for directory, dirs, files in os.walk(ROOT):
-            dirs[:] = [d for d in dirs if d not in (".git", "external", "__pycache__", ".pytest_cache")]
+            dirs[:] = [d for d in dirs if d not in (".git", "external", "vendor", "__pycache__", ".pytest_cache")]
             for name in files:
                 path = os.path.join(directory, name)
                 try:

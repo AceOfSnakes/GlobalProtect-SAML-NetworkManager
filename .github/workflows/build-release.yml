@@ -160,6 +160,7 @@ jobs:
             # --network none: the crates are vendored, the build must not need the network
             docker run --rm --network none -e PR_SUFFIX="$pr_suffix" -e CONTROL="$control" \
               -v "${{ github.workspace }}/$out:/output" \
+              -v "${{ github.workspace }}/vendor:/build/source/vendor:ro" \
               "gpclient-builder:$name" \
               bash -c '
                 set -e

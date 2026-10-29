@@ -12,6 +12,8 @@ Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 
 import os
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -123,9 +125,9 @@ def test_release_without_vendor_step_is_rejected():
     assert release_problems(text.replace("bash scripts/vendor-crates.sh", "true")) != []
 
 
-def test_vendor_dir_is_ignored_by_git_but_not_by_docker():
+def test_vendor_dir_is_ignored_by_git_and_docker():
     assert "vendor/" in read(".gitignore").splitlines()
-    assert "vendor/" not in read(".dockerignore").splitlines()
+    assert "vendor/" in read(".dockerignore").splitlines()
     # The RPM source archive must keep vendor/
     assert "--exclude=./vendor" not in read("rpm", "build.sh")
 
@@ -136,9 +138,7 @@ def test_vendor_script_is_in_shell_scripts_and_strict():
 
 
 def test_vendor_script_needs_cargo(tmp_path):
-    """Without cargo the script fails with a clear message (negative twin: the submodule check)"""
-    import subprocess
-
+    """Without cargo the script fails with a clear message"""
     empty = tmp_path / "bin"
     empty.mkdir()
     result = subprocess.run(
@@ -182,3 +182,94 @@ def test_reproducible_mutations_are_rejected(old, new):
     text = read(".github", "workflows", "reproducible.yml")
     assert old in text
     assert reproducible_problems(text.replace(old, new)) != []
+
+
+MOUNT = ":/build/source/vendor:ro"
+
+
+def mount_problems(text):
+    """The docker run commands with --network none that do not mount vendor/ read-only"""
+    chunks = [c[:500] for c in text.split("docker run")[1:] if "--network none" in c[:200]]
+    return [] if chunks and all(MOUNT in c for c in chunks) else ["a --network none container lacks " + MOUNT]
+
+
+@pytest.mark.parametrize("path", [(".github", "workflows", "build-release.yml"), (".github", "workflows", "reproducible.yml")])
+def test_network_none_containers_mount_vendor_read_only(path):
+    text = read(*path)
+    assert mount_problems(text) == []
+    assert mount_problems(text.replace(MOUNT, ":/build/source/vendor")) != []
+    assert mount_problems(text.replace(MOUNT, "")) != []
+
+
+def test_build_all_mounts_vendor_with_network_none_and_revendors_a_stale_copy():
+    text = read("build-all.sh")
+    line = re.search(r"^    NETWORK_ARGS=\((.*)\)$", text, re.M).group(1)
+    assert "--network none" in line and MOUNT in line
+    assert '"$LOCK_FILE" -nt "$SCRIPT_DIR/vendor/config.toml"' in text
+    assert '[ ! -f "$SCRIPT_DIR/vendor/config.toml" ]' in text
+    assert '"${NETWORK_ARGS[@]}"' in text
+    # negative twins
+    assert MOUNT not in line.replace(MOUNT, "")
+    assert '"$LOCK_FILE" -nt' not in text.replace('"$LOCK_FILE" -nt', "")
+
+
+# --- scripts/vendor-crates.sh with a fake cargo ---
+
+SYSTEM_PATH = "/usr/bin:/bin"
+
+
+def vendor_root(tmp_path, with_lock=True):
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    shutil.copy(os.path.join(ROOT, "scripts", "vendor-crates.sh"), root / "scripts")
+    if with_lock:
+        (root / "external" / "GlobalProtect-openconnect").mkdir(parents=True)
+        (root / "external" / "GlobalProtect-openconnect" / "Cargo.lock").write_text("")
+    return root
+
+
+def fake_cargo(tmp_path, output):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    cargo = bindir / "cargo"
+    cargo.write_text("#!/bin/sh\nmkdir -p \"$5\"\ncat <<'EOF'\n%s\nEOF\n" % output)
+    cargo.chmod(0o755)
+    return str(bindir)
+
+
+def run_vendor(root, bindir):
+    return subprocess.run(
+        ["/bin/bash", str(root / "scripts" / "vendor-crates.sh")],
+        env={"PATH": bindir + ":" + SYSTEM_PATH},
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_vendor_script_writes_a_config_with_a_relative_directory(tmp_path):
+    root = vendor_root(tmp_path)
+    bindir = fake_cargo(tmp_path, '[source.vendored-sources]\ndirectory = "/x/vendor/crates"')
+    result = run_vendor(root, bindir)
+    assert result.returncode == 0, result.stderr
+    config = (root / "vendor" / "config.toml").read_text()
+    assert 'directory = "vendor/crates"' in config
+    assert "/x/" not in config
+    assert not (root / "vendor" / "config.tmp").exists()
+
+
+def test_vendor_script_without_a_directory_line_leaves_no_config(tmp_path):
+    root = vendor_root(tmp_path)
+    (root / "vendor").mkdir()
+    (root / "vendor" / "config.toml").write_text("stale")
+    result = run_vendor(root, fake_cargo(tmp_path, "nothing useful"))
+    assert result.returncode == 1
+    assert "unexpected output of cargo vendor" in result.stderr
+    assert not (root / "vendor" / "config.toml").exists()
+
+
+def test_vendor_script_needs_the_submodule(tmp_path):
+    root = vendor_root(tmp_path, with_lock=False)
+    result = run_vendor(root, fake_cargo(tmp_path, 'directory = "/x"'))
+    assert result.returncode == 1
+    assert "git submodule update --init --recursive" in result.stderr
+    assert not (root / "vendor").exists()

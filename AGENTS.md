@@ -103,7 +103,7 @@ before you push a change to `scripts/browser-wrapper.sh`:
 ```bash
 python3 -m pytest tests/unit -q       # as root (e.g. in a container)
 T=$(mktemp -d /var/tmp/t.XXXX)
-tar --exclude=./.git --exclude=./external --exclude=./.claude -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
+tar --exclude=./.git --exclude=./external --exclude=./vendor --exclude=./.claude -cf - . | tar -xf - -C "$T"; chmod -R a+rwX "$T"
 (cd "$T" && runuser -u nobody -- env HOME="$T" python3 -m pytest tests/unit -q -p no:cacheprovider)
 rm -rf "$T"
 ```

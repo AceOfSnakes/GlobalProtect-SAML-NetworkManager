@@ -130,6 +130,8 @@ scripts/vendor-crates.sh
 The workflow `reproducible.yml` (weekly and by hand) builds the Ubuntu 24.04 amd64
 packages twice in fresh containers and compares the `.deb` files. On a difference it
 fails and uploads a diffoscope report as the artifact `diffoscope-report`.
+It cannot find a difference that depends on the build environment: both builds use the
+same image, build path, user and kernel.
 
 ### Build individual components (for development):
 
