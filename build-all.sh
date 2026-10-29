@@ -129,6 +129,23 @@ fi
 # Enable Docker BuildKit for better caching
 export DOCKER_BUILDKIT=1
 
+# Vendored crates (scripts/vendor-crates.sh): with them the build needs no network, so
+# the build container runs with --network none. Without them (and without cargo to make
+# them) the build downloads the crates, as before.
+# vendor/ is not in the image (.dockerignore): it is mounted read-only. It is made again
+# when it is missing or older than Cargo.lock (a stale vendor/ would break --locked).
+NETWORK_ARGS=()
+LOCK_FILE="$SCRIPT_DIR/external/GlobalProtect-openconnect/Cargo.lock"
+if { [ ! -f "$SCRIPT_DIR/vendor/config.toml" ] || [ "$LOCK_FILE" -nt "$SCRIPT_DIR/vendor/config.toml" ]; } \
+    && command -v cargo >/dev/null 2>&1; then
+    bash "$SCRIPT_DIR/scripts/vendor-crates.sh"
+fi
+if [ -f "$SCRIPT_DIR/vendor/config.toml" ]; then
+    NETWORK_ARGS=(--network none -v "$SCRIPT_DIR/vendor:/build/source/vendor:ro")
+else
+    echo "NOTE: no vendor/config.toml and no cargo: the build downloads the crates"
+fi
+
 for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     echo ""
     echo "======================================"
@@ -154,6 +171,7 @@ for VERSION in "${UBUNTU_VERSIONS[@]}"; do
     # version as CI does (1.4.0-1~noble1+pr54.1): the same sed as build-release.yml,
     # but only with a suffix (CI always tags the version).
     docker run --rm \
+        "${NETWORK_ARGS[@]}" \
         --name "gpclient-build-ubuntu${VERSION}-$$" \
         -e PR_SUFFIX="$VERSION_SUFFIX" \
         -v "$OUTPUT_DIR:/output" \

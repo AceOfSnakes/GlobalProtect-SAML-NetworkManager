@@ -111,6 +111,28 @@ rpm/build.sh fedora44 amd64     # targets: rpm/targets; output: output/fedora44-
 
 Details: [RPM_REPO.md](RPM_REPO.md).
 
+### Vendored crates and offline build:
+
+A package build needs no network for the Rust crates. `scripts/vendor-crates.sh` runs
+`cargo vendor --locked` for `external/GlobalProtect-openconnect` into `vendor/crates` and
+writes the source replacement to `vendor/config.toml` (`vendor/` is not in git).
+When `vendor/config.toml` exists, `debian/rules` and the RPM spec build with
+`cargo auditable build --locked --offline --config vendor/config.toml`; without it they
+download the crates, so a plain `dpkg-buildpackage` still works.
+CI makes `vendor/` before every package build and runs the Debian build container with
+`--network none`. `build-all.sh` makes it when `cargo` is on the PATH, and then also
+uses `--network none`.
+
+```bash
+scripts/vendor-crates.sh
+```
+
+The workflow `reproducible.yml` (weekly and by hand) builds the Ubuntu 24.04 amd64
+packages twice in fresh containers and compares the `.deb` files. On a difference it
+fails and uploads a diffoscope report as the artifact `diffoscope-report`.
+It cannot find a difference that depends on the build environment: both builds use the
+same image, build path, user and kernel.
+
 ### Build individual components (for development):
 
 ```bash

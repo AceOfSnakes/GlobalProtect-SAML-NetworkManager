@@ -290,6 +290,7 @@ SHELL_SCRIPTS := \
 	scripts/browser-wrapper.sh \
 	scripts/edge-wrapper.sh \
 	scripts/hide-desktop-entry.sh \
+	scripts/vendor-crates.sh \
 	scripts/vpnc-script-debug \
 	scripts/install-pr-build.sh \
 	tests/e2e/files/loginctl \
