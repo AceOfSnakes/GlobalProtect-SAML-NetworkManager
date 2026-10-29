@@ -441,3 +441,13 @@ msgstr "Виберіть закритий ключ"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Виберіть скрипт HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Дозволити NetworkManager задавати маршрути та DNS (експериментально)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager налаштовує маршрути, DNS і типовий маршрут тунелю за даними шлюзу замість vpnc-script. Маршрути, які шлюз виключає з тунелю, ігноруються."

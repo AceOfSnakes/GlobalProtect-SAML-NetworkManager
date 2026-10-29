@@ -86,6 +86,7 @@ int main (int argc, char **argv)
     if (!strcmp (op, "set_or_remove")) { nm_gpclient_editor_set_or_remove (v, a[0], a[1]); have_ret = 0; }
     else if (!strcmp (op, "is_new")) ret = nm_gpclient_editor_is_new (v);
     else if (!strcmp (op, "data_is_true")) ret = nm_gpclient_editor_data_is_true (v, a[0]);
+    else if (!strcmp (op, "data_is_yes")) ret = nm_gpclient_editor_data_is_yes (v, a[0]);
     else if (!strcmp (op, "hip_enabled")) ret = nm_gpclient_editor_hip_enabled (v);
     else if (!strcmp (op, "auth_index")) ret = nm_gpclient_editor_auth_index (v);
     else if (!strcmp (op, "fix_openssl_index")) ret = nm_gpclient_editor_fix_openssl_index (v);
@@ -195,6 +196,16 @@ def test_is_new(program, items, expected):
 ])
 def test_data_is_true(program, items, expected):
     assert run(program, "data_is_true", *a("as-gateway"), *items)[0] == expected
+
+
+# --- data_is_yes (nm-routing): "yes" or "true", any case, as the service reads it
+@pytest.mark.parametrize("items, expected", [
+    (["d:nm-routing=yes"], 1), (["d:nm-routing=YES"], 1), (["d:nm-routing=Yes"], 1),
+    (["d:nm-routing=true"], 1), (["d:nm-routing=TRUE"], 1), (["d:nm-routing=1"], 0), (["d:nm-routing="], 0), (["d:nm-routing=yesx"], 0),
+    (["d:nm-routing=no"], 0), ([], 0), (["nosetting"], 0), (["d:other=yes"], 0),
+])
+def test_data_is_yes(program, items, expected):
+    assert run(program, "data_is_yes", *a("nm-routing"), *items)[0] == expected
 
 
 # --- hip_enabled: default on; a non-empty value is on only when "true" (any case)

@@ -30,6 +30,7 @@ struct _NMGpclientEditor {
     gboolean mtu_touched;  /* the user changed the spin button after load */
     gboolean timeout_follows_auth_mode;
     GtkWidget *dns_entry;
+    GtkWidget *nm_routing_check;
     GtkWidget *hip_check;
     GtkWidget *hip_script_label;
     GtkWidget *hip_script_entry;
@@ -534,6 +535,18 @@ build_ui (NMGpclientEditor *self)
     g_signal_connect (self->dns_entry, "changed", G_CALLBACK (entry_changed_cb), self);
     gtk_grid_attach (GTK_GRID (grid), self->dns_entry, 1, row++, 1, 1);
 
+    /* Let NetworkManager set the routes and DNS (vpn.data "nm-routing") */
+    self->nm_routing_check = gtk_check_button_new_with_label (_("Let NetworkManager set the routes and DNS (experimental)"));
+    gtk_widget_set_tooltip_text (self->nm_routing_check,
+        _("NetworkManager configures the tunnel's routes, DNS and default route from what the "
+        "gateway sends, instead of vpnc-script. Routes the gateway excludes from the "
+        "tunnel are ignored."));
+    if (s_vpn)
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (self->nm_routing_check),
+                                    nm_gpclient_editor_data_is_yes (s_vpn, "nm-routing"));
+    g_signal_connect (self->nm_routing_check, "toggled", G_CALLBACK (check_toggled_cb), self);
+    gtk_grid_attach (GTK_GRID (grid), self->nm_routing_check, 1, row++, 1, 1);
+
     /* HIP checkbox */
     label = gtk_label_new (_("HIP:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
@@ -704,6 +717,10 @@ update_connection (NMVpnEditor *editor,
     /* Save "address is a gateway" */
     nm_gpclient_editor_set_or_remove (s_vpn, "as-gateway",
         gtk_check_button_get_active (GTK_CHECK_BUTTON (self->as_gateway_check)) ? "true" : NULL);
+
+    /* Save "NetworkManager sets the routes and DNS" */
+    nm_gpclient_editor_set_or_remove (s_vpn, "nm-routing",
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (self->nm_routing_check)) ? "yes" : NULL);
 
     /* Save preferred gateway (the automatic entry stores nothing) */
     str = gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT (self->preferred_gateway_combo));

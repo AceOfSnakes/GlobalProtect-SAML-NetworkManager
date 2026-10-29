@@ -368,3 +368,11 @@ msgstr "Επιλογή ιδιωτικού κλειδιού"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "Επιλογή σεναρίου HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Να ορίζει το NetworkManager τις διαδρομές και το DNS (πειραματικό)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "Το NetworkManager ρυθμίζει τις διαδρομές, το DNS και την προεπιλεγμένη διαδρομή της σήραγγας από όσα στέλνει η πύλη, αντί για το vpnc-script. Οι διαδρομές που η πύλη εξαιρεί από τη σήραγγα αγνοούνται."

@@ -368,3 +368,11 @@ msgstr "選擇私密金鑰"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "選擇 HIP 指令稿"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "讓 NetworkManager 設定路由和 DNS(實驗性)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager 會根據閘道傳送的資訊設定通道的路由、DNS 和預設路由,而不使用 vpnc-script。閘道從通道中排除的路由會被忽略。"

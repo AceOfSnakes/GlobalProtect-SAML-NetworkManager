@@ -33,6 +33,7 @@ struct _NMGpclientEditor {
     gboolean mtu_touched;  /* the user changed the spin button after load */
     gboolean timeout_follows_auth_mode;
     GtkEntry *dns_entry;
+    GtkCheckButton *nm_routing_check;
     GtkCheckButton *hip_check;
     GtkWidget *hip_script_label;
     GtkEntry *hip_script_entry;
@@ -528,6 +529,19 @@ build_ui (NMGpclientEditor *self)
     g_signal_connect (G_OBJECT (self->dns_entry), "changed", G_CALLBACK (stuff_changed_cb), self);
     gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->dns_entry), 1, row++, 1, 1);
 
+    /* Let NetworkManager set the routes and DNS (vpn.data "nm-routing") */
+    self->nm_routing_check = GTK_CHECK_BUTTON (
+        gtk_check_button_new_with_label (_("Let NetworkManager set the routes and DNS (experimental)")));
+    gtk_widget_set_tooltip_text (GTK_WIDGET (self->nm_routing_check),
+        _("NetworkManager configures the tunnel's routes, DNS and default route from what the "
+        "gateway sends, instead of vpnc-script. Routes the gateway excludes from the "
+        "tunnel are ignored."));
+    if (s_vpn)
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->nm_routing_check),
+                                      nm_gpclient_editor_data_is_yes (s_vpn, "nm-routing"));
+    g_signal_connect (G_OBJECT (self->nm_routing_check), "toggled", G_CALLBACK (stuff_changed_cb), self);
+    gtk_grid_attach (GTK_GRID (widget), GTK_WIDGET (self->nm_routing_check), 1, row++, 1, 1);
+
     /* HIP */
     label = gtk_label_new (_("HIP:"));
     gtk_widget_set_halign (label, GTK_ALIGN_START);
@@ -690,6 +704,10 @@ update_connection (NMVpnEditor *iface,
         nm_gpclient_editor_set_or_remove (s_vpn, "as-gateway",
             gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->as_gateway_check)) ? "true" : NULL);
 
+    if (self->nm_routing_check)
+        nm_gpclient_editor_set_or_remove (s_vpn, "nm-routing",
+            gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->nm_routing_check)) ? "yes" : NULL);
+
     if (self->preferred_gateway_combo) {
         str = gtk_combo_box_text_get_active_text (self->preferred_gateway_combo);
         /* The automatic entry means "let the portal decide" - store nothing */
@@ -835,6 +853,7 @@ nm_gpclient_editor_init (NMGpclientEditor *self)
     self->mtu_spin = NULL;
     self->timeout_follows_auth_mode = FALSE;
     self->dns_entry = NULL;
+    self->nm_routing_check = NULL;
     self->hip_check = NULL;
     self->hip_script_label = NULL;
     self->hip_script_entry = NULL;

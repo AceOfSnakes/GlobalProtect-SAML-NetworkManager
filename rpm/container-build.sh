@@ -29,7 +29,13 @@ case "$family" in
         ;;
     suse)
         install_cmd=(zypper --non-interactive install --no-recommends)
-        zypper --non-interactive refresh
+        # download.opensuse.org sends each file to a mirror: one that has not synced the
+        # newest metadata yet fails the refresh, the next try usually gets another one
+        for attempt in 1 2 3 4 5; do
+            zypper --non-interactive refresh && break
+            [ "$attempt" -lt 5 ] || { echo "zypper refresh failed $attempt times" >&2; exit 1; }
+            sleep 30
+        done
         zypper --non-interactive install --no-recommends rpm-build tar gzip
         ;;
     *)

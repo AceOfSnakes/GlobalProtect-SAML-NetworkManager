@@ -467,3 +467,13 @@ msgstr "Pasirinkite privatųjį raktą"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Pasirinkite HIP scenarijų"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Leisti NetworkManager nustatyti maršrutus ir DNS (eksperimentinis)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager sukonfigūruoja tunelio maršrutus, DNS ir numatytąjį maršrutą pagal šliuzo siunčiamus duomenis, o ne pagal vpnc-script. Maršrutai, kuriuos šliuzas išskiria iš tunelio, ignoruojami."
