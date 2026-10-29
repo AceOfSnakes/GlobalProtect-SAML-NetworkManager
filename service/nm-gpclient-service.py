@@ -113,6 +113,14 @@ SERVICE_PROGRAM = os.path.realpath(__file__)
 VPNC_REASON_CONNECT = "connect"
 VPNC_REASON_RECONNECT = "reconnect"
 VPNC_NOTIFY_REASONS = (VPNC_REASON_CONNECT, VPNC_REASON_RECONNECT)
+# Most split routes of each family that are read (and sent)
+VPNC_SPLIT_MAX = 256
+# Set by the notify hook: the path of the vpnc-script that runs
+VPNC_SCRIPT_ENV = "GPCLIENT_VPNC_SCRIPT"
+# Time vpnc-script gets for its disconnect after gpclient was killed
+VPNC_DISCONNECT_TIMEOUT = 10
+# PATH of that run: not the service's environment
+VPNC_DISCONNECT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # The vpnc variables --vpnc-notify sends, and nothing else of its environment
 VPNC_NOTIFY_ENV = (
     "TUNDEV",
@@ -127,7 +135,36 @@ VPNC_NOTIFY_ENV = (
     "INTERNAL_IP6_DNS",
     "CISCO_DEF_DOMAIN",
     "CISCO_SPLIT_DNS",
+    # The split-include routes (nm-routing)
+    "CISCO_SPLIT_INC",
+    "CISCO_IPV6_SPLIT_INC",
+    # What vpnc-script needs for its disconnect (_run_vpnc_disconnect, #162):
+    # the exclude lists, VPNPID (names its state files in /var/run/vpnc) and the
+    # path of the script itself, set by the notify hook
+    "CISCO_SPLIT_EXC",
+    "CISCO_IPV6_SPLIT_EXC",
+    "VPNPID",
+    VPNC_SCRIPT_ENV,
+) + tuple(
+    f"CISCO_SPLIT_INC_{n}_{part}"
+    for n in range(VPNC_SPLIT_MAX)
+    for part in ("ADDR", "MASK", "MASKLEN")
+) + tuple(
+    f"CISCO_SPLIT_EXC_{n}_{part}"
+    for n in range(VPNC_SPLIT_MAX)
+    for part in ("ADDR", "MASK", "MASKLEN")
+) + tuple(
+    f"CISCO_IPV6_SPLIT_INC_{n}_{part}"
+    for n in range(VPNC_SPLIT_MAX)
+    for part in ("ADDR", "MASKLEN")
+) + tuple(
+    f"CISCO_IPV6_SPLIT_EXC_{n}_{part}"
+    for n in range(VPNC_SPLIT_MAX)
+    for part in ("ADDR", "MASKLEN")
 )
+# With nm-routing, gpclient runs this instead of vpnc-script (--script): it
+# configures nothing and only tells the service about the tunnel
+NM_SCRIPT_PROGRAM = "/usr/lib/NetworkManager/gpclient-nm-script"
 
 # Secret name used for one-time codes in SecretsRequired/NewSecrets
 OTP_SECRET_KEY = "otp"  # noqa: S105  # a D-Bus secret name, not a password
@@ -1288,11 +1325,75 @@ def tunnel_mtu_from_env(env: Dict[str, str]) -> Optional[int]:
     return None
 
 
+def split_include_routes(
+    env: Dict[str, str], version: int
+) -> Tuple[List[Tuple[Union[ipaddress.IPv4Address, ipaddress.IPv6Address], int]], bool]:
+    """The split-include routes of the vpnc environment (CISCO_SPLIT_INC for
+    version 4, CISCO_IPV6_SPLIT_INC for 6) as (network, prefix) pairs, and
+    whether an entry was a default route (prefix 0, left out of the pairs).
+
+    The prefix is MASKLEN, else (IPv4 only) the length of MASK. Entries that
+    are invalid are skipped, like NetworkManager-openconnect does; at most
+    VPNC_SPLIT_MAX entries are read.
+    """
+    name = "CISCO_SPLIT_INC" if version == 4 else "CISCO_IPV6_SPLIT_INC"
+    count = env.get(name, "")
+    if not (count.isascii() and count.isdigit()):
+        return [], False
+    routes: List[Tuple[Union[ipaddress.IPv4Address, ipaddress.IPv6Address], int]] = []
+    default_seen = False
+    for n in range(min(int(count), VPNC_SPLIT_MAX)):
+        address = parse_ip_address(env.get(f"{name}_{n}_ADDR", ""))
+        if address is None or address.version != version:
+            continue
+        length = env.get(f"{name}_{n}_MASKLEN", "")
+        if length:
+            if not (length.isascii() and length.isdigit()):
+                continue
+            prefix = int(length)
+        elif version == 4:
+            try:
+                prefix = ipaddress.IPv4Network(
+                    f"0.0.0.0/{env.get(f'{name}_{n}_MASK', '')}"
+                ).prefixlen
+            except ValueError:
+                continue
+        else:
+            continue
+        if prefix > address.max_prefixlen:
+            continue
+        if prefix == 0:
+            default_seen = True
+        else:
+            routes.append((address, prefix))
+    return routes, default_seen
+
+
 def vpnc_notify_env(environ: Dict[str, str]) -> Tuple[str, str, Dict[str, str]]:
     """What --vpnc-notify sends: (reason, token, the allow-listed vpnc
     variables that are set). Other variables of `environ` never leave."""
     env = {key: environ[key] for key in VPNC_NOTIFY_ENV if key in environ}
     return environ.get("reason", ""), environ.get(NOTIFY_TOKEN_ENV, ""), env
+
+
+def vpnc_script_path(path: str) -> Optional[str]:
+    """`path` when it is a vpnc-script the service may run as root, else None:
+    absolute, a regular executable file owned by root that no other user can
+    write (the path of a notification is only as good as the file behind it)."""
+    if not path.startswith("/"):
+        return None
+    try:
+        info = os.stat(os.path.realpath(path))
+    except OSError:
+        return None
+    if (
+        stat.S_ISREG(info.st_mode)
+        and info.st_uid == 0
+        and info.st_mode & stat.S_IXUSR
+        and not info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    ):
+        return path
+    return None
 
 
 def parse_dns_servers(text: str) -> List[str]:
@@ -1771,6 +1872,9 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         self.stdout_monitor_task = None
         # The token of the running gpclient for Notify(); empty without one
         self._notify_token = ""
+        # (vpnc-script path, its environment) to undo the tunnel if gpclient has
+        # to be killed; see _run_vpnc_disconnect
+        self._vpnc_disconnect: Optional[Tuple[str, Dict[str, str]]] = None
         self.dns_servers = []
         self.dns_domains = []
         self.gateway = None
@@ -1821,6 +1925,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         # Portal / gateway selection (issue #7)
         self.as_gateway = False
+        self.nm_routing = False  # NetworkManager sets the routes (nm-routing)
         self.mtu: Optional[int] = None  # pass --mtu to gpclient when set
         self.preferred_gateway = ""
         self._connection_uuid = ""
@@ -2129,6 +2234,13 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                 data_dict.get("gateway-list-count", "")
             )
             logger.info(f"Treat server as gateway: {self.as_gateway}")
+            # NetworkManager sets the routes from the split-include lists
+            # instead of vpnc-script (opt-in)
+            self.nm_routing = data_dict.get("nm-routing", "no").lower() in (
+                "yes",
+                "true",
+            )
+            logger.info(f"nm-routing: {self.nm_routing}")
             logger.info(
                 "Preferred gateway: "
                 + (self.preferred_gateway or "<first proposed by the portal>")
@@ -2430,12 +2542,14 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
 
         # Clean up
         self._notify_token = ""
+        self._vpnc_disconnect = None
         self.gpclient_process = None
         self.dns_servers = []
         self.dns_domains = []
         self.hip_enabled = True
         self.hip_script = None
         self.never_default = False
+        self.nm_routing = False
         self.browser_target = None
         self.fix_openssl_mode = "auto"
         self.fix_openssl = False
@@ -2872,6 +2986,11 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             if tun_name:
                 cmd.append(f"--interface={tun_name}")
 
+            # NetworkManager sets the routes: a script that only notifies us
+            # replaces vpnc-script
+            if self.nm_routing:
+                cmd.extend(["--script", NM_SCRIPT_PROGRAM])
+
             # Pass stored username so standard-login portals don't prompt for it
             if self.vpn_username:
                 cmd.append(f"--user={self.vpn_username}")
@@ -2924,6 +3043,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             # browser inherit it): the D-Bus policy limits callers to root.
             env[NOTIFY_PROGRAM_ENV] = SERVICE_PROGRAM
             self._notify_token = secrets.token_hex(16)
+            self._vpnc_disconnect = None
             env[NOTIFY_TOKEN_ENV] = self._notify_token
 
             # Export custom DNS domains for vpnc hook
@@ -3317,6 +3437,26 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             "by the portal - retrying without --gateway"
         )
         self._gateway_flag_dropped = True
+        if self._auth_result:
+            # The first gpclient sent this prelogin cookie to the portal, and a
+            # portal may accept it only once: the dialog makes a new one.
+            # (_written_secrets keeps the old value: the log stays scrubbed)
+            logger.info(
+                "The SAML result was already used at the portal - asking the "
+                "auth dialog for a new login before the retry"
+            )
+            gen = self._session_gen
+            self._auth_result = ""
+            try:
+                await self._request_auth_result()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if gen == self._generation:
+                    self._fail_login(f"The SAML login in the auth dialog failed: {e}")
+                return True
+            if gen != self._generation:
+                return True
         if await self._restart_gpclient():
             return True
 
@@ -3431,6 +3571,7 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
                     await asyncio.wait_for(process.wait(), timeout=2)
                 except asyncio.TimeoutError:
                     logger.error("gpclient process refused to die after SIGKILL")
+                await self._run_vpnc_disconnect()
         except Exception as e:
             logger.error(f"Error terminating gpclient: {e}")
 
@@ -4702,6 +4843,10 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         """
         iface = self._check_notify(reason, token, env)
         logger.info(f"VPN connected - vpnc-script reports tunnel {iface} ({reason})")
+        # Only the connect: a reconnect has the gateway's raw split lists (the
+        # routing hook does not run for it) and changes no routes or DNS
+        if reason == VPNC_REASON_CONNECT:
+            self._remember_vpnc_disconnect(env)
 
         address = tunnel_ipv4_from_env(env)
         # The Config "gateway" is the VPN server's address, which NetworkManager
@@ -4800,12 +4945,14 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
         # has-ip4 is set only with an IPv4 address (NM does not wait for
         # Ip4Config without it), and has-ip6 only with an IPv6 one
         if address is not None:
+            self._add_nm_routes(config, env, 4)
             logger.info(f"Ip4Config: {config}")
             self.Ip4Config.emit(config)
         config6 = self._build_ip6_config(
             iface, config.get("domains", ("as", []))[1], learned_dns
         )
         if config6 is not None:
+            self._add_nm_routes(config6, env, 6)
             logger.info(f"Ip6Config: {config6}")
             self.Ip6Config.emit(config6)
 
@@ -4816,6 +4963,88 @@ class GpclientVPNPlugin(  # type: ignore[call-arg]  # sdbus metaclass keyword
             self.profile_task = self._create_task(
                 self._persist_profile(), "profile update"
             )
+
+    def _remember_vpnc_disconnect(self, env: Dict[str, str]) -> None:
+        """Keep what _run_vpnc_disconnect needs, when the hook gave the path of
+        a vpnc-script we may run (nm-routing gives none: NetworkManager owns the
+        routes and the DNS then)."""
+        path = env.get(VPNC_SCRIPT_ENV)
+        if path is None:
+            return
+        if vpnc_script_path(path) is None:
+            logger.warning("Not using the vpnc-script path the hook reported: unsafe")
+            return
+        keep = {k: env[k] for k in VPNC_NOTIFY_ENV if k in env and k != VPNC_SCRIPT_ENV}
+        pid = keep.get("VPNPID", "0")
+        if not (pid.isascii() and pid.isdigit()):
+            del keep["VPNPID"]
+        self._vpnc_disconnect = (path, keep)
+
+    async def _run_vpnc_disconnect(self) -> None:
+        """Run the remembered vpnc-script with reason=disconnect, as gpclient
+        would have after SIGTERM. Never raises."""
+        if not self._vpnc_disconnect:
+            return
+        path, env = self._vpnc_disconnect
+        self._vpnc_disconnect = None
+        if vpnc_script_path(path) is None:  # changed since the notification
+            logger.warning(f"Not running {path} for the disconnect: it is unsafe now")
+            return
+        logger.warning(
+            "gpclient was killed before vpnc-script could undo its routes and "
+            f"DNS: running {path} with reason=disconnect"
+        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                path,
+                env={**env, "PATH": VPNC_DISCONNECT_PATH, "reason": "disconnect"},
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                out, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=VPNC_DISCONNECT_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.error("vpnc-script disconnect timed out, killing it")
+                proc.kill()
+                await proc.wait()
+                return
+            text = out.decode(errors="replace").strip()
+            if proc.returncode:
+                logger.warning(f"vpnc-script disconnect exited {proc.returncode}: {text}")
+            elif text:
+                logger.debug(f"vpnc-script disconnect: {text}")
+        except Exception as e:
+            logger.error(f"Error running vpnc-script disconnect: {e}")
+
+    def _add_nm_routes(
+        self, config: Dict[str, Tuple[str, Any]], env: Dict[str, str], version: int
+    ) -> None:
+        """With nm-routing, put the split-include routes in an IP config.
+
+        never-default is set when there are routes and none is a default route
+        (NetworkManager-openconnect's rule); one the profile asked for stays.
+        """
+        if not self.nm_routing:
+            return
+        routes, default_seen = split_include_routes(env, version)
+        if not routes:
+            return
+        if version == 4:
+            config["routes"] = (
+                "aau",
+                [[ipv4_to_nm_uint32(str(a)), prefix, 0, 0] for a, prefix in routes],
+            )
+        else:
+            config["routes"] = (
+                "a(ayuayu)",
+                [(a.packed, prefix, bytes(16), 0) for a, prefix in routes],
+            )
+        if not default_seen:
+            config["never-default"] = ("b", True)
+        logger.info(f"NetworkManager routes IPv{version}: {len(routes)}")
 
     async def _persist_profile(self) -> None:
         """The login succeeded, so what we learned along the way is worth

@@ -148,6 +148,7 @@ GpclientWidget::GpclientWidget(const NetworkManager::VpnSetting::Ptr &setting, Q
     // Connect signals for change notification
     connect(m_ui->gatewayLineEdit, &QLineEdit::textChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->asGatewayCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
+    connect(m_ui->nmRoutingCheckBox, &QCheckBox::toggled, this, &GpclientWidget::settingChanged);
     connect(m_ui->preferredGatewayComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->authModeComboBox, &QComboBox::currentTextChanged, this, &GpclientWidget::settingChanged);
     connect(m_ui->authModeComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
@@ -249,6 +250,11 @@ void GpclientWidget::loadConfig(const NetworkManager::Setting::Ptr &setting)
         // The address is a gateway, not a portal
         m_ui->asGatewayCheckBox->setChecked(
             data.value(QLatin1String("as-gateway")).toLower() == QLatin1String("true"));
+
+        // NetworkManager sets the routes and DNS (opt-in, "yes")
+        // "yes" or "true" (any case), as the service reads it
+        const QString nmRouting = data.value(QLatin1String("nm-routing")).toLower();
+        m_ui->nmRoutingCheckBox->setChecked(nmRouting == QLatin1String("yes") || nmRouting == QLatin1String("true"));
 
         // Offer the gateways discovered during the last successful connection
         const QString cached = data.value(QLatin1String("gateway-list"));
@@ -492,6 +498,13 @@ QVariantMap GpclientWidget::setting() const
         data.remove(QLatin1String("mtu"));
     } else {
         data.insert(QLatin1String("mtu"), QString::number(qBound(MTU_MIN, mtu, MTU_MAX)));
+    }
+
+    // Save "NetworkManager sets the routes and DNS" (no key when off)
+    if (m_ui->nmRoutingCheckBox->isChecked()) {
+        data.insert(QLatin1String("nm-routing"), QLatin1String("yes"));
+    } else {
+        data.remove(QLatin1String("nm-routing"));
     }
 
     // Save HIP

@@ -62,6 +62,8 @@ for hook_dir in post-connect.d reconnect.d; do
     install -D -m 755 config/gpclient-nm-notify \
         "$dest/etc/vpnc/$hook_dir/90-gpclient-notify"
 done
+install -D -m 755 config/gpclient-nm-script \
+    "$dest/usr/lib/NetworkManager/gpclient-nm-script"
 
 if [ "$flavor" = gnome ]; then
     # GNOME package (network-manager-gpclient-gnome)

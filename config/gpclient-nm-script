@@ -1,0 +1,40 @@
+#!/bin/sh
+# gpclient runs this with `--script` when the profile has nm-routing=yes, in
+# place of vpnc-script (issue #128). Like NetworkManager-openconnect's helper,
+# it configures nothing: NetworkManager sets the address, routes and DNS from
+# the configuration nm-gpclient-service reports. It runs as a program (not
+# sourced), so it may `exit`; POSIX sh syntax only.
+#
+# For the reasons "connect" and "reconnect" it tells the service about the
+# tunnel, as config/gpclient-nm-notify does for vpnc-script (same variables).
+# Every other reason (pre-init, disconnect, attempt-reconnect, ...) does nothing.
+
+# Do not trace the token into the journal
+set +x
+
+case "${reason:-}" in
+  connect | reconnect) ;;
+  *) exit 0 ;;
+esac
+
+[ -n "${GPCLIENT_NM_NOTIFY:-}" ] && [ -n "${GPCLIENT_NM_TOKEN:-}" ] || exit 0
+
+case "$GPCLIENT_NM_NOTIFY" in
+  /*) ;;
+  *)
+    echo "gpclient-nm-script: GPCLIENT_NM_NOTIFY is not an absolute path - not notifying" >&2
+    exit 0
+    ;;
+esac
+if [ ! -f "$GPCLIENT_NM_NOTIFY" ] || [ ! -x "$GPCLIENT_NM_NOTIFY" ]; then
+  echo "gpclient-nm-script: $GPCLIENT_NM_NOTIFY is not an executable file - not notifying" >&2
+  exit 0
+fi
+
+# A call that hangs (the service is stuck) must not block gpclient
+if command -v timeout >/dev/null 2>&1; then
+  timeout 10 "$GPCLIENT_NM_NOTIFY" --vpnc-notify
+else
+  "$GPCLIENT_NM_NOTIFY" --vpnc-notify
+fi || echo "gpclient-nm-script: could not tell nm-gpclient-service about the tunnel ${TUNDEV:-} (reason ${reason:-})" >&2
+exit 0

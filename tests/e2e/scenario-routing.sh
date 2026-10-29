@@ -144,3 +144,18 @@ mark_end
 disconnect_vpn "Contoso VPN" || fail "the VPN did not disconnect"
 pause 1.5
 snapshot disconnected-final
+
+# --- nm-routing=yes (not in the animation) ------------------------------------------
+# NetworkManager sets the address, routes and DNS; the helper given to gpclient
+# with --script does nothing. The editor's never-default setting from step 3 is
+# reset, so that only the service can keep the default route off the tunnel.
+nmcli connection modify "Contoso VPN" ipv4.never-default no +vpn.data "nm-routing=yes" \
+    || fail "cannot set nm-routing"
+nmcli connection up "Contoso VPN" > "$DEMO_OUT/nmcli-nm-routing.log" 2>&1 &
+edge_sso_auto
+wait_vpn "Contoso VPN" activated 60 || fail "the VPN did not become active (nm-routing)"
+pause 1.5
+snapshot connected-nm-routing
+disconnect_vpn "Contoso VPN" || fail "the VPN did not disconnect (nm-routing)"
+pause 1.5
+snapshot disconnected-nm-routing

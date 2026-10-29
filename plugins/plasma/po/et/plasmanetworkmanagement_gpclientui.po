@@ -441,3 +441,13 @@ msgstr "Vali privaatvõti"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Vali HIP-skript"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Lase NetworkManageril määrata marsruudid ja DNS (katseline)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager seadistab tunneli marsruudid, DNS-i ja vaikemarsruudi lüüsi saadetud andmete põhjal vpnc-scripti asemel. Marsruute, mille lüüs tunnelist välja jätab, ignoreeritakse."

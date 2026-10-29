@@ -26,7 +26,7 @@ the browser wrapper and Microsoft Edge. Only these parts are fake:
 |---|---|
 | `gnome` | Settings > Network > "+" > GlobalProtect, fill the editor, connect with the row switch, sign in, quick settings. Animation: `demo-gnome.webp` |
 | `kde` | Tray > Networks > configure > "+" > GlobalProtect, fill the editor, save, connect from the tray, sign in. Animation: `demo-kde.webp` |
-| `routing` | Terminal: `ip route` and `resolvectl` before connecting, with the default settings, and with "Use this connection only for resources on its network" (Settings > VPN > IPv4). Animation: `demo-routing-dns.webp` |
+| `routing` | Terminal: `ip route` and `resolvectl` before connecting, with the default settings, and with "Use this connection only for resources on its network" (Settings > VPN > IPv4). Then, outside the animation, the same profile with `nm-routing=yes`: the fake gpclient gets `--script`, pushes only split routes, and NetworkManager must set the address, routes and DNS. Animation: `demo-routing-dns.webp` |
 | `auth-cancel` | Negative: the user closes the sign-in window. The connection must fail cleanly. No animation |
 | `saml-dialog` | `saml-auth=dialog`: the auth dialog runs gpauth in the user's session and the service gives the result to `gpclient --cookie-on-stdin`. gpauth is not a child of gpclient. No animation |
 
@@ -43,6 +43,9 @@ run fails when one of these is wrong:
   DNS default route; never-default: the default route and the Internet are not
   on the wired link, the company network is not on the tunnel, or the tunnel is the DNS
   default route; the VPN DNS servers and domain are not on the tunnel;
+- `routing` with `nm-routing=yes`: the routes 10.20.0.0/16 and 172.16.0.0/12 are not on
+  the tunnel, the default route or the Internet go through it, or the tunnel address
+  or the VPN DNS is missing (the helper of `--script` configures none of it);
 - errors or tracebacks in the service log (NetworkManager log);
 - `routing`: the service name is not on the system bus, or a `Peer.Ping` from the
   non-root user is not denied with `AccessDenied` by the system bus policy (this

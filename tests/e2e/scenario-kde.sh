@@ -39,7 +39,7 @@ click $((SCREEN_W / 2 - 170)) $((SCREEN_H / 2 - 108))
 dlg=$(wait_for_window "^New Connection" 20) || fail "the connection editor did not open"
 pause 0.7
 win_box "$dlg" || fail "cannot read the editor geometry"
-EX=$WX; EY=$WY; EH=$WH
+EX=$WX; EY=$WY; EW=$WW; EH=$WH
 shot step-06-editor
 
 # 3. Our tab: name, address, browser
@@ -60,7 +60,8 @@ pause 0.7
 click $((EX + 238)) $((EY + 282 + 30))
 pause 1.5
 shot step-08-filled
-click $((EX + 370)) $((EY + EH - 27))
+# Save is right-aligned: anchor it to the right edge, the width follows the widest row
+click $((EX + EW - 143)) $((EY + EH - 27))
 wait_window_gone "^New Connection" 20 || fail "the connection editor did not close"
 pause 0.8
 shot step-09-saved

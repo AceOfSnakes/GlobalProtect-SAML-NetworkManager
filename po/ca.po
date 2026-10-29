@@ -368,3 +368,11 @@ msgstr "Trieu la clau privada"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "Trieu l'script HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Deixa que NetworkManager defineixi les rutes i el DNS (experimental)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager configura les rutes, el DNS i la ruta per defecte del túnel segons el que envia la passarel·la, en lloc de vpnc-script. Les rutes que la passarel·la exclou del túnel s'ignoren."

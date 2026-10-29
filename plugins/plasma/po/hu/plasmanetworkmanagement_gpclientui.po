@@ -441,3 +441,13 @@ msgstr "Válassza ki a privát kulcsot"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Válassza ki a HIP-szkriptet"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "A NetworkManager állítsa be az útvonalakat és a DNS-t (kísérleti)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "A NetworkManager az átjáró által küldött adatok alapján állítja be az alagút útvonalait, DNS-ét és alapértelmezett útvonalát a vpnc-script helyett. Az átjáró által az alagútból kizárt útvonalakat figyelmen kívül hagyja."
