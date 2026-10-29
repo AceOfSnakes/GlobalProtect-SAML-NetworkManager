@@ -80,7 +80,7 @@ check_vpnc_script() {
     # Without post-connect hooks the service is never told that the tunnel is up
     grep -q 'run_hooks post-connect' "$script" \
         || fail "$script does not run post-connect hooks: the connection would never be reported as up"
-    for hook in connect.d/90-gpclient-routing post-connect.d/90-gpclient-notify reconnect.d/90-gpclient-notify; do
+    for hook in connect.d/90-gpclient-routing disconnect.d/90-gpclient-routing post-connect.d/90-gpclient-notify reconnect.d/90-gpclient-notify; do
         [ -x "$root$hooks/$hook" ] \
             || fail "$script runs the hooks of $hooks, but $hooks/$hook is not there"
     done
@@ -103,6 +103,13 @@ case "${ID:-}" in
     opensuse-* | sles)
         # The RPMs are not signed here (only the repository they are published in is)
         install_cmd=(zypper --non-interactive install --no-recommends --allow-unsigned-rpm)
+        # download.opensuse.org sends each file to a mirror: one that has not synced the
+        # newest metadata yet fails the refresh, the next try usually gets another one
+        for attempt in 1 2 3 4 5; do
+            zypper --non-interactive refresh && break
+            [ "$attempt" -lt 5 ] || fail "zypper refresh failed $attempt times"
+            sleep 30
+        done
         ;;
     *)
         install_cmd=(dnf -y --setopt=install_weak_deps=False install)
@@ -134,6 +141,7 @@ done
 for path in \
     /usr/bin/gpclient /usr/bin/gpauth \
     /usr/lib/NetworkManager/nm-gpclient-service \
+    /usr/lib/NetworkManager/gpclient-nm-script \
     /usr/lib/NetworkManager/VPN/nm-gpclient-service.name \
     /usr/libexec/gpclient/browser-wrapper /usr/libexec/gpclient/edge-wrapper \
     /usr/libexec/nm-gpclient-auth-dialog \
@@ -142,6 +150,7 @@ for path in \
     /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service \
     /usr/share/dbus-1/system.d/nm-gpclient.conf \
     /etc/vpnc/connect.d/90-gpclient-routing \
+    /etc/vpnc/disconnect.d/90-gpclient-routing \
     /etc/vpnc/post-connect.d/90-gpclient-notify \
     /etc/vpnc/reconnect.d/90-gpclient-notify \
     "$(rpm --eval '%{_libdir}')/NetworkManager/libnm-vpn-plugin-gpclient.so" \

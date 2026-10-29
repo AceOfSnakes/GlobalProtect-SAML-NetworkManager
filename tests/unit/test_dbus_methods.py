@@ -410,6 +410,27 @@ class TestConnectRouting:
 
         assert plugin.ipv6_method == expected
 
+    @pytest.mark.parametrize(
+        "ipv4, expected",
+        [
+            ({"method": ("s", "manual")}, "manual"),
+            ({"method": "disabled"}, "disabled"),
+            ({"method": ("s", "auto")}, "auto"),
+            ({}, "auto"),
+            (None, "auto"),
+        ],
+    )
+    def test_ipv4_method(self, service_module, monkeypatch, ipv4, expected):
+        plugin = _plugin(service_module, monkeypatch)
+        plugin.ipv4_method = "manual"  # a stale value of an earlier Connect
+        conn = _conn()
+        if ipv4 is not None:
+            conn["ipv4"] = ipv4
+
+        connect(plugin, conn)
+
+        assert plugin.ipv4_method == expected
+
     def test_never_default_and_ignore_auto_routes(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)
 
@@ -556,6 +577,26 @@ class TestConnectData:
         connect(plugin, _conn())
 
         assert plugin.as_gateway is False
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [("yes", True), ("YES", True), ("true", True),
+         ("no", False), ("", False), ("1", False), ("maybe", False)],
+    )
+    def test_nm_routing(self, service_module, monkeypatch, value, expected):
+        plugin = _plugin(service_module, monkeypatch)
+
+        connect(plugin, _conn(data={"gateway": "g", "nm-routing": value}))
+
+        assert plugin.nm_routing is expected
+
+    def test_nm_routing_absent_is_false(self, service_module, monkeypatch):
+        plugin = _plugin(service_module, monkeypatch)
+        plugin.nm_routing = True
+
+        connect(plugin, _conn())
+
+        assert plugin.nm_routing is False
 
     def test_preferred_gateway_is_stripped(self, service_module, monkeypatch):
         plugin = _plugin(service_module, monkeypatch)

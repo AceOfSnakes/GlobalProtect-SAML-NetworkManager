@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Altid til"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Spørg hver gang (gemmes ikke)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Adgangskode"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Lagring af adgangskode:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Adgangskode:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS gør det muligt at slå VPN-specifikke domæner op via VPN-DNS og samtidig bruge lokal DNS til andre domæner.\n"
 "Tilsidesæt: indtast DNS-servere adskilt af semikolon (f.eks. 8.8.8.8;8.8.4.4) for i stedet at bruge egne DNS-servere."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Gem for alle brugere (system)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Gem kun for denne bruger (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Brugernavn og adgangskode (RSA-token)"
 #, kde-format
 msgid "Username:"
 msgstr "Brugernavn:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Hvor adgangskoden opbevares. „Spørg hver gang“ gemmer intet."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Valgfri absolut sti til filen med den private nøgle (PEM), som skal eje
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Lagring af adgangssætning:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Privat nøgle:"
 
@@ -471,3 +441,13 @@ msgstr "Vælg den private nøgle"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Vælg HIP-scriptet"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Lad NetworkManager angive ruter og DNS (eksperimentelt)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager konfigurerer tunnelens ruter, DNS og standardrute ud fra det, gatewayen sender, i stedet for vpnc-script. Ruter, som gatewayen udelukker fra tunnelen, ignoreres."

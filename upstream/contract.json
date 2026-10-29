@@ -387,6 +387,13 @@
       "used_by": "service/nm-gpclient-service.py: --interface"
     },
     {
+      "id": "cli-script",
+      "kind": "anchor",
+      "path": "apps/gpclient/src/connect/args.rs",
+      "text": "pub(super) script: Option<String>,",
+      "used_by": "service/nm-gpclient-service.py: --script (nm-routing)"
+    },
+    {
       "id": "tunnel-settings-interface",
       "kind": "anchor",
       "path": "crates/gptunnel/src/configuration.rs",

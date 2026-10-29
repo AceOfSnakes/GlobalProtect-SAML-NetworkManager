@@ -11,6 +11,7 @@ file without a plugin are all reported.
 Run with: make test-unit  (or: python3 -m pytest tests/unit -v)
 """
 
+import re
 import copy
 import importlib
 import os
@@ -452,7 +453,8 @@ class TestMtuCases:
         with open(os.path.join(ROOT, "plugins", "plasma", "gpclientwidget.ui"), encoding="utf-8") as handle:
             ui = handle.read()
 
-        assert ui.count("<customwidget>") == 1
+        # Only the MTU spin box is promoted (and plasma-nm's PasswordField)
+        assert sorted(re.findall(r"<customwidget>\s*<class>(\w+)</class>", ui)) == ["MtuSpinBox", "PasswordField"]
         assert '<widget class="QDoubleSpinBox" name="timeoutSpinBox">' in ui
 
     def test_the_gtk_editors_keep_an_invalid_stored_value_by_a_touched_flag(self):

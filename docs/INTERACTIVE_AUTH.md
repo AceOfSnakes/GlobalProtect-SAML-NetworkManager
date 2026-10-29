@@ -66,7 +66,7 @@ read it in the process list, and your shell keeps it in its history.
 
 Ask NetworkManager to collect the password upfront. In the editor, choose
 **Username and password** and type the password in the **Password** field: the
-storage menu (the icon in the field in GNOME, the **Password storage** list in
+storage menu (the icon in the field in GNOME, the list under the field in
 Plasma) sets `password-flags` (1 = this user only, 0 = all users, in the
 profile as plain text, 2 = ask every time). Emptying the field does not delete
 a stored password (NetworkManager keeps the old one): choose "ask every time"
@@ -123,6 +123,9 @@ Other results:
 - The server has a standard (password) login: gpauth fails with "non-SAML
   prelogin". The dialog answers `standard` and the service runs gpclient the
   usual way, with the prompts described above.
+- The stored preferred gateway is no longer offered by the portal: the service
+  restarts gpclient without `--gateway`. The portal may accept a SAML result
+  only once, so the dialog asks for a new login before this retry.
 - The agent goes away (SIGTERM, end of stdin): the dialog stops gpauth.
 - KDE Plasma: plasma-nm does not start the GNOME auth dialog. Its password
   dialog loads the Plasma plugin (`GpclientAuthWidget`), which runs gpauth

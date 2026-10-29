@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr ""
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr ""
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -244,11 +239,6 @@ msgstr ""
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr ""
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr ""
 
@@ -283,16 +273,6 @@ msgid ""
 "use custom DNS instead."
 msgstr ""
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr ""
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr ""
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -311,11 +291,6 @@ msgstr ""
 #: rc.cpp
 #, kde-format
 msgid "Username:"
-msgstr ""
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
 msgstr ""
 
 #: rc.cpp
@@ -438,11 +413,6 @@ msgstr ""
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr ""
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr ""
 
@@ -474,4 +444,14 @@ msgstr ""
 #: gpclientwidget.cpp
 #, kde-format
 msgid "Choose the HIP script"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr ""
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
 msgstr ""

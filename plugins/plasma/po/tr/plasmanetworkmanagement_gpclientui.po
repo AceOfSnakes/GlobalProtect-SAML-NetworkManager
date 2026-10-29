@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Her zaman açık"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Her seferinde sor (kaydedilmez)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Parola"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Parola depolama:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Parola:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS, VPN'e özgü alan adlarının VPN DNS üzerinden çözülmesini, diğer alan adları için yerel DNS'in kullanılmasını sağlar.\n"
 "Geçersiz kılma: bunun yerine özel DNS kullanmak için noktalı virgülle ayrılmış DNS sunucuları girin (örn. 8.8.8.8;8.8.4.4)."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Tüm kullanıcılar için sakla (sistem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Yalnızca bu kullanıcı için sakla (aracı)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Kullanıcı adı ve parola (RSA belirteci)"
 #, kde-format
 msgid "Username:"
 msgstr "Kullanıcı adı:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Parolanın saklandığı yer. \"Her seferinde sor\" hiçbir şey saklamaz."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Özel anahtar dosyasının isteğe bağlı mutlak yolu (PEM); masaüstü
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Parolanın saklanması:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Özel anahtar:"
 
@@ -471,3 +441,13 @@ msgstr "Özel anahtarı seçin"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "HIP betiğini seçin"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Rotaları ve DNS'i NetworkManager ayarlasın (deneysel)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager, vpnc-script yerine tünelin rotalarını, DNS'ini ve varsayılan rotasını ağ geçidinin gönderdiklerine göre yapılandırır. Ağ geçidinin tünelden hariç tuttuğu rotalar yok sayılır."

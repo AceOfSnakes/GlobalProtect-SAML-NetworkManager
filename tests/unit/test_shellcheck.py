@@ -45,7 +45,7 @@ def workflow_problems(text):
 
 
 # Not tracked by git: what a walk of a copy without .git skips (see .gitignore)
-UNTRACKED_DIRS = (".git", ".claude", "external", "output", "tmp", "build", "__pycache__", "debian/.debhelper")
+UNTRACKED_DIRS = (".git", ".claude", "external", "vendor", "output", "tmp", "build", "__pycache__", "debian/.debhelper")
 UNTRACKED_DIR_PATTERNS = ("debian/network-manager-gpclient*",)
 
 
@@ -177,7 +177,7 @@ def test_a_copy_without_git_finds_the_same_scripts(tmp_path):
 
 @pytest.mark.parametrize("directory", [
     "output/noble", "build", "plugins/plasma/build", "debian/network-manager-gpclient/usr/bin",
-    "debian/.debhelper/x", ".claude/hooks", "tmp", "external/GlobalProtect-openconnect",
+    "debian/.debhelper/x", ".claude/hooks", "tmp", "external/GlobalProtect-openconnect", "vendor/crates/x",
 ])
 def test_a_copy_without_git_skips_build_and_untracked_dirs(tmp_path, directory):
     copy = _copy_without_git(tmp_path)

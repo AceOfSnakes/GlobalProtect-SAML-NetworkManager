@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "مفعّل دائماً"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "السؤال في كل مرة (لا يُحفظ)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "كلمة المرور"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "تخزين كلمة المرور:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "كلمة المرور:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "يتيح split DNS حل نطاقات VPN الخاصة عبر DNS الخاص بـ VPN مع استخدام DNS المحلي للنطاقات الأخرى.\n"
 "تجاوز: أدخل خوادم DNS مفصولة بفاصلة منقوطة (مثلاً 8.8.8.8;8.8.4.4) لاستخدام خوادم DNS مخصصة بدلاً من ذلك."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "الحفظ لكل المستخدمين (النظام)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "الحفظ لهذا المستخدم فقط (الوكيل)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "اسم المستخدم وكلمة المرور (رمز RSA المميز
 #, kde-format
 msgid "Username:"
 msgstr "اسم المستخدم:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "مكان حفظ كلمة المرور. خيار «السؤال في كل مرة» لا يحفظ شيئاً."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "مسار مطلق اختياري لملف المفتاح الخاص (PEM
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "تخزين عبارة المرور:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "المفتاح الخاص:"
 
@@ -471,3 +441,13 @@ msgstr "اختيار المفتاح الخاص"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "اختيار سكربت HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "اسمح لـ NetworkManager بضبط المسارات وDNS (تجريبي)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "يضبط NetworkManager مسارات النفق وDNS والمسار الافتراضي وفق ما ترسله البوابة، بدلاً من vpnc-script. يتم تجاهل المسارات التي تستثنيها البوابة من النفق."

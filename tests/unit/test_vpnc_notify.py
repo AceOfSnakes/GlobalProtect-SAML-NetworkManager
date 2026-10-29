@@ -563,6 +563,54 @@ class TestIpv4FromEnv:
 
         assert _names(dbus_signals) == ["Config", "Ip4Config", "StateChanged"]
 
+    @pytest.mark.parametrize("method", ["manual", "link-local", "disabled", "shared"])
+    def test_an_ipv4_tunnel_fails_without_ipv4_method_auto(
+        self, service_module, dbus_signals, method
+    ):
+        notify(active_plugin(service_module, ipv4_method=method))
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+
+    def test_an_ipv4_tunnel_starts_with_ipv4_method_auto(
+        self, service_module, dbus_signals
+    ):
+        notify(active_plugin(service_module, ipv4_method="auto"))
+
+        assert _names(dbus_signals) == ["Config", "Ip4Config", "StateChanged"]
+
+    @pytest.mark.parametrize("method", ["manual", "disabled"])
+    def test_a_dual_stack_tunnel_with_ipv6_auto_warns_about_ipv4_method(
+        self, service_module, dbus_signals, caplog, method
+    ):
+        plugin = active_plugin(service_module, ipv4_method=method, ipv6_method="auto")
+
+        with caplog.at_level("WARNING", logger=service_module.logger.name):
+            notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Config", "Ip4Config", "Ip6Config", "StateChanged"]
+        assert f"ipv4.method is {method!r}" in caplog.text
+
+    @pytest.mark.parametrize("ipv6_method", ["manual", "ignore"])
+    def test_a_dual_stack_tunnel_fails_without_any_auto_method(
+        self, service_module, dbus_signals, ipv6_method
+    ):
+        plugin = active_plugin(service_module, ipv4_method="manual", ipv6_method=ipv6_method)
+
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+
+    def test_an_ipv6_only_tunnel_does_not_care_about_ipv4_method(
+        self, service_module, dbus_signals
+    ):
+        plugin = active_plugin(service_module, ipv4_method="manual")
+
+        notify(plugin, vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"))
+
+        assert _names(dbus_signals) == ["Config", "Ip6Config", "StateChanged"]
+
     def test_a_reconnect_without_any_address_fails(self, service_module, dbus_signals):
         plugin = active_plugin(service_module)
         notify(plugin)
@@ -605,6 +653,33 @@ class TestIpv4FromEnv:
             vpnc_env(INTERNAL_IP4_ADDRESS=None, INTERNAL_IP6_ADDRESS="fd00::5"),
             reason="reconnect",
         )
+
+        assert "Failure" not in _names(dbus_signals)
+        assert not plugin.gpclient_process.terminated
+
+    @pytest.mark.parametrize("method", ["manual", "disabled"])
+    def test_an_ipv4_only_reconnect_fails_without_ipv4_method_auto(
+        self, service_module, dbus_signals, method
+    ):
+        # the connect was dual-stack (IPv6 auto: only a warning)
+        plugin = active_plugin(service_module, ipv4_method=method, ipv6_method="auto")
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(), reason="reconnect")
+
+        assert _names(dbus_signals) == ["Failure", "StateChanged"]
+        assert dbus_signals[0][1] == service_module.NM_VPN_PLUGIN_FAILURE_BAD_IP_CONFIG
+        assert plugin.gpclient_process.terminated
+
+    def test_an_ipv4_only_reconnect_with_ipv4_method_auto_goes_on(
+        self, service_module, dbus_signals
+    ):
+        plugin = active_plugin(service_module, ipv4_method="auto", ipv6_method="auto")
+        notify(plugin, vpnc_env(INTERNAL_IP6_ADDRESS="fd00::5"))
+        dbus_signals.clear()
+
+        notify(plugin, vpnc_env(), reason="reconnect")
 
         assert "Failure" not in _names(dbus_signals)
         assert not plugin.gpclient_process.terminated
@@ -857,6 +932,7 @@ class TestVpncNotifyMode:
                     "VPNGATEWAY": "203.0.113.9",
                     "CISCO_SPLIT_DNS": "a.example",
                     "INTERNAL_IP4_NETMASKLEN": "24",
+                    "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0",
                 },
             ),
         ]
@@ -864,7 +940,7 @@ class TestVpncNotifyMode:
     @pytest.mark.parametrize(
         "name",
         ["PATH", "HOME", "SUDO_USER", "GPCLIENT_NM_NOTIFY", "GPCLIENT_NM_TOKEN",
-         "CISCO_SPLIT_INC_0_ADDR", "reason", "reasoning", "MTU", "CISCO_BANNER"],
+         "reason", "reasoning", "MTU", "CISCO_BANNER"],
     )
     def test_a_variable_that_is_not_listed_is_not_sent(
         self, service_module, proxy, name
@@ -876,9 +952,7 @@ class TestVpncNotifyMode:
         assert name not in service_module.VPNC_NOTIFY_ENV
 
     def test_the_listed_variables_are_what_the_service_reads(self, service_module):
-        # The allow-list holds nothing the service never looks at, and the
-        # indexed split routes (it does not use them) are not in it
-        assert "CISCO_SPLIT_INC" not in service_module.VPNC_NOTIFY_ENV
+        # The allow-list holds nothing the service never looks at
         assert len(set(service_module.VPNC_NOTIFY_ENV)) == len(
             service_module.VPNC_NOTIFY_ENV
         )
@@ -971,6 +1045,177 @@ class TestRoutingHook:
             "GPCLIENT_CUSTOM_DNS_DOMAINS",
         ):
             assert name in text
+
+
+class TestRoutingHookSplitInc:
+    """Run the hook in sh and read back the split-include variables (#109)."""
+
+    HOOK = TestRoutingHook.HOOK
+
+    def run_hook(self, env):
+        import subprocess
+
+        script = (
+            f'. "{self.HOOK}" 2>/dev/null; '
+            'for v in $(set | grep -o "^CISCO_[A-Z0-9_]*" | sort); do '
+            'eval "echo $v=\\${$v}"; done'
+        )
+        out = subprocess.run(
+            ["sh", "-c", script],
+            env={"PATH": os.environ["PATH"], **env},
+            capture_output=True, text=True, check=True,
+        ).stdout
+        return dict(line.split("=", 1) for line in out.splitlines())
+
+    V6 = {
+        "CISCO_IPV6_SPLIT_INC": "3",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "fd00::",
+        "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48",
+        "CISCO_IPV6_SPLIT_INC_1_ADDR": "::",
+        "CISCO_IPV6_SPLIT_INC_1_MASKLEN": "0",
+        "CISCO_IPV6_SPLIT_INC_2_ADDR": "fd01::",
+        "CISCO_IPV6_SPLIT_INC_2_MASKLEN": "64",
+    }
+
+    def test_ipv6_default_is_removed_and_the_rest_renumbered(self):
+        got = self.run_hook({**self.V6, "GPCLIENT_NM_NEVER_DEFAULT": "1"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "2"
+        assert got["CISCO_IPV6_SPLIT_INC_0_ADDR"] == "fd00::"
+        assert got["CISCO_IPV6_SPLIT_INC_0_MASKLEN"] == "48"
+        assert got["CISCO_IPV6_SPLIT_INC_1_ADDR"] == "fd01::"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "64"
+        assert "CISCO_IPV6_SPLIT_INC_2_ADDR" not in got
+        assert "CISCO_IPV6_SPLIT_INC_2_MASKLEN" not in got
+
+    def test_only_default_leaves_count_zero_not_empty(self):
+        got = self.run_hook({
+            "GPCLIENT_NM_NEVER_DEFAULT": "1",
+            "CISCO_IPV6_SPLIT_INC": "1",
+            "CISCO_IPV6_SPLIT_INC_0_ADDR": "::",
+            "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "0",
+        })
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+        assert "CISCO_IPV6_SPLIT_INC_0_MASKLEN" not in got
+
+    def test_ipv4_default_is_still_removed(self):
+        got = self.run_hook({
+            "GPCLIENT_NM_NEVER_DEFAULT": "1",
+            "CISCO_SPLIT_INC": "2",
+            "CISCO_SPLIT_INC_0_ADDR": "0.0.0.0",
+            "CISCO_SPLIT_INC_0_MASK": "0.0.0.0",
+            "CISCO_SPLIT_INC_0_MASKLEN": "0",
+            "CISCO_SPLIT_INC_1_ADDR": "10.0.0.0",
+            "CISCO_SPLIT_INC_1_MASK": "255.0.0.0",
+            "CISCO_SPLIT_INC_1_MASKLEN": "8",
+        })
+
+        assert got["CISCO_SPLIT_INC"] == "1"
+        assert got["CISCO_SPLIT_INC_0_ADDR"] == "10.0.0.0"
+
+    @pytest.mark.parametrize("never_default", ["0", ""])
+    def test_ipv6_default_stays_without_never_default(self, never_default):
+        got = self.run_hook({**self.V6, "GPCLIENT_NM_NEVER_DEFAULT": never_default})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "3"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "0"
+
+    def test_no_ipv6_list_leaves_count_zero(self):
+        # openconnect sets no list when the gateway sends none; an empty count
+        # makes vpnc-script add an IPv6 default route for INTERNAL_IP6_ADDRESS
+        got = self.run_hook({"GPCLIENT_NM_NEVER_DEFAULT": "1", "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+
+    @pytest.mark.parametrize("never_default", ["0", ""])
+    def test_no_ipv6_list_stays_unset_without_never_default(self, never_default):
+        got = self.run_hook({"GPCLIENT_NM_NEVER_DEFAULT": never_default, "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert "CISCO_IPV6_SPLIT_INC" not in got
+
+    V6_EXC = {
+        "CISCO_IPV6_SPLIT_EXC": "1",
+        "CISCO_IPV6_SPLIT_EXC_0_ADDR": "fd02::",
+        "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "64",
+    }
+
+    @pytest.mark.parametrize("never_default", ["0", "1"])
+    def test_ignore_auto_routes_clears_the_ipv6_lists(self, never_default):
+        # #152: ::/0 included, so vpnc-script would add an IPv6 default route
+        got = self.run_hook({**self.V6, **self.V6_EXC, "INTERNAL_IP6_ADDRESS": "fd00::5",
+                             "GPCLIENT_NM_IGNORE_AUTO_ROUTES": "1",
+                             "GPCLIENT_NM_NEVER_DEFAULT": never_default})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+        assert got["CISCO_IPV6_SPLIT_EXC"] == "0"
+        assert not [k for k in got if k.startswith(("CISCO_IPV6_SPLIT_INC_", "CISCO_IPV6_SPLIT_EXC_"))]
+
+    def test_ignore_auto_routes_without_an_ipv6_list_leaves_count_zero(self):
+        # an empty count makes vpnc-script add a default route for INTERNAL_IP6_ADDRESS
+        got = self.run_hook({"GPCLIENT_NM_IGNORE_AUTO_ROUTES": "1", "INTERNAL_IP6_ADDRESS": "fd00::5"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+
+    @pytest.mark.parametrize("ignore_auto_routes", ["0", ""])
+    def test_ipv6_lists_stay_without_ignore_auto_routes(self, ignore_auto_routes):
+        got = self.run_hook({**self.V6, **self.V6_EXC,
+                             "GPCLIENT_NM_IGNORE_AUTO_ROUTES": ignore_auto_routes})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "3"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "0"
+        assert got["CISCO_IPV6_SPLIT_EXC_0_ADDR"] == "fd02::"
+
+    def test_non_default_ipv6_entries_are_kept(self):
+        env = {k: v for k, v in self.V6.items() if "_1_" not in k}
+        env["CISCO_IPV6_SPLIT_INC"] = "2"
+        env["CISCO_IPV6_SPLIT_INC_1_ADDR"] = "fd01::"
+        env["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] = "64"
+        del env["CISCO_IPV6_SPLIT_INC_2_ADDR"], env["CISCO_IPV6_SPLIT_INC_2_MASKLEN"]
+        got = self.run_hook({**env, "GPCLIENT_NM_NEVER_DEFAULT": "1"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "2"
+        assert got["CISCO_IPV6_SPLIT_INC_1_MASKLEN"] == "64"
+
+    # #155: vpnc-script runs the hook on disconnect too, with the same route edits
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_ignore_auto_routes_edits_the_lists_for_both_reasons(self, reason):
+        got = self.run_hook({**self.V6, **self.V6_EXC, "reason": reason,
+                             "CISCO_SPLIT_EXC": "1", "CISCO_SPLIT_EXC_0_ADDR": "10.1.0.0",
+                             "GPCLIENT_NM_IGNORE_AUTO_ROUTES": "1"})
+
+        assert got["CISCO_SPLIT_EXC"] == "0"
+        assert got["CISCO_IPV6_SPLIT_INC"] == "0"
+        assert got["CISCO_IPV6_SPLIT_EXC"] == "0"
+        assert "CISCO_SPLIT_EXC_0_ADDR" not in got
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_never_default_edits_the_lists_for_both_reasons(self, reason):
+        got = self.run_hook({**self.V6, "reason": reason, "GPCLIENT_NM_NEVER_DEFAULT": "1"})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "2"
+        assert got["CISCO_IPV6_SPLIT_INC_1_ADDR"] == "fd01::"
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_lists_stay_without_the_flags_for_both_reasons(self, reason):
+        got = self.run_hook({**self.V6, "reason": reason})
+
+        assert got["CISCO_IPV6_SPLIT_INC"] == "3"
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_custom_dns_domains_are_appended_for_both_reasons(self, reason):
+        # the same CISCO_DEF_DOMAIN on disconnect: the unbound restore removes them
+        got = self.run_hook({"reason": reason, "CISCO_DEF_DOMAIN": "corp.example",
+                             "GPCLIENT_CUSTOM_DNS_DOMAINS": "extra.example"})
+
+        assert got["CISCO_DEF_DOMAIN"] == "corp.example extra.example"
+
+    @pytest.mark.parametrize("reason", ["connect", "disconnect"])
+    def test_without_custom_dns_domains_the_domain_stays(self, reason):
+        got = self.run_hook({"reason": reason, "CISCO_DEF_DOMAIN": "corp.example"})
+
+        assert got["CISCO_DEF_DOMAIN"] == "corp.example"
 
 
 class TestInterfaces:

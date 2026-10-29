@@ -7,6 +7,7 @@
 // it follows the authentication mode (issue #46).
 
 #include "gpclientwidget.h"
+#include "passwordfield.h"
 
 #include <NetworkManagerQt/VpnSetting>
 #include <QCheckBox>
@@ -20,6 +21,8 @@
 namespace
 {
 const QString serviceType = QStringLiteral("org.freedesktop.NetworkManager.gpclient");
+// The test rows name the storage by index: agent (1), system (0), not saved (2)
+const PasswordField::PasswordOption optionByIndex[] = {PasswordField::StoreForUser, PasswordField::StoreForAllUsers, PasswordField::AlwaysAsk};
 }
 
 class GpclientWidgetTest : public QObject
@@ -57,6 +60,7 @@ private Q_SLOTS:
     void mtuEmptyIsAutomatic_data();
     void mtuEmptyIsAutomatic();
     void mtuArrowsAndWheelStillStep();
+    void newConnectionOverridesPlasmaDefault();
     void passwordStorage_data();
     void passwordStorage();
     void certPassStorage_data();
@@ -394,6 +398,11 @@ void GpclientWidgetTest::readsBooleansIgnoringCase_data()
     QTest::newRow("hip other is off") << "hip" << "yes" << "false";
     QTest::newRow("as-gateway TRUE") << "as-gateway" << "TRUE" << "true";
     QTest::newRow("as-gateway other is off") << "as-gateway" << "yes" << "";
+    QTest::newRow("nm-routing yes") << "nm-routing" << "yes" << "yes";
+    QTest::newRow("nm-routing YES") << "nm-routing" << "YES" << "yes";
+    QTest::newRow("nm-routing no") << "nm-routing" << "no" << "";
+    QTest::newRow("nm-routing true is on") << "nm-routing" << "true" << "yes";
+    QTest::newRow("nm-routing other is off") << "nm-routing" << "1" << "";
     QTest::newRow("fix-openssl TRUE") << "fix-openssl" << "TRUE" << "true";
     QTest::newRow("fix-openssl False") << "fix-openssl" << "False" << "false";
     QTest::newRow("fix-openssl other is auto") << "fix-openssl" << "yes" << "";
@@ -567,6 +576,24 @@ void GpclientWidgetTest::doesNotInventPersistentAndUserName()
     QVERIFY(saved.username().isEmpty());
 }
 
+/* plasma-nm's PasswordField starts at "all users" (in the profile as plain
+ * text) when there is no wallet: KWallet off before plasma-nm 6.7 (ctest sets
+ * XDG_CONFIG_HOME to tests/kwallet-off), no QtKeychain backend since 6.7. */
+void GpclientWidgetTest::newConnectionOverridesPlasmaDefault()
+{
+    PasswordField field;
+    if (field.passwordOption() != PasswordField::StoreForAllUsers) {
+        QSKIP("PasswordField starts at \"this user\" here (plasma-nm 6.7+ with a keychain)");
+    }
+
+    GpclientWidget widget(makeSetting({}, 0));
+    NetworkManager::VpnSetting saved;
+    saved.fromMap(widget.setting());
+
+    QCOMPARE(saved.data().value(QStringLiteral("password-flags")), QStringLiteral("1"));
+    QCOMPARE(saved.data().value(QStringLiteral("cert-pass-flags")), QStringLiteral("1"));
+}
+
 void GpclientWidgetTest::passwordStorage_data()
 {
     QTest::addColumn<NMStringMap>("data");
@@ -581,7 +608,7 @@ void GpclientWidgetTest::passwordStorage_data()
     NMStringMap notSaved = gateway;
     notSaved.insert(QStringLiteral("password-flags"), QStringLiteral("2"));
 
-    // The combo items are: agent (1), system (0), not saved (2)
+    // The menu entries are: agent (1), system (0), not saved (2)
     QTest::newRow("new, default is the agent") << none << -1 << QString() << "1" << "2" << QString();
     QTest::newRow("new, agent keeps the password for NetworkManager") << none << 0 << "pw" << "1" << "2" << "pw";
     QTest::newRow("new, system") << none << 1 << "pw" << "0" << "2" << "pw";
@@ -603,16 +630,20 @@ void GpclientWidgetTest::passwordStorage()
     QFETCH(QString, expectedSecret);
 
     GpclientWidget widget(makeSetting(data, 0));
-    auto *combo = widget.findChild<QComboBox *>(QStringLiteral("passwordFlagsComboBox"));
-    auto *edit = widget.findChild<QLineEdit *>(QStringLiteral("passwordLineEdit"));
+    auto *field = widget.findChild<PasswordField *>(QStringLiteral("passwordField"));
+    QVERIFY(field);
+    auto *combo = field->findChild<QComboBox *>();
+    auto *edit = field->findChild<QLineEdit *>();
     QVERIFY(combo);
     QVERIFY(edit);
     if (flagsIndex >= 0) {
-        combo->setCurrentIndex(flagsIndex);
+        field->setPasswordOption(optionByIndex[flagsIndex]);
     }
-    // "Ask every time" takes no typing, also for a profile loaded with it
-    QCOMPARE(edit->isEnabled(), combo->currentIndex() != 2);
-    edit->setText(password);
+    // "Ask every time" takes no typing, also for a profile loaded with it, but
+    // the menu stays usable to leave it again
+    QCOMPARE(edit->isEnabled(), field->passwordOption() != PasswordField::AlwaysAsk);
+    QVERIFY(combo->isEnabled());
+    field->setText(password);
 
     NetworkManager::VpnSetting saved;
     saved.fromMap(widget.setting());
@@ -634,7 +665,7 @@ void GpclientWidgetTest::certPassStorage_data()
     const NMStringMap none;
     const NMStringMap gateway{{QStringLiteral("gateway"), QStringLiteral("vpn.example.com")}};
 
-    // The combo items are: agent (1), system (0), not saved (2)
+    // The menu entries are: agent (1), system (0), not saved (2)
     QTest::newRow("new, certificate, the agent keeps it") << none << "/etc/ssl/me.p12" << -1 << "1" << "pp";
     QTest::newRow("new, certificate, system") << none << "/etc/ssl/me.p12" << 1 << "0" << "pp";
     QTest::newRow("new, certificate, not saved drops it") << none << "/etc/ssl/me.p12" << 2 << "2" << QString();
@@ -653,19 +684,22 @@ void GpclientWidgetTest::certPassStorage()
     QFETCH(QString, expectedSecret);
 
     GpclientWidget widget(makeSetting(data, 0));
-    auto *combo = widget.findChild<QComboBox *>(QStringLiteral("certPassFlagsComboBox"));
-    auto *edit = widget.findChild<QLineEdit *>(QStringLiteral("certPassLineEdit"));
+    auto *field = widget.findChild<PasswordField *>(QStringLiteral("certPassField"));
     auto *cert = widget.findChild<QLineEdit *>(QStringLiteral("userCertLineEdit"));
+    QVERIFY(field);
+    QVERIFY(cert);
+    auto *combo = field->findChild<QComboBox *>();
+    auto *edit = field->findChild<QLineEdit *>();
     QVERIFY(combo);
     QVERIFY(edit);
-    QVERIFY(cert);
     if (flagsIndex >= 0) {
-        combo->setCurrentIndex(flagsIndex);
+        field->setPasswordOption(optionByIndex[flagsIndex]);
     }
-    // "Ask every time" takes no typing
-    QCOMPARE(edit->isEnabled(), combo->currentIndex() != 2);
+    // "Ask every time" takes no typing; the menu stays usable
+    QCOMPARE(edit->isEnabled(), field->passwordOption() != PasswordField::AlwaysAsk);
+    QVERIFY(combo->isEnabled());
     cert->setText(userCert);
-    edit->setText(QStringLiteral("pp"));
+    field->setText(QStringLiteral("pp"));
 
     NetworkManager::VpnSetting saved;
     saved.fromMap(widget.setting());

@@ -47,11 +47,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Sempre ativo"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Perguntar de cada vez (não guardada)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -249,11 +244,6 @@ msgstr "Palavra-passe"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Armazenamento da palavra-passe:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Palavra-passe:"
 
@@ -293,16 +283,6 @@ msgstr ""
 "O DNS dividido permite resolver domínios específicos da VPN através do DNS da VPN e utilizar o DNS local para os outros domínios.\n"
 "Substituir: introduza servidores DNS separados por ponto e vírgula (por exemplo, 8.8.8.8;8.8.4.4) para utilizar antes um DNS personalizado."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Guardar para todos os utilizadores (sistema)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Guardar só para este utilizador (agente)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -322,11 +302,6 @@ msgstr "Nome de utilizador e palavra-passe (token RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Nome de utilizador:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Onde a palavra-passe é guardada. \"Perguntar de cada vez\" não guarda nada."
 
 #: rc.cpp
 #, kde-format
@@ -460,11 +435,6 @@ msgstr "Caminho absoluto opcional do ficheiro da chave privada (PEM), pertencent
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Armazenamento da frase-passe:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Chave privada:"
 
@@ -497,3 +467,13 @@ msgstr "Escolher a chave privada"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Escolher o script HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Deixar o NetworkManager definir as rotas e o DNS (experimental)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "O NetworkManager configura as rotas, o DNS e a rota predefinida do túnel com base no que o gateway envia, em vez do vpnc-script. As rotas que o gateway exclui do túnel são ignoradas."

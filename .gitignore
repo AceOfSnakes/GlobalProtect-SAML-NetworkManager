@@ -81,3 +81,6 @@ artifacts/
 
 # End-to-end test output
 tests/e2e/out/
+
+# Vendored crates (scripts/vendor-crates.sh)
+vendor/

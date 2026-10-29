@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Immer an"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Jedes Mal nachfragen (nicht gespeichert)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Passwort"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Passwortspeicherung:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Passwort:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS erlaubt es, VPN-spezifische Domains über den VPN-DNS aufzulösen und für andere Domains den lokalen DNS zu verwenden.\n"
 "Überschreiben: Geben Sie durch Semikolon getrennte DNS-Server ein (z. B. 8.8.8.8;8.8.4.4), um stattdessen eigene DNS-Server zu verwenden."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Für alle Benutzer speichern (System)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Nur für diesen Benutzer speichern (Agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Benutzername und Passwort (RSA-Token)"
 #, kde-format
 msgid "Username:"
 msgstr "Benutzername:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Wo das Passwort aufbewahrt wird. „Jedes Mal nachfragen“ speichert nichts."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Optionaler absoluter Pfad der Datei mit dem privaten Schlüssel (PEM), d
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Speicherort der Passphrase:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Privater Schlüssel:"
 
@@ -471,3 +441,13 @@ msgstr "Privaten Schlüssel auswählen"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "HIP-Skript auswählen"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "NetworkManager Routen und DNS festlegen lassen (experimentell)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager richtet die Routen, den DNS und die Standardroute des Tunnels anhand der Angaben des Gateways ein, statt vpnc-script. Routen, die das Gateway vom Tunnel ausschließt, werden ignoriert."

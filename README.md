@@ -192,6 +192,7 @@ also be set with `nmcli connection modify "My VPN" +vpn.data key=value`:
 | `cert-pass-flags` | `1` for a new connection from an editor, `0` otherwise | Where the `cert-pass` secret (the passphrase of an encrypted key or PKCS#12 file) is kept, like `password-flags`: `1` = for this user only, `0` = in the profile file, `2` = not saved. The service never puts the passphrase on the command line: it types it at gpclient's passphrase prompt, and only there. (Upstream gpclient itself passes it to gpauth on the command line in SAML mode: prefer an unencrypted key with mode `0600`.) The editors show it as the **Certificate passphrase** field |
 | `dns` | (empty) | Override the VPN DNS servers, `;`-separated. Empty uses the servers the gateway pushes |
 | `dns-domains` | (empty) | Extra search domains, space-separated, added to the ones the gateway pushes |
+| `nm-routing` | `no` | `yes` = NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script (experimental). It needs no other setting. Routes the gateway excludes from the tunnel are ignored. Set in the editors with **Let NetworkManager set the routes and DNS (experimental)**; the editors write the key only when it is `yes` |
 
 To use a custom HIP script:
 
@@ -221,7 +222,8 @@ NetworkManager as part of the VPN's IP configuration, so they survive
 NetworkManager's own DNS recalculations (they used to be applied only by
 vpnc-script and were wiped on the next recalculation - see
 [#15](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/15)).
-This needs the vpnc hooks `/etc/vpnc/connect.d/90-gpclient-routing` and
+This needs the vpnc hooks `/etc/vpnc/connect.d/90-gpclient-routing` (also in
+`disconnect.d`) and
 `/etc/vpnc/post-connect.d/90-gpclient-notify` (also in `reconnect.d`) that the
 package installs. The gateway's split-DNS domains are routing-only (`~domain`):
 names under them go to the VPN DNS servers, but a short name is not completed
@@ -231,11 +233,19 @@ By default all traffic goes through the VPN. With **Use this connection only
 for resources on its network** (IPv4 tab of the connection,
 `ipv4.never-default yes`) only the networks the gateway announces go through
 the tunnel, and the VPN DNS servers answer only for the VPN's domains. On a
-dual-stack tunnel NetworkManager then adds no IPv6 default route either, but an
-IPv6 default route that vpnc-script sets itself stays
+dual-stack tunnel NetworkManager then adds no IPv6 default route either, and the
+vpnc hook removes the `::/0` entry from the gateway's IPv6 split-include list
+(or sets an empty list when the gateway sends none), so vpnc-script sets none
 ([#109](https://github.com/WMP/GlobalProtect-SAML-NetworkManager/issues/109)):
 
 ![ip route and resolvectl before connecting, with the default settings and with "Use this connection only for resources on its network"](docs/images/demo-routing-dns.webp)
+
+With `nm-routing yes` NetworkManager sets the routes and DNS itself, from what
+the gateway sends, instead of vpnc-script. It applies `ipv4.never-default`,
+`ignore-auto-routes` and the routes of the connection itself. Routes that the
+gateway excludes from the tunnel are ignored. A gateway that sends only split
+routes (no default route) makes the tunnel split, as in NetworkManager-openconnect,
+whatever `ipv4.never-default` says.
 
 The password for `auth-mode=credentials` is a secret, not data. Type it in the
 **Password** field of the editor and choose where to keep it with the icon in

@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Aina käytössä"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Kysy joka kerta (ei tallenneta)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Salasana"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Salasanan tallennus:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Salasana:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS mahdollistaa VPN-kohtaisten verkkotunnusten selvittämisen VPN:n DNS:llä, kun muille verkkotunnuksille käytetään paikallista DNS:ää.\n"
 "Ohitus: anna puolipisteillä erotetut DNS-palvelimet (esim. 8.8.8.8;8.8.4.4) käyttääksesi omaa DNS:ää."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Tallenna kaikille käyttäjille (järjestelmä)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Tallenna vain tälle käyttäjälle (agentti)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Käyttäjätunnus ja salasana (RSA-tunnus)"
 #, kde-format
 msgid "Username:"
 msgstr "Käyttäjätunnus:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Minne salasana tallennetaan. ”Kysy joka kerta” ei tallenna mitään."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Yksityisen avaimen tiedoston valinnainen absoluuttinen polku (PEM), jonk
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Salasanan tallennus:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Yksityinen avain:"
 
@@ -471,3 +441,13 @@ msgstr "Valitse yksityinen avain"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Valitse HIP-komentosarja"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Anna NetworkManagerin asettaa reitit ja DNS (kokeellinen)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager määrittää tunnelin reitit, DNS:n ja oletusreitin yhdyskäytävän lähettämien tietojen perusteella vpnc-scriptin sijaan. Reitit, jotka yhdyskäytävä sulkee tunnelin ulkopuolelle, ohitetaan."

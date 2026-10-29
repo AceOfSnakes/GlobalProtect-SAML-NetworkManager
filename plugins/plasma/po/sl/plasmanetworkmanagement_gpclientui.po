@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Vedno vklopljeno"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Vprašaj vsakič (ne shrani)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Geslo"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Shranjevanje gesla:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Geslo:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS omogoča razreševanje domen VPN prek DNS VPN, za druge domene pa se uporablja lokalni DNS.\n"
 "Prepis: vnesite strežnike DNS, ločene s podpičjem (npr. 8.8.8.8;8.8.4.4), da se namesto tega uporabi lasten DNS."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Shrani za vse uporabnike (sistem)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Shrani samo za tega uporabnika (agent)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Uporabniško ime in geslo (žeton RSA)"
 #, kde-format
 msgid "Username:"
 msgstr "Uporabniško ime:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Kje se geslo hrani. »Vprašaj vsakič« ne shrani ničesar."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Neobvezna absolutna pot do datoteke zasebnega ključa (PEM), katere last
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Shranjevanje gesla certifikata:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Zasebni ključ:"
 
@@ -471,3 +441,13 @@ msgstr "Izberite zasebni ključ"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Izberite skript HIP"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Naj NetworkManager nastavi poti in DNS (eksperimentalno)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager nastavi poti, DNS in privzeto pot predora glede na podatke, ki jih pošlje prehod, namesto vpnc-script. Poti, ki jih prehod izključi iz predora, so prezrte."

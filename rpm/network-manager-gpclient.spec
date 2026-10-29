@@ -25,7 +25,13 @@ Name:           network-manager-gpclient
 Version:        %{project_version}
 Release:        %{debian_release}%{?dist}%{?pr_suffix}
 Summary:        NetworkManager VPN plugin for GlobalProtect
-License:        GPL-3.0-or-later AND LGPL-2.1-or-later
+# Per package, as debian/copyright says for the same files (checked by
+# tests/unit/test_rpm_license.py): the service and the editors are
+# LGPL-2.1-only; gpclient and gpauth are GPL-3.0-only (upstream Cargo.toml
+# "GPL-3.0") with MIT crates and the LGPL-2.1-only openconnect fork linked in;
+# nm-vpn-plugin-utils (in libnm-vpn-plugin-gpclient.so, this package) is
+# LGPL-2.0-or-later. RPM only: the bundled python-sdbus is LGPL-2.1-or-later.
+License:        GPL-3.0-only AND LGPL-2.1-only AND LGPL-2.0-or-later AND LGPL-2.1-or-later AND MIT
 URL:            https://github.com/WMP/GlobalProtect-SAML-NetworkManager
 Source0:        %{name}-%{version}.tar.gz
 Source1:        sdbus-%{sdbus_version}.tar.gz
@@ -109,6 +115,7 @@ The GUI packages add the connection editors.
 
 %package gnome
 Summary:        GNOME editor plugins for the GlobalProtect NetworkManager VPN
+License:        LGPL-2.1-only
 Requires:       %{name} = %{version}-%{release}
 %if 0%{?suse_version}
 Requires:       python3-gobject-Gdk
@@ -128,6 +135,7 @@ GTK-based desktops.
 
 %package plasma
 Summary:        KDE Plasma 6 editor plugin for the GlobalProtect NetworkManager VPN
+License:        LGPL-2.1-only
 Requires:       %{name} = %{version}-%{release}
 %if 0%{?suse_version}
 Requires:       plasma6-nm
@@ -141,6 +149,9 @@ connections.
 
 %prep
 %setup -q -n %{name}-%{version} -a 1
+# gpclient and gpauth are GPL-3.0-only: ship upstream's text (license files go
+# by basename, and LICENSE is this project's LGPL-2.1)
+cp -p external/GlobalProtect-openconnect/LICENSE LICENSE.GPL-3.0
 
 %build
 %if 0%{?fedora} || 0%{?rhel}
@@ -160,11 +171,18 @@ mkdir -p plugins/plasma/build
 /usr/bin/python3 -m pip wheel --no-deps --no-build-isolation --no-index \
   --wheel-dir sdbus-wheel ./sdbus-%{sdbus_version}
 
-# The longest step comes last
+# The longest step comes last. cargo-auditable (rpm/container-build.sh) embeds the
+# dependency list in the binaries; the build fails when it is missing
 # With upstream's release profile (strip, opt-level "z"), as the Debian build: Fedora's
 # rpmbuild exports RUSTFLAGS with -Cstrip=none -Cdebuginfo=2, which would override it
+# With vendor/config.toml (scripts/vendor-crates.sh, in the source archive) the crates come
+# from vendor/ and cargo does not use the network; without it cargo downloads them
+vendor_flags=
+if [ -f "$PWD/vendor/config.toml" ]; then
+  vendor_flags="--offline --config $PWD/vendor/config.toml"
+fi
 (cd external/GlobalProtect-openconnect && \
-  env -u RUSTFLAGS cargo build --locked --release --bin gpclient --bin gpauth)
+  env -u RUSTFLAGS cargo auditable build --locked $vendor_flags --release --bin gpclient --bin gpauth)
 
 %install
 # The translations (po/LINGUAS): each domain goes to its own package
@@ -214,12 +232,18 @@ install -D -m 0644 config/nm-gpclient.conf \
   %{buildroot}%{_datadir}/dbus-1/system.d/nm-gpclient.conf
 install -D -m 0755 config/90-gpclient-routing \
   %{buildroot}%{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
+# The same hook for disconnect: vpnc-script must see the edited route lists there too
+install -D -m 0755 config/90-gpclient-routing \
+  %{buildroot}%{_sysconfdir}/vpnc/disconnect.d/90-gpclient-routing
 # The hook that tells the service the tunnel is up: after vpnc-script configured
 # it, and again on a reconnect
 install -D -m 0755 config/gpclient-nm-notify \
   %{buildroot}%{_sysconfdir}/vpnc/post-connect.d/90-gpclient-notify
 install -D -m 0755 config/gpclient-nm-notify \
   %{buildroot}%{_sysconfdir}/vpnc/reconnect.d/90-gpclient-notify
+# What gpclient runs with --script when a profile has nm-routing=yes
+install -D -m 0755 config/gpclient-nm-script \
+  %{buildroot}%{_prefix}/lib/NetworkManager/gpclient-nm-script
 
 %if 0%{?suse_version}
 # sdbus and PyGObject are in the site-packages of this python3.X: do not follow a
@@ -251,6 +275,8 @@ test -x %{buildroot}%{_bindir}/gpclient
 test -f %{buildroot}%{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
 test -d %{buildroot}%{python3_sitearch}/sdbus
 PYTHONPATH=%{buildroot}%{python3_sitearch} /usr/bin/python3 -c 'import sdbus'
+# The Plasma widget tests, as debian/rules runs them
+(cd plugins/plasma/build && ctest --output-on-failure --no-tests=error)
 
 %post
 %if 0%{?fedora} || 0%{?rhel}
@@ -290,12 +316,14 @@ fi
 
 %files -f NetworkManager-gpclient.lang
 %license LICENSE
+%license LICENSE.GPL-3.0
 %license sdbus-%{sdbus_version}/COPYING.LESSER
 %doc README.md
 %{_bindir}/gpclient
 %{_bindir}/gpauth
 %{_libdir}/NetworkManager/libnm-vpn-plugin-gpclient.so
 %{_prefix}/lib/NetworkManager/nm-gpclient-service
+%{_prefix}/lib/NetworkManager/gpclient-nm-script
 %{_prefix}/lib/NetworkManager/VPN/nm-gpclient-service.name
 %{_prefix}/libexec/gpclient
 %dir %{_prefix}/libexec/NetworkManager
@@ -310,6 +338,8 @@ fi
 %dir %{_sysconfdir}/vpnc
 %dir %{_sysconfdir}/vpnc/connect.d
 %config(noreplace) %{_sysconfdir}/vpnc/connect.d/90-gpclient-routing
+%dir %{_sysconfdir}/vpnc/disconnect.d
+%config(noreplace) %{_sysconfdir}/vpnc/disconnect.d/90-gpclient-routing
 %dir %{_sysconfdir}/vpnc/post-connect.d
 %config(noreplace) %{_sysconfdir}/vpnc/post-connect.d/90-gpclient-notify
 %dir %{_sysconfdir}/vpnc/reconnect.d

@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Mindig bekapcsolva"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Rákérdezés minden alkalommal (nem kerül mentésre)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Jelszó"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Jelszótárolás:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Jelszó:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "A split DNS lehetővé teszi, hogy a VPN-specifikus tartományokat a VPN DNS-e oldja fel, a többi tartományhoz pedig a helyi DNS-t használja.\n"
 "Felülbírálás: adjon meg pontosvesszővel elválasztott DNS-kiszolgálókat (pl. 8.8.8.8;8.8.4.4) egyéni DNS használatához."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Tárolás minden felhasználónak (rendszer)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Tárolás csak ennek a felhasználónak (ügynök)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Felhasználónév és jelszó (RSA-token)"
 #, kde-format
 msgid "Username:"
 msgstr "Felhasználónév:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Hol tárolódik a jelszó. A „Rákérdezés minden alkalommal” nem tárol semmit."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "A privát kulcs fájljának választható abszolút elérési útja (PEM
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Jelmondat tárolása:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Privát kulcs:"
 
@@ -471,3 +441,13 @@ msgstr "Válassza ki a privát kulcsot"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Válassza ki a HIP-szkriptet"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "A NetworkManager állítsa be az útvonalakat és a DNS-t (kísérleti)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "A NetworkManager az átjáró által küldött adatok alapján állítja be az alagút útvonalait, DNS-ét és alapértelmezett útvonalát a vpnc-script helyett. Az átjáró által az alagútból kizárt útvonalakat figyelmen kívül hagyja."

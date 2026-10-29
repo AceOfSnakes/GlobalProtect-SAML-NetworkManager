@@ -333,3 +333,27 @@ class TestPackaging:
             assert "connect.d/90-gpclient-notify" not in read(path).replace(
                 "post-connect.d/90-gpclient-notify", ""
             ).replace("reconnect.d/90-gpclient-notify", "")
+
+
+class TestRoutingHookInDisconnectD:
+    """vpnc-script deletes routes on disconnect from the original lists (#155):
+    every place that installs the routing hook also installs it in disconnect.d."""
+
+    @pytest.mark.parametrize("path, needle", [
+        ("Makefile", "install -D -m 755 config/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing\n"),
+        ("Makefile", "sudo install -D -m 755 config/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing\n"),
+        ("Makefile", "/etc/vpnc/disconnect.d/90-gpclient-routing\n\tsudo rm"),
+        ("debian/rules", "etc/vpnc/disconnect.d/90-gpclient-routing\n"),
+        ("rpm/install-test.sh", "/etc/vpnc/disconnect.d/90-gpclient-routing \\\n"),
+        ("rpm/install-test.sh", "disconnect.d/90-gpclient-routing post-connect.d"),
+        ("tests/e2e/install-plugin.sh", "$dest/etc/vpnc/disconnect.d/90-gpclient-routing"),
+    ])
+    def test_it_is_installed_in_disconnect_d(self, path, needle):
+        assert needle in read(path)
+
+    def test_debian_installs_the_same_file(self):
+        assert re.search(
+            r"install -D -m 755 config/90-gpclient-routing \\\n\t+"
+            r"\$\(CURDIR\)/debian/network-manager-gpclient/etc/vpnc/disconnect.d/90-gpclient-routing\n",
+            read("debian/rules"),
+        )

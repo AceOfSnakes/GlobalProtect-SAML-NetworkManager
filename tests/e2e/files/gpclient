@@ -4,7 +4,7 @@
 Only what nm-gpclient-service.py uses is implemented:
 
   gpclient [--log-format json] [--fix-openssl] connect [--hip] [--as-gateway] [--user U]
-           [--interface I]
+           [--interface I] [--script PATH]
            (--browser=<path> | --cookie-on-stdin) [--] <server>
   gpclient disconnect
 
@@ -18,8 +18,12 @@ environment openconnect sets (address, DNS, a full-tunnel split-include list).
 The vpnc hooks of the plugin and vpnc-script itself set up addresses, routes
 and DNS and tell the service that the tunnel is up (the post-connect hook
 90-gpclient-notify runs the service with --vpnc-notify, with the token in
-GPCLIENT_NM_TOKEN); nothing is faked there. SIGTERM/SIGINT/SIGHUP run
-vpnc-script with reason disconnect, close the descriptor (which removes the
+GPCLIENT_NM_TOKEN); nothing is faked there. With --script PATH (nm-routing=yes) it runs PATH with `/bin/sh -c`, as
+openconnect does, in place of vpnc-script, with the same reasons and environment.
+The gateway then pushes only split routes (no default route), and nothing but
+the tun device exists until NetworkManager configures it from the service's
+Ip4Config. SIGTERM/SIGINT/SIGHUP run
+vpnc-script (or the --script program) with reason disconnect, close the descriptor (which removes the
 interface) and exit 0.
 
 With --cookie-on-stdin (saml-auth=dialog) it runs no gpauth: it reads one line
@@ -64,6 +68,7 @@ def auth_timeout(default):
     return int(value) if value.isdigit() and int(value) > 0 else default
 
 TUN_NAME = "gpd0"  # --interface replaces it, as in openconnect
+SCRIPT = None  # --script: run in place of vpnc-script
 VPNC_SCRIPT = "/usr/share/vpnc-scripts/vpnc-script"
 VPN_GATEWAY_IP = "198.51.100.10"  # TEST-NET-2: vpnc-script adds a host route to it
 GATEWAY = "Contoso HQ (gw-hq.contoso.example)"
@@ -202,15 +207,18 @@ def vpnc_env(reason):
             "INTERNAL_IP4_DNS": "10.20.0.53 10.20.0.54",
             "CISCO_DEF_DOMAIN": "contoso.example",
             "CISCO_BANNER": "",
-            "CISCO_SPLIT_INC": "3",
         }
     )
-    # A full-tunnel gateway also pushes its internal networks
+    # A full-tunnel gateway also pushes its internal networks; with --script
+    # (nm-routing) the gateway is a split-tunnel one: a default entry would make
+    # the service leave never-default unset
     routes = (
-        ("0.0.0.0", "0.0.0.0", "0"),
         ("10.20.0.0", "255.255.0.0", "16"),
         ("172.16.0.0", "255.240.0.0", "12"),
     )
+    if not SCRIPT:
+        routes = (("0.0.0.0", "0.0.0.0", "0"),) + routes
+    env["CISCO_SPLIT_INC"] = str(len(routes))
     for index, (addr, mask, masklen) in enumerate(routes):
         prefix = f"CISCO_SPLIT_INC_{index}_"
         env[prefix + "ADDR"] = addr
@@ -223,9 +231,10 @@ def vpnc_env(reason):
 
 
 def run_vpnc_script(reason):
-    """Run vpnc-script like openconnect does and pass its output on."""
+    """Run vpnc-script (or --script, with /bin/sh -c) like openconnect does and pass its output on."""
+    cmd = ["/bin/sh", "-c", SCRIPT] if SCRIPT else [VPNC_SCRIPT]
     result = subprocess.run(
-        [VPNC_SCRIPT],
+        cmd,
         env=vpnc_env(reason),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -236,7 +245,7 @@ def run_vpnc_script(reason):
     for line in result.stdout.splitlines():
         log("INFO", "vpnc-script", f"[{reason}] {line}")
     if result.returncode != 0:
-        raise subprocess.CalledProcessError(result.returncode, VPNC_SCRIPT)
+        raise subprocess.CalledProcessError(result.returncode, cmd[-1])
 
 
 def open_tun(name):
@@ -258,8 +267,9 @@ def connect(args):
 
 
 def run_connect(args):
-    global TUN_NAME
+    global TUN_NAME, SCRIPT
     TUN_NAME = args.interface or TUN_NAME
+    SCRIPT = args.script
     os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
     os.chmod(STATE_DIR, 0o755)
     with open(f"{STATE_DIR}/tun-name", "w", encoding="utf-8") as handle:
@@ -348,6 +358,7 @@ def main():
     conn.add_argument("--as-gateway", action="store_true")
     conn.add_argument("--user")
     conn.add_argument("--interface")
+    conn.add_argument("--script")
     conn.add_argument("--browser", default="/usr/libexec/gpclient/browser-wrapper")
     conn.add_argument("--cookie-on-stdin", action="store_true")
     conn.add_argument("server")

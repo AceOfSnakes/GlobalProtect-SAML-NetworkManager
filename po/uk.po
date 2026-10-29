@@ -368,3 +368,11 @@ msgstr "Виберіть закритий ключ"
 #: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
 msgid "Choose the HIP script"
 msgstr "Виберіть скрипт HIP"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Дозволити NetworkManager задавати маршрути та DNS (експериментально)"
+
+#: plugins/gnome/nm-gpclient-editor-gtk3.c plugins/gnome/nm-gpclient-editor.c
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager налаштовує маршрути, DNS і типовий маршрут тунелю за даними шлюзу замість vpnc-script. Маршрути, які шлюз виключає з тунелю, ігноруються."

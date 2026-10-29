@@ -109,29 +109,9 @@ Username and password: the portal asks on the terminal - the credentials and any
     </widget>
    </item>
    <item row="5" column="1">
-    <widget class="QLineEdit" name="passwordLineEdit">
+    <widget class="PasswordField" name="passwordField">
      <property name="toolTip">
       <string>Optional. Used by the "Username and password" authentication.</string>
-     </property>
-     <property name="echoMode">
-      <enum>QLineEdit::Password</enum>
-     </property>
-     <property name="placeholderText">
-      <string>Optional</string>
-     </property>
-    </widget>
-   </item>
-   <item row="6" column="0">
-    <widget class="QLabel" name="passwordFlagsLabel">
-     <property name="text">
-      <string>Password storage:</string>
-     </property>
-    </widget>
-   </item>
-   <item row="6" column="1">
-    <widget class="QComboBox" name="passwordFlagsComboBox">
-     <property name="toolTip">
-      <string>Where the password is kept. "Ask every time" stores nothing.</string>
      </property>
     </widget>
    </item>
@@ -237,21 +217,31 @@ Override: Enter semicolon-separated DNS servers (e.g., 8.8.8.8;8.8.4.4) to use c
      </property>
     </widget>
    </item>
-   <item row="11" column="0">
+   <item row="11" column="1">
+    <widget class="QCheckBox" name="nmRoutingCheckBox">
+     <property name="text">
+      <string>Let NetworkManager set the routes and DNS (experimental)</string>
+     </property>
+     <property name="toolTip">
+      <string>NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored.</string>
+     </property>
+    </widget>
+   </item>
+   <item row="12" column="0">
     <widget class="QLabel" name="hipLabel">
      <property name="text">
       <string>HIP:</string>
      </property>
     </widget>
    </item>
-   <item row="12" column="0">
+   <item row="13" column="0">
     <widget class="QLabel" name="hipScriptLabel">
      <property name="text">
       <string>HIP script:</string>
      </property>
     </widget>
    </item>
-   <item row="12" column="1">
+   <item row="13" column="1">
     <widget class="QLineEdit" name="hipScriptLineEdit">
      <property name="toolTip">
       <string>Optional absolute path to a custom HIP executable, passed to gpclient as --hip=&lt;path&gt;.
@@ -263,14 +253,14 @@ Ignored when HIP is off.</string>
      </property>
     </widget>
    </item>
-   <item row="13" column="0">
+   <item row="14" column="0">
     <widget class="QLabel" name="fixOpensslLabel">
      <property name="text">
       <string>Legacy TLS renegotiation:</string>
      </property>
     </widget>
    </item>
-   <item row="13" column="1">
+   <item row="14" column="1">
     <widget class="QComboBox" name="fixOpensslComboBox">
      <property name="toolTip">
       <string>Portals with an old TLS stack need renegotiation that OpenSSL 3 refuses by default.
@@ -279,14 +269,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      <!-- Items are added programmatically (auto / true / false) -->
     </widget>
    </item>
-   <item row="14" column="0">
+   <item row="15" column="0">
     <widget class="QLabel" name="samlAuthLabel">
      <property name="text">
       <string>SAML login:</string>
      </property>
     </widget>
    </item>
-   <item row="14" column="1">
+   <item row="15" column="1">
     <widget class="QComboBox" name="samlAuthComboBox">
      <property name="toolTip">
       <string>Where the browser login runs: in the service, or in the login dialog (in your session).</string>
@@ -294,7 +284,7 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      <!-- Items are added programmatically (service / dialog) -->
     </widget>
    </item>
-   <item row="11" column="1">
+   <item row="12" column="1">
     <widget class="QCheckBox" name="hipCheckBox">
      <property name="text">
       <string>Enable Host Integrity Protection (HIP)</string>
@@ -307,14 +297,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="15" column="0">
+   <item row="16" column="0">
     <widget class="QLabel" name="userCertLabel">
      <property name="text">
       <string>Client certificate:</string>
      </property>
     </widget>
    </item>
-   <item row="15" column="1">
+   <item row="16" column="1">
     <widget class="QLineEdit" name="userCertLineEdit">
      <property name="toolTip">
       <string>Optional absolute path to the client certificate file (PEM or PKCS#12), owned by your desktop user.</string>
@@ -324,14 +314,14 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="16" column="0">
+   <item row="17" column="0">
     <widget class="QLabel" name="userKeyLabel">
      <property name="text">
       <string>Private key:</string>
      </property>
     </widget>
    </item>
-   <item row="16" column="1">
+   <item row="17" column="1">
     <widget class="QLineEdit" name="userKeyLineEdit">
      <property name="toolTip">
       <string>Optional absolute path to the private key file (PEM), owned by your desktop user. Ignored without a client certificate.</string>
@@ -341,40 +331,25 @@ Automatic: retry once with the workaround when the portal asks for it, and switc
      </property>
     </widget>
    </item>
-   <item row="17" column="0">
+   <item row="18" column="0">
     <widget class="QLabel" name="certPassLabel">
      <property name="text">
       <string>Certificate passphrase:</string>
      </property>
     </widget>
    </item>
-   <item row="17" column="1">
-    <widget class="QLineEdit" name="certPassLineEdit">
-     <property name="echoMode">
-      <enum>QLineEdit::Password</enum>
-     </property>
-     <property name="placeholderText">
-      <string>Optional</string>
-     </property>
-    </widget>
-   </item>
-   <item row="18" column="0">
-    <widget class="QLabel" name="certPassFlagsLabel">
-     <property name="text">
-      <string>Passphrase storage:</string>
-     </property>
-    </widget>
-   </item>
    <item row="18" column="1">
-    <widget class="QComboBox" name="certPassFlagsComboBox">
-     <property name="toolTip">
-      <string>Where the password is kept. "Ask every time" stores nothing.</string>
-     </property>
+    <widget class="PasswordField" name="certPassField">
     </widget>
    </item>
   </layout>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>PasswordField</class>
+   <extends>QWidget</extends>
+   <header>passwordfield.h</header>
+  </customwidget>
   <customwidget>
    <class>MtuSpinBox</class>
    <extends>QSpinBox</extends>

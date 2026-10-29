@@ -82,11 +82,15 @@ init-submodules:
 	fi
 
 gpclient: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpclient || $(CARGO) build --locked --release --bin gpclient)
+	cd $(GPOC_DIR) && export PATH="$$PATH:$(CARGO_HOME)/bin" && \
+		if cargo auditable --version >/dev/null 2>&1; then cargo auditable build --locked --release --bin gpclient; \
+		else echo "cargo-auditable not found: the binary has no dependency list"; cargo build --locked --release --bin gpclient; fi
 	cp $(GPOC_DIR)/target/release/gpclient .
 
 gpauth: setup-rust init-submodules
-	cd $(GPOC_DIR) && (command -v cargo >/dev/null 2>&1 && cargo build --locked --release --bin gpauth || $(CARGO) build --locked --release --bin gpauth)
+	cd $(GPOC_DIR) && export PATH="$$PATH:$(CARGO_HOME)/bin" && \
+		if cargo auditable --version >/dev/null 2>&1; then cargo auditable build --locked --release --bin gpauth; \
+		else echo "cargo-auditable not found: the binary has no dependency list"; cargo build --locked --release --bin gpauth; fi
 	cp $(GPOC_DIR)/target/release/gpauth .
 
 install: all
@@ -106,8 +110,10 @@ install: all
 	install -D -m 755 gpauth /usr/bin/gpauth
 	# Install vpnc hook for routing configuration
 	install -D -m 755 config/90-gpclient-routing /etc/vpnc/connect.d/90-gpclient-routing
+	install -D -m 755 config/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing
 	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
 	install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
+	install -D -m 755 config/gpclient-nm-script /usr/lib/NetworkManager/gpclient-nm-script
 	# Install D-Bus policy, D-Bus activation file and systemd unit
 	install -D -m 644 config/nm-gpclient.conf /usr/share/dbus-1/system.d/nm-gpclient.conf
 	install -D -m 644 config/org.freedesktop.NetworkManager.gpclient.service /usr/share/dbus-1/system-services/org.freedesktop.NetworkManager.gpclient.service
@@ -195,8 +201,10 @@ install-dev: gnome-plugins mo
 
 	# Install the vpnc hooks: routing, and the tunnel notification
 	sudo install -m 755 config/90-gpclient-routing $(VPNC_DIR)/
+	sudo install -D -m 755 config/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing
 	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/post-connect.d/90-gpclient-notify
 	sudo install -D -m 755 config/gpclient-nm-notify /etc/vpnc/reconnect.d/90-gpclient-notify
+	sudo install -D -m 755 config/gpclient-nm-script $(NM_LIB_DIR)/gpclient-nm-script
 
 	@echo "=== Installation complete ==="
 	@echo "Run 'make restart-nm' to restart NetworkManager"
@@ -210,6 +218,7 @@ uninstall-dev:
 	sudo rm -f $(NM_VPN_DIR)/libnm-gtk4-vpn-plugin-gpclient-editor.so
 	sudo rm -f $(NM_LIB_DIR)/VPN/nm-gpclient-service.name
 	sudo rm -f $(NM_LIB_DIR)/nm-gpclient-service
+	sudo rm -f $(NM_LIB_DIR)/gpclient-nm-script
 	sudo rm -f /usr/lib/libnm-gpclient-properties
 	sudo rm -rf $(NM_LIBEXEC_DIR)
 	sudo rm -f /usr/libexec/nm-gpclient-auth-dialog
@@ -217,7 +226,7 @@ uninstall-dev:
 	sudo rm -f $(DBUS_SERVICES_DIR)/org.freedesktop.NetworkManager.gpclient.service
 	sudo rm -f $(DBUS_CONF_DIR)/nm-gpclient.conf
 	sudo rm -f $(SYSTEMD_DIR)/nm-gpclient.service
-	sudo rm -f $(VPNC_DIR)/90-gpclient-routing
+	sudo rm -f $(VPNC_DIR)/90-gpclient-routing /etc/vpnc/disconnect.d/90-gpclient-routing
 	sudo rm -f /etc/vpnc/post-connect.d/90-gpclient-notify /etc/vpnc/reconnect.d/90-gpclient-notify
 	@echo "=== Uninstall complete ==="
 
@@ -270,6 +279,7 @@ SHELL_SCRIPTS := \
 	build-all.sh \
 	config/90-gpclient-routing \
 	config/gpclient-nm-notify \
+	config/gpclient-nm-script \
 	debian/network-manager-gpclient.postinst \
 	debian/network-manager-gpclient.postrm \
 	plugins/plasma/Messages.sh \
@@ -280,6 +290,7 @@ SHELL_SCRIPTS := \
 	scripts/browser-wrapper.sh \
 	scripts/edge-wrapper.sh \
 	scripts/hide-desktop-entry.sh \
+	scripts/vendor-crates.sh \
 	scripts/vpnc-script-debug \
 	scripts/install-pr-build.sh \
 	tests/e2e/files/loginctl \

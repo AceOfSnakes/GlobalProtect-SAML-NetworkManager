@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "始终开启"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "每次询问（不保存）"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "密码"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "密码存储："
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "密码："
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS 允许通过 VPN DNS 解析 VPN 专用域名，同时对其他域名使用本地 DNS。\n"
 "覆盖：输入以分号分隔的 DNS 服务器（例如 8.8.8.8;8.8.4.4）以改用自定义 DNS。"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "为所有用户保存（系统）"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "仅为此用户保存（代理）"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "用户名和密码（RSA 令牌）"
 #, kde-format
 msgid "Username:"
 msgstr "用户名："
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "密码的保存位置。“每次询问”不保存任何内容。"
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "私钥文件(PEM)的可选绝对路径，必须归桌面用户所有。�
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "口令保存位置："
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "私钥："
 
@@ -471,3 +441,13 @@ msgstr "选择私钥"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "选择 HIP 脚本"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "让 NetworkManager 设置路由和 DNS(实验性)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager 根据网关发送的信息配置隧道的路由、DNS 和默认路由,而不是使用 vpnc-script。网关从隧道中排除的路由会被忽略。"

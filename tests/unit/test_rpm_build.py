@@ -484,6 +484,7 @@ def test_check_openssl_rejects_other_libraries(tmp_path, ldd_output):
 # the tunnel is up
 HOOKS = [
     ("connect.d", "90-gpclient-routing"),
+    ("disconnect.d", "90-gpclient-routing"),
     ("post-connect.d", "90-gpclient-notify"),
     ("reconnect.d", "90-gpclient-notify"),
 ]
@@ -572,6 +573,22 @@ def test_spec_openssl_and_vpnc_script_per_family():
     assert "Requires:       vpnc\n%else\nRequires:       vpnc-script\n%endif" in spec
 
 
+def test_check_vpnc_script_rejects_a_missing_disconnect_hook(tmp_path):
+    root = make_vpnc_root(tmp_path)
+    (root / "etc/vpnc/disconnect.d/90-gpclient-routing").unlink()
+    result = run_function(tmp_path, f'check_vpnc_script "{root}"')
+    assert result.returncode == 1
+    assert "disconnect.d/90-gpclient-routing" in result.stderr
+
+
+def test_spec_installs_and_lists_the_routing_hook_for_disconnect():
+    spec = read("rpm/network-manager-gpclient.spec")
+    path = "%{_sysconfdir}/vpnc/disconnect.d/90-gpclient-routing"
+    assert f"install -D -m 0755 config/90-gpclient-routing \\\n  %{{buildroot}}{path}\n" in spec
+    assert f"\n%config(noreplace) {path}\n" in spec
+    assert "\n%dir %{_sysconfdir}/vpnc/disconnect.d\n" in spec
+
+
 def test_spec_owns_its_directories_and_stops_the_service_by_command_line():
     spec = read("rpm/network-manager-gpclient.spec")
     for directory in ("%{_sysconfdir}/vpnc", "%{_sysconfdir}/vpnc/connect.d", "%{_prefix}/libexec/NetworkManager"):
@@ -605,17 +622,45 @@ def test_spec_strips_the_rust_binaries():
     # Fedora's rpmbuild exports RUSTFLAGS with -Cstrip=none, which overrides
     # upstream's release profile (strip = true)
     spec = read("rpm/network-manager-gpclient.spec")
-    assert "env -u RUSTFLAGS cargo build --locked --release" in spec
+    assert "env -u RUSTFLAGS cargo auditable build --locked $vendor_flags --release" in spec
     assert "CARGO_PROFILE_RELEASE_STRIP" not in spec
 
 
+def main_license_texts(spec):
+    """The license files of the main package: the %license lines up to the
+    first %files of a subpackage, with what %prep copies under another name"""
+    main = spec.split("%files gnome", 1)[0].split("\n%files", 1)[1]
+    copies = dict((dst, src) for src, dst in re.findall(r"^cp -p (\S+) (\S+)$", spec, re.M))
+    return [copies.get(name, name) for name in re.findall(r"^%license (\S+)$", main, re.M)]
+
+
+def test_spec_ships_the_gpl_text_of_gpclient_and_gpauth():
+    # #148: gpclient and gpauth are GPL-3.0-only; LICENSE is this project's LGPL-2.1
+    texts = main_license_texts(read("rpm/network-manager-gpclient.spec"))
+    assert "external/GlobalProtect-openconnect/LICENSE" in texts
+    assert "LICENSE" in texts
+
+
+@pytest.mark.parametrize("old, new", [
+    ("%license LICENSE.GPL-3.0\n", ""),  # not shipped
+    ("cp -p external/GlobalProtect-openconnect/LICENSE", "cp -p README.md"),  # another file
+])
+def test_a_missing_gpl_text_is_found(old, new):
+    spec = read("rpm/network-manager-gpclient.spec")
+    assert old in spec
+
+    assert "external/GlobalProtect-openconnect/LICENSE" not in main_license_texts(spec.replace(old, new, 1))
+
+
+# `cargo build` and `cargo auditable build`
+CARGO_BUILD_RE = r"\bcargo\b\S* (?:auditable )?build\b"
 CARGO_BUILD_FILES = ("debian/rules", "Makefile", "rpm/network-manager-gpclient.spec")
 
 
 def cargo_build_lines(text):
     """The shell lines that run `cargo build`, with backslash-continued lines joined"""
     return [line.strip() for line in text.replace("\\\n", " ").splitlines()
-            if not line.lstrip().startswith("#") and re.search(r"\bcargo\b\S* build\b", line, re.I)]
+            if not line.lstrip().startswith("#") and re.search(CARGO_BUILD_RE, line, re.I)]
 
 
 def cargo_build_lines_without_locked(text):
@@ -626,7 +671,7 @@ def cargo_build_lines_without_locked(text):
 def test_every_cargo_build_is_locked(path):
     # the build must use the dependency versions of upstream's Cargo.lock, or fail
     text = read(path)
-    assert re.search(r"\bcargo\b\S* build\b", text, re.I)
+    assert re.search(CARGO_BUILD_RE, text, re.I)
     assert cargo_build_lines_without_locked(text) == []
 
 
@@ -677,6 +722,54 @@ def test_feature_flag_forms(text, expected):
 def test_a_feature_flag_on_a_continued_line_is_reported():
     text = "\tcd x && cargo build --locked --release \\\n\t\t--no-default-features\n"
     assert cargo_build_feature_flags(text) == ["--no-default-features"]
+
+
+@pytest.mark.parametrize("text, count", [
+    ("cargo auditable build --locked", 1),
+    ("cargo build --locked", 1),
+    ("cargo auditable --version", 0),
+    ("# cargo auditable build", 0),
+])
+def test_cargo_build_lines_see_auditable_builds(text, count):
+    assert len(cargo_build_lines(text)) == count
+
+
+def test_an_auditable_build_without_locked_or_with_features_is_reported():
+    assert cargo_build_lines_without_locked("cargo auditable build --release")
+    assert cargo_build_feature_flags("cargo auditable build --locked --features x") == ["--features"]
+
+
+AUDITABLE_VERSION = r"cargo install cargo-auditable --locked --version \d+\.\d+\.\d+"
+
+
+@pytest.mark.parametrize("path", ["debian/rules", "rpm/network-manager-gpclient.spec"])
+def test_the_packages_are_built_with_cargo_auditable(path):
+    # the binaries carry their dependency list (#159)
+    lines = cargo_build_lines(read(path))
+    assert lines and all("cargo auditable build" in line for line in lines)
+
+
+@pytest.mark.parametrize("path", ["debian/rules", "rpm/network-manager-gpclient.spec"])
+def test_a_plain_cargo_build_is_reported(path):
+    lines = cargo_build_lines(read(path).replace("cargo auditable build", "cargo build"))
+    assert [line for line in lines if "cargo auditable build" not in line]
+
+
+@pytest.mark.parametrize("path", ["Dockerfile.ubuntu", "rpm/container-build.sh"])
+def test_cargo_auditable_is_installed_locked_and_pinned(path):
+    assert re.search(AUDITABLE_VERSION, read(path))
+
+
+@pytest.mark.parametrize("path", ["Dockerfile.ubuntu", "rpm/container-build.sh"])
+@pytest.mark.parametrize("drop", [" --locked", r" --version \d+\.\d+\.\d+"])
+def test_an_unpinned_cargo_auditable_install_is_reported(path, drop):
+    text = re.sub(drop, "", read(path))
+    assert not re.search(AUDITABLE_VERSION, text)
+
+
+def test_the_pinned_cargo_auditable_version_is_the_same_everywhere():
+    versions = {re.search(AUDITABLE_VERSION, read(p)).group(0) for p in ("Dockerfile.ubuntu", "rpm/container-build.sh")}
+    assert len(versions) == 1
 
 
 def test_spec_neither_builds_nor_installs_nor_packages_gpservice():
@@ -1010,3 +1103,26 @@ def test_selinux_te_check_rejects_a_changed_rule(old, new):
 def test_selinux_te_check_rejects_a_missing_rule():
     te = "\n".join(line for line in good_te_rules().splitlines() if "ptmx_t:chr_file" not in line)
     assert selinux_te_problems(te)
+
+
+def check_section(spec):
+    return spec.split("\n%check\n", 1)[1].split("\n%post", 1)[0]
+
+
+CTEST = "(cd plugins/plasma/build && ctest --output-on-failure --no-tests=error)"
+
+
+def test_spec_check_runs_the_plasma_widget_tests_as_debian_does():
+    assert CTEST in check_section(read("rpm/network-manager-gpclient.spec"))
+    assert "cd plugins/plasma/build && ctest --output-on-failure --no-tests=error" in read("debian/rules")
+
+
+@pytest.mark.parametrize("old, new", [
+    (CTEST + "\n", ""),  # not run
+    ("--no-tests=error", ""),  # a build without tests would pass
+])
+def test_a_check_without_the_plasma_widget_tests_is_found(old, new):
+    spec = read("rpm/network-manager-gpclient.spec")
+    assert old in spec
+
+    assert CTEST not in check_section(spec.replace(old, new, 1))

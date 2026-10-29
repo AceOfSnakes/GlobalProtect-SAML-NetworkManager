@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Винаги включено"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Питане всеки път (не се запазва)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Парола"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Съхранение на паролата:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Парола:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS позволява разрешаването на специфични за VPN домейни през DNS на VPN, докато за останалите домейни се ползва локалният DNS.\n"
 "Замяна: въведете DNS сървъри, разделени с точка и запетая (напр. 8.8.8.8;8.8.4.4), за да се ползват собствени DNS сървъри."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Запазване за всички потребители (система)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Запазване само за този потребител (агент)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Потребителско име и парола (RSA токен)"
 #, kde-format
 msgid "Username:"
 msgstr "Потребителско име:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Къде се пази паролата. „Питане всеки път“ не запазва нищо."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Незадължителен абсолютен път до файла �
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Съхранение на паролата:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Частен ключ:"
 
@@ -471,3 +441,13 @@ msgstr "Избор на личния ключ"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Избор на HIP скрипта"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "NetworkManager да задава маршрутите и DNS (експериментално)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager настройва маршрутите, DNS и маршрута по подразбиране на тунела според данните от шлюза, вместо vpnc-script. Маршрутите, които шлюзът изключва от тунела, се игнорират."

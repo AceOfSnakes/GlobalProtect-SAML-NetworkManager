@@ -46,11 +46,6 @@ msgstr ""
 msgid "Always on"
 msgstr "Увек укључено"
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Ask every time (not saved)"
-msgstr "Питај сваки пут (не чува се)"
-
 #: rc.cpp
 #, kde-format
 msgid "Authentication:"
@@ -231,11 +226,6 @@ msgstr "Лозинка"
 
 #: rc.cpp
 #, kde-format
-msgid "Password storage:"
-msgstr "Чување лозинке:"
-
-#: rc.cpp
-#, kde-format
 msgid "Password:"
 msgstr "Лозинка:"
 
@@ -269,16 +259,6 @@ msgstr ""
 "Split DNS омогућава разрешавање домена специфичних за VPN преко VPN DNS-а, док се за остале домене користи локални DNS.\n"
 "Преписивање: унесите DNS сервере раздвојене тачком и зарезом (нпр. 8.8.8.8;8.8.4.4) да се уместо тога користи сопствени DNS."
 
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for all users (system)"
-msgstr "Чувај за све кориснике (систем)"
-
-#: gpclientwidget.cpp
-#, kde-format
-msgid "Store for this user only (agent)"
-msgstr "Чувај само за овог корисника (агент)"
-
 #: gpclientauthwidget.cpp
 #, kde-format
 msgid "Token / one-time code"
@@ -298,11 +278,6 @@ msgstr "Корисничко име и лозинка (RSA жетон)"
 #, kde-format
 msgid "Username:"
 msgstr "Корисничко име:"
-
-#: rc.cpp
-#, kde-format
-msgid "Where the password is kept. \"Ask every time\" stores nothing."
-msgstr "Где се лозинка чува. „Питај сваки пут“ не чува ништа."
 
 #: rc.cpp
 #, kde-format
@@ -434,11 +409,6 @@ msgstr "Необавезна апсолутна путања до датотек
 
 #: rc.cpp
 #, kde-format
-msgid "Passphrase storage:"
-msgstr "Чување лозинке сертификата:"
-
-#: rc.cpp
-#, kde-format
 msgid "Private key:"
 msgstr "Приватни кључ:"
 
@@ -471,3 +441,13 @@ msgstr "Изабери приватни кључ"
 #, kde-format
 msgid "Choose the HIP script"
 msgstr "Изабери HIP скрипту"
+
+#: rc.cpp
+#, kde-format
+msgid "Let NetworkManager set the routes and DNS (experimental)"
+msgstr "Нека NetworkManager подеси руте и DNS (експериментално)"
+
+#: rc.cpp
+#, kde-format
+msgid "NetworkManager configures the tunnel's routes, DNS and default route from what the gateway sends, instead of vpnc-script. Routes the gateway excludes from the tunnel are ignored."
+msgstr "NetworkManager подешава руте, DNS и подразумевану руту тунела на основу онога што шаље мрежни пролаз, уместо vpnc-script. Руте које мрежни пролаз изузима из тунела се занемарују."
